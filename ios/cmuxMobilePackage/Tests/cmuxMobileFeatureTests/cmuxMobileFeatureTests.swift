@@ -23,6 +23,27 @@ import Testing
     #endif
 }
 
+@Test func compactHeightUsesStackWorkspaceNavigation() {
+    #expect(
+        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .compact
+        )
+    )
+    #expect(
+        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .regular
+        )
+    )
+    #expect(
+        !MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular
+        )
+    )
+}
+
 @MainActor
 @Test func rootAuthGateIgnoresLegacyShellSignInState() {
     let store = CMUXMobileShellStore.preview()
@@ -649,6 +670,7 @@ import Testing
 @Test func terminalBottomActionOutputsMatchReferenceAccessoryControls() {
     #expect(MobileTerminalBottomAction.escape.inputText(modifier: nil) == "\u{1B}")
     #expect(MobileTerminalBottomAction.tab.inputText(modifier: nil) == "\t")
+    #expect(MobileTerminalBottomAction.returnKey.inputText(modifier: nil) == "\r")
     #expect(MobileTerminalBottomAction.upArrow.inputText(modifier: nil) == "\u{1B}[A")
     #expect(MobileTerminalBottomAction.downArrow.inputText(modifier: nil) == "\u{1B}[B")
     #expect(MobileTerminalBottomAction.leftArrow.inputText(modifier: nil) == "\u{1B}[D")
@@ -669,6 +691,27 @@ import Testing
     #expect(MobileTerminalBottomAction.scrollableActionBarCases.first == .control)
     #expect(!MobileTerminalBottomAction.scrollableActionBarCases.contains(.hideKeyboard))
     #expect(MobileTerminalBottomAction.scrollableActionBarCases.count == MobileTerminalBottomAction.allCases.count - 1)
+}
+
+@Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
+    var buffer = MobileTerminalInputSendBuffer()
+
+    let startsDrain = buffer.enqueue("p")
+    let appendsWhileDraining = buffer.enqueue("rint")
+    let appendsFinalCharacter = buffer.enqueue("f")
+    #expect(startsDrain)
+    #expect(!appendsWhileDraining)
+    #expect(!appendsFinalCharacter)
+    #expect(buffer.nextBatch() == "printf")
+
+    let appendsSecondBatch = buffer.enqueue(" 'one'")
+    #expect(!appendsSecondBatch)
+    #expect(buffer.nextBatch() == " 'one'")
+    #expect(buffer.nextBatch() == nil)
+
+    let restartsDrain = buffer.enqueue("\r")
+    #expect(restartsDrain)
+    #expect(buffer.nextBatch() == "\r")
 }
 
 @Test func terminalBottomActionModifierOutputsMatchReferenceAccessoryControls() {
@@ -1070,6 +1113,13 @@ import Testing
             hasCompactVerticalSize: true
         ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
     )
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            includesBottom: false
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: false)
+    )
 }
 
 @Test func terminalContentSafeAreaInsetsProtectLandscapeCameraArea() {
@@ -1080,7 +1130,49 @@ import Testing
             context: .fullWidth,
             hasCompactVerticalSize: true,
             safeAreaInsets: landscapeInsets
-        ) == MobileTerminalContentInsets(leading: 54, trailing: 21)
+        ) == MobileTerminalContentInsets(leading: 33, trailing: 0)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
+        ) == MobileTerminalContentInsets(leading: 0, trailing: 59)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
+            symmetricCameraEdge: .leading
+        ) == MobileTerminalContentInsets(leading: 59, trailing: 0)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
+            symmetricCameraEdge: .none
+        ) == .zero
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
+        ) == MobileTerminalContentInsets(leading: 0, trailing: 33)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
+        ) == .zero
     )
     #expect(
         MobileTerminalContentSafeAreaPolicy.horizontalInsets(
@@ -1106,6 +1198,25 @@ import Testing
     #expect(TerminalInputAccessoryVisualMetrics.buttonCornerRadius == 6)
     #expect(TerminalInputAccessoryVisualMetrics.nubSize == 34)
     #expect(TerminalInputAccessoryVisualMetrics.nubInnerDotSize == 12)
+}
+
+@Test func terminalBottomBarOnlyExpandsBottomSafeAreaWhenKeyboardIsHidden() {
+    #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: false))
+    #expect(!MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true))
+    #expect(MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: false))
+    #expect(MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: true))
+    #expect(
+        MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
+            safeAreaBottom: 21,
+            expandsSafeArea: true
+        ) == 21
+    )
+    #expect(
+        MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
+            safeAreaBottom: 21,
+            expandsSafeArea: false
+        ) == 0
+    )
 }
 
 @Test func terminalBottomActionSelectionDoesNotArmPlainActions() {

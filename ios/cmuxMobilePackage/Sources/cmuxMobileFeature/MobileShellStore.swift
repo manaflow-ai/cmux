@@ -138,6 +138,29 @@ public struct MobileTerminalViewportFit: Codable, Equatable, Sendable {
     }
 }
 
+struct MobileTerminalInputSendBuffer: Equatable, Sendable {
+    private(set) var pendingText = ""
+    private(set) var isDraining = false
+
+    mutating func enqueue(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        pendingText += text
+        guard !isDraining else { return false }
+        isDraining = true
+        return true
+    }
+
+    mutating func nextBatch() -> String? {
+        guard !pendingText.isEmpty else {
+            isDraining = false
+            return nil
+        }
+        let text = pendingText
+        pendingText = ""
+        return text
+    }
+}
+
 public enum MobileConnectionState: Equatable, Sendable {
     case disconnected
     case connected
@@ -179,6 +202,8 @@ public struct CMUXMobileRuntime: Sendable {
 public final class CMUXMobileShellStore {
     private static let viewportSettlingRefreshCount = 8
     private static let workspaceOpenSettlingRefreshCount = 2
+    private static let inputSettlingRefreshCount = 4
+    private static let terminalRefreshPollInterval: TimeInterval = 0.75
 
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
@@ -200,12 +225,20 @@ public final class CMUXMobileShellStore {
 
     private let runtime: CMUXMobileRuntime?
     private let clientID: String
-    private var remoteClient: MobileCoreRPCClient?
+    private var remoteClient: MobileCoreRPCClient? {
+        didSet {
+            if remoteClient == nil {
+                stopTerminalRefreshPolling()
+            }
+        }
+    }
+    private var terminalRefreshPollTimer: DispatchSourceTimer?
     private var isSuppressingSelectedWorkspaceRefresh: Bool
     private var isRefreshingSelectedTerminalSnapshot: Bool
     private var needsSelectedTerminalSnapshotRefresh: Bool
     private var reportedViewportSizesByTerminalID: [MobileTerminalPreview.ID: MobileTerminalViewportSize]
     private var viewportSettlingRefreshesByTerminalID: [MobileTerminalPreview.ID: Int]
+    private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
 
     public var phase: MobileShellPhase {
         if !isSignedIn {
@@ -262,6 +295,7 @@ public final class CMUXMobileShellStore {
         self.needsSelectedTerminalSnapshotRefresh = false
         self.reportedViewportSizesByTerminalID = [:]
         self.viewportSettlingRefreshesByTerminalID = [:]
+        self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
     }
 
     public static func preview(runtime: CMUXMobileRuntime? = nil) -> CMUXMobileShellStore {
@@ -635,7 +669,11 @@ public final class CMUXMobileShellStore {
     }
 
     public func sendTerminalRawInput(_ text: String) {
-        Task { await submitTerminalRawInput(text) }
+        #if DEBUG
+        mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
+        #endif
+        guard rawTerminalInputBuffer.enqueue(text) else { return }
+        Task { await drainRawTerminalInputBuffer() }
     }
 
     public func submitTerminalRawInput(_ text: String) async {
@@ -645,6 +683,12 @@ public final class CMUXMobileShellStore {
             return
         }
         await sendRemoteTerminalInput(text)
+    }
+
+    private func drainRawTerminalInputBuffer() async {
+        while let text = rawTerminalInputBuffer.nextBatch() {
+            await submitTerminalRawInput(text)
+        }
     }
 
     private func connect(ticket: CmxAttachTicket) async throws {
@@ -674,6 +718,7 @@ public final class CMUXMobileShellStore {
         )
         let response = try MobileSyncWorkspaceListResponse.decode(resultData)
         remoteClient = client
+        startTerminalRefreshPolling()
         connectionError = nil
         applyRemoteWorkspaceList(response)
         syncSelectedTerminalForWorkspace()
@@ -885,8 +930,21 @@ public final class CMUXMobileShellStore {
     private func sendRemoteTerminalInput(_ text: String) async {
         guard let client = remoteClient,
               let workspace = selectedWorkspace,
-              let terminalID = selectedTerminalID?.rawValue else { return }
+              let terminalID = selectedTerminalID?.rawValue else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal input remoteClient=\(self.remoteClient == nil ? 0 : 1, privacy: .public) selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return
+        }
         do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspace.id.rawValue, privacy: .public) terminal=\(terminalID, privacy: .public)")
+            #endif
+            let terminalPreviewID = MobileTerminalPreview.ID(rawValue: terminalID)
+            viewportSettlingRefreshesByTerminalID[terminalPreviewID] = max(
+                viewportSettlingRefreshesByTerminalID[terminalPreviewID] ?? 0,
+                Self.inputSettlingRefreshCount
+            )
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
@@ -897,7 +955,7 @@ public final class CMUXMobileShellStore {
                     ]
                 )
             )
-            await refreshSelectedTerminalSnapshot()
+            scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             connectionError = Self.localizedConnectionError(for: error)
         }
@@ -906,6 +964,34 @@ public final class CMUXMobileShellStore {
     private func scheduleSelectedTerminalSnapshotRefresh() {
         guard remoteClient != nil else { return }
         Task { await refreshSelectedTerminalSnapshot() }
+    }
+
+    private func startTerminalRefreshPolling() {
+        guard remoteClient != nil, terminalRefreshPollTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        let intervalMilliseconds = Int(Self.terminalRefreshPollInterval * 1000)
+        timer.schedule(
+            deadline: .now() + .milliseconds(intervalMilliseconds),
+            repeating: .milliseconds(intervalMilliseconds),
+            leeway: .milliseconds(150)
+        )
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.remoteClient != nil, self.connectionState == .connected else {
+                self.stopTerminalRefreshPolling()
+                return
+            }
+            Task { @MainActor in
+                await self.refreshSelectedTerminalSnapshot()
+            }
+        }
+        terminalRefreshPollTimer = timer
+        timer.resume()
+    }
+
+    private func stopTerminalRefreshPolling() {
+        terminalRefreshPollTimer?.cancel()
+        terminalRefreshPollTimer = nil
     }
 
     private func scheduleViewportSettlingRefreshIfNeeded(terminalID: MobileTerminalPreview.ID) {

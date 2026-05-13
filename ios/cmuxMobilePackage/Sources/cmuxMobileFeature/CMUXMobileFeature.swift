@@ -2,12 +2,20 @@ import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
 import Observation
+import OSLog
 import StackAuth
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
+#endif
+
+#if DEBUG
+private let mobileShellUILog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+    category: "mobile-shell-ui"
+)
 #endif
 
 public struct CMUXMobileAppView: View {
@@ -1145,11 +1153,15 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
 
     private var usesCompactStack: Bool {
         #if os(iOS)
-        horizontalSizeClass == .compact
+        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: horizontalSizeClass,
+            verticalSizeClass: verticalSizeClass
+        )
         #else
         false
         #endif
@@ -1199,6 +1211,9 @@ struct WorkspaceShellView: View {
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
         }
+        .onAppear {
+            reconcileCompactNavigationPath(store.selectedWorkspaceID)
+        }
     }
 
     private var splitLayout: some View {
@@ -1241,7 +1256,6 @@ struct WorkspaceShellView: View {
 
     private func reconcileCompactNavigationPath(_ selectedWorkspaceID: MobileWorkspacePreview.ID?) {
         guard let selectedWorkspaceID,
-              !compactNavigationPath.isEmpty,
               compactNavigationPath.last != selectedWorkspaceID else {
             return
         }
@@ -1260,6 +1274,15 @@ struct WorkspaceShellView: View {
             createWorkspace: createWorkspace,
             safeAreaContext: safeAreaContext
         )
+    }
+}
+
+enum MobileWorkspaceShellLayoutPolicy {
+    static func usesCompactStack(
+        horizontalSizeClass: UserInterfaceSizeClass?,
+        verticalSizeClass: UserInterfaceSizeClass?
+    ) -> Bool {
+        horizontalSizeClass == .compact || verticalSizeClass == .compact
     }
 }
 
@@ -1555,7 +1578,6 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var bottomActionModifierState = MobileTerminalModifierState()
     @State private var terminalFontScale: CGFloat = 1
     @State private var isTerminalKeyboardVisible = false
@@ -1565,6 +1587,10 @@ struct WorkspaceDetailView: View {
     }
 
     var body: some View {
+        detailContent()
+    }
+
+    private func detailContent() -> some View {
         VStack(spacing: 0) {
             TerminalPreviewSurface(
                 terminal: selectedTerminal,
@@ -1573,24 +1599,27 @@ struct WorkspaceDetailView: View {
                 modifierState: $bottomActionModifierState,
                 isKeyboardVisible: $isTerminalKeyboardVisible,
                 sendTerminalInput: sendTerminalInput,
+                canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
+                canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
+                performBottomAction: performBottomAction,
                 onViewportChange: { viewportSize in
                     guard let terminalID = selectedTerminal?.id else { return }
                     reportTerminalViewport(workspace.id, terminalID, viewportSize)
                 }
             )
-            .padding(.top, compactLandscapeTerminalTopInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            TerminalBottomActionBar(
-                modifierState: bottomActionModifierState,
-                canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
-                canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
-                safeAreaContext: safeAreaContext,
-                performAction: performBottomAction
-            )
+            if MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: isTerminalKeyboardVisible) {
+                terminalBottomActionBar(
+                    expandsSafeArea: MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(
+                        isKeyboardVisible: isTerminalKeyboardVisible
+                    )
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         #if os(iOS)
+        .mobileTerminalSafeAreaExpansion(context: safeAreaContext, includesBottom: false)
         .background {
             TerminalPalette.background
                 .ignoresSafeArea(.container, edges: .horizontal)
@@ -1609,7 +1638,7 @@ struct WorkspaceDetailView: View {
             ToolbarItem {
                 terminalToolbarButtons
             }
-            #endif
+        #endif
         }
     }
 
@@ -1617,15 +1646,22 @@ struct WorkspaceDetailView: View {
     private static let maximumTerminalFontScale: CGFloat = 1.5
     private static let terminalFontScaleStep: CGFloat = 0.1
 
-    private var compactLandscapeTerminalTopInset: CGFloat {
-        #if os(iOS)
-        verticalSizeClass == .compact ? TerminalViewportMetrics.preferredRowHeight : 0
-        #else
-        0
-        #endif
+    private func terminalBottomActionBar(expandsSafeArea: Bool) -> some View {
+        TerminalBottomActionBar(
+            modifierState: bottomActionModifierState,
+            canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
+            canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
+            safeAreaContext: safeAreaContext,
+            expandsSafeArea: expandsSafeArea,
+            performAction: performBottomAction
+        )
     }
 
     private func performBottomAction(_ action: MobileTerminalBottomAction) {
+        #if DEBUG
+        mobileShellUILog.debug("bottom action tapped action=\(action.rawValue, privacy: .public)")
+        #endif
+
         if let modifier = action.modifier {
             bottomActionModifierState.tap(modifier)
             return
@@ -1860,6 +1896,7 @@ enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, 
     case zoomIn
     case escape
     case tab
+    case returnKey
     case upArrow
     case downArrow
     case leftArrow
@@ -1925,6 +1962,8 @@ enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, 
             return L10n.string("mobile.terminal.action.escape", defaultValue: "Esc")
         case .tab:
             return L10n.string("mobile.terminal.action.tab", defaultValue: "Tab")
+        case .returnKey:
+            return L10n.string("mobile.terminal.action.return", defaultValue: "Return")
         case .upArrow:
             return L10n.string("mobile.terminal.action.up", defaultValue: "↑")
         case .downArrow:
@@ -1980,6 +2019,8 @@ enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, 
             return L10n.string("mobile.terminal.action.escape.label", defaultValue: "Escape")
         case .tab:
             return L10n.string("mobile.terminal.action.tab.label", defaultValue: "Tab")
+        case .returnKey:
+            return L10n.string("mobile.terminal.action.return.label", defaultValue: "Return")
         case .upArrow:
             return L10n.string("mobile.terminal.action.up.label", defaultValue: "Up Arrow")
         case .downArrow:
@@ -2050,6 +2091,8 @@ enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, 
             return "\u{1B}"
         case .tab:
             return "\t"
+        case .returnKey:
+            return "\r"
         case .tilde:
             return "~"
         case .pipe:
@@ -2129,6 +2172,26 @@ enum TerminalInputAccessoryVisualMetrics {
     static let nubInnerDot = Color(red: 0.85, green: 0.85, blue: 0.85)
 }
 
+enum MobileTerminalBottomBarPlacementPolicy {
+    static func expandsBottomSafeArea(isKeyboardVisible: Bool) -> Bool {
+        !isKeyboardVisible
+    }
+
+    static func controlBottomOffset(
+        safeAreaBottom: CGFloat,
+        expandsSafeArea: Bool
+    ) -> CGFloat {
+        guard expandsSafeArea else { return 0 }
+        return max(0, safeAreaBottom)
+    }
+}
+
+enum MobileTerminalBottomBarVisibilityPolicy {
+    static func showsInlineBar(isKeyboardVisible: Bool) -> Bool {
+        true
+    }
+}
+
 enum TerminalVisibleAreaBorderPolicy {
     static func shouldDraw(viewportFit: MobileTerminalViewportFit?) -> Bool {
         edges(viewportFit: viewportFit).hasVisibleEdge
@@ -2175,10 +2238,35 @@ private struct TerminalBottomActionBar: View {
     let canDecreaseFont: Bool
     let canIncreaseFont: Bool
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let expandsSafeArea: Bool
     let performAction: (MobileTerminalBottomAction) -> Void
 
+    @ViewBuilder
     var body: some View {
-        HStack(spacing: TerminalInputAccessoryVisualMetrics.buttonSpacing) {
+        #if os(iOS)
+        let content = TerminalUIKitBottomActionBar(
+            modifierState: modifierState,
+            canDecreaseFont: canDecreaseFont,
+            canIncreaseFont: canIncreaseFont,
+            performAction: performAction
+        )
+        .frame(height: TerminalInputAccessoryVisualMetrics.barHeight)
+        .offset(y: MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
+            safeAreaBottom: MobileTerminalDeviceSafeArea.bottomInset,
+            expandsSafeArea: expandsSafeArea
+        ))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTerminalBottomActionBar")
+        .accessibilityValue(modifierState.accessibilityValue)
+
+        if expandsSafeArea {
+            content.mobileTerminalSafeAreaExpansion(context: safeAreaContext)
+        } else {
+            content
+        }
+        #else
+        let content = HStack(spacing: TerminalInputAccessoryVisualMetrics.buttonSpacing) {
             Button {
                 performAction(.hideKeyboard)
             } label: {
@@ -2189,10 +2277,19 @@ private struct TerminalBottomActionBar: View {
                         height: TerminalInputAccessoryVisualMetrics.barHeight
                     )
                     .foregroundStyle(TerminalInputAccessoryVisualMetrics.hideKeyboardForeground)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(MobileTerminalBottomAction.hideKeyboard.accessibilityLabel)
             .accessibilityIdentifier(MobileTerminalBottomAction.hideKeyboard.accessibilityIdentifier)
+            .accessibilityAction {
+                performAction(.hideKeyboard)
+            }
+            .highPriorityGesture(
+                TapGesture().onEnded {
+                    performAction(.hideKeyboard)
+                }
+            )
             .padding(.leading, TerminalInputAccessoryVisualMetrics.horizontalInset)
 
             TerminalArrowNubPad(
@@ -2231,8 +2328,7 @@ private struct TerminalBottomActionBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileTerminalBottomActionBar")
         .accessibilityValue(modifierState.accessibilityValue)
-        #if os(iOS)
-        .mobileTerminalSafeAreaExpansion(context: safeAreaContext)
+        content
         #endif
     }
 
@@ -2264,38 +2360,50 @@ private struct TerminalBottomActionButton: View {
     let perform: () -> Void
 
     var body: some View {
-        Button(action: perform) {
-            Group {
-                if let symbolName = action.symbolName {
-                    Image(systemName: symbolName)
-                        .font(.system(size: 14, weight: .medium))
-                } else {
-                    Text(action.title)
-                        .font(.system(size: 14, weight: .medium, design: .default))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
-            }
-            .frame(
-                minWidth: TerminalInputAccessoryVisualMetrics.buttonMinWidth,
-                minHeight: TerminalInputAccessoryVisualMetrics.buttonHeight
-            )
-            .padding(.horizontal, TerminalInputAccessoryVisualMetrics.buttonHorizontalPadding)
-            .foregroundStyle(isEnabled ? TerminalPalette.foreground : TerminalPalette.dimForeground.opacity(0.48))
-            .background(buttonBackground)
-            .clipShape(RoundedRectangle(cornerRadius: TerminalInputAccessoryVisualMetrics.buttonCornerRadius, style: .continuous))
-            .overlay {
-                if isSticky {
-                    RoundedRectangle(cornerRadius: TerminalInputAccessoryVisualMetrics.buttonCornerRadius, style: .continuous)
-                        .stroke(TerminalPalette.foreground.opacity(0.85), lineWidth: 2)
-                }
+        Button {
+            guard isEnabled else { return }
+            perform()
+        } label: {
+            if let symbolName = action.symbolName {
+                Image(systemName: symbolName)
+                    .font(.system(size: 14, weight: .medium))
+            } else {
+                Text(action.title)
+                    .font(.system(size: 14, weight: .medium, design: .default))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
+        .frame(
+            minWidth: TerminalInputAccessoryVisualMetrics.buttonMinWidth,
+            minHeight: TerminalInputAccessoryVisualMetrics.buttonHeight
+        )
+        .padding(.horizontal, TerminalInputAccessoryVisualMetrics.buttonHorizontalPadding)
+        .foregroundStyle(isEnabled ? TerminalPalette.foreground : TerminalPalette.dimForeground.opacity(0.48))
+        .background(buttonBackground)
+        .clipShape(RoundedRectangle(cornerRadius: TerminalInputAccessoryVisualMetrics.buttonCornerRadius, style: .continuous))
+        .overlay {
+            if isSticky {
+                RoundedRectangle(cornerRadius: TerminalInputAccessoryVisualMetrics.buttonCornerRadius, style: .continuous)
+                    .stroke(TerminalPalette.foreground.opacity(0.85), lineWidth: 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .highPriorityGesture(
+            TapGesture().onEnded {
+                guard isEnabled else { return }
+                perform()
+            }
+        )
         .accessibilityLabel(action.accessibilityLabel)
         .accessibilityIdentifier(action.accessibilityIdentifier)
         .accessibilityAddTraits(isArmed ? .isSelected : [])
+        .accessibilityAction {
+            guard isEnabled else { return }
+            perform()
+        }
     }
 
     private var buttonBackground: Color {
@@ -2569,6 +2677,9 @@ struct TerminalPreviewSurface: View {
     var modifierState: Binding<MobileTerminalModifierState>?
     var isKeyboardVisible: Binding<Bool>?
     var sendTerminalInput: (String) -> Void = { _ in }
+    var canDecreaseFont = true
+    var canIncreaseFont = true
+    var performBottomAction: (MobileTerminalBottomAction) -> Void = { _ in }
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
     @Environment(\.displayScale) private var displayScale
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -2591,6 +2702,7 @@ struct TerminalPreviewSurface: View {
         GeometryReader { proxy in
             let visibleSize = visibleTerminalSize(proxy: proxy)
             let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleSize, fontScale: fontScale)
+            let keyboardVisible = isKeyboardVisible?.wrappedValue ?? false
             let metrics = TerminalViewportMetrics(
                 size: visibleSize,
                 columns: columnCount,
@@ -2622,7 +2734,11 @@ struct TerminalPreviewSurface: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-            .task(id: viewportReportKey(proxy: proxy)) {
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isKeyboardVisible?.wrappedValue = true
+            }
+            .task(id: viewportReportKey(proxy: proxy, keyboardVisible: keyboardVisible)) {
                 onViewportChange(viewportSize)
             }
             .onAppear {
@@ -2632,6 +2748,9 @@ struct TerminalPreviewSurface: View {
                 onViewportChange(viewportSize)
             }
             .onChange(of: fontScale) { _, _ in
+                onViewportChange(viewportSize)
+            }
+            .onChange(of: keyboardVisible) { _, _ in
                 onViewportChange(viewportSize)
             }
         }
@@ -2645,6 +2764,7 @@ struct TerminalPreviewSurface: View {
                     sendTerminalInput: sendTerminalInput
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
                 .accessibilityIdentifier("MobileTerminalInputProxy")
             }
             #endif
@@ -2655,10 +2775,11 @@ struct TerminalPreviewSurface: View {
         }
     }
 
-    private func viewportReportKey(proxy: GeometryProxy) -> String {
+    private func viewportReportKey(proxy: GeometryProxy, keyboardVisible: Bool) -> String {
         let viewportSize = TerminalViewportMetrics.viewportSize(for: visibleTerminalSize(proxy: proxy), fontScale: fontScale)
         let scaleKey = Int((TerminalViewportMetrics.clampedFontScale(fontScale) * 100).rounded())
-        return "\(terminal?.id.rawValue ?? "none"):\(viewportSize.columns)x\(viewportSize.rows):\(scaleKey)"
+        let keyboardKey = keyboardVisible ? "keyboard" : "no-keyboard"
+        return "\(terminal?.id.rawValue ?? "none"):\(viewportSize.columns)x\(viewportSize.rows):\(scaleKey):\(keyboardKey)"
     }
 
     private func visibleTerminalSize(proxy: GeometryProxy) -> CGSize {
@@ -2670,10 +2791,15 @@ struct TerminalPreviewSurface: View {
     }
 
     private func terminalContentInsets(proxy: GeometryProxy) -> MobileTerminalContentInsets {
-        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+        #if os(iOS)
+        let safeAreaInsets = MobileTerminalDeviceSafeArea.horizontalInsets(fallback: proxy.safeAreaInsets)
+        #else
+        let safeAreaInsets = proxy.safeAreaInsets
+        #endif
+        return MobileTerminalContentSafeAreaPolicy.horizontalInsets(
             context: safeAreaContext,
             hasCompactVerticalSize: verticalSizeClass == .compact,
-            safeAreaInsets: proxy.safeAreaInsets
+            safeAreaInsets: safeAreaInsets
         )
     }
 }
@@ -2706,18 +2832,19 @@ struct MobileTerminalSafeAreaExpansionEdges: Equatable, Sendable {
 enum MobileTerminalSafeAreaExpansionPolicy {
     static func edges(
         context: MobileTerminalSafeAreaContext,
-        hasCompactVerticalSize: Bool
+        hasCompactVerticalSize: Bool,
+        includesBottom: Bool = true
     ) -> MobileTerminalSafeAreaExpansionEdges {
         switch context {
         case .fullWidth:
             return MobileTerminalSafeAreaExpansionEdges(
                 horizontal: hasCompactVerticalSize,
-                bottom: true
+                bottom: includesBottom
             )
         case .splitSidebarVisible:
             return MobileTerminalSafeAreaExpansionEdges(
                 horizontal: false,
-                bottom: true
+                bottom: includesBottom
             )
         }
     }
@@ -2731,30 +2858,60 @@ struct MobileTerminalContentInsets: Equatable, Sendable {
 }
 
 enum MobileTerminalContentSafeAreaPolicy {
+    private static let landscapeCameraInsetThreshold: CGFloat = 32
+    private static let landscapeCameraInsetDeltaThreshold: CGFloat = 8
+
     static func horizontalInsets(
         context: MobileTerminalSafeAreaContext,
         hasCompactVerticalSize: Bool,
-        safeAreaInsets: EdgeInsets
+        safeAreaInsets: EdgeInsets,
+        symmetricCameraEdge: MobileTerminalLandscapeCameraEdge = .trailing
     ) -> MobileTerminalContentInsets {
         guard context == .fullWidth, hasCompactVerticalSize else {
             return .zero
         }
-        return MobileTerminalContentInsets(
-            leading: max(0, safeAreaInsets.leading),
-            trailing: max(0, safeAreaInsets.trailing)
-        )
+        let leading = max(0, safeAreaInsets.leading)
+        let trailing = max(0, safeAreaInsets.trailing)
+        let largestInset = max(leading, trailing)
+        guard largestInset >= landscapeCameraInsetThreshold else {
+            return .zero
+        }
+        let insetDelta = abs(leading - trailing)
+        if insetDelta >= landscapeCameraInsetDeltaThreshold {
+            if leading > trailing {
+                return MobileTerminalContentInsets(leading: insetDelta, trailing: 0)
+            }
+            return MobileTerminalContentInsets(leading: 0, trailing: insetDelta)
+        }
+
+        switch symmetricCameraEdge {
+        case .leading:
+            return MobileTerminalContentInsets(leading: largestInset, trailing: 0)
+        case .trailing:
+            return MobileTerminalContentInsets(leading: 0, trailing: largestInset)
+        case .none:
+            return .zero
+        }
     }
+}
+
+enum MobileTerminalLandscapeCameraEdge: Equatable, Sendable {
+    case leading
+    case trailing
+    case none
 }
 
 #if os(iOS)
 private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier {
     let context: MobileTerminalSafeAreaContext
+    let includesBottom: Bool
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     func body(content: Content) -> some View {
         let edges = MobileTerminalSafeAreaExpansionPolicy.edges(
             context: context,
-            hasCompactVerticalSize: verticalSizeClass == .compact
+            hasCompactVerticalSize: verticalSizeClass == .compact,
+            includesBottom: includesBottom
         )
         if edges.hasEdges {
             content
@@ -2766,8 +2923,156 @@ private struct MobileCompactLandscapeTerminalSafeAreaCompensation: ViewModifier 
 }
 
 private extension View {
-    func mobileTerminalSafeAreaExpansion(context: MobileTerminalSafeAreaContext) -> some View {
-        modifier(MobileCompactLandscapeTerminalSafeAreaCompensation(context: context))
+    func mobileTerminalSafeAreaExpansion(
+        context: MobileTerminalSafeAreaContext,
+        includesBottom: Bool = true
+    ) -> some View {
+        modifier(MobileCompactLandscapeTerminalSafeAreaCompensation(
+            context: context,
+            includesBottom: includesBottom
+        ))
+    }
+}
+
+@MainActor
+private enum MobileTerminalDeviceSafeArea {
+    static var bottomInset: CGFloat {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows where window.isKeyWindow {
+                return window.safeAreaInsets.bottom
+            }
+        }
+        return 0
+    }
+
+    static func horizontalInsets(fallback: EdgeInsets) -> EdgeInsets {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows where window.isKeyWindow {
+                let insets = window.safeAreaInsets
+                return EdgeInsets(
+                    top: insets.top,
+                    leading: insets.left,
+                    bottom: insets.bottom,
+                    trailing: insets.right
+                )
+            }
+        }
+        return fallback
+    }
+}
+
+private struct TerminalUIKitBottomActionBar: UIViewRepresentable {
+    let modifierState: MobileTerminalModifierState
+    let canDecreaseFont: Bool
+    let canIncreaseFont: Bool
+    let performAction: (MobileTerminalBottomAction) -> Void
+
+    func makeUIView(context: Context) -> TerminalUIKitInputAccessoryView {
+        let view = TerminalUIKitInputAccessoryView()
+        view.performAction = performAction
+        view.configure(
+            modifierState: modifierState,
+            canDecreaseFont: canDecreaseFont,
+            canIncreaseFont: canIncreaseFont
+        )
+        return view
+    }
+
+    func updateUIView(_ uiView: TerminalUIKitInputAccessoryView, context: Context) {
+        uiView.performAction = performAction
+        uiView.configure(
+            modifierState: modifierState,
+            canDecreaseFont: canDecreaseFont,
+            canIncreaseFont: canIncreaseFont
+        )
+    }
+}
+
+private struct KeyboardOverlapReporter: UIViewRepresentable {
+    @Binding var overlap: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(overlap: $overlap)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        context.coordinator.view = view
+        context.coordinator.start()
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.overlap = $overlap
+        context.coordinator.view = uiView
+        context.coordinator.updateOverlap()
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var overlap: Binding<CGFloat>
+        weak var view: UIView?
+        private var keyboardFrame: CGRect = .zero
+        private var isObserving = false
+
+        init(overlap: Binding<CGFloat>) {
+            self.overlap = overlap
+        }
+
+        func start() {
+            guard !isObserving else { return }
+            let center = NotificationCenter.default
+            let notifications: [Notification.Name] = [
+                UIResponder.keyboardWillChangeFrameNotification,
+                UIResponder.keyboardDidChangeFrameNotification,
+                UIResponder.keyboardWillHideNotification,
+                UIResponder.keyboardDidHideNotification,
+            ]
+            for name in notifications {
+                center.addObserver(
+                    self,
+                    selector: #selector(handleKeyboardNotification(_:)),
+                    name: name,
+                    object: nil
+                )
+            }
+            isObserving = true
+        }
+
+        func stop() {
+            NotificationCenter.default.removeObserver(self)
+            isObserving = false
+        }
+
+        @objc
+        private func handleKeyboardNotification(_ notification: Notification) {
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                keyboardFrame = frame
+            }
+            updateOverlap()
+        }
+
+        func updateOverlap() {
+            guard let view,
+                  let window = view.window,
+                  keyboardFrame != .zero else {
+                overlap.wrappedValue = 0
+                return
+            }
+            let localKeyboardFrame = window.convert(keyboardFrame, from: nil)
+            let rawOverlap = max(0, window.bounds.maxY - localKeyboardFrame.minY)
+            let visibleShortSide = min(window.bounds.width, window.bounds.height)
+            let maximumUsableOverlap = visibleShortSide * 0.46
+            let nextOverlap = min(rawOverlap, maximumUsableOverlap)
+            overlap.wrappedValue = nextOverlap
+        }
     }
 }
 
@@ -2795,6 +3100,9 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
         textView.onRawInput = { input in
             context.coordinator.emitRawInput(input)
         }
+        textView.onKeyboardVisibilityChange = { isVisible in
+            context.coordinator.setKeyboardVisible(isVisible)
+        }
         textView.onFocusRequested = {
             context.coordinator.requestKeyboard()
         }
@@ -2809,10 +3117,10 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
         uiView.accessibilityLabel = L10n.string("mobile.terminal.inputProxy.label", defaultValue: "Terminal input")
         if isKeyboardVisible {
             if !uiView.isFirstResponder {
-                uiView.becomeFirstResponder()
+                _ = uiView.becomeFirstResponder()
             }
         } else if uiView.isFirstResponder {
-            uiView.resignFirstResponder()
+            _ = uiView.resignFirstResponder()
         }
     }
 
@@ -2833,6 +3141,10 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
 
         func requestKeyboard() {
             isKeyboardVisible.wrappedValue = true
+        }
+
+        func setKeyboardVisible(_ isVisible: Bool) {
+            isKeyboardVisible.wrappedValue = isVisible
         }
 
         func emitText(_ text: String) {
@@ -2858,6 +3170,7 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
             sendTerminalInput(input)
             modifierState.wrappedValue.consumeAfterInput()
         }
+
     }
 }
 
@@ -2866,6 +3179,7 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onRawInput: ((String) -> Void)?
+    var onKeyboardVisibilityChange: ((Bool) -> Void)?
     var onFocusRequested: (() -> Void)?
 
     override var canBecomeFirstResponder: Bool { true }
@@ -2923,14 +3237,30 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         onFocusRequested?()
-        becomeFirstResponder()
+        _ = becomeFirstResponder()
         super.touchesBegan(touches, with: event)
     }
 
     override func accessibilityActivate() -> Bool {
         onFocusRequested?()
-        becomeFirstResponder()
+        _ = becomeFirstResponder()
         return true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let becameFirstResponder = super.becomeFirstResponder()
+        if becameFirstResponder {
+            onKeyboardVisibilityChange?(true)
+        }
+        return becameFirstResponder
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resignedFirstResponder = super.resignFirstResponder()
+        if resignedFirstResponder {
+            onKeyboardVisibilityChange?(false)
+        }
+        return resignedFirstResponder
     }
 
     override func paste(_ sender: Any?) {
@@ -2949,6 +3279,25 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
         onText?(committedText)
     }
 
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        onKeyboardVisibilityChange?(true)
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        onKeyboardVisibilityChange?(false)
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldChangeTextIn range: NSRange,
+        replacementText text: String
+    ) -> Bool {
+        guard textView.markedTextRange == nil else { return true }
+        guard text == "\n" || text == "\r" else { return true }
+        onRawInput?("\r")
+        return false
+    }
+
     @objc
     private func handleHardwareKeyCommand(_ sender: UIKeyCommand) {
         guard let input = sender.input,
@@ -2960,6 +3309,272 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
         }
         onRawInput?(output)
     }
+}
+
+private final class TerminalUIKitInputAccessoryView: UIView {
+    var performAction: ((MobileTerminalBottomAction) -> Void)?
+
+    private let topBorder = UIView()
+    private let hideKeyboardButton = TerminalUIKitActionButton(action: .hideKeyboard)
+    private let arrowNub = TerminalUIKitArrowNubControl()
+    private let scrollView = UIScrollView()
+    private let stackView = UIStackView()
+    private var actionButtons: [MobileTerminalBottomAction: TerminalUIKitActionButton] = [:]
+
+    override init(frame: CGRect) {
+        super.init(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: UIScreen.main.bounds.width,
+            height: TerminalInputAccessoryVisualMetrics.barHeight
+        ))
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(
+            width: UIView.noIntrinsicMetric,
+            height: TerminalInputAccessoryVisualMetrics.barHeight
+        )
+    }
+
+    func configure(
+        modifierState: MobileTerminalModifierState,
+        canDecreaseFont: Bool,
+        canIncreaseFont: Bool
+    ) {
+        for (action, button) in actionButtons {
+            let enabled: Bool
+            switch action {
+            case .zoomOut:
+                enabled = canDecreaseFont
+            case .zoomIn:
+                enabled = canIncreaseFont
+            default:
+                enabled = true
+            }
+            let isArmed = TerminalBottomActionSelectionPolicy.isArmed(action: action, modifierState: modifierState)
+            let isSticky = TerminalBottomActionSelectionPolicy.isSticky(action: action, modifierState: modifierState)
+            button.configure(enabled: enabled, isArmed: isArmed, isSticky: isSticky)
+        }
+    }
+
+    private func setup() {
+        backgroundColor = TerminalUIKitPalette.background
+        isOpaque = true
+
+        topBorder.backgroundColor = TerminalUIKitPalette.dimForeground.withAlphaComponent(0.18)
+        topBorder.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(topBorder)
+
+        configureButton(hideKeyboardButton)
+        hideKeyboardButton.widthAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.hideKeyboardWidth).isActive = true
+        hideKeyboardButton.heightAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.barHeight).isActive = true
+        addSubview(hideKeyboardButton)
+
+        arrowNub.performAction = { [weak self] action in
+            self?.performAction?(action)
+        }
+        arrowNub.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(arrowNub)
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+        addSubview(scrollView)
+
+        stackView.axis = .horizontal
+        stackView.alignment = .center
+        stackView.spacing = TerminalInputAccessoryVisualMetrics.buttonSpacing
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stackView)
+
+        for action in MobileTerminalBottomAction.scrollableActionBarCases {
+            let button = TerminalUIKitActionButton(action: action)
+            configureButton(button)
+            button.heightAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.buttonHeight).isActive = true
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: TerminalInputAccessoryVisualMetrics.buttonMinWidth + TerminalInputAccessoryVisualMetrics.buttonHorizontalPadding * 2).isActive = true
+            actionButtons[action] = button
+            stackView.addArrangedSubview(button)
+        }
+
+        NSLayoutConstraint.activate([
+            topBorder.leadingAnchor.constraint(equalTo: leadingAnchor),
+            topBorder.trailingAnchor.constraint(equalTo: trailingAnchor),
+            topBorder.topAnchor.constraint(equalTo: topAnchor),
+            topBorder.heightAnchor.constraint(equalToConstant: 1),
+
+            hideKeyboardButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TerminalInputAccessoryVisualMetrics.horizontalInset),
+            hideKeyboardButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            arrowNub.leadingAnchor.constraint(equalTo: hideKeyboardButton.trailingAnchor, constant: TerminalInputAccessoryVisualMetrics.buttonSpacing),
+            arrowNub.centerYAnchor.constraint(equalTo: centerYAnchor),
+            arrowNub.widthAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.nubSize),
+            arrowNub.heightAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.nubSize),
+
+            scrollView.leadingAnchor.constraint(equalTo: arrowNub.trailingAnchor, constant: TerminalInputAccessoryVisualMetrics.buttonSpacing),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -TerminalInputAccessoryVisualMetrics.horizontalInset),
+            stackView.centerYAnchor.constraint(equalTo: scrollView.frameLayoutGuide.centerYAnchor),
+            stackView.heightAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.buttonHeight),
+        ])
+    }
+
+    private func configureButton(_ button: TerminalUIKitActionButton) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.activate = { [weak self] action in
+            self?.performAction?(action)
+        }
+        button.addTarget(self, action: #selector(actionButtonPressed(_:)), for: .touchUpInside)
+        button.configure(enabled: true, isArmed: false, isSticky: false)
+    }
+
+    @objc
+    private func actionButtonPressed(_ sender: TerminalUIKitActionButton) {
+        performAction?(sender.action)
+    }
+}
+
+private final class TerminalUIKitActionButton: UIButton {
+    let action: MobileTerminalBottomAction
+    var activate: ((MobileTerminalBottomAction) -> Void)?
+
+    init(action: MobileTerminalBottomAction) {
+        self.action = action
+        super.init(frame: .zero)
+        layer.cornerCurve = .continuous
+        layer.cornerRadius = TerminalInputAccessoryVisualMetrics.buttonCornerRadius
+        titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        titleLabel?.adjustsFontSizeToFitWidth = true
+        titleLabel?.minimumScaleFactor = 0.75
+        contentEdgeInsets = UIEdgeInsets(
+            top: 0,
+            left: TerminalInputAccessoryVisualMetrics.buttonHorizontalPadding,
+            bottom: 0,
+            right: TerminalInputAccessoryVisualMetrics.buttonHorizontalPadding
+        )
+        if let symbolName = action.symbolName {
+            setImage(UIImage(systemName: symbolName), for: .normal)
+        } else {
+            setTitle(action.title, for: .normal)
+        }
+        accessibilityLabel = action.accessibilityLabel
+        accessibilityIdentifier = action.accessibilityIdentifier
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func configure(enabled: Bool, isArmed: Bool, isSticky: Bool) {
+        isEnabled = enabled
+        let foreground = enabled ? TerminalUIKitPalette.foreground : TerminalUIKitPalette.dimForeground.withAlphaComponent(0.48)
+        tintColor = foreground
+        setTitleColor(foreground, for: .normal)
+        backgroundColor = Self.backgroundColor(enabled: enabled, isArmed: isArmed, isSticky: isSticky)
+        layer.borderColor = TerminalUIKitPalette.foreground.withAlphaComponent(0.85).cgColor
+        layer.borderWidth = isSticky ? 2 : 0
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard isEnabled else { return false }
+        activate?(action)
+        return true
+    }
+
+    private static func backgroundColor(enabled: Bool, isArmed: Bool, isSticky: Bool) -> UIColor {
+        guard enabled else {
+            return TerminalUIKitPalette.dimForeground.withAlphaComponent(0.08)
+        }
+        if isArmed || isSticky {
+            return TerminalUIKitPalette.selectedButtonBackground
+        }
+        return TerminalUIKitPalette.buttonBackground
+    }
+}
+
+private final class TerminalUIKitArrowNubControl: UIControl {
+    var performAction: ((MobileTerminalBottomAction) -> Void)?
+    private let innerDot = UIView()
+    private var initialTouch: CGPoint?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = TerminalUIKitPalette.nubBackground
+        layer.cornerCurve = .continuous
+        innerDot.backgroundColor = TerminalUIKitPalette.nubInnerDot
+        innerDot.translatesAutoresizingMaskIntoConstraints = false
+        innerDot.layer.cornerRadius = TerminalInputAccessoryVisualMetrics.nubInnerDotSize / 2
+        addSubview(innerDot)
+        NSLayoutConstraint.activate([
+            innerDot.centerXAnchor.constraint(equalTo: centerXAnchor),
+            innerDot.centerYAnchor.constraint(equalTo: centerYAnchor),
+            innerDot.widthAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.nubInnerDotSize),
+            innerDot.heightAnchor.constraint(equalToConstant: TerminalInputAccessoryVisualMetrics.nubInnerDotSize),
+        ])
+        accessibilityLabel = L10n.string("mobile.terminal.arrowPad.label", defaultValue: "Arrow pad")
+        accessibilityIdentifier = "MobileTerminalArrowNubPad"
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = min(bounds.width, bounds.height) / 2
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        initialTouch = touches.first?.location(in: self)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let initialTouch,
+              let current = touches.first?.location(in: self),
+              let action = action(for: CGPoint(x: current.x - initialTouch.x, y: current.y - initialTouch.y)) else {
+            return
+        }
+        performAction?(action)
+        self.initialTouch = current
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        initialTouch = nil
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        initialTouch = nil
+    }
+
+    private func action(for translation: CGPoint) -> MobileTerminalBottomAction? {
+        let distance = hypot(translation.x, translation.y)
+        guard distance > TerminalInputAccessoryVisualMetrics.nubDeadZone else {
+            return nil
+        }
+        if abs(translation.x) > abs(translation.y) {
+            return translation.x > 0 ? .rightArrow : .leftArrow
+        }
+        return translation.y > 0 ? .downArrow : .upArrow
+    }
+}
+
+private enum TerminalUIKitPalette {
+    static let background = UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+    static let foreground = UIColor(red: 0xf8 / 255.0, green: 0xf8 / 255.0, blue: 0xf2 / 255.0, alpha: 1)
+    static let dimForeground = UIColor(red: 0xc8 / 255.0, green: 0xc8 / 255.0, blue: 0xc0 / 255.0, alpha: 1)
+    static let buttonBackground = UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1)
+    static let selectedButtonBackground = UIColor(red: 0.0, green: 0.478, blue: 1.0, alpha: 1)
+    static let nubBackground = UIColor(red: 0.25, green: 0.25, blue: 0.25, alpha: 0.85)
+    static let nubInnerDot = UIColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1)
 }
 
 private enum MobileTerminalHardwareKeyResolver {
@@ -2982,6 +3597,8 @@ private enum MobileTerminalHardwareKeyResolver {
         Command(input: UIKeyCommand.inputDelete, modifierFlags: []),
         Command(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
         Command(input: UIKeyCommand.inputEscape, modifierFlags: []),
+        Command(input: "\r", modifierFlags: []),
+        Command(input: "\n", modifierFlags: []),
         Command(input: "\t", modifierFlags: []),
         Command(input: "\t", modifierFlags: [.shift]),
     ] + Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init).map {
@@ -3030,6 +3647,8 @@ private enum MobileTerminalHardwareKeyResolver {
             return "\u{1B}\u{7F}"
         case (UIKeyCommand.inputEscape, []):
             return "\u{1B}"
+        case ("\r", []), ("\n", []):
+            return "\r"
         case ("\t", []):
             return "\t"
         case ("\t", [.shift]):

@@ -96,6 +96,27 @@ import Testing
     #expect(snapshot.cursor.column == 0)
 }
 
+@Test func ghosttyTextBuilderKeepsTopAddressedRowsFromFullVTScreenExport() throws {
+    let viewportText =
+        "\u{001B}[1;1Hfirst line" +
+        "\u{001B}[2;1Hsecond line" +
+        "\u{001B}[3;1Hthird line" +
+        "\u{001B}[8;1Hprompt"
+
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-full-vt",
+        columns: 20,
+        rows: 8,
+        scrollbackText: nil,
+        viewportText: viewportText
+    )
+
+    #expect(snapshot.renderedVisibleLines[0] == "first line")
+    #expect(snapshot.renderedVisibleLines[1] == "second line")
+    #expect(snapshot.renderedVisibleLines[2] == "third line")
+    #expect(snapshot.renderedVisibleLines[7] == "prompt")
+}
+
 @Test func ghosttyTextBuilderParsesSGRColorsAndFormatting() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-colored",
@@ -149,10 +170,86 @@ import Testing
         viewportText: "\u{001B}[2J\u{001B}[1;1Hcursor target\u{001B}[3;5H@\u{001B}[3;5H"
     )
 
-    #expect(snapshot.renderedVisibleLines == ["cursor targe", "", "    @", ""])
+    #expect(snapshot.renderedVisibleLines == ["cursor targe", "t", "    @", ""])
     #expect(snapshot.cursor.column == 4)
     #expect(snapshot.cursor.row == 2)
     #expect(snapshot.cursor.isVisible == true)
+}
+
+@Test func ghosttyTextBuilderUsesLiveCursorWhenVTExportOmitsFinalPosition() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-live-cursor",
+        columns: 12,
+        rows: 4,
+        scrollbackText: nil,
+        viewportText: "1----------2\n|    @     |\n3----------4",
+        cursor: MobileTerminalGhosttyCursor(column: 5, row: 1)
+    )
+
+    #expect(snapshot.renderedVisibleLines[1] == "|    @     |")
+    #expect(snapshot.cursor.column == 5)
+    #expect(snapshot.cursor.row == 1)
+}
+
+@Test func ghosttyTextBuilderAppliesCursorVisibilityToLiveCursor() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-live-hidden-cursor",
+        columns: 12,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[?25lhidden",
+        cursor: MobileTerminalGhosttyCursor(column: 3, row: 0)
+    )
+
+    #expect(snapshot.cursor.column == 3)
+    #expect(snapshot.cursor.row == 0)
+    #expect(snapshot.cursor.isVisible == false)
+    #expect(snapshot.modes.cursorVisible == false)
+}
+
+@Test func ghosttyTextBuilderWindowsExtraExportRowsAroundCursor() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-export-window",
+        columns: 16,
+        rows: 3,
+        scrollbackText: nil,
+        viewportText: "stale one\nstale two\ncurrent one\ncurrent two\nprompt\u{001B}[5;7H",
+        cursor: MobileTerminalGhosttyCursor(column: 6, row: 2)
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["current one", "current two", "prompt"])
+    #expect(snapshot.cursor.column == 6)
+    #expect(snapshot.cursor.row == 2)
+}
+
+@Test func ghosttyTextBuilderWrapsOverflowingRowsLikeTerminalAutowrap() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-autowrap",
+        columns: 8,
+        rows: 3,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[1;1Habcdefghi"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["abcdefgh", "i", ""])
+    #expect(snapshot.visibleRows[0].isWrapped)
+    #expect(snapshot.cursor.column == 1)
+    #expect(snapshot.cursor.row == 1)
+}
+
+@Test func ghosttyTextBuilderDoesNotAddBlankWrapRowForExactlyFullRows() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-exact-width",
+        columns: 4,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[1;1Habcd"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["abcd", ""])
+    #expect(snapshot.visibleRows[0].isWrapped == false)
+    #expect(snapshot.cursor.column == 3)
+    #expect(snapshot.cursor.row == 0)
 }
 
 @Test func ghosttyTextBuilderAlignsSparseViewportRowsToCursorRow() throws {

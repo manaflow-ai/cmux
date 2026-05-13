@@ -361,7 +361,14 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             scrollbackRows = Array(scrollbackRows.suffix(max(0, maxScrollbackRows)))
         }
         let resolvedModes = modes.applyingCursorVisibility(from: viewportText)
-        let resolvedCursor = cursor ?? MobileTerminalGhosttyCursor(
+        let resolvedCursor = cursor.map { liveCursor in
+            MobileTerminalGhosttyCursor(
+                column: liveCursor.column,
+                row: liveCursor.row,
+                isVisible: liveCursor.isVisible && resolvedModes.cursorVisible,
+                style: liveCursor.style
+            )
+        } ?? MobileTerminalGhosttyCursor(
             column: min(max(visibleGrid.cursorColumn, 0), max(columns - 1, 0)),
             row: min(max(visibleGrid.cursorRow, 0), max(rows - 1, 0)),
             isVisible: resolvedModes.cursorVisible
@@ -375,7 +382,8 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 rows: visibleGrid.rows,
                 columns: columns,
                 count: rows,
-                cursorRow: resolvedCursor.row
+                cursorRow: resolvedCursor.row,
+                sourceCursorRow: visibleGrid.cursorRow
             ),
             cursor: resolvedCursor,
             modes: resolvedModes,
@@ -424,9 +432,15 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         rows: [MobileTerminalGhosttyRow],
         columns: Int,
         count: Int,
-        cursorRow: Int? = nil
+        cursorRow: Int? = nil,
+        sourceCursorRow: Int? = nil
     ) -> [MobileTerminalGhosttyRow] {
-        var padded = Array(rows.prefix(count))
+        var padded = visibleRows(
+            from: rows,
+            count: count,
+            cursorRow: cursorRow,
+            sourceCursorRow: sourceCursorRow
+        )
         if let cursorRow {
             padded = rowsAlignedToCursor(
                 rows: padded,
@@ -439,6 +453,28 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             padded.append(row(from: "", columns: columns))
         }
         return padded
+    }
+
+    private static func visibleRows(
+        from rows: [MobileTerminalGhosttyRow],
+        count: Int,
+        cursorRow: Int?,
+        sourceCursorRow: Int?
+    ) -> [MobileTerminalGhosttyRow] {
+        guard count > 0, rows.count > count else {
+            return Array(rows.prefix(count))
+        }
+
+        let maxStartIndex = rows.count - count
+        if let cursorRow,
+           let sourceCursorRow {
+            let startIndex = sourceCursorRow - cursorRow
+            if (0...maxStartIndex).contains(startIndex) {
+                return Array(rows[startIndex..<(startIndex + count)])
+            }
+        }
+
+        return Array(rows.suffix(count))
     }
 
     private static func rowsAlignedToCursor(
@@ -504,10 +540,13 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         guard !text.isEmpty else {
             return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0)
         }
+        let wrapsOverflow = text.contains("\u{001B}")
 
         var rows: [[MobileTerminalGhosttyCell]] = [[]]
+        var wrappedRowIndices = Set<Int>()
         var row = 0
         var column = 0
+        var wrapPending = false
         var style = MobileTerminalGhosttyCellStyle()
         var index = text.startIndex
 
@@ -554,6 +593,10 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                     rows[row][index] = .blank
                 }
             }
+            if rows[row].isEmpty {
+                wrappedRowIndices.remove(row)
+            }
+            wrapPending = false
         }
 
         func eraseDisplay(mode: Int) {
@@ -572,14 +615,17 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 column = savedColumn
             case 2, 3:
                 rows = [[]]
+                wrappedRowIndices.removeAll(keepingCapacity: true)
                 row = 0
                 column = 0
+                wrapPending = false
             default:
                 guard row >= 0 else { return }
                 ensureRow(row)
                 eraseLine(mode: 0)
                 if row + 1 < rows.count {
                     rows.removeSubrange((row + 1)..<rows.count)
+                    wrappedRowIndices = Set(wrappedRowIndices.filter { $0 <= row })
                 }
             }
         }
@@ -587,6 +633,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         func moveCursor(row newRow: Int, column newColumn: Int) {
             row = max(0, newRow)
             column = max(0, newColumn)
+            wrapPending = false
             ensureRow(row)
         }
 
@@ -610,24 +657,40 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         }
 
         func normalizedRows() -> [MobileTerminalGhosttyRow] {
-            rows.map { rowCells in
+            rows.enumerated().map { rowIndex, rowCells in
                 var cells = Array(rowCells.prefix(resolvedColumns))
                 while cells.count < resolvedColumns {
                     cells.append(.blank)
                 }
-                return MobileTerminalGhosttyRow(cells: cells)
+                return MobileTerminalGhosttyRow(
+                    cells: cells,
+                    isWrapped: wrappedRowIndices.contains(rowIndex)
+                )
             }
         }
 
         func appendLine() {
             row += 1
             column = 0
+            wrapPending = false
             ensureRow(row)
         }
 
-        func setCell(_ cell: MobileTerminalGhosttyCell, at column: Int) {
+        func writeCell(_ cell: MobileTerminalGhosttyCell) {
+            if wrapsOverflow, wrapPending {
+                wrappedRowIndices.insert(row)
+                row += 1
+                column = 0
+                wrapPending = false
+                ensureRow(row)
+            }
             guard column < resolvedColumns else { return }
             setCell(cell, atRow: row, column: column)
+            if wrapsOverflow, column >= resolvedColumns - 1 {
+                wrapPending = true
+            } else {
+                column += 1
+            }
         }
 
         while index < text.endIndex {
@@ -645,15 +708,14 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 appendLine()
             case "\r":
                 column = 0
+                wrapPending = false
             case "\t":
                 let nextTabStop = min(resolvedColumns, ((column / 8) + 1) * 8)
                 while column < nextTabStop {
-                    setCell(MobileTerminalGhosttyCell(text: " ", style: style), at: column)
-                    column += 1
+                    writeCell(MobileTerminalGhosttyCell(text: " ", style: style))
                 }
             default:
-                setCell(MobileTerminalGhosttyCell(text: String(character), style: style), at: column)
-                column += 1
+                writeCell(MobileTerminalGhosttyCell(text: String(character), style: style))
             }
         }
 

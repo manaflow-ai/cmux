@@ -736,6 +736,20 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "パイプ" } }
       }
     },
+    "mobile.terminal.action.return" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Return" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Return" } }
+      }
+    },
+    "mobile.terminal.action.return.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Return" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Return" } }
+      }
+    },
     "mobile.terminal.action.right" : {
       "extractionState" : "manual",
       "localizations" : {

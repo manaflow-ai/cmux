@@ -2112,6 +2112,7 @@ class GhosttyApp {
                 logLabel: "shell integration override (fallback)"
             )
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
+            loadNoActiveDisplayVsyncFallbackIfNeeded(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
                 fallbackShouldUseHostLayerBackground,
                 source: "initialize.fallbackConfig"
@@ -2284,9 +2285,26 @@ class GhosttyApp {
             logLabel: "shell integration override"
         )
         loadCmuxOwnedGhosttyKeybindOverrides(config)
+        loadNoActiveDisplayVsyncFallbackIfNeeded(config)
 
         ghostty_config_finalize(config)
         return renderingModeChanged
+    }
+
+    private func loadNoActiveDisplayVsyncFallbackIfNeeded(_ config: ghostty_config_t) {
+        var displayCount: UInt32 = 0
+        let error = CGGetActiveDisplayList(0, nil, &displayCount)
+        guard error == .success, displayCount == 0 else { return }
+
+        loadInlineGhosttyConfig(
+            "window-vsync = false",
+            into: config,
+            prefix: "cmux-no-active-display-vsync-fallback",
+            logLabel: "no active display vsync fallback"
+        )
+#if DEBUG
+        cmuxDebugLog("ghostty.vsync.disable reason=noActiveDisplays")
+#endif
     }
 
     private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
@@ -5510,9 +5528,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         mobileViewportPixelLimit = (width: targetWidth, height: targetHeight)
         let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
         let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
-        let cappedSize = cappedByMobileViewportLimit(width: baseWidth, height: baseHeight)
-        let appliedWidth = cappedSize.width
-        let appliedHeight = cappedSize.height
+        let appliedWidth = targetWidth
+        let appliedHeight = targetHeight
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
         let hostIsLimiting = targetWidth >= baseWidth || targetHeight >= baseHeight
         let borderScale = hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
@@ -5541,14 +5558,45 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
+    @discardableResult
+    func clearMobileViewportLimit(reason: String) -> Bool {
+        mobileViewportPixelLimit = nil
+        hostedView.setMobileViewportBorder(size: nil, isVisible: false)
+
+        let uncappedWidth = lastUncappedPixelWidth
+        let uncappedHeight = lastUncappedPixelHeight
+        guard let surface,
+              uncappedWidth > 0,
+              uncappedHeight > 0 else {
+            return false
+        }
+
+        let sizeChanged = uncappedWidth != lastPixelWidth || uncappedHeight != lastPixelHeight
+
+        #if DEBUG
+        Self.sizeLog(
+            "clearMobileViewportLimit surface=\(id.uuidString.prefix(8)) " +
+            "uncappedPx=\(uncappedWidth)x\(uncappedHeight) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+            "changed=\(sizeChanged ? 1 : 0) reason=\(reason)"
+        )
+        #endif
+
+        guard sizeChanged else {
+            ghostty_surface_refresh(surface)
+            return false
+        }
+        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        lastPixelWidth = uncappedWidth
+        lastPixelHeight = uncappedHeight
+        ghostty_surface_refresh(surface)
+        return true
+    }
+
     private func cappedByMobileViewportLimit(width: UInt32, height: UInt32) -> (width: UInt32, height: UInt32) {
         guard let mobileViewportPixelLimit else {
             return (width, height)
         }
-        return (
-            width: min(width, mobileViewportPixelLimit.width),
-            height: min(height, mobileViewportPixelLimit.height)
-        )
+        return mobileViewportPixelLimit
     }
 
     /// Force a full size recalculation and surface redraw.
@@ -5671,7 +5719,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
-        guard let surface = surface else { return }
+        guard let surface = surface else {
+            enqueuePendingInput(text)
+            requestBackgroundSurfaceStartIfNeeded()
+            return
+        }
+        sendInput(text, to: surface)
+    }
+
+    private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         var bufferedText = ""
         var previousWasCR = false
         for scalar in text.unicodeScalars {
@@ -5694,12 +5750,69 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 flushText(&bufferedText, surface: surface)
                 sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
                 previousWasCR = false
+            case 0x7F:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x33) // kVK_Delete
+                previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
                 previousWasCR = false
             }
         }
         flushText(&bufferedText, surface: surface)
+    }
+
+    private func enqueuePendingInput(_ text: String) {
+        var bufferedText = ""
+        var previousWasCR = false
+
+        func flushBufferedText() {
+            guard let data = bufferedText.data(using: .utf8), !data.isEmpty else {
+                bufferedText.removeAll(keepingCapacity: true)
+                return
+            }
+            enqueuePendingSocketInput(.text(data))
+            bufferedText.removeAll(keepingCapacity: true)
+        }
+
+        func enqueueKey(_ keycode: UInt32, label: String) {
+            enqueuePendingSocketInput(.key(PendingKeyEvent(
+                keycode: keycode,
+                mods: GHOSTTY_MODS_NONE,
+                label: label
+            )))
+        }
+
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0A:
+                if !previousWasCR {
+                    flushBufferedText()
+                    enqueueKey(0x24, label: "return")
+                }
+                previousWasCR = false
+            case 0x0D:
+                flushBufferedText()
+                enqueueKey(0x24, label: "return")
+                previousWasCR = true
+            case 0x09:
+                flushBufferedText()
+                enqueueKey(0x30, label: "tab")
+                previousWasCR = false
+            case 0x1B:
+                flushBufferedText()
+                enqueueKey(0x35, label: "escape")
+                previousWasCR = false
+            case 0x7F:
+                flushBufferedText()
+                enqueueKey(0x33, label: "delete")
+                previousWasCR = false
+            default:
+                bufferedText.unicodeScalars.append(scalar)
+                previousWasCR = false
+            }
+        }
+        flushBufferedText()
     }
 
     private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {

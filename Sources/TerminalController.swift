@@ -7190,7 +7190,7 @@ class TerminalController {
             bindingAction: "write_screen_file:copy,vt",
             lineLimit: nil
         ) {
-            return MobileTerminalSnapshotText(text: headTerminalLines(vtOutput, maxLines: lineLimit), fidelity: "ansi_vt")
+            return MobileTerminalSnapshotText(text: vtOutput, fidelity: "ansi_vt")
         }
 
         guard let plainText = readPlainTerminalTextForSnapshot(
@@ -7200,7 +7200,7 @@ class TerminalController {
         ) else {
             return nil
         }
-        return MobileTerminalSnapshotText(text: headTerminalLines(plainText, maxLines: lineLimit), fidelity: "plain_text")
+        return MobileTerminalSnapshotText(text: tailTerminalLines(plainText, maxLines: lineLimit), fidelity: "plain_text")
     }
 
     private func readPlainTerminalTextForSnapshot(
@@ -17836,7 +17836,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        terminalPanel.sendText(text)
+        terminalPanel.sendInput(text)
         terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
         return .ok([
             "workspace_id": resolved.workspace.id.uuidString,
@@ -17901,6 +17901,12 @@ class TerminalController {
         ) else {
             return .err(code: "internal_error", message: "Failed to read terminal viewport", data: nil)
         }
+        let cursor = mobileTerminalCursor(
+            surface: surface,
+            terminalPanel: terminalPanel,
+            columns: columns,
+            rows: rows
+        )
 
         let scrollbackText: String?
         let scrollbackFidelity: String?
@@ -17939,6 +17945,7 @@ class TerminalController {
                 maxScrollbackRows: maxScrollbackRows,
                 activeScreen: .primary,
                 modes: MobileTerminalGhosttyModes(),
+                cursor: cursor,
                 streamOffset: 0,
                 generatedAt: Date()
             )
@@ -17965,6 +17972,36 @@ class TerminalController {
         }
     }
 
+    private func mobileTerminalCursor(
+        surface: ghostty_surface_t,
+        terminalPanel: TerminalPanel,
+        columns: Int,
+        rows: Int
+    ) -> MobileTerminalGhosttyCursor? {
+        let size = ghostty_surface_size(surface)
+        let backingScale = max(
+            terminalPanel.surface.hostedView.window?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 1,
+            1
+        )
+        let cellWidth = Double(size.cell_width_px) / Double(backingScale)
+        let cellHeight = Double(size.cell_height_px) / Double(backingScale)
+        guard cellWidth > 0, cellHeight > 0 else {
+            return nil
+        }
+
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = cellWidth
+        var height: Double = cellHeight
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+
+        let column = min(max(Int(floor(x / cellWidth)), 0), max(columns - 1, 0))
+        let row = min(max(Int(floor((y / cellHeight) - 1)), 0), max(rows - 1, 0))
+        return MobileTerminalGhosttyCursor(column: column, row: row)
+    }
+
     private func mobileViewportFitPayload(
         params: [String: Any],
         terminalPanel: TerminalPanel
@@ -17976,7 +18013,12 @@ class TerminalController {
         reports = reports.filter { _, report in
             now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
-        mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
+        if reports.isEmpty {
+            mobileViewportReportsBySurfaceID[terminalPanel.id] = nil
+            terminalPanel.surface.clearMobileViewportLimit(reason: "mobile.viewport.reportsExpired")
+        } else {
+            mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
+        }
 
         guard let effectiveColumns = reports.values.map(\.columns).min(),
               let effectiveRows = reports.values.map(\.rows).min() else {
