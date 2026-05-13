@@ -4945,6 +4945,7 @@ func openCmuxSettingsFileInEditor() {
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
+    private let sidebarResourceUsageSampleIntervalPresets: [TimeInterval] = [1, 2, 5, 10, 30, 60]
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
     @Environment(\.openWindow) private var openWindow
@@ -5038,6 +5039,12 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = SidebarWorkspaceDetailDefaults.showLog
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = SidebarWorkspaceDetailDefaults.showProgress
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = SidebarWorkspaceDetailDefaults.showCustomMetadata
+    @AppStorage(SidebarWorkspaceResourceUsageSettings.enabledKey)
+    private var sidebarShowResourceUsage = SidebarWorkspaceResourceUsageSettings.defaultEnabled
+    @AppStorage(SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+    private var sidebarResourceUsageSampleInterval = SidebarWorkspaceResourceUsageSettings.defaultSampleInterval
+    @AppStorage(SidebarWorkspaceResourceUsageSettings.sortModeKey)
+    private var sidebarWorkspaceSortMode = SidebarWorkspaceResourceUsageSettings.defaultSortMode.rawValue
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
@@ -5169,6 +5176,87 @@ struct SettingsView: View {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
+    private var selectedSidebarResourceUsageSortMode: SidebarWorkspaceResourceSortMode {
+        SidebarWorkspaceResourceSortMode(rawValue: sidebarWorkspaceSortMode)
+            ?? SidebarWorkspaceResourceUsageSettings.defaultSortMode
+    }
+
+    private var sidebarResourceUsageToggleSubtitle: String {
+        if sidebarShowResourceUsage {
+            return String(
+                localized: "settings.app.sidebarResourceUsage.subtitleOn",
+                defaultValue: "Show inline RSS/CPU indicators for each workspace plus a total cmux row."
+            )
+        }
+        return String(
+            localized: "settings.app.sidebarResourceUsage.subtitleOff",
+            defaultValue: "Hide inline resource indicators and stop sidebar resource sampling."
+        )
+    }
+
+    private var sidebarResourceUsageSortModeSubtitle: String {
+        switch selectedSidebarResourceUsageSortMode {
+        case .manual:
+            return String(
+                localized: "settings.app.sidebarResourceUsageSortMode.subtitleManual",
+                defaultValue: "Keep your manual workspace order. Drag and drop stays enabled."
+            )
+        case .memory:
+            return String(
+                localized: "settings.app.sidebarResourceUsageSortMode.subtitleMemory",
+                defaultValue: "Sort visible workspaces by RSS while keeping pinned workspaces first. Manual reordering is disabled."
+            )
+        }
+    }
+
+    private var sidebarResourceUsageSampleIntervalSelection: Binding<TimeInterval> {
+        Binding(
+            get: {
+                SidebarWorkspaceResourceUsageSettings.clampedSampleInterval(
+                    sidebarResourceUsageSampleInterval
+                )
+            },
+            set: { newValue in
+                sidebarResourceUsageSampleInterval = SidebarWorkspaceResourceUsageSettings
+                    .clampedSampleInterval(newValue)
+            }
+        )
+    }
+
+    private var sidebarResourceUsageSortModeSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarResourceUsageSortMode.rawValue },
+            set: { newValue in
+                sidebarWorkspaceSortMode = SidebarWorkspaceResourceSortMode(rawValue: newValue)?
+                    .rawValue ?? SidebarWorkspaceResourceUsageSettings.defaultSortMode.rawValue
+            }
+        )
+    }
+
+    private var sidebarResourceUsageSampleIntervalOptions: [TimeInterval] {
+        let currentInterval = SidebarWorkspaceResourceUsageSettings.clampedSampleInterval(
+            sidebarResourceUsageSampleInterval
+        )
+        return Array(Set(sidebarResourceUsageSampleIntervalPresets + [currentInterval])).sorted()
+    }
+
+    private func sidebarResourceUsageSampleIntervalLabel(_ interval: TimeInterval) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = .current
+        formatter.minimumFractionDigits = interval.rounded() == interval ? 0 : 1
+        formatter.maximumFractionDigits = interval.rounded() == interval ? 0 : 1
+        let numberText = formatter.string(from: NSNumber(value: interval))
+            ?? String(format: "%.1f", interval)
+        let format = interval == 1
+            ? String(localized: "settings.app.sidebarResourceUsageSampleInterval.option.one", defaultValue: "%1$@ second")
+            : String(localized: "settings.app.sidebarResourceUsageSampleInterval.option.other", defaultValue: "%1$@ seconds")
+        return String(
+            format: format,
+            locale: .current,
+            numberText
         )
     }
 
@@ -6179,6 +6267,48 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.showResourceUsage"),
+                            String(localized: "settings.app.sidebarResourceUsage", defaultValue: "Show Resource Usage in Sidebar"),
+                            subtitle: sidebarResourceUsageToggleSubtitle
+                        ) {
+                            Toggle("", isOn: $sidebarShowResourceUsage)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("sidebar.resourceUsageSampleIntervalSeconds"),
+                            String(localized: "settings.app.sidebarResourceUsageSampleInterval", defaultValue: "Resource Usage Sample Interval"),
+                            subtitle: String(localized: "settings.app.sidebarResourceUsageSampleInterval.subtitle", defaultValue: "How often cmux samples workspace RSS and CPU for the sidebar indicators."),
+                            controlWidth: pickerColumnWidth,
+                            selection: sidebarResourceUsageSampleIntervalSelection
+                        ) {
+                            ForEach(sidebarResourceUsageSampleIntervalOptions, id: \.self) { interval in
+                                Text(sidebarResourceUsageSampleIntervalLabel(interval)).tag(interval)
+                            }
+                        }
+                        .disabled(!sidebarShowResourceUsage)
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("sidebar.sortMode"),
+                            String(localized: "settings.app.sidebarResourceUsageSortMode", defaultValue: "Sidebar Workspace Sort"),
+                            subtitle: sidebarResourceUsageSortModeSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: sidebarResourceUsageSortModeSelection
+                        ) {
+                            ForEach(SidebarWorkspaceResourceSortMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
+                            }
+                        }
+                        .disabled(!sidebarShowResourceUsage)
 
                         SettingsCardDivider()
 
@@ -7267,6 +7397,9 @@ struct SettingsView: View {
         sidebarShowLog = SidebarWorkspaceDetailDefaults.showLog
         sidebarShowProgress = SidebarWorkspaceDetailDefaults.showProgress
         sidebarShowMetadata = SidebarWorkspaceDetailDefaults.showCustomMetadata
+        sidebarShowResourceUsage = SidebarWorkspaceResourceUsageSettings.defaultEnabled
+        sidebarResourceUsageSampleInterval = SidebarWorkspaceResourceUsageSettings.defaultSampleInterval
+        sidebarWorkspaceSortMode = SidebarWorkspaceResourceUsageSettings.defaultSortMode.rawValue
         sidebarTintHex = SidebarTintDefaults.hex
         sidebarTintHexLight = nil
         sidebarTintHexDark = nil
@@ -7541,14 +7674,24 @@ private struct SettingsPickerRow<SelectionValue: Hashable, PickerContent: View, 
     var body: some View {
         SettingsCardRow(configurationReview: configurationReview, title, subtitle: subtitle, controlWidth: controlWidth) {
             HStack(spacing: 6) {
-                Picker("", selection: $selection) {
-                    pickerContent
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .applyIf(accessibilityId != nil) { $0.accessibilityIdentifier(accessibilityId!) }
+                pickerWithOptionalAccessibility
                 extraTrailing
             }
+        }
+    }
+
+    @ViewBuilder
+    private var pickerWithOptionalAccessibility: some View {
+        let picker = Picker("", selection: $selection) {
+            pickerContent
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+
+        if let accessibilityId {
+            picker.accessibilityIdentifier(accessibilityId)
+        } else {
+            picker
         }
     }
 }
@@ -7593,17 +7736,6 @@ enum SettingsConfigurationReview: Equatable {
             file: file,
             line: line
         )
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func applyIf(_ condition: Bool, transform: (Self) -> some View) -> some View {
-        if condition {
-            transform(self)
-        } else {
-            self
-        }
     }
 }
 

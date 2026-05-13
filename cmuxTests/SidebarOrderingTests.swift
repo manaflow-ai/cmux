@@ -116,6 +116,115 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
 }
 
 
+final class SidebarWorkspaceResourceOrderingTests: XCTestCase {
+    func testManualOrderingPreservesBaselineOrder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let ordered = SidebarWorkspaceOrdering.orderedWorkspaceIDs(
+            items: [
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: first,
+                    isPinned: false,
+                    baselineIndex: 0,
+                    residentBytes: 512
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: second,
+                    isPinned: true,
+                    baselineIndex: 1,
+                    residentBytes: 4096
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: third,
+                    isPinned: false,
+                    baselineIndex: 2,
+                    residentBytes: 2048
+                ),
+            ],
+            sortMode: .manual
+        )
+
+        XCTAssertEqual(ordered, [first, second, third])
+    }
+
+    func testMemoryOrderingKeepsPinnedSegmentAheadOfUnpinnedWorkspaces() {
+        let firstPinned = UUID()
+        let secondPinned = UUID()
+        let firstUnpinned = UUID()
+        let secondUnpinned = UUID()
+
+        let ordered = SidebarWorkspaceOrdering.orderedWorkspaceIDs(
+            items: [
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: firstPinned,
+                    isPinned: true,
+                    baselineIndex: 0,
+                    residentBytes: 128
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: secondPinned,
+                    isPinned: true,
+                    baselineIndex: 1,
+                    residentBytes: 512
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: firstUnpinned,
+                    isPinned: false,
+                    baselineIndex: 2,
+                    residentBytes: 4096
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: secondUnpinned,
+                    isPinned: false,
+                    baselineIndex: 3,
+                    residentBytes: 2048
+                ),
+            ],
+            sortMode: .memory
+        )
+
+        XCTAssertEqual(
+            ordered,
+            [secondPinned, firstPinned, firstUnpinned, secondUnpinned]
+        )
+    }
+
+    func testMemoryOrderingFallsBackToBaselineIndexWhenUsageMatches() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let ordered = SidebarWorkspaceOrdering.orderedWorkspaceIDs(
+            items: [
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: first,
+                    isPinned: false,
+                    baselineIndex: 0,
+                    residentBytes: 1024
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: second,
+                    isPinned: false,
+                    baselineIndex: 1,
+                    residentBytes: 1024
+                ),
+                SidebarWorkspaceOrdering.Item(
+                    workspaceID: third,
+                    isPinned: false,
+                    baselineIndex: 2,
+                    residentBytes: 512
+                ),
+            ],
+            sortMode: .memory
+        )
+
+        XCTAssertEqual(ordered, [first, second, third])
+    }
+}
+
+
 final class SidebarRemoteErrorCopySupportTests: XCTestCase {
     func testMenuLabelIsNilWhenThereAreNoErrors() {
         XCTAssertNil(SidebarRemoteErrorCopySupport.menuLabel(for: []))

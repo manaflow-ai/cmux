@@ -22,6 +22,7 @@ final class CmuxSettingsFileStore {
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
+
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
@@ -508,6 +509,25 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["showCustomMetadata"]) {
             snapshot.managedUserDefaults["sidebarShowStatusPills"] = .bool(value)
+        }
+        if let value = jsonBool(section["showResourceUsage"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceResourceUsageSettings.enabledKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["resourceUsageSampleIntervalSeconds"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceResourceUsageSettings.sampleIntervalKey] = .double(
+                SidebarWorkspaceResourceUsageSettings.clampedSampleInterval(value)
+            )
+        } else if section.keys.contains("resourceUsageSampleIntervalSeconds") {
+            logInvalid("sidebar.resourceUsageSampleIntervalSeconds", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["sortMode"]) {
+            if let mode = SidebarWorkspaceResourceSortMode(rawValue: raw) {
+                snapshot.managedUserDefaults[SidebarWorkspaceResourceUsageSettings.sortModeKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("sidebar.sortMode", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("sortMode") {
+            logInvalid("sidebar.sortMode", sourcePath: sourcePath)
         }
     }
 

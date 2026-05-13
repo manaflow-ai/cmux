@@ -441,6 +441,24 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "showResourceUsage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show inline per-workspace RSS and CPU indicators in the sidebar."
+        },
+        "resourceUsageSampleIntervalSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 2,
+          "description": "Sampling interval, in seconds, for sidebar resource usage updates."
+        },
+        "sortMode": {
+          "type": "string",
+          "enum": ["manual", "memory"],
+          "default": "manual",
+          "description": "Order workspaces manually or sort visible rows by memory usage."
         }
       }
     },

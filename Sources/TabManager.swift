@@ -114,6 +114,105 @@ enum SidebarWorkspaceDetailSettings {
     }
 }
 
+enum SidebarWorkspaceResourceSortMode: String, CaseIterable, Identifiable, Sendable {
+    case manual
+    case memory
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .manual:
+            return String(localized: "sidebar.resourceUsage.sort.manual", defaultValue: "Manual")
+        case .memory:
+            return String(localized: "sidebar.resourceUsage.sort.memory", defaultValue: "Memory")
+        }
+    }
+}
+
+enum SidebarWorkspaceResourceUsageSettings {
+    static let enabledKey = "sidebarShowResourceUsage"
+    static let sampleIntervalKey = "sidebarResourceUsageSampleIntervalSeconds"
+    static let sortModeKey = "sidebarWorkspaceSortMode"
+
+    static let defaultEnabled = false
+    static let defaultSampleInterval: TimeInterval = 2
+    static let minimumSampleInterval: TimeInterval = 1
+    static let maximumSampleInterval: TimeInterval = 60
+    static let defaultSortMode: SidebarWorkspaceResourceSortMode = .manual
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func sampleInterval(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard let value = defaults.object(forKey: sampleIntervalKey) as? NSNumber else {
+            return defaultSampleInterval
+        }
+        return clampedSampleInterval(value.doubleValue)
+    }
+
+    static func clampedSampleInterval(_ seconds: TimeInterval) -> TimeInterval {
+        min(max(seconds, minimumSampleInterval), maximumSampleInterval)
+    }
+
+    static func sortMode(defaults: UserDefaults = .standard) -> SidebarWorkspaceResourceSortMode {
+        guard let rawValue = defaults.string(forKey: sortModeKey),
+              let mode = SidebarWorkspaceResourceSortMode(rawValue: rawValue) else {
+            return defaultSortMode
+        }
+        return mode
+    }
+}
+
+struct SidebarWorkspaceResourceUsageConfiguration: Equatable, Sendable {
+    let isEnabled: Bool
+    let sampleInterval: TimeInterval
+    let sortMode: SidebarWorkspaceResourceSortMode
+
+    static func current(defaults: UserDefaults = .standard) -> Self {
+        Self(
+            isEnabled: SidebarWorkspaceResourceUsageSettings.isEnabled(defaults: defaults),
+            sampleInterval: SidebarWorkspaceResourceUsageSettings.sampleInterval(defaults: defaults),
+            sortMode: SidebarWorkspaceResourceUsageSettings.sortMode(defaults: defaults)
+        )
+    }
+}
+
+enum SidebarWorkspaceOrdering {
+    struct Item: Equatable {
+        let workspaceID: UUID
+        let isPinned: Bool
+        let baselineIndex: Int
+        let residentBytes: UInt64
+    }
+
+    static func orderedWorkspaceIDs(
+        items: [Item],
+        sortMode: SidebarWorkspaceResourceSortMode
+    ) -> [UUID] {
+        switch sortMode {
+        case .manual:
+            return items
+                .sorted { $0.baselineIndex < $1.baselineIndex }
+                .map(\.workspaceID)
+        case .memory:
+            return items
+                .sorted { lhs, rhs in
+                    if lhs.isPinned != rhs.isPinned {
+                        return lhs.isPinned && !rhs.isPinned
+                    }
+                    if lhs.residentBytes != rhs.residentBytes {
+                        return lhs.residentBytes > rhs.residentBytes
+                    }
+                    return lhs.baselineIndex < rhs.baselineIndex
+                }
+                .map(\.workspaceID)
+        }
+    }
+}
+
 enum SidebarPullRequestClickabilitySettings {
     static let key = "sidebarMakePullRequestClickable"
     static let defaultClickable = true

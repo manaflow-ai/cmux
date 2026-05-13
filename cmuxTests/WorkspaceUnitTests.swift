@@ -1116,6 +1116,74 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreParsesSidebarResourceUsageOverrides() throws {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
+        let previousInterval = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+        let previousSortMode = defaults.object(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
+        defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+        defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
+            }
+            if let previousInterval {
+                defaults.set(previousInterval, forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+            } else {
+                defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+            }
+            if let previousSortMode {
+                defaults.set(previousSortMode, forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+            } else {
+                defaults.removeObject(forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "showResourceUsage": true,
+                "resourceUsageSampleIntervalSeconds": 5,
+                "sortMode": "memory"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertTrue(SidebarWorkspaceResourceUsageSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sampleInterval(defaults: defaults),
+            5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sortMode(defaults: defaults),
+            .memory
+        )
+    }
+
     func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -2803,6 +2871,69 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
                 showNotificationMessage: true,
                 hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
             )
+        )
+    }
+}
+
+
+final class SidebarWorkspaceResourceUsageSettingsTests: XCTestCase {
+    func testDefaultPreferencesWhenUnset() {
+        let suiteName = "SidebarWorkspaceResourceUsageSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(SidebarWorkspaceResourceUsageSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sampleInterval(defaults: defaults),
+            SidebarWorkspaceResourceUsageSettings.defaultSampleInterval,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sortMode(defaults: defaults),
+            SidebarWorkspaceResourceUsageSettings.defaultSortMode
+        )
+    }
+
+    func testStoredPreferencesOverrideDefaultsAndClampInterval() {
+        let suiteName = "SidebarWorkspaceResourceUsageSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: SidebarWorkspaceResourceUsageSettings.enabledKey)
+        defaults.set(0.1, forKey: SidebarWorkspaceResourceUsageSettings.sampleIntervalKey)
+        defaults.set(SidebarWorkspaceResourceSortMode.memory.rawValue, forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+
+        XCTAssertTrue(SidebarWorkspaceResourceUsageSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sampleInterval(defaults: defaults),
+            SidebarWorkspaceResourceUsageSettings.minimumSampleInterval,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sortMode(defaults: defaults),
+            .memory
+        )
+    }
+
+    func testInvalidSortModeFallsBackToDefault() {
+        let suiteName = "SidebarWorkspaceResourceUsageSettingsTests.InvalidSort.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("not-a-sort-mode", forKey: SidebarWorkspaceResourceUsageSettings.sortModeKey)
+
+        XCTAssertEqual(
+            SidebarWorkspaceResourceUsageSettings.sortMode(defaults: defaults),
+            SidebarWorkspaceResourceUsageSettings.defaultSortMode
         )
     }
 }

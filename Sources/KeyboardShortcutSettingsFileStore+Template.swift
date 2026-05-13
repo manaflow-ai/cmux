@@ -107,6 +107,9 @@ extension CmuxSettingsFileStore {
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
+                    "showResourceUsage": SidebarWorkspaceResourceUsageSettings.defaultEnabled,
+                    "resourceUsageSampleIntervalSeconds": SidebarWorkspaceResourceUsageSettings.defaultSampleInterval,
+                    "sortMode": SidebarWorkspaceResourceUsageSettings.defaultSortMode.rawValue,
                 ],
             ],
             [

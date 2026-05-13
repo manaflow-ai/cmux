@@ -1,5 +1,6 @@
-import Foundation
 import Combine
+import Darwin
+import Foundation
 import WebKit
 import AppKit
 import Bonsplit
@@ -5992,6 +5993,42 @@ extension WKWebView {
         }
         return inspectorWebView
     }
+
+    func cmuxWebProcessIdentifier() -> Int32? {
+        let selectors = [
+            NSSelectorFromString("_webProcessIdentifier"),
+            NSSelectorFromString("webProcessIdentifier"),
+        ]
+        for selector in selectors {
+            if let pid = cmuxCallPID(selector: selector), pid > 0 {
+                return pid
+            }
+        }
+        return nil
+    }
+}
+
+extension BrowserPanel {
+    func resourceUsageRootPIDs() -> Set<Int32> {
+        var pids = webView.cmuxResourceUsageRootPIDs()
+        for popup in popupControllers {
+            pids.formUnion(popup.resourceUsageRootPIDs())
+        }
+        return pids
+    }
+}
+
+extension WKWebView {
+    func cmuxResourceUsageRootPIDs() -> Set<Int32> {
+        var pids: Set<Int32> = []
+        if let webProcessPID = cmuxWebProcessIdentifier() {
+            pids.insert(webProcessPID)
+        }
+        if let inspectorPID = cmuxInspectorFrontendWebView()?.cmuxWebProcessIdentifier() {
+            pids.insert(inspectorPID)
+        }
+        return pids
+    }
 }
 
 @MainActor
@@ -6088,6 +6125,13 @@ private extension NSObject {
         typealias Fn = @convention(c) (AnyObject, Selector) -> Void
         let fn = unsafeBitCast(method(for: selector), to: Fn.self)
         fn(self, selector)
+    }
+
+    func cmuxCallPID(selector: Selector) -> pid_t? {
+        guard responds(to: selector) else { return nil }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> pid_t
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        return fn(self, selector)
     }
 }
 
