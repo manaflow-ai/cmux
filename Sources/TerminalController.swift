@@ -6786,18 +6786,21 @@ class TerminalController {
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
             let queued: Bool
-            if let surface = terminalPanel.surface.surface {
-                sendSocketText(text, surface: surface)
+            if terminalPanel.surface.surface != nil {
+                let acceptsInput = terminalPanel.surface.acceptsTerminalInput
+                terminalPanel.surface.sendInput(text)
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
+                if acceptsInput {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
+                }
                 queued = false
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
                 terminalPanel.sendText(text)
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                queued = true
+                queued = terminalPanel.surface.acceptsTerminalInput
             }
 #if DEBUG
             let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
@@ -6843,11 +6846,12 @@ class TerminalController {
                 return
             }
             let surfaceWasReady = terminalPanel.surface.surface != nil
+            let acceptsInput = terminalPanel.surface.acceptsTerminalInput
             guard terminalPanel.surface.sendNamedKey(key) else {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
             }
-            if surfaceWasReady {
+            if surfaceWasReady && acceptsInput {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
             }
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
@@ -15222,15 +15226,6 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
             let unescaped = text
@@ -15238,13 +15233,11 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            if terminalPanel.surface.surface != nil {
+                terminalPanel.surface.sendInput(unescaped)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
@@ -15312,10 +15305,9 @@ class TerminalController {
             // This DEBUG-only command is used by UI tests to enqueue shell work in an
             // existing workspace. Return once the input is queued on main so a long
             // payload does not hold the control-socket response open in CI.
-            TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
-                guard let self else { return }
-                if let surface = terminalPanel.surface.surface {
-                    self.sendSocketText(unescaped, surface: surface)
+            TerminalMutationBus.shared.enqueueMainActorMutation {
+                if terminalPanel.surface.surface != nil {
+                    terminalPanel.surface.sendInput(unescaped)
                 } else {
                     terminalPanel.sendText(unescaped)
                     terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
@@ -15376,20 +15368,18 @@ class TerminalController {
 
         var success = false
         v2MainSync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            if terminalPanel.surface.surface != nil {
+                terminalPanel.surface.sendInput(unescaped)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
