@@ -21798,6 +21798,23 @@
         }
       }
     },
+    "command.markOldestUnreadAndJumpNext.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
+          }
+        }
+      }
+    },
     "command.markTabRead.title": {
       "extractionState": "manual",
       "localizations": {
@@ -82885,6 +82902,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "shortcut.markOldestUnreadAndJumpNext.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as Oldest Unread and Jump to Next Latest Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最古の未読としてマークして次の最新未読にジャンプ"
           }
         }
       }
