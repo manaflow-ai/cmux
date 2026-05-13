@@ -242,6 +242,7 @@
 		A39430010000000000000005 /* ExtensionBundleDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000006 /* ExtensionBundleDescriptor.swift */; };
 		A39430010000000000000007 /* ExtensionBridgeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000008 /* ExtensionBridgeSupport.swift */; };
 		A39430010000000000000009 /* ExtensionKVStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3943001000000000000000A /* ExtensionKVStore.swift */; };
+		A3943001000000000000000B /* ExtensionBridgeRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3943001000000000000000C /* ExtensionBridgeRPC.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
 		A39430010000000000000003 /* ExtensionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39430010000000000000004 /* ExtensionPanelView.swift */; };
@@ -748,6 +749,7 @@
 		A39430010000000000000006 /* ExtensionBundleDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionBundleDescriptor.swift; sourceTree = "<group>"; };
 		A39430010000000000000008 /* ExtensionBridgeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionBridgeSupport.swift; sourceTree = "<group>"; };
 		A3943001000000000000000A /* ExtensionKVStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionKVStore.swift; sourceTree = "<group>"; };
+		A3943001000000000000000C /* ExtensionBridgeRPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionBridgeRPC.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
 		A39430010000000000000004 /* ExtensionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExtensionPanelView.swift; sourceTree = "<group>"; };
@@ -1262,6 +1264,7 @@
 				A39430010000000000000006 /* ExtensionBundleDescriptor.swift */,
 				A39430010000000000000008 /* ExtensionBridgeSupport.swift */,
 				A3943001000000000000000A /* ExtensionKVStore.swift */,
+				A3943001000000000000000C /* ExtensionBridgeRPC.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
 				A39430010000000000000004 /* ExtensionPanelView.swift */,
@@ -1906,6 +1909,7 @@
 				A39430010000000000000005 /* ExtensionBundleDescriptor.swift in Sources */,
 				A39430010000000000000007 /* ExtensionBridgeSupport.swift in Sources */,
 				A39430010000000000000009 /* ExtensionKVStore.swift in Sources */,
+				A3943001000000000000000B /* ExtensionBridgeRPC.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
 				A39430010000000000000003 /* ExtensionPanelView.swift in Sources */,

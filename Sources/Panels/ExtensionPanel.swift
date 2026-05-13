@@ -177,20 +177,37 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
         }
 
         let method = message.method
-        let params = message.params
-        let messageId = message.id
+        guard let paramsFragment = ExtensionBridgeCodec.encodeJSONFragment(message.params),
+              let messageIdFragment = ExtensionBridgeCodec.encodeJSONFragment(message.id) else {
+            completeBridgeMessage(
+                id: message.id,
+                response: ExtensionBridgeCodec.bridgeError(
+                    code: "invalid_params",
+                    message: "Bridge message must contain JSON-serializable params and id"
+                )
+            )
+            return
+        }
         let workspaceId = workspaceId
         let surfaceId = id
         let paneId = paneId
-        let terminalController = TerminalController.shared
-        let response = terminalController.performExtensionBridgeRPC(
-            method: method,
-            params: params,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            paneId: paneId
-        )
-        completeBridgeMessage(id: messageId, response: response)
+        DispatchQueue.global(qos: .userInitiated).async { [method, paramsFragment, messageIdFragment, workspaceId, surfaceId, paneId] in
+            let params = ExtensionBridgeCodec.decodeJSONFragment(paramsFragment) as? [String: Any] ?? [:]
+            let response = TerminalController.shared.performExtensionBridgeRPC(
+                method: method,
+                params: params,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                paneId: paneId
+            )
+            let messageId = ExtensionBridgeCodec.decodeJSONFragment(messageIdFragment) ?? NSNull()
+            var envelope = response
+            envelope["id"] = messageId
+            let responseLiteral = ExtensionBridgeCodec.javaScriptLiteral(for: envelope)
+            Task { @MainActor [weak self] in
+                self?.completeBridgeMessageLiteral(responseLiteral)
+            }
+        }
     }
 
     private func subscribeToEvents(params: [String: Any]) -> [String: Any] {
@@ -268,7 +285,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             guard let key = Self.kvKey(params) else {
                 return ExtensionBridgeCodec.bridgeError(code: "invalid_params", message: "Missing key")
             }
-            let value = ExtensionKVStore(bundlePath: bundle.bundlePath).get(key)
+            let value = ExtensionKVStore(bundle: bundle).get(key)
             return ExtensionBridgeCodec.bridgeOK(["key": key, "value": value])
         case "extension.kv.set":
             guard let key = Self.kvKey(params) else {
@@ -280,7 +297,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             guard let encoded = ExtensionBridgeCodec.encodeJSONFragment(value) else {
                 return ExtensionBridgeCodec.bridgeError(code: "invalid_params", message: "Value must be JSON-serializable")
             }
-            switch ExtensionKVStore(bundlePath: bundle.bundlePath).set(key: key, encodedValue: encoded) {
+            switch ExtensionKVStore(bundle: bundle).set(key: key, encodedValue: encoded) {
             case .success:
                 return ExtensionBridgeCodec.bridgeOK(["key": key])
             case .failure(let error):
@@ -290,10 +307,10 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
             guard let key = Self.kvKey(params) else {
                 return ExtensionBridgeCodec.bridgeError(code: "invalid_params", message: "Missing key")
             }
-            ExtensionKVStore(bundlePath: bundle.bundlePath).remove(key)
+            ExtensionKVStore(bundle: bundle).remove(key)
             return ExtensionBridgeCodec.bridgeOK(["key": key])
         case "extension.kv.keys":
-            return ExtensionBridgeCodec.bridgeOK(["keys": ExtensionKVStore(bundlePath: bundle.bundlePath).keys()])
+            return ExtensionBridgeCodec.bridgeOK(["keys": ExtensionKVStore(bundle: bundle).keys()])
         default:
             return nil
         }
@@ -303,6 +320,10 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
         var envelope = response
         envelope["id"] = id
         let literal = ExtensionBridgeCodec.javaScriptLiteral(for: envelope)
+        completeBridgeMessageLiteral(literal)
+    }
+
+    private func completeBridgeMessageLiteral(_ literal: String) {
         webView.evaluateJavaScript("window.__cmuxExtensionBridgeReceive && window.__cmuxExtensionBridgeReceive(\(literal));", completionHandler: nil)
     }
 

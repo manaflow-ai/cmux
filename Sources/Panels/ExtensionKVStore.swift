@@ -7,7 +7,14 @@ struct ExtensionKVStore {
     static let maxNamespaceBytes = 1024 * 1024
 
     let bundlePath: String
+    let contentHash: String
     var defaults: UserDefaults = .standard
+
+    init(bundle: ExtensionBundleDescriptor, defaults: UserDefaults = .standard) {
+        self.bundlePath = bundle.bundlePath
+        self.contentHash = bundle.contentHash
+        self.defaults = defaults
+    }
 
     func get(_ key: String) -> Any {
         ExtensionBridgeCodec.decodeJSONFragment(store()[key]) ?? NSNull()
@@ -46,7 +53,10 @@ struct ExtensionKVStore {
     }
 
     private var defaultsKey: String {
-        let digest = SHA256.hash(data: Data(bundlePath.utf8))
+        var keyMaterial = Data(bundlePath.utf8)
+        keyMaterial.append(0)
+        keyMaterial.append(Data(contentHash.utf8))
+        let digest = SHA256.hash(data: keyMaterial)
             .map { String(format: "%02x", $0) }
             .joined()
         return "extensionPanel.kv.\(digest)"
