@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon.HIToolbox
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -68,6 +69,13 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         ))
+    }
+
+    private struct KoreanArrowProbe {
+        let text: String
+        let keyCode: UInt16
+        let selectionBefore: NSRange
+        let selectionAfter: NSRange
     }
 
     func testSelectedRangeReturnsEmptyRangeWithoutSelectionOrMarkedText() {
@@ -204,6 +212,88 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             forwardedPressCount,
             0,
             "AppKit-consumed Zhuyin marked-text changes must not forward a duplicate Ghostty key"
+        )
+    }
+
+    func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        let probes = [
+            KoreanArrowProbe(
+                text: "\u{F702}",
+                keyCode: UInt16(kVK_LeftArrow),
+                selectionBefore: NSRange(location: 5, length: 0),
+                selectionAfter: NSRange(location: 4, length: 0)
+            ),
+            KoreanArrowProbe(
+                text: "\u{F703}",
+                keyCode: UInt16(kVK_RightArrow),
+                selectionBefore: NSRange(location: 4, length: 0),
+                selectionAfter: NSRange(location: 5, length: 0)
+            ),
+        ]
+        var selectionAfterByKeyCode: [UInt16: NSRange] = [:]
+        for probe in probes {
+            selectionAfterByKeyCode[probe.keyCode] = probe.selectionAfter
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            guard candidateView === surfaceView,
+                  let event = events.first,
+                  let selectionAfter = selectionAfterByKeyCode[event.keyCode] else {
+                return false
+            }
+            candidateView.setMarkedText(
+                "안녕하세요",
+                selectedRange: selectionAfter,
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+
+        var forwardedPressKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPressKeyCodes.append(keyEvent.keycode)
+        }
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            for probe in probes {
+                surfaceView.setMarkedText(
+                    "안녕하세요",
+                    selectedRange: probe.selectionBefore,
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+                let event = try keyEvent(
+                    text: probe.text,
+                    keyCode: probe.keyCode,
+                    windowNumber: window.windowNumber
+                )
+                surfaceView.keyDown(with: event)
+            }
+        }
+
+        XCTAssertEqual(
+            forwardedPressKeyCodes,
+            probes.map { UInt32($0.keyCode) },
+            "Korean 2-Set Left/Right after Hangul composition should reach the terminal cursor path"
         )
     }
 
