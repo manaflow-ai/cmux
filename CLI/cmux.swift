@@ -2997,11 +2997,13 @@ struct CMUXCLI {
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
             let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
             let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-            let (focusOpt, remaining) = parseOption(rem4, name: "--focus")
+            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+            let (focusOpt, remaining) = parseOption(rem5, name: "--focus")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --focus <true|false>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
             }
             var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowId)
             if let cwdOpt {
                 let resolved = resolvePath(cwdOpt)
                 params["cwd"] = resolved
@@ -9590,9 +9592,9 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
 
-            Create a new workspace in the current window.
+            Create a new workspace in the caller's window.
 
             Flags:
               --name <title>       Set a custom name for the new workspace
@@ -9602,6 +9604,8 @@ struct CMUXCLI {
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    When provided, --command is ignored (layout surfaces define their own commands).
+              --window <id|ref|index>
+                                   Target window (default: caller's window from $CMUX_WORKSPACE_ID/$CMUX_SURFACE_ID)
               --focus <true|false> Focus the new workspace (default: false)
 
             Example:
@@ -10712,6 +10716,23 @@ struct CMUXCLI {
         // When --window is explicitly targeted, don't fall back to env workspace from a different window
         if windowOverride != nil { return nil }
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+    }
+
+    private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
+        if let windowHandle = try normalizeWindowHandle(windowRaw, client: client) {
+            params["window_id"] = windowHandle
+            return
+        }
+
+        let env = ProcessInfo.processInfo.environment
+        let workspaceHandle = try normalizeWorkspaceHandle(env["CMUX_WORKSPACE_ID"], client: client)
+        if let workspaceHandle {
+            params["workspace_id"] = workspaceHandle
+        }
+        let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
+        if let surfaceHandle {
+            params["surface_id"] = surfaceHandle
+        }
     }
 
     private func forwardSidebarMetadataCommand(
@@ -21689,7 +21710,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
