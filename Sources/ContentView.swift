@@ -1626,7 +1626,7 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     nonisolated private static let commandPaletteResolvedResultLimit = 100
     private static let commandPaletteVisiblePreviewResultLimit = 48
-    private static let commandPaletteVisiblePreviewCandidateLimit = 192
+    private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
     private static let minimumRightSidebarWidth: CGFloat = 276

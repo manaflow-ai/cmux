@@ -315,6 +315,18 @@ enum CommandPaletteFuzzyMatcher {
         )
     }
 
+    static func score(preparedQuery: PreparedQuery, preparedCandidate: PreparedCandidateText) -> Int? {
+        guard !preparedQuery.isEmpty else { return 0 }
+
+        var totalScore = 0
+        for token in preparedQuery.tokens {
+            guard token.couldMatch(preparedCandidate) else { return nil }
+            guard let tokenScore = scoreToken(token, in: preparedCandidate) else { return nil }
+            totalScore += tokenScore
+        }
+        return totalScore
+    }
+
     static func score(
         preparedQuery: PreparedQuery,
         preparedCandidates: [PreparedCandidateText],
@@ -1328,7 +1340,7 @@ enum CommandPaletteSearchEngine {
            preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }) {
             titleScore = CommandPaletteFuzzyMatcher.score(
                 preparedQuery: preparedQuery,
-                preparedCandidates: [preparedTitle]
+                preparedCandidate: preparedTitle
             )
         } else {
             titleScore = nil

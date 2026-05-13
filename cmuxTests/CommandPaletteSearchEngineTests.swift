@@ -1127,7 +1127,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 searchableTexts: entry.searchableTexts
             )
         }
-        let visibleCandidateCorpus = Array(corpus.prefix(192))
+        let visibleCandidateCorpus = Array(corpus.prefix(128))
         let queries = repeatedQueries(
             fastTypingPrefixes("cmd-p-search") + fastTypingPrefixes("palette latency"),
             repetitions: 2
