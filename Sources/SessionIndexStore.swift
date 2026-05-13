@@ -3,9 +3,12 @@ import Bonsplit
 import CMUXAgentLaunch
 import Combine
 import Foundation
+import OSLog
 import SQLite3
 
 // MARK: - Parsed metadata cache
+
+nonisolated private let sessionIndexLogger = Logger(subsystem: "ai.manaflow.cmux", category: "SessionIndexStore")
 
 /// Process-wide cache for parsed Claude session metadata, keyed by file URL with
 /// mtime as the freshness check. Avoids re-reading and re-parsing the same
@@ -1538,7 +1541,7 @@ final class SessionIndexStore: ObservableObject {
                 )
                 let message = String(format: format, (home.path as NSString).abbreviatingWithTildeInPath)
                 errorBag.add(message)
-                NSLog("[SessionIndexStore] %@", message)
+                sessionIndexLogger.warning("Codex home unavailable and skipped: \(home.path, privacy: .private)")
                 return
             }
             homes.append(home)
@@ -1599,7 +1602,7 @@ final class SessionIndexStore: ObservableObject {
                     )
                     let message = String(format: format, (home.path as NSString).abbreviatingWithTildeInPath)
                     errorBag.add(message)
-                    NSLog("[SessionIndexStore] %@", message)
+                    sessionIndexLogger.warning("Codex sessions root unavailable and skipped: \(root, privacy: .private)")
                 }
                 return []
             }

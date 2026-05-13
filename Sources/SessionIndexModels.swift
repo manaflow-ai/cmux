@@ -288,7 +288,33 @@ struct SessionEntry: Identifiable, Hashable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
-    var sourceLabel: String? = nil
+    let sourceLabel: String?
+
+    init(
+        id: String,
+        agent: SessionAgent,
+        sessionId: String,
+        title: String,
+        cwd: String?,
+        gitBranch: String?,
+        pullRequest: PullRequestLink?,
+        modified: Date,
+        fileURL: URL?,
+        specifics: AgentSpecifics,
+        sourceLabel: String? = nil
+    ) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.gitBranch = gitBranch
+        self.pullRequest = pullRequest
+        self.modified = modified
+        self.fileURL = fileURL
+        self.specifics = specifics
+        self.sourceLabel = sourceLabel
+    }
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
