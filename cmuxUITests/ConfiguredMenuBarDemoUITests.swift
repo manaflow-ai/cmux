@@ -181,7 +181,16 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
 
     private func saveDemoScreenshot(path: String) {
         let url = URL(fileURLWithPath: path)
-        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: url, options: .atomic)
+        do {
+            try XCUIScreen.main.screenshot().pngRepresentation.write(to: url, options: .atomic)
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: path),
+                "Expected demo screenshot to exist at \(path)"
+            )
+            print("Saved configured menu bar demo screenshot: \(path)")
+        } catch {
+            XCTFail("Failed to save configured menu bar demo screenshot at \(path): \(error)")
+        }
     }
 
     private func restoreOriginalConfig() {

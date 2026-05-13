@@ -330,6 +330,7 @@ jobs:
             cat /tmp/ffmpeg.log 2>/dev/null || true
             BEFORE_SCREENSHOT=/tmp/cmux-configured-menubar-demo-before.png
             OPEN_SCREENSHOT=/tmp/cmux-configured-menubar-demo-open.png
+            ls -lh /tmp/cmux-configured-menubar-demo-*.png 2>/dev/null || true
             if [ -f "$BEFORE_SCREENSHOT" ] && [ -f "$OPEN_SCREENSHOT" ]; then
               echo "Creating fallback recording from UI test screenshots"
               ffmpeg -y \
