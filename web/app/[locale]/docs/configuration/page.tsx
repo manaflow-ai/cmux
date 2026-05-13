@@ -383,8 +383,14 @@ working-directory = ~/code`}</CodeBlock>
                   <code>ui.menuBar</code> adds custom top-level macOS menus. Menu items can
                   reference entries from <code>actions</code>, define inline shell commands, use{" "}
                   <code>{`{ "type": "separator" }`}</code>, or nest submenus with{" "}
-                  <code>items</code>. Commands use the same trust prompt as other project-local
-                  actions.
+                  <code>items</code>. Duplicate top-level titles stay separate. Use{" "}
+                  <code>extends</code> when you want to append to an existing menu.
+                </p>
+                <p>
+                  Dynamic menu sources run Bash and read a JSON array from stdout. They run on
+                  menu open by default, can also run manually, after config reload, or on a bounded
+                  interval, keep their last good items after failures, show a copyable error row,
+                  and appear in Task Manager while running.
                 </p>
                 <CodeBlock lang="json">{`{
   "actions": {
@@ -397,16 +403,42 @@ working-directory = ~/code`}</CodeBlock>
   "ui": {
     "menuBar": [
       {
+        "id": "project",
         "title": "Project",
         "items": [
           "run-tests",
           { "type": "separator" },
-          { "title": "Lint", "command": "npm run lint", "target": "currentTerminal" }
+          { "title": "Lint", "command": "npm run lint", "target": "currentTerminal" },
+          {
+            "title": "Recent Branches",
+            "source": {
+              "type": "command",
+              "command": "git branch --format='%(refname:short)' | head -10 | jq -R -s 'split(\\"\\\\n\\")[:-1] | map({ title: ., command: (\\"git switch \\" + .), target: \\"currentTerminal\\" })'",
+              "refresh": "interval",
+              "intervalSeconds": 60,
+              "timeoutSeconds": 3
+            }
+          }
+        ]
+      },
+      {
+        "extends": "notifications",
+        "items": [
+          { "title": "Open Logs", "command": "open ~/Library/Logs/cmux", "target": "newTabInCurrentPane" }
         ]
       }
     ]
   }
 }`}</CodeBlock>
+                <p>
+                  Built-in extension targets are <code>app</code>, <code>file</code>,{" "}
+                  <code>edit</code>, <code>view</code>, <code>notifications</code>,{" "}
+                  <code>window</code>, and <code>help</code>. A custom menu can be targeted by its{" "}
+                  <code>id</code>. Generated dynamic output can include actions, separators,
+                  submenus, and inline commands, but not another dynamic source. Interval sources
+                  from project configs start running automatically only after the source command is
+                  trusted.
+                </p>
               </>
             )}
           </section>

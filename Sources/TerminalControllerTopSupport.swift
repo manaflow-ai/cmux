@@ -73,6 +73,28 @@ extension TerminalController {
         return allPIDs
     }
 
+    nonisolated func v2AnnotateTopDynamicMenus(
+        _ dynamicMenus: inout [[String: Any]],
+        processSnapshot: CmuxTopProcessSnapshot,
+        includeProcesses: Bool
+    ) -> Set<Int> {
+        var allPIDs: Set<Int> = []
+        for index in dynamicMenus.indices {
+            let rootPIDs = Set(v2TopIntArray(dynamicMenus[index]["root_pids"]))
+            let pids = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
+            dynamicMenus[index]["root_pids"] = rootPIDs.sorted()
+            dynamicMenus[index]["top_level_pids"] = processSnapshot.topLevelPIDs(for: pids).sorted()
+            dynamicMenus[index]["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: pids).sorted()
+            dynamicMenus[index]["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
+            dynamicMenus[index]["processes"] = includeProcesses ? processSnapshot.processTreePayload(
+                for: pids,
+                rootPIDs: rootPIDs
+            ) : []
+            allPIDs.formUnion(pids)
+        }
+        return allPIDs
+    }
+
     nonisolated func v2AnnotateTopWorkspace(
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,

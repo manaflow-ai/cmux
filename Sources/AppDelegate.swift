@@ -21,6 +21,229 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+private enum ConfiguredMenuBarDynamicPhase: String, Sendable {
+    case idle
+    case running
+    case loaded
+    case failed
+}
+
+private struct ConfiguredMenuBarDynamicState: Sendable {
+    var phase: ConfiguredMenuBarDynamicPhase = .idle
+    var items: [CmuxResolvedMenuBarItem] = []
+    var error: String?
+    var lastRunAt: Date?
+    var durationMS: Int?
+    var exitStatus: Int32?
+    var activePID: Int32?
+    var generatedItemCount: Int?
+    var command: String?
+    var lastConfigRevisionRun: UInt64?
+}
+
+private struct ConfiguredMenuBarDynamicCommandResult: Sendable {
+    var stdout: String
+    var stderr: String
+    var exitStatus: Int32?
+    var durationMS: Int
+    var errorMessage: String?
+}
+
+private final class ConfiguredMenuBarOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private let limit: Int
+    private var data = Data()
+    private var exceededLimit = false
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        if data.count + chunk.count > limit {
+            exceededLimit = true
+            let remaining = max(0, limit - data.count)
+            if remaining > 0 {
+                data.append(chunk.prefix(remaining))
+            }
+            return
+        }
+        data.append(chunk)
+    }
+
+    func string() -> String {
+        lock.lock()
+        let snapshot = data
+        lock.unlock()
+        return String(data: snapshot, encoding: .utf8)
+            ?? String(decoding: snapshot, as: UTF8.self)
+    }
+
+    func didExceedLimit() -> Bool {
+        lock.lock()
+        let exceeded = exceededLimit
+        lock.unlock()
+        return exceeded
+    }
+}
+
+private enum ConfiguredMenuBarDynamicRunner {
+    static let defaultTimeoutSeconds: Double = 5
+    static let outputLimitBytes = 256 * 1024
+
+    static func run(
+        command: String,
+        cwd: String,
+        timeoutSeconds: Double,
+        onStarted: @escaping (Int32) -> Void
+    ) async -> ConfiguredMenuBarDynamicCommandResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                runBlocking(
+                    command: command,
+                    cwd: cwd,
+                    timeoutSeconds: timeoutSeconds,
+                    onStarted: onStarted,
+                    continuation: continuation
+                )
+            }
+        }
+    }
+
+    private static func runBlocking(
+        command: String,
+        cwd: String,
+        timeoutSeconds: Double,
+        onStarted: @escaping (Int32) -> Void,
+        continuation: CheckedContinuation<ConfiguredMenuBarDynamicCommandResult, Never>
+    ) {
+        let startedAt = Date()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-lc", command]
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let stdout = ConfiguredMenuBarOutputCollector(limit: outputLimitBytes)
+        let stderr = ConfiguredMenuBarOutputCollector(limit: outputLimitBytes)
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            stdout.append(handle.availableData)
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            stderr.append(handle.availableData)
+        }
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let finishLock = NSLock()
+        var didFinish = false
+        var didTimeOut = false
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+
+        func finish(_ result: ConfiguredMenuBarDynamicCommandResult) {
+            finishLock.lock()
+            guard !didFinish else {
+                finishLock.unlock()
+                return
+            }
+            didFinish = true
+            finishLock.unlock()
+            timer.cancel()
+            continuation.resume(returning: result)
+        }
+
+        process.terminationHandler = { terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            stdout.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            stderr.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            let durationMS = max(0, Int(Date().timeIntervalSince(startedAt) * 1000))
+            finishLock.lock()
+            let timedOut = didTimeOut
+            finishLock.unlock()
+
+            let stdoutText = stdout.string()
+            let stderrText = stderr.string()
+            let errorMessage: String?
+            if timedOut {
+                errorMessage = String(
+                    format: String(
+                        localized: "menuBar.dynamic.error.timeout",
+                        defaultValue: "Command timed out after %.1f seconds."
+                    ),
+                    timeoutSeconds
+                )
+            } else if stdout.didExceedLimit() || stderr.didExceedLimit() {
+                errorMessage = String(
+                    format: String(
+                        localized: "menuBar.dynamic.error.outputLimit",
+                        defaultValue: "Command output exceeded %d bytes."
+                    ),
+                    outputLimitBytes
+                )
+            } else if terminatedProcess.terminationStatus != 0 {
+                let detail = stderrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : stderrText.trimmingCharacters(in: .whitespacesAndNewlines)
+                errorMessage = [
+                    String(
+                        format: String(
+                            localized: "menuBar.dynamic.error.exitStatus",
+                            defaultValue: "Command exited with status %d."
+                        ),
+                        Int(terminatedProcess.terminationStatus)
+                    ),
+                    detail
+                ].filter { !$0.isEmpty }.joined(separator: "\n")
+            } else {
+                errorMessage = nil
+            }
+
+            finish(ConfiguredMenuBarDynamicCommandResult(
+                stdout: stdoutText,
+                stderr: stderrText,
+                exitStatus: terminatedProcess.terminationStatus,
+                durationMS: durationMS,
+                errorMessage: errorMessage
+            ))
+        }
+
+        do {
+            try process.run()
+            onStarted(process.processIdentifier)
+        } catch {
+            let durationMS = max(0, Int(Date().timeIntervalSince(startedAt) * 1000))
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            finish(ConfiguredMenuBarDynamicCommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: nil,
+                durationMS: durationMS,
+                errorMessage: error.localizedDescription
+            ))
+            return
+        }
+
+        timer.schedule(deadline: .now() + max(0.1, timeoutSeconds))
+        timer.setEventHandler {
+            finishLock.lock()
+            guard !didFinish else {
+                finishLock.unlock()
+                return
+            }
+            didTimeOut = true
+            finishLock.unlock()
+            process.terminate()
+        }
+        timer.resume()
+    }
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -592,6 +815,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @MainActor
+    private final class ConfiguredMenuBarDynamicSourceBox: NSObject {
+        let sourceID: String
+
+        init(sourceID: String) {
+            self.sourceID = sourceID
+        }
+    }
+
+    @MainActor
+    private final class ConfiguredMenuBarDynamicErrorBox: NSObject {
+        let error: String
+
+        init(error: String) {
+            self.error = error
+        }
+    }
+
+    @MainActor
+    private final class ConfiguredMenuBarMenuDelegate: NSObject, NSMenuDelegate {
+        weak var owner: AppDelegate?
+        let sourceID: String
+        weak var preferredWindow: NSWindow?
+
+        init(owner: AppDelegate, sourceID: String, preferredWindow: NSWindow?) {
+            self.owner = owner
+            self.sourceID = sourceID
+            self.preferredWindow = preferredWindow
+        }
+
+        func menuWillOpen(_ menu: NSMenu) {
+            owner?.configuredMenuBarDynamicMenuWillOpen(sourceID: sourceID, preferredWindow: preferredWindow)
+        }
+    }
+
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
@@ -699,7 +957,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var configuredMenuBarObserverTokens: [NSObjectProtocol] = []
     private var configuredMenuBarTopLevelItems: [NSMenuItem] = []
+    private var configuredMenuBarExtensionItems: [NSMenuItem] = []
     private var configuredMenuBarActionBoxes: [ConfiguredMenuBarActionBox] = []
+    private var configuredMenuBarDynamicSourceBoxes: [ConfiguredMenuBarDynamicSourceBox] = []
+    private var configuredMenuBarDynamicErrorBoxes: [ConfiguredMenuBarDynamicErrorBox] = []
+    private var configuredMenuBarMenuDelegates: [ConfiguredMenuBarMenuDelegate] = []
+    private var configuredMenuBarDynamicStates: [String: ConfiguredMenuBarDynamicState] = [:]
+    private var configuredMenuBarDynamicSourceByID: [String: CmuxResolvedMenuBarDynamicSource] = [:]
+    private var configuredMenuBarDynamicMenus: [String: NSMenu] = [:]
+    private var configuredMenuBarDynamicTimers: [String: DispatchSourceTimer] = [:]
+    private var configuredMenuBarDynamicTimerKeys: [String: String] = [:]
     private var configuredMenuBarRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private struct PendingConfiguredShortcutChord {
@@ -6257,6 +6524,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return store.menuBarMenus
     }
 
+    func configuredMenuBarExtensionsForCommands(preferredWindow: NSWindow? = nil) -> [CmuxResolvedMenuBarExtension] {
+        guard let store = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)?.cmuxConfigStore else {
+            return []
+        }
+        return store.menuBarExtensions
+    }
+
     @discardableResult
     func performConfiguredMenuBarAction(
         _ action: CmuxResolvedConfigAction,
@@ -6315,6 +6589,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func refreshConfiguredMenuBar() {
         guard let mainMenu = NSApp.mainMenu else { return }
 
+        for item in configuredMenuBarExtensionItems {
+            let menu = item.menu
+            let index = menu?.index(of: item) ?? -1
+            if let menu, index >= 0 {
+                menu.removeItem(at: index)
+            }
+        }
+        configuredMenuBarExtensionItems.removeAll()
+
         for item in configuredMenuBarTopLevelItems {
             let index = mainMenu.index(of: item)
             if index >= 0 {
@@ -6323,18 +6606,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         configuredMenuBarTopLevelItems.removeAll()
         configuredMenuBarActionBoxes.removeAll()
+        configuredMenuBarDynamicSourceBoxes.removeAll()
+        configuredMenuBarDynamicErrorBoxes.removeAll()
+        configuredMenuBarMenuDelegates.removeAll()
+        configuredMenuBarDynamicSourceByID.removeAll()
+        configuredMenuBarDynamicMenus.removeAll()
 
-        let menus = configuredMenuBarMenusForCommands(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
-        guard !menus.isEmpty else { return }
+        let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        let store = context?.cmuxConfigStore
+        let menus = store?.menuBarMenus ?? []
+        let extensions = store?.menuBarExtensions ?? []
+        guard !menus.isEmpty || !extensions.isEmpty else {
+            configuredMenuBarDynamicStates.removeAll()
+            for sourceID in Array(configuredMenuBarDynamicTimers.keys) {
+                cancelConfiguredMenuBarDynamicTimer(sourceID: sourceID)
+            }
+            return
+        }
 
         var insertionIndex = configuredMenuBarInsertionIndex(in: mainMenu)
+        var customMenusByConfigID: [String: NSMenu] = [:]
         for menu in menus {
             let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
-            item.submenu = configuredMenuBarMenu(from: menu)
+            let submenu = configuredMenuBarMenu(from: menu, preferredWindow: preferredWindow)
+            item.submenu = submenu
             mainMenu.insertItem(item, at: insertionIndex)
             configuredMenuBarTopLevelItems.append(item)
+            customMenusByConfigID[menu.configID] = submenu
             insertionIndex += 1
         }
+
+        for menuExtension in extensions {
+            guard let targetMenu = configuredMenuBarTargetMenu(
+                for: menuExtension.targetID,
+                mainMenu: mainMenu,
+                customMenusByConfigID: customMenusByConfigID
+            ) else {
+                NSLog("[MenuBarConfig] Skipping extension for missing menu target %@", menuExtension.targetID)
+                continue
+            }
+            let items = configuredMenuBarMenuItems(from: menuExtension.items, preferredWindow: preferredWindow)
+            guard !items.isEmpty else { continue }
+            if !targetMenu.items.isEmpty, items.first?.isSeparatorItem == false {
+                let separator = NSMenuItem.separator()
+                targetMenu.addItem(separator)
+                configuredMenuBarExtensionItems.append(separator)
+            }
+            for item in items {
+                targetMenu.addItem(item)
+                configuredMenuBarExtensionItems.append(item)
+            }
+        }
+
+        configuredMenuBarDynamicStates = configuredMenuBarDynamicStates.filter {
+            configuredMenuBarDynamicSourceByID[$0.key] != nil
+        }
+        cancelRemovedConfiguredMenuBarDynamicTimers()
+        scheduleIntervalDynamicMenuSourcesIfNeeded(store: store, preferredWindow: preferredWindow)
+        runConfigReloadDynamicMenuSourcesIfNeeded(store: store, preferredWindow: preferredWindow)
     }
 
     private func configuredMenuBarInsertionIndex(in mainMenu: NSMenu) -> Int {
@@ -6350,18 +6680,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return min(mainMenu.items.count, max(1, mainMenu.items.count - 1))
     }
 
-    private func configuredMenuBarMenu(from menu: CmuxResolvedMenuBarMenu) -> NSMenu {
+    private func configuredMenuBarMenu(
+        from menu: CmuxResolvedMenuBarMenu,
+        preferredWindow: NSWindow?
+    ) -> NSMenu {
         let nsMenu = NSMenu(title: menu.title)
-        for item in menu.items {
+        for item in configuredMenuBarMenuItems(from: menu.items, preferredWindow: preferredWindow) {
+            nsMenu.addItem(item)
+        }
+        return nsMenu
+    }
+
+    private func configuredMenuBarMenuItems(
+        from items: [CmuxResolvedMenuBarItem],
+        preferredWindow: NSWindow?
+    ) -> [NSMenuItem] {
+        var nsItems: [NSMenuItem] = []
+        for item in items {
             switch item {
             case .separator:
-                if !nsMenu.items.isEmpty, nsMenu.items.last?.isSeparatorItem == false {
-                    nsMenu.addItem(.separator())
+                if !nsItems.isEmpty, nsItems.last?.isSeparatorItem == false {
+                    nsItems.append(.separator())
                 }
             case .submenu(let submenu):
                 let item = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
-                item.submenu = configuredMenuBarMenu(from: submenu)
-                nsMenu.addItem(item)
+                item.submenu = configuredMenuBarMenu(from: submenu, preferredWindow: preferredWindow)
+                nsItems.append(item)
+            case .dynamicSource(let source):
+                nsItems.append(configuredMenuBarDynamicSourceMenuItem(for: source, preferredWindow: preferredWindow))
             case .action(let menuAction):
                 let item = NSMenuItem(
                     title: menuAction.title,
@@ -6374,19 +6720,451 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 item.representedObject = box
                 item.toolTip = menuAction.tooltip
                 item.image = configuredMenuBarImage(for: menuAction.icon ?? menuAction.action.icon)
-                nsMenu.addItem(item)
+                nsItems.append(item)
             }
         }
 
-        while nsMenu.items.last?.isSeparatorItem == true {
-            nsMenu.removeItem(at: nsMenu.items.count - 1)
+        while nsItems.last?.isSeparatorItem == true {
+            nsItems.removeLast()
         }
-        return nsMenu
+        return nsItems
     }
 
     private func configuredMenuBarImage(for icon: CmuxButtonIcon?) -> NSImage? {
         guard case .some(.symbol(let symbolName)) = icon else { return nil }
         return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+    }
+
+    private func configuredMenuBarDynamicSourceMenuItem(
+        for source: CmuxResolvedMenuBarDynamicSource,
+        preferredWindow: NSWindow?
+    ) -> NSMenuItem {
+        var state = configuredMenuBarDynamicStates[source.id] ?? ConfiguredMenuBarDynamicState()
+        if state.command != nil, state.command != source.source.command {
+            state = ConfiguredMenuBarDynamicState()
+            cancelConfiguredMenuBarDynamicTimer(sourceID: source.id)
+        }
+        state.command = source.source.command
+        configuredMenuBarDynamicStates[source.id] = state
+        configuredMenuBarDynamicSourceByID[source.id] = source
+
+        let item = NSMenuItem(title: source.title, action: nil, keyEquivalent: "")
+        item.image = configuredMenuBarImage(for: source.icon)
+        item.toolTip = source.tooltip
+        let submenu = NSMenu(title: source.title)
+        let delegate = ConfiguredMenuBarMenuDelegate(owner: self, sourceID: source.id, preferredWindow: preferredWindow)
+        submenu.delegate = delegate
+        configuredMenuBarMenuDelegates.append(delegate)
+        configuredMenuBarDynamicMenus[source.id] = submenu
+        item.submenu = submenu
+        renderConfiguredMenuBarDynamicSourceMenu(sourceID: source.id, preferredWindow: preferredWindow)
+        return item
+    }
+
+    private func configuredMenuBarTargetMenu(
+        for targetID: String,
+        mainMenu: NSMenu,
+        customMenusByConfigID: [String: NSMenu]
+    ) -> NSMenu? {
+        if let customMenu = customMenusByConfigID[targetID] {
+            return customMenu
+        }
+        let normalized = normalizedConfiguredMenuBarTargetID(targetID)
+        if let customMenu = customMenusByConfigID.first(where: {
+            normalizedConfiguredMenuBarTargetID($0.key) == normalized
+        })?.value {
+            return customMenu
+        }
+
+        let builtinTitles: [String: String] = [
+            "application": "",
+            "app": "",
+            "cmux": "",
+            "file": String(localized: "menu.file.title", defaultValue: "File"),
+            "edit": String(localized: "menu.edit.title", defaultValue: "Edit"),
+            "view": String(localized: "menu.view.title", defaultValue: "View"),
+            "notifications": String(localized: "menu.notifications.title", defaultValue: "Notifications"),
+            "window": String(localized: "menu.window.title", defaultValue: "Window"),
+            "help": String(localized: "menu.help.title", defaultValue: "Help"),
+        ]
+        if ["application", "app", "cmux"].contains(normalized) {
+            return mainMenu.items.first?.submenu
+        }
+        guard let title = builtinTitles[normalized] else { return nil }
+        return mainMenu.items.first(where: { $0.title == title })?.submenu
+    }
+
+    private func normalizedConfiguredMenuBarTargetID(_ raw: String) -> String {
+        raw.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    private func runConfigReloadDynamicMenuSourcesIfNeeded(store: CmuxConfigStore?, preferredWindow: NSWindow?) {
+        guard let store else { return }
+        for source in configuredMenuBarDynamicSourceByID.values {
+            guard source.source.refresh == .onConfigReload else { continue }
+            let lastRevision = configuredMenuBarDynamicStates[source.id]?.lastConfigRevisionRun
+            guard lastRevision != store.configRevision else { continue }
+            configuredMenuBarDynamicStates[source.id, default: ConfiguredMenuBarDynamicState()].lastConfigRevisionRun = store.configRevision
+            refreshConfiguredMenuBarDynamicSource(sourceID: source.id, preferredWindow: preferredWindow, reason: .configReload)
+        }
+    }
+
+    private func scheduleIntervalDynamicMenuSourcesIfNeeded(store: CmuxConfigStore?, preferredWindow: NSWindow?) {
+        guard let store else { return }
+        for source in configuredMenuBarDynamicSourceByID.values {
+            guard source.source.refresh == .interval,
+                  let interval = source.source.intervalSeconds else {
+                cancelConfiguredMenuBarDynamicTimer(sourceID: source.id)
+                continue
+            }
+            let timerKey = [
+                source.source.command,
+                String(interval),
+                source.settingSourcePath ?? "",
+            ].joined(separator: "\u{1F}")
+            guard configuredMenuBarDynamicTimerKeys[source.id] != timerKey else { continue }
+            cancelConfiguredMenuBarDynamicTimer(sourceID: source.id)
+
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + interval, repeating: interval)
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                guard let currentSource = self.configuredMenuBarDynamicSourceByID[source.id] else {
+                    self.cancelConfiguredMenuBarDynamicTimer(sourceID: source.id)
+                    return
+                }
+                guard CmuxConfigExecutor.isTrustedDynamicMenuSource(
+                    command: currentSource.source.command,
+                    sourceID: currentSource.id,
+                    configSourcePath: currentSource.settingSourcePath,
+                    globalConfigPath: store.globalConfigPath
+                ) else {
+                    return
+                }
+                self.refreshConfiguredMenuBarDynamicSource(
+                    sourceID: currentSource.id,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                    reason: .interval
+                )
+            }
+            configuredMenuBarDynamicTimers[source.id] = timer
+            configuredMenuBarDynamicTimerKeys[source.id] = timerKey
+            timer.resume()
+        }
+    }
+
+    private func cancelRemovedConfiguredMenuBarDynamicTimers() {
+        let activeSourceIDs = Set(configuredMenuBarDynamicSourceByID.keys)
+        for sourceID in Array(configuredMenuBarDynamicTimers.keys) where !activeSourceIDs.contains(sourceID) {
+            cancelConfiguredMenuBarDynamicTimer(sourceID: sourceID)
+        }
+    }
+
+    private func cancelConfiguredMenuBarDynamicTimer(sourceID: String) {
+        configuredMenuBarDynamicTimers[sourceID]?.cancel()
+        configuredMenuBarDynamicTimers.removeValue(forKey: sourceID)
+        configuredMenuBarDynamicTimerKeys.removeValue(forKey: sourceID)
+    }
+
+    private enum ConfiguredMenuBarDynamicRefreshReason {
+        case open
+        case manual
+        case configReload
+        case interval
+    }
+
+    private func configuredMenuBarDynamicMenuWillOpen(sourceID: String, preferredWindow: NSWindow?) {
+        guard let source = configuredMenuBarDynamicSourceByID[sourceID] else { return }
+        renderConfiguredMenuBarDynamicSourceMenu(sourceID: sourceID, preferredWindow: preferredWindow)
+        if (source.source.refresh ?? .onOpen) == .onOpen {
+            refreshConfiguredMenuBarDynamicSource(sourceID: sourceID, preferredWindow: preferredWindow, reason: .open)
+        }
+    }
+
+    private func renderConfiguredMenuBarDynamicSourceMenu(sourceID: String, preferredWindow: NSWindow?) {
+        guard let menu = configuredMenuBarDynamicMenus[sourceID],
+              let source = configuredMenuBarDynamicSourceByID[sourceID] else { return }
+        let state = configuredMenuBarDynamicStates[sourceID] ?? ConfiguredMenuBarDynamicState()
+        menu.removeAllItems()
+
+        let cachedItems = configuredMenuBarMenuItems(from: state.items, preferredWindow: preferredWindow)
+        for item in cachedItems {
+            menu.addItem(item)
+        }
+        if cachedItems.isEmpty {
+            menu.addItem(configuredMenuBarDisabledItem(title: dynamicMenuEmptyTitle(for: state)))
+        }
+
+        if state.phase == .running {
+            configuredMenuBarAddSeparatorIfNeeded(to: menu)
+            menu.addItem(configuredMenuBarDisabledItem(title: String(
+                localized: "menuBar.dynamic.running",
+                defaultValue: "Loading..."
+            )))
+        }
+
+        if let error = state.error, !error.isEmpty {
+            configuredMenuBarAddSeparatorIfNeeded(to: menu)
+            menu.addItem(configuredMenuBarDisabledItem(title: String(
+                localized: "menuBar.dynamic.failed",
+                defaultValue: "Dynamic menu failed"
+            )))
+            let copyItem = NSMenuItem(
+                title: String(localized: "menuBar.dynamic.copyError", defaultValue: "Copy Error"),
+                action: #selector(copyConfiguredMenuBarDynamicSourceError(_:)),
+                keyEquivalent: ""
+            )
+            copyItem.target = self
+            let box = ConfiguredMenuBarDynamicErrorBox(error: error)
+            configuredMenuBarDynamicErrorBoxes.append(box)
+            copyItem.representedObject = box
+            menu.addItem(copyItem)
+        }
+
+        configuredMenuBarAddSeparatorIfNeeded(to: menu)
+        let reloadTitle = state.phase == .idle && (source.source.refresh ?? .onOpen) == .manual
+            ? String(localized: "menuBar.dynamic.load", defaultValue: "Load Dynamic Menu")
+            : String(localized: "menuBar.dynamic.reload", defaultValue: "Reload")
+        let reloadItem = NSMenuItem(
+            title: reloadTitle,
+            action: #selector(reloadConfiguredMenuBarDynamicSource(_:)),
+            keyEquivalent: ""
+        )
+        reloadItem.target = self
+        reloadItem.isEnabled = state.phase != .running
+        let box = ConfiguredMenuBarDynamicSourceBox(sourceID: sourceID)
+        configuredMenuBarDynamicSourceBoxes.append(box)
+        reloadItem.representedObject = box
+        menu.addItem(reloadItem)
+    }
+
+    private func configuredMenuBarDisabledItem(title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
+    private func dynamicMenuEmptyTitle(for state: ConfiguredMenuBarDynamicState) -> String {
+        switch state.phase {
+        case .running:
+            return String(localized: "menuBar.dynamic.loading", defaultValue: "Loading...")
+        case .failed where state.items.isEmpty:
+            return String(localized: "menuBar.dynamic.noCachedItems", defaultValue: "No cached items")
+        case .loaded:
+            return String(localized: "menuBar.dynamic.noItems", defaultValue: "No items")
+        case .idle, .failed:
+            return String(localized: "menuBar.dynamic.notLoaded", defaultValue: "Not loaded")
+        }
+    }
+
+    private func configuredMenuBarAddSeparatorIfNeeded(to menu: NSMenu) {
+        if !menu.items.isEmpty, menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
+        }
+    }
+
+    private func refreshConfiguredMenuBarDynamicSource(
+        sourceID: String,
+        preferredWindow: NSWindow?,
+        reason: ConfiguredMenuBarDynamicRefreshReason
+    ) {
+        guard let source = configuredMenuBarDynamicSourceByID[sourceID] else { return }
+        guard configuredMenuBarDynamicStates[sourceID]?.phase != .running else { return }
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        guard let store = context?.cmuxConfigStore else { return }
+
+        let title = String(
+            format: String(
+                localized: "dialog.cmuxConfig.confirmDynamicMenu.title",
+                defaultValue: "Run Dynamic Menu Source: %@"
+            ),
+            source.title
+        )
+        let authorized = CmuxConfigExecutor.authorizeDynamicMenuSourceIfNeeded(
+            command: source.source.command,
+            sourceID: source.id,
+            configSourcePath: source.settingSourcePath,
+            globalConfigPath: store.globalConfigPath,
+            displayTitle: title,
+            presentingWindow: preferredWindow
+        ) { [weak self] command in
+            Task { @MainActor [weak self] in
+                self?.startConfiguredMenuBarDynamicSource(
+                    source,
+                    command: command,
+                    store: store,
+                    preferredWindow: preferredWindow,
+                    reason: reason
+                )
+            }
+        }
+        if !authorized {
+            var state = configuredMenuBarDynamicStates[sourceID] ?? ConfiguredMenuBarDynamicState()
+            state.phase = state.items.isEmpty ? .idle : .loaded
+            configuredMenuBarDynamicStates[sourceID] = state
+            renderConfiguredMenuBarDynamicSourceMenu(sourceID: sourceID, preferredWindow: preferredWindow)
+        }
+    }
+
+    private func startConfiguredMenuBarDynamicSource(
+        _ source: CmuxResolvedMenuBarDynamicSource,
+        command: String,
+        store: CmuxConfigStore,
+        preferredWindow: NSWindow?,
+        reason: ConfiguredMenuBarDynamicRefreshReason
+    ) {
+        var state = configuredMenuBarDynamicStates[source.id] ?? ConfiguredMenuBarDynamicState()
+        state.phase = .running
+        state.error = nil
+        state.command = command
+        state.lastRunAt = Date()
+        configuredMenuBarDynamicStates[source.id] = state
+        renderConfiguredMenuBarDynamicSourceMenu(sourceID: source.id, preferredWindow: preferredWindow)
+
+        let cwd = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)?
+            .tabManager.selectedWorkspace?.currentDirectory
+        let workingDirectory = (cwd?.isEmpty == false) ? cwd!
+            : FileManager.default.homeDirectoryForCurrentUser.path
+        let timeout = source.source.timeoutSeconds ?? ConfiguredMenuBarDynamicRunner.defaultTimeoutSeconds
+
+        Task { @MainActor [weak self] in
+            let result = await ConfiguredMenuBarDynamicRunner.run(
+                command: command,
+                cwd: workingDirectory,
+                timeoutSeconds: timeout
+            ) { pid in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.configuredMenuBarDynamicStates[source.id, default: ConfiguredMenuBarDynamicState()].activePID = pid
+                    self.renderConfiguredMenuBarDynamicSourceMenu(sourceID: source.id, preferredWindow: preferredWindow)
+                }
+            }
+            self?.finishConfiguredMenuBarDynamicSource(
+                source,
+                result: result,
+                store: store,
+                preferredWindow: preferredWindow
+            )
+        }
+    }
+
+    private func finishConfiguredMenuBarDynamicSource(
+        _ source: CmuxResolvedMenuBarDynamicSource,
+        result: ConfiguredMenuBarDynamicCommandResult,
+        store: CmuxConfigStore,
+        preferredWindow: NSWindow?
+    ) {
+        var state = configuredMenuBarDynamicStates[source.id] ?? ConfiguredMenuBarDynamicState()
+        state.activePID = nil
+        state.durationMS = result.durationMS
+        state.exitStatus = result.exitStatus
+
+        if let error = result.errorMessage {
+            state.phase = .failed
+            state.error = error
+            configuredMenuBarDynamicStates[source.id] = state
+            renderConfiguredMenuBarDynamicSourceMenu(sourceID: source.id, preferredWindow: preferredWindow)
+            notifyConfiguredMenuBarDynamicFailure(source: source, error: error, preferredWindow: preferredWindow)
+            return
+        }
+
+        do {
+            let data = Data(result.stdout.utf8)
+            let generatedItems = try JSONDecoder().decode([CmuxConfigMenuBarItem].self, from: data)
+            let resolved = store.resolveGeneratedMenuBarItems(
+                generatedItems,
+                settingName: "\(source.settingName).generated",
+                settingSourcePath: source.settingSourcePath
+            )
+            if let issue = resolved.issues.first {
+                throw NSError(domain: "CmuxDynamicMenu", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: issue.logMessage
+                ])
+            }
+            state.phase = .loaded
+            state.items = resolved.items
+            state.error = nil
+            state.generatedItemCount = resolved.items.count
+        } catch {
+            state.phase = .failed
+            state.error = error.localizedDescription
+            notifyConfiguredMenuBarDynamicFailure(source: source, error: error.localizedDescription, preferredWindow: preferredWindow)
+        }
+        configuredMenuBarDynamicStates[source.id] = state
+        renderConfiguredMenuBarDynamicSourceMenu(sourceID: source.id, preferredWindow: preferredWindow)
+    }
+
+    private func notifyConfiguredMenuBarDynamicFailure(
+        source: CmuxResolvedMenuBarDynamicSource,
+        error: String,
+        preferredWindow: NSWindow?
+    ) {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+        guard let workspace = context?.tabManager.selectedWorkspace ?? tabManager?.selectedWorkspace else { return }
+        notificationStore?.addNotification(
+            tabId: workspace.id,
+            surfaceId: nil,
+            title: String(localized: "menuBar.dynamic.failure.notification.title", defaultValue: "Dynamic menu failed"),
+            subtitle: source.title,
+            body: error,
+            cooldownKey: "dynamicMenu.\(source.id).\(error.hashValue)",
+            cooldownInterval: 60
+        )
+    }
+
+    func configuredDynamicMenuTaskManagerPayload() -> [[String: Any]] {
+        configuredMenuBarDynamicSourceByID.values
+            .sorted { lhs, rhs in
+                if lhs.title == rhs.title { return lhs.id < rhs.id }
+                return lhs.title < rhs.title
+            }
+            .map { source in
+                let state = configuredMenuBarDynamicStates[source.id] ?? ConfiguredMenuBarDynamicState()
+                var detailParts: [String] = [configuredDynamicMenuPhaseLabel(state.phase)]
+                if let generatedItemCount = state.generatedItemCount {
+                    detailParts.append(String(
+                        format: String(
+                            localized: "taskManager.dynamicMenu.items",
+                            defaultValue: "%d items"
+                        ),
+                        generatedItemCount
+                    ))
+                }
+                if let durationMS = state.durationMS {
+                    detailParts.append(String(
+                        format: String(
+                            localized: "taskManager.dynamicMenu.duration",
+                            defaultValue: "%d ms"
+                        ),
+                        durationMS
+                    ))
+                }
+                let pids = state.activePID.map { [Int($0)] } ?? []
+                return [
+                    "id": source.id,
+                    "title": source.title,
+                    "detail": detailParts.joined(separator: " / "),
+                    "state": state.phase.rawValue,
+                    "active_pid": state.activePID.map { Int($0) } as Any? ?? NSNull(),
+                    "root_pids": pids,
+                    "pids": pids,
+                    "source_path": source.settingSourcePath as Any? ?? NSNull(),
+                    "resources": CmuxTaskManagerResources.zeroPayload
+                ]
+            }
+    }
+
+    private func configuredDynamicMenuPhaseLabel(_ phase: ConfiguredMenuBarDynamicPhase) -> String {
+        switch phase {
+        case .idle:
+            return String(localized: "taskManager.dynamicMenu.idle", defaultValue: "Idle")
+        case .running:
+            return String(localized: "taskManager.dynamicMenu.running", defaultValue: "Running")
+        case .loaded:
+            return String(localized: "taskManager.dynamicMenu.loaded", defaultValue: "Loaded")
+        case .failed:
+            return String(localized: "taskManager.dynamicMenu.failed", defaultValue: "Failed")
+        }
     }
 
     @objc private func performConfiguredMenuBarMenuItem(_ sender: NSMenuItem) {
@@ -6395,6 +7173,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         performConfiguredMenuBarAction(box.action, preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+    }
+
+    @objc private func reloadConfiguredMenuBarDynamicSource(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? ConfiguredMenuBarDynamicSourceBox else {
+            NSSound.beep()
+            return
+        }
+        refreshConfiguredMenuBarDynamicSource(
+            sourceID: box.sourceID,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            reason: .manual
+        )
+    }
+
+    @objc private func copyConfiguredMenuBarDynamicSourceError(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? ConfiguredMenuBarDynamicErrorBox else {
+            NSSound.beep()
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(box.error, forType: .string)
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.

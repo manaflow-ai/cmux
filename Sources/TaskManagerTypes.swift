@@ -11,6 +11,8 @@ struct CmuxTaskManagerRow: Identifiable {
         case terminalSurface
         case browserSurface
         case webview
+        case dynamicMenuSection
+        case dynamicMenuSource
         case process
 
         var systemImage: String {
@@ -22,6 +24,8 @@ struct CmuxTaskManagerRow: Identifiable {
             case .terminalSurface: return "terminal"
             case .browserSurface: return "globe"
             case .webview: return "network"
+            case .dynamicMenuSection: return "menubar.rectangle"
+            case .dynamicMenuSource: return "point.3.connected.trianglepath.dotted"
             case .process: return "gearshape"
             }
         }
@@ -35,6 +39,8 @@ struct CmuxTaskManagerRow: Identifiable {
             case .terminalSurface: return .green
             case .browserSurface: return .blue
             case .webview: return .purple
+            case .dynamicMenuSection: return .indigo
+            case .dynamicMenuSource: return .mint
             case .process: return .secondary
             }
         }
@@ -106,6 +112,12 @@ struct CmuxTaskManagerRow: Identifiable {
 
 struct CmuxTaskManagerResources {
     static let zero = CmuxTaskManagerResources(cpuPercent: 0, residentBytes: 0, processCount: 0)
+    static let zeroPayload: [String: Any] = [
+        "cpu_percent": 0,
+        "resident_bytes": 0,
+        "process_count": 0,
+        "pids": []
+    ]
 
     let cpuPercent: Double
     let residentBytes: Int64
@@ -117,6 +129,13 @@ struct CmuxTaskManagerResources {
         self.residentBytes = residentBytes
         self.processCount = processCount
         self.processIds = []
+    }
+
+    init(cpuPercent: Double, residentBytes: Int64, processCount: Int, processIds: [Int]) {
+        self.cpuPercent = cpuPercent
+        self.residentBytes = residentBytes
+        self.processCount = processCount
+        self.processIds = processIds
     }
 
     init(_ payload: [String: Any]) {

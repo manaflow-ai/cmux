@@ -12,7 +12,7 @@ final class CmuxConfigContextMenuTests: XCTestCase {
     }
 
     @MainActor
-    private func loadStore(localJSON: String? = nil) throws -> CmuxConfigStore {
+    private func loadStore(localJSON: String? = nil, globalJSON: String? = nil) throws -> CmuxConfigStore {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -26,9 +26,15 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         if let localJSON {
             try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
         }
+        let globalConfigURL = root.appendingPathComponent("global.json")
+        if let globalJSON {
+            try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        }
 
         let store = CmuxConfigStore(
-            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            globalConfigPath: globalJSON == nil
+                ? root.appendingPathComponent("missing-global.json").path
+                : globalConfigURL.path,
             localConfigPath: localJSON == nil ? nil : localConfigURL.path,
             startFileWatchers: false
         )
@@ -157,6 +163,42 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         """
         let config = try decode(json)
         XCTAssertEqual(config.ui?.menuBar?.menus.first?.title, "Project")
+    }
+
+    func testDecodeMenuBarSupportsExtendsAndDynamicSource() throws {
+        let json = """
+        {
+          "ui": {
+            "menuBar": [
+              {
+                "extends": "notifications",
+                "items": [
+                  {
+                    "title": "Recent Branches",
+                    "source": {
+                      "command": "printf '[]'",
+                      "refresh": "interval",
+                      "timeoutSeconds": 2,
+                      "intervalSeconds": 10
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """
+        let config = try decode(json)
+        let menu = try XCTUnwrap(config.ui?.menuBar?.menus.first)
+        XCTAssertEqual(menu.extends, "notifications")
+        guard case .dynamic(let item) = menu.items.first else {
+            return XCTFail("Expected dynamic menu source.")
+        }
+        XCTAssertEqual(item.title, "Recent Branches")
+        XCTAssertEqual(item.source.command, "printf '[]'")
+        XCTAssertEqual(item.source.refresh, .interval)
+        XCTAssertEqual(item.source.timeoutSeconds, 2)
+        XCTAssertEqual(item.source.intervalSeconds, 10)
     }
 
     @MainActor
@@ -554,6 +596,98 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertEqual(nested.action.terminalCommand, "npm run lint")
         XCTAssertEqual(nested.action.terminalCommandTarget, .currentTerminal)
         XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedMenuBarKeepsDuplicateTitlesSeparateAndSupportsExtends() throws {
+        let store = try loadStore(
+            localJSON: """
+            {
+              "ui": {
+                "menuBar": [
+                  {
+                    "id": "local-project",
+                    "title": "Project",
+                    "items": [{ "title": "Local", "command": "echo local" }]
+                  },
+                  {
+                    "extends": "notifications",
+                    "items": [{ "title": "Open Logs", "command": "echo logs" }]
+                  }
+                ]
+              }
+            }
+            """,
+            globalJSON: """
+            {
+              "ui": {
+                "menuBar": [
+                  {
+                    "id": "global-project",
+                    "title": "Project",
+                    "items": [{ "title": "Global", "command": "echo global" }]
+                  }
+                ]
+              }
+            }
+            """
+        )
+
+        XCTAssertEqual(store.menuBarMenus.map(\.configID), ["global-project", "local-project"])
+        XCTAssertEqual(store.menuBarMenus.map(\.title), ["Project", "Project"])
+        XCTAssertEqual(store.menuBarExtensions.count, 1)
+        XCTAssertEqual(store.menuBarExtensions.first?.targetID, "notifications")
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedMenuBarSupportsDynamicSourcesAndRejectsGeneratedNestedSources() throws {
+        let store = try loadStore(localJSON: """
+        {
+          "ui": {
+            "menuBar": [
+              {
+                "title": "Project",
+                "items": [
+                  {
+                    "id": "recent-branches",
+                    "title": "Recent Branches",
+                    "source": {
+                      "command": "printf '[]'",
+                      "refresh": "onOpen",
+                      "timeoutSeconds": 3
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """)
+
+        let menu = try XCTUnwrap(store.menuBarMenus.first)
+        guard case .dynamicSource(let source) = menu.items.first else {
+            return XCTFail("Expected dynamic source.")
+        }
+        XCTAssertEqual(source.title, "Recent Branches")
+        XCTAssertEqual(source.source.command, "printf '[]'")
+        XCTAssertEqual(source.source.refresh, .onOpen)
+
+        let generated = try JSONDecoder().decode([CmuxConfigMenuBarItem].self, from: Data("""
+        [
+          {
+            "title": "Nested Dynamic",
+            "source": { "command": "printf '[]'" }
+          }
+        ]
+        """.utf8))
+        let resolved = store.resolveGeneratedMenuBarItems(
+            generated,
+            settingName: "ui.menuBar.menus[0].items[0].generated",
+            settingSourcePath: nil
+        )
+        XCTAssertTrue(resolved.items.isEmpty)
+        XCTAssertEqual(resolved.issues.first?.kind, .menuBarInvalidMenu)
     }
 
     @MainActor

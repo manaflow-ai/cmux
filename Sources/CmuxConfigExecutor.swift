@@ -161,6 +161,55 @@ struct CmuxConfigExecutor {
     }
 
     @discardableResult
+    static func authorizeDynamicMenuSourceIfNeeded(
+        command rawCommand: String,
+        sourceID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String?,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping (String) -> Void
+    ) -> Bool {
+        let shellCommand = sanitizeForDisplay(rawCommand)
+        guard !shellCommand.isEmpty else { return false }
+
+        return authorizeProjectActionIfNeeded(
+            descriptor: dynamicMenuSourceTrustDescriptor(
+                command: shellCommand,
+                sourceID: sourceID,
+                configSourcePath: configSourcePath
+            ),
+            confirm: false,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: shellCommand,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow
+        ) {
+            onAuthorized(shellCommand)
+        }
+    }
+
+    static func isTrustedDynamicMenuSource(
+        command rawCommand: String,
+        sourceID: String,
+        configSourcePath: String?,
+        globalConfigPath: String
+    ) -> Bool {
+        let shellCommand = sanitizeForDisplay(rawCommand)
+        guard !shellCommand.isEmpty else { return false }
+        guard let sourcePath = configSourcePath.map(canonicalPath),
+              sourcePath != canonicalPath(globalConfigPath) else {
+            return true
+        }
+        return CmuxActionTrust.shared.isTrusted(dynamicMenuSourceTrustDescriptor(
+            command: shellCommand,
+            sourceID: sourceID,
+            configSourcePath: configSourcePath
+        ))
+    }
+
+    @discardableResult
     private static func authorizeProjectActionIfNeeded(
         descriptor: CmuxActionTrustDescriptor,
         confirm: Bool,
@@ -339,6 +388,23 @@ struct CmuxConfigExecutor {
                 configSourcePath: iconSourcePath ?? configSourcePath,
                 globalConfigPath: globalConfigPath
             )
+        )
+    }
+
+    private static func dynamicMenuSourceTrustDescriptor(
+        command: String,
+        sourceID: String,
+        configSourcePath: String?
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: sourceID,
+            kind: "dynamicMenuSource",
+            command: command,
+            target: nil,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: nil
         )
     }
 

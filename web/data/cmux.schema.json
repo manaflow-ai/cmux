@@ -841,12 +841,15 @@
       "items": {
         "$ref": "#/$defs/menuBarMenu"
       },
-      "description": "Top-level custom macOS menu bar menus."
+      "description": "Configured macOS menu bar menus. Menus with title create custom top-level menus. Menus with extends append items to an existing built-in or custom menu."
     },
     "menuBarMenu": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["title"],
+      "anyOf": [
+        { "required": ["title"] },
+        { "required": ["extends"] }
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -855,6 +858,10 @@
         "title": {
           "type": "string",
           "description": "Menu title shown in the macOS menu bar."
+        },
+        "extends": {
+          "type": "string",
+          "description": "Optional built-in menu id (file, edit, view, notifications, window, help, app) or custom menu id to append items to. Duplicate titles do not merge automatically."
         },
         "items": {
           "type": "array",
@@ -878,8 +885,8 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["separator", "menu", "submenu", "command", "agent", "builtin", "workspaceCommand"],
-              "description": "separator creates a divider, menu/submenu creates a nested menu, and action types define inline actions."
+              "enum": ["separator", "menu", "submenu", "source", "dynamic", "command", "agent", "builtin", "workspaceCommand"],
+              "description": "separator creates a divider, menu/submenu creates a nested menu, source/dynamic creates a dynamic submenu, and action types define inline actions."
             },
             "title": {
               "type": "string",
@@ -891,6 +898,10 @@
                 "$ref": "#/$defs/menuBarItem"
               },
               "description": "Nested submenu items."
+            },
+            "source": {
+              "$ref": "#/$defs/menuBarSource",
+              "description": "Dynamic menu source. The command must print a JSON array of menuBarItem objects. Generated output cannot contain another source."
             },
             "action": {
               "type": "string",
@@ -934,6 +945,40 @@
           }
         }
       ]
+    },
+    "menuBarSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["command"],
+          "default": "command",
+          "description": "Dynamic source kind. Only command is supported."
+        },
+        "command": {
+          "type": "string",
+          "description": "Bash command run from the selected workspace directory. stdout must be a JSON array of menuBarItem values."
+        },
+        "refresh": {
+          "type": "string",
+          "enum": ["onOpen", "manual", "onConfigReload", "interval"],
+          "default": "onOpen",
+          "description": "When cmux runs this source."
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 5,
+          "description": "Maximum runtime before cmux terminates the command."
+        },
+        "intervalSeconds": {
+          "type": "number",
+          "minimum": 10,
+          "description": "Required when refresh is interval. cmux only runs interval sources automatically after the source has already been trusted or when it comes from global config."
+        }
+      }
     },
     "shortcutBinding": {
       "oneOf": [

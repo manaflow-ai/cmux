@@ -3342,9 +3342,11 @@ class TerminalController {
         let identifyPayload = v2Identify(params: [:])
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         var windowNodes: [[String: Any]] = []
+        var dynamicMenus: [[String: Any]] = []
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
+            dynamicMenus = app.configuredDynamicMenuTaskManagerPayload()
 
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
@@ -3371,19 +3373,25 @@ class TerminalController {
         }.value
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes
-        let totalPIDs = v2AnnotateTopWindows(
+        var totalPIDs = v2AnnotateTopWindows(
             &annotatedWindows,
             processSnapshot: processSnapshot,
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        totalPIDs.formUnion(v2AnnotateTopDynamicMenus(
+            &dynamicMenus,
+            processSnapshot: processSnapshot,
+            includeProcesses: includeProcesses
+        ))
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "windows": annotatedWindows
+            "windows": annotatedWindows,
+            "dynamic_menus": dynamicMenus
         ]
     }
 
@@ -3395,21 +3403,28 @@ class TerminalController {
         guard case .ok(let value) = base else { return base }
         guard var payload = value as? [String: Any],
               let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
+              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]],
+              var dynamicMenus = payload.removeValue(forKey: "dynamic_menus") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
         }
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        let totalPIDs = v2AnnotateTopWindows(
+        var totalPIDs = v2AnnotateTopWindows(
             &windowNodes,
             processSnapshot: processSnapshot,
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        totalPIDs.formUnion(v2AnnotateTopDynamicMenus(
+            &dynamicMenus,
+            processSnapshot: processSnapshot,
+            includeProcesses: includeProcesses
+        ))
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
         payload["windows"] = windowNodes
+        payload["dynamic_menus"] = dynamicMenus
         return .ok(payload)
     }
 
@@ -3434,10 +3449,14 @@ class TerminalController {
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var dynamicMenus: [[String: Any]] = []
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
             let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            if workspaceFilter == nil {
+                dynamicMenus = app.configuredDynamicMenuTaskManagerPayload()
+            }
 
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
@@ -3504,7 +3523,8 @@ class TerminalController {
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
             "caller": caller.isEmpty ? (NSNull() as Any) : caller,
             "include_processes": includeProcesses,
-            "windows": windowNodes
+            "windows": windowNodes,
+            "dynamic_menus": dynamicMenus
         ])
     }
 

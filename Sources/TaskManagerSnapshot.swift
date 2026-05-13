@@ -34,6 +34,10 @@ struct CmuxTaskManagerSnapshot {
         for window in windows {
             Self.appendWindow(window, to: &rows)
         }
+        let dynamicMenus = payload["dynamic_menus"] as? [[String: Any]] ?? []
+        if !dynamicMenus.isEmpty {
+            Self.appendDynamicMenus(dynamicMenus, to: &rows)
+        }
         self.rows = rows
     }
 
@@ -57,6 +61,52 @@ struct CmuxTaskManagerSnapshot {
         let workspaces = window["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
             appendWorkspace(workspace, to: &rows)
+        }
+    }
+
+    private static func appendDynamicMenus(_ dynamicMenus: [[String: Any]], to rows: inout [CmuxTaskManagerRow]) {
+        let totalResources = dynamicMenus.reduce(CmuxTaskManagerResources.zero) { partial, menu in
+            let resources = CmuxTaskManagerResources(menu["resources"] as? [String: Any] ?? [:])
+            return CmuxTaskManagerResources(
+                cpuPercent: partial.cpuPercent + resources.cpuPercent,
+                residentBytes: partial.residentBytes + resources.residentBytes,
+                processCount: partial.processCount + resources.processCount,
+                processIds: partial.processIds + resources.processIds
+            )
+        }
+        rows.append(CmuxTaskManagerRow(
+            id: "dynamicMenuSection:configured",
+            kind: .dynamicMenuSection,
+            level: 0,
+            title: String(localized: "taskManager.row.dynamicMenus", defaultValue: "Dynamic Menus"),
+            detail: String(
+                format: String(localized: "taskManager.row.dynamicMenus.count", defaultValue: "%d sources"),
+                dynamicMenus.count
+            ),
+            resources: totalResources,
+            isDimmed: false,
+            workspaceId: nil,
+            surfaceId: nil,
+            terminalSurfaceId: nil,
+            processId: nil,
+            rootProcessIds: dynamicMenus.flatMap { intArray($0["root_pids"]) },
+            foregroundProcessGroupIds: [],
+            agentAssetName: nil
+        ))
+
+        for menu in dynamicMenus {
+            let title = nonEmptyString(menu["title"])
+                ?? String(localized: "taskManager.row.dynamicMenu", defaultValue: "Dynamic Menu")
+            rows.append(row(
+                menu,
+                kind: .dynamicMenuSource,
+                level: 1,
+                title: title,
+                detail: nonEmptyString(menu["detail"]) ?? "",
+                isDimmed: nonEmptyString(menu["state"]) != "running",
+                processId: int(menu["active_pid"]),
+                rootProcessIds: intArray(menu["root_pids"])
+            ))
         }
     }
 

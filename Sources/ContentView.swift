@@ -7078,6 +7078,12 @@ struct ContentView: View {
                 defaultValue: "%@ '%@' must reference a workspace command"
             )
             return String(format: format, issue.settingName, issue.commandName ?? "")
+        case .menuBarInvalidMenu:
+            let format = String(
+                localized: "command.cmuxConfig.issue.menuBarInvalidMenu.detail",
+                defaultValue: "%@: %@"
+            )
+            return String(format: format, issue.settingName, issue.message ?? "")
         }
     }
 

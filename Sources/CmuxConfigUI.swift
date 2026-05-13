@@ -39,26 +39,223 @@ struct CmuxMenuBarUIDefinition: Codable, Sendable, Hashable {
 
 struct CmuxConfigMenuDefinition: Codable, Sendable, Hashable {
     var id: String?
-    var title: String
+    var title: String?
+    var extends: String?
     var items: [CmuxConfigMenuBarItem]
 
     private enum CodingKeys: String, CodingKey {
         case id
         case title
+        case extends
         case items
     }
 
     init(id: String? = nil, title: String, items: [CmuxConfigMenuBarItem] = []) {
         self.id = id
         self.title = title
+        self.extends = nil
+        self.items = items
+    }
+
+    init(id: String? = nil, extends: String, items: [CmuxConfigMenuBarItem] = []) {
+        self.id = id
+        self.title = nil
+        self.extends = extends
         self.items = items
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try Self.trimmedString(forKey: .id, in: container, allowBlankAsNil: true)
-        title = try Self.requiredTrimmedString(forKey: .title, in: container)
+        title = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
+        extends = try Self.trimmedString(forKey: .extends, in: container, allowBlankAsNil: true)
+        guard title != nil || extends != nil else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.title,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "menuBar menus require either title or extends"
+                )
+            )
+        }
         items = try container.decodeIfPresent([CmuxConfigMenuBarItem].self, forKey: .items) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(extends, forKey: .extends)
+        try container.encode(items, forKey: .items)
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>,
+        allowBlankAsNil: Bool = false
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let raw = try container.decode(String.self, forKey: key)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            if allowBlankAsNil { return nil }
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return trimmed
+    }
+}
+
+enum CmuxConfigMenuBarSourceRefresh: String, Codable, Sendable, Hashable {
+    case onOpen
+    case manual
+    case onConfigReload
+    case interval
+}
+
+struct CmuxConfigMenuBarSourceDefinition: Codable, Sendable, Hashable {
+    var type: String
+    var command: String
+    var refresh: CmuxConfigMenuBarSourceRefresh?
+    var timeoutSeconds: Double?
+    var intervalSeconds: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case command
+        case refresh
+        case timeoutSeconds
+        case intervalSeconds
+    }
+
+    init(
+        type: String = "command",
+        command: String,
+        refresh: CmuxConfigMenuBarSourceRefresh? = nil,
+        timeoutSeconds: Double? = nil,
+        intervalSeconds: Double? = nil
+    ) {
+        self.type = type
+        self.command = command
+        self.refresh = refresh
+        self.timeoutSeconds = timeoutSeconds
+        self.intervalSeconds = intervalSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try Self.trimmedString(forKey: .type, in: container, allowBlankAsNil: true) ?? "command"
+        guard type == "command" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "menuBar source type must be 'command'"
+            )
+        }
+        command = try Self.requiredTrimmedString(forKey: .command, in: container)
+        refresh = try container.decodeIfPresent(CmuxConfigMenuBarSourceRefresh.self, forKey: .refresh)
+        timeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .timeoutSeconds)
+        intervalSeconds = try container.decodeIfPresent(Double.self, forKey: .intervalSeconds)
+        if let timeoutSeconds, !timeoutSeconds.isFinite || timeoutSeconds <= 0 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .timeoutSeconds,
+                in: container,
+                debugDescription: "menuBar source timeoutSeconds must be greater than zero"
+            )
+        }
+        if let intervalSeconds, !intervalSeconds.isFinite || intervalSeconds < 10 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .intervalSeconds,
+                in: container,
+                debugDescription: "menuBar source intervalSeconds must be at least 10"
+            )
+        }
+        if refresh == .interval, intervalSeconds == nil {
+            throw DecodingError.keyNotFound(
+                CodingKeys.intervalSeconds,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "menuBar interval sources require intervalSeconds"
+                )
+            )
+        }
+    }
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        guard let value = try trimmedString(forKey: key, in: container) else {
+            throw DecodingError.keyNotFound(
+                key,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "\(key.stringValue) is required"
+                )
+            )
+        }
+        return value
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>,
+        allowBlankAsNil: Bool = false
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let raw = try container.decode(String.self, forKey: key)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            if allowBlankAsNil { return nil }
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return trimmed
+    }
+}
+
+struct CmuxConfigMenuBarDynamicItem: Codable, Sendable, Hashable {
+    var id: String?
+    var title: String
+    var source: CmuxConfigMenuBarSourceDefinition
+    var icon: CmuxButtonIcon?
+    var tooltip: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case source
+        case icon
+        case tooltip
+    }
+
+    init(
+        id: String? = nil,
+        title: String,
+        source: CmuxConfigMenuBarSourceDefinition,
+        icon: CmuxButtonIcon? = nil,
+        tooltip: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.source = source
+        self.icon = icon
+        self.tooltip = tooltip
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try Self.trimmedString(forKey: .id, in: container, allowBlankAsNil: true)
+        title = try Self.requiredTrimmedString(forKey: .title, in: container)
+        source = try container.decode(CmuxConfigMenuBarSourceDefinition.self, forKey: .source)
+        icon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
+        tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
     }
 
     private static func requiredTrimmedString(
@@ -240,12 +437,14 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
 indirect enum CmuxConfigMenuBarItem: Codable, Sendable, Hashable {
     case action(CmuxConfigMenuBarActionItem)
     case submenu(CmuxConfigMenuDefinition)
+    case dynamic(CmuxConfigMenuBarDynamicItem)
     case separator
 
     private enum CodingKeys: String, CodingKey {
         case type
         case title
         case items
+        case source
     }
 
     init(from decoder: Decoder) throws {
@@ -274,6 +473,10 @@ indirect enum CmuxConfigMenuBarItem: Codable, Sendable, Hashable {
             self = .separator
             return
         }
+        if container.contains(.source) || rawType == "source" || rawType == "dynamic" {
+            self = .dynamic(try CmuxConfigMenuBarDynamicItem(from: decoder))
+            return
+        }
         if container.contains(.items) || rawType == "menu" || rawType == "submenu" {
             self = .submenu(try CmuxConfigMenuDefinition(from: decoder))
             return
@@ -287,6 +490,8 @@ indirect enum CmuxConfigMenuBarItem: Codable, Sendable, Hashable {
             try item.encode(to: encoder)
         case .submenu(let menu):
             try menu.encode(to: encoder)
+        case .dynamic(let item):
+            try item.encode(to: encoder)
         case .separator:
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode("separator", forKey: .type)
@@ -528,13 +733,31 @@ enum CmuxResolvedConfigContextMenuItem: Identifiable, Sendable, Hashable {
 
 struct CmuxResolvedMenuBarMenu: Identifiable, Sendable, Hashable {
     var id: String
+    var configID: String
     var title: String
     var items: [CmuxResolvedMenuBarItem]
+}
+
+struct CmuxResolvedMenuBarExtension: Identifiable, Sendable, Hashable {
+    var id: String
+    var targetID: String
+    var items: [CmuxResolvedMenuBarItem]
+}
+
+struct CmuxResolvedMenuBarDynamicSource: Identifiable, Sendable, Hashable {
+    var id: String
+    var title: String
+    var icon: CmuxButtonIcon?
+    var tooltip: String?
+    var source: CmuxConfigMenuBarSourceDefinition
+    var settingName: String
+    var settingSourcePath: String?
 }
 
 indirect enum CmuxResolvedMenuBarItem: Identifiable, Sendable, Hashable {
     case action(CmuxResolvedConfigMenuAction)
     case submenu(CmuxResolvedMenuBarMenu)
+    case dynamicSource(CmuxResolvedMenuBarDynamicSource)
     case separator(id: String)
 
     var id: String {
@@ -543,6 +766,8 @@ indirect enum CmuxResolvedMenuBarItem: Identifiable, Sendable, Hashable {
             return action.id
         case .submenu(let menu):
             return menu.id
+        case .dynamicSource(let source):
+            return source.id
         case .separator(let id):
             return id
         }
