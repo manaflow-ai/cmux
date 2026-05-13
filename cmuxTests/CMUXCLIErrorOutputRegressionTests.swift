@@ -19,6 +19,18 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
+    func testUseCommandRejectsNoRunWithCommandOverrideBeforeRepositoryResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runShell(
+            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use not-a-github-repo --command \"./start.sh\" --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("cannot be used with --no-run"), result.stdout)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
