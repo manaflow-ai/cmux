@@ -463,6 +463,7 @@ extension Workspace {
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
+                terminalSessionId: terminalPanel.surface.terminalSessionId,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand
@@ -789,6 +790,7 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
+            let terminalSessionId = snapshot.terminal?.terminalSessionId ?? snapshot.id
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -796,7 +798,8 @@ extension Workspace {
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredAgentResumeInput,
-                startupEnvironment: replayEnvironment
+                startupEnvironment: replayEnvironment,
+                terminalSessionId: terminalSessionId
             ) else {
                 return nil
             }
@@ -10172,7 +10175,8 @@ final class Workspace: Identifiable, ObservableObject {
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        terminalSessionId: UUID? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10195,6 +10199,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
+            terminalSessionId: terminalSessionId,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,

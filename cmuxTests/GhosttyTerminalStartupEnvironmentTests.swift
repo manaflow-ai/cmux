@@ -30,6 +30,53 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
     }
 
+    func testApplyManagedTerminalSessionEnvironmentSetsAtuinCompatibleStableIds() {
+        let terminalSessionId = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        var environment = [
+            "TERM_SESSION_ID": "stale-terminal-session",
+            "CMUX_PANE_ID": "stale-pane"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalSessionEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys,
+            terminalSessionId: terminalSessionId
+        )
+
+        XCTAssertEqual(environment["TERM_SESSION_ID"], terminalSessionId.uuidString)
+        XCTAssertEqual(environment["CMUX_PANE_ID"], terminalSessionId.uuidString)
+        XCTAssertTrue(protectedKeys.contains("TERM_SESSION_ID"))
+        XCTAssertTrue(protectedKeys.contains("CMUX_PANE_ID"))
+    }
+
+    func testMergedStartupEnvironmentProtectsManagedTerminalSessionKeys() {
+        let terminalSessionId = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        var baseEnvironment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+        TerminalSurface.applyManagedTerminalSessionEnvironment(
+            to: &baseEnvironment,
+            protectedKeys: &protectedKeys,
+            terminalSessionId: terminalSessionId
+        )
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: baseEnvironment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [
+                "TERM_SESSION_ID": "additional-terminal-session",
+                "CMUX_PANE_ID": "additional-pane"
+            ],
+            initialEnvironmentOverrides: [
+                "TERM_SESSION_ID": "override-terminal-session",
+                "CMUX_PANE_ID": "override-pane"
+            ]
+        )
+
+        XCTAssertEqual(merged["TERM_SESSION_ID"], terminalSessionId.uuidString)
+        XCTAssertEqual(merged["CMUX_PANE_ID"], terminalSessionId.uuidString)
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(

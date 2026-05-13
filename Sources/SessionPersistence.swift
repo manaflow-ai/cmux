@@ -223,6 +223,7 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
+    var terminalSessionId: UUID? = nil
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?

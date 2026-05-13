@@ -26,6 +26,18 @@ extension TerminalSurface {
         protectedKeys.insert("TERM_PROGRAM")
     }
 
+    static func applyManagedTerminalSessionEnvironment(
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        terminalSessionId: UUID
+    ) {
+        let value = terminalSessionId.uuidString
+        environment["TERM_SESSION_ID"] = value
+        protectedKeys.insert("TERM_SESSION_ID")
+        environment["CMUX_PANE_ID"] = value
+        protectedKeys.insert("CMUX_PANE_ID")
+    }
+
     static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,
