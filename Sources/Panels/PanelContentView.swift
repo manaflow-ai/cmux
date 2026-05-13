@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Bonsplit
+import AppKit
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -61,6 +62,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -97,5 +99,55 @@ struct PanelContentView: View {
         case .terminal, .browser:
             return false
         }
+    }
+}
+
+struct PanelFilePathHeader<TrailingContent: View>: View {
+    let iconSystemName: String
+    let filePath: String
+    let backgroundColor: NSColor
+    let foregroundColor: NSColor
+    @ViewBuilder let trailingContent: () -> TrailingContent
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: iconSystemName)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(filePath)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            trailingContent()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Color(nsColor: backgroundColor))
+    }
+}
+
+struct PanelHeaderIconButton: View {
+    let systemName: String
+    let label: String
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 13, height: 13)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
