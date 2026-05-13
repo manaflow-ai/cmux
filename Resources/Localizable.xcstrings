@@ -268,13 +268,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux remote-shell-init\n\nPrint a bash/zsh snippet for remote shells opened inside a regular cmux terminal pane.\nSource it on the remote host to emit OSC 7 cwd and git branch hints over ssh or mosh.\n\nExample:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+            "value": "Usage: cmux remote-shell-init\n\nPrint a bash/zsh snippet for remote shells opened inside a regular cmux terminal pane.\nSource it on the remote host to emit OSC 7 cwd and git branch hints over ssh or mosh.\nSet CMUX_REMOTE_HOST=name before sourcing to override the displayed host.\nSet CMUX_REMOTE_DISABLE_GIT=1 before sourcing to emit cwd only.\n\nExample:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux remote-shell-init\n\n通常の cmux ターミナルペイン内で開いたリモートシェル用の bash/zsh スニペットを出力します。\nリモートホストで source すると、ssh または mosh 越しに OSC 7 の cwd と git ブランチヒントを送信します。\n\n例:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+            "value": "使い方: cmux remote-shell-init\n\n通常の cmux ターミナルペイン内で開いたリモートシェル用の bash/zsh スニペットを出力します。\nリモートホストで source すると、ssh または mosh 越しに OSC 7 の cwd と git ブランチヒントを送信します。\n表示ホスト名を上書きするには、source する前に CMUX_REMOTE_HOST=name を設定します。\ncwd のみを送信するには、source する前に CMUX_REMOTE_DISABLE_GIT=1 を設定します。\n\n例:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
           }
         }
       }

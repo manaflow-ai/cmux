@@ -74,11 +74,7 @@ enum RemoteShellIntegrationSnippet {
 
         __cmux_remote_report_prompt() {
           local host escaped_pwd query
-          if [ -n "${CMUX_REMOTE_HOST:-}" ]; then
-            host="$(printf '%s' "$CMUX_REMOTE_HOST" | __cmux_strip_control_chars)"
-          else
-            host="${__cmux_remote_host_cached:-remote}"
-          fi
+          host="${__cmux_remote_host_cached:-remote}"
           [ -n "$host" ] || host=remote
           host="$(__cmux_remote_uri_escape "$host")"
           escaped_pwd="$(__cmux_remote_path_escape "$(printf '%s' "${PWD:-/}" | __cmux_strip_control_chars)")"

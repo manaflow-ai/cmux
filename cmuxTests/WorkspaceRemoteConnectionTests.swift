@@ -161,10 +161,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         set -e
         original_path="$PATH"
         cd "\(project.path)"
-        \(RemoteShellIntegrationSnippet.script())
         CMUX_REMOTE_HOST='remote[host]'
         CMUX_REMOTE_DISABLE_GIT=1
         export CMUX_REMOTE_HOST CMUX_REMOTE_DISABLE_GIT
+        \(RemoteShellIntegrationSnippet.script())
         output="$(__cmux_remote_report_prompt)"
         if [ "$PATH" != "$original_path" ]; then
           print -r -- "PATH_CHANGED=$PATH"
@@ -310,6 +310,27 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("count=1"), result.stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetCapturesHostOverrideWhenSourced() throws {
+        let script = """
+        set -e
+        CMUX_REMOTE_HOST=initial-host
+        export CMUX_REMOTE_HOST
+        \(RemoteShellIntegrationSnippet.script())
+        CMUX_REMOTE_HOST=later-host
+        export CMUX_REMOTE_HOST
+        CMUX_REMOTE_DISABLE_GIT=1
+        export CMUX_REMOTE_DISABLE_GIT
+        __cmux_remote_report_prompt
+        """
+
+        let result = runIsolatedShell(script: script)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("\u{1B}]7;file://initial-host/"), result.stdout.debugDescription)
+        XCTAssertFalse(result.stdout.contains("later-host"), result.stdout.debugDescription)
     }
 
     func testRemoteShellSnippetPreservesBashPromptCommandArray() throws {
