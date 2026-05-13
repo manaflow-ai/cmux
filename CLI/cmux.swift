@@ -13045,6 +13045,22 @@ struct CMUXCLI {
             }
             return false
         }
+
+        func canResumeThread(threadId: String) -> Bool {
+            do {
+                _ = try request(
+                    method: "thread/resume",
+                    params: [
+                        "threadId": threadId,
+                        "excludeTurns": true
+                    ],
+                    notificationHandler: nil
+                )
+                return true
+            } catch {
+                return false
+            }
+        }
     }
 
     private final class CodexTeamsWatcher {
@@ -13107,7 +13123,7 @@ struct CMUXCLI {
                 method: "thread/loaded/list",
                 params: ["limit": 200],
                 notificationHandler: { [weak self] message in
-                    try self?.handleNotification(message)
+                    try self?.handleNotification(message, connection: connection)
                 }
             )
             let threadIds = loaded["data"] as? [String] ?? []
@@ -13119,17 +13135,17 @@ struct CMUXCLI {
                         "includeTurns": false
                     ],
                     notificationHandler: { [weak self] message in
-                        try self?.handleNotification(message)
+                        try self?.handleNotification(message, connection: connection)
                     }
                 )
                 if let threadObject = read["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThread(thread)
+                    try observeThread(thread, connection: connection)
                 }
             }
         }
 
-        private func handleNotification(_ message: [String: Any]) throws {
+        private func handleNotification(_ message: [String: Any], connection: CodexTeamsAppServerConnection) throws {
             guard let method = message["method"] as? String else { return }
             guard method == "thread/started",
                   let params = message["params"] as? [String: Any],
@@ -13137,16 +13153,16 @@ struct CMUXCLI {
                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
                 return
             }
-            try observeThread(thread)
+            try observeThread(thread, connection: connection)
         }
 
-        private func observeThread(_ thread: CodexTeamsThread) throws {
+        private func observeThread(_ thread: CodexTeamsThread, connection: CodexTeamsAppServerConnection) throws {
             if knownThreadIds.contains(thread.id) {
                 if let spawn = thread.spawn {
                     if parentByThreadId[thread.id] == nil {
-                        try observeSpawn(thread, spawn: spawn)
+                        try observeSpawn(thread, spawn: spawn, connection: connection)
                     } else if !openedThreadIds.contains(thread.id) {
-                        try openObservedSubagent(thread, spawn: spawn)
+                        try openObservedSubagent(thread, spawn: spawn, connection: connection)
                     }
                 }
                 return
@@ -13154,15 +13170,19 @@ struct CMUXCLI {
 
             knownThreadIds.insert(thread.id)
             if let spawn = thread.spawn {
-                try observeSpawn(thread, spawn: spawn)
+                try observeSpawn(thread, spawn: spawn, connection: connection)
             } else {
                 depthByThreadId[thread.id] = 0
             }
 
-            try drainPendingChildren(parentThreadId: thread.id)
+            try drainPendingChildren(parentThreadId: thread.id, connection: connection)
         }
 
-        private func observeSpawn(_ thread: CodexTeamsThread, spawn: CodexTeamsSpawn) throws {
+        private func observeSpawn(
+            _ thread: CodexTeamsThread,
+            spawn: CodexTeamsSpawn,
+            connection: CodexTeamsAppServerConnection
+        ) throws {
             parentByThreadId[thread.id] = spawn.parentThreadId
             guard knownThreadIds.contains(spawn.parentThreadId) else {
                 if pendingThreadIds.insert(thread.id).inserted {
@@ -13171,27 +13191,33 @@ struct CMUXCLI {
                 return
             }
             pendingThreadIds.remove(thread.id)
-            try openObservedSubagent(thread, spawn: spawn)
+            try openObservedSubagent(thread, spawn: spawn, connection: connection)
         }
 
-        private func drainPendingChildren(parentThreadId: String) throws {
+        private func drainPendingChildren(parentThreadId: String, connection: CodexTeamsAppServerConnection) throws {
             guard let pending = pendingByParentThreadId.removeValue(forKey: parentThreadId) else {
                 return
             }
             for child in pending {
                 pendingThreadIds.remove(child.id)
                 guard let spawn = child.spawn else { continue }
-                try openObservedSubagent(child, spawn: spawn)
-                try drainPendingChildren(parentThreadId: child.id)
+                try openObservedSubagent(child, spawn: spawn, connection: connection)
+                try drainPendingChildren(parentThreadId: child.id, connection: connection)
             }
         }
 
-        private func openObservedSubagent(_ thread: CodexTeamsThread, spawn: CodexTeamsSpawn) throws {
+        private func openObservedSubagent(
+            _ thread: CodexTeamsThread,
+            spawn: CodexTeamsSpawn,
+            connection: CodexTeamsAppServerConnection
+        ) throws {
             let parentDepth = depthByThreadId[spawn.parentThreadId]
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
             depthByThreadId[thread.id] = depth
             guard depth <= maxAutoDepth else { return }
             guard !openedThreadIds.contains(thread.id) else { return }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            guard connection.canResumeThread(threadId: thread.id) else { return }
 
             do {
                 try openSubagent(thread, spawn: spawn, depth: depth)
@@ -13282,6 +13308,17 @@ struct CMUXCLI {
         return status["type"] as? String
     }
 
+    private static func codexTeamsThreadMayBeAttachable(_ thread: CodexTeamsThread) -> Bool {
+        guard let statusType = thread.statusType?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !statusType.isEmpty else {
+            return false
+        }
+        let normalized = statusType
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        return normalized != "notloaded"
+    }
+
     private static func codexTeamsSpawn(from threadObject: [String: Any]) -> CodexTeamsSpawn? {
         guard let source = threadObject["source"] as? [String: Any] else { return nil }
         let subagentSource = source["subAgent"] ?? source["subagent"]
@@ -13343,29 +13380,12 @@ struct CMUXCLI {
             .appendingPathComponent("cmux-codex-teams-\(UUID().uuidString.lowercased()).sh")
         var lines = [
             "#!/bin/sh",
-            "rm -f -- \"$0\" 2>/dev/null || true",
-            "attempt=1"
+            "rm -f -- \"$0\" 2>/dev/null || true"
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
             lines.append("cd -- \(codexTeamsShellQuote(cwd)) || exit $?")
         }
-        lines.append("""
-        while :; do
-          if [ "$attempt" -gt 1 ]; then
-            printf 'Waiting for Codex subagent thread to become attachable (attempt %s)...\\n' "$attempt"
-          fi
-          "${SHELL:-/bin/sh}" -lc \(codexTeamsShellQuote(commandText))
-          status=$?
-          if [ "$status" -eq 0 ]; then
-            exit 0
-          fi
-          if [ "$attempt" -ge 300 ]; then
-            exit "$status"
-          fi
-          attempt=$((attempt + 1))
-          sleep 1
-        done
-        """)
+        lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
         do {
             try (lines.joined(separator: "\n") + "\n").write(
                 to: scriptURL,
