@@ -404,6 +404,87 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexFeedHookNormalizesPlanUpdatedFramesToTodos() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-plan-feed")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            XCTAssertEqual(method, "feed.push")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual((params["wait_timeout_seconds"] as? NSNumber)?.doubleValue, 0.0)
+            let event = params["event"] as? [String: Any] ?? [:]
+            XCTAssertEqual(event["hook_event_name"] as? String, "TodoWrite")
+            XCTAssertEqual(event["_source"] as? String, "codex")
+            XCTAssertEqual(event["tool_name"] as? String, "update_plan")
+            XCTAssertEqual(event["workspace_id"] as? String, workspaceId)
+
+            let toolInput = event["tool_input"] as? [String: Any] ?? [:]
+            XCTAssertEqual(toolInput["explanation"] as? String, "Plan changed")
+            let todos = toolInput["todos"] as? [[String: Any]] ?? []
+            XCTAssertEqual(todos.count, 3)
+            XCTAssertEqual(todos[0]["content"] as? String, "Research Codex hooks")
+            XCTAssertEqual(todos[0]["status"] as? String, "completed")
+            XCTAssertEqual(todos[1]["content"] as? String, "Patch cmux Feed")
+            XCTAssertEqual(todos[1]["status"] as? String, "in_progress")
+            XCTAssertEqual(todos[2]["content"] as? String, "Open PR")
+            XCTAssertEqual(todos[2]["status"] as? String, "pending")
+
+            return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "codex", "--event", "turn/plan/updated"],
+            environment: environment,
+            standardInput: #"""
+            {
+              "session_id": "codex-plan-session",
+              "cwd": "/tmp/codex-plan",
+              "method": "turn/plan/updated",
+              "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "explanation": "Plan changed",
+                "plan": [
+                  {"step": "Research Codex hooks", "status": "completed"},
+                  {"step": "Patch cmux Feed", "status": "inProgress"},
+                  {"step": "Open PR", "status": "pending"}
+                ]
+              }
+            }
+            """#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(state.commands.count, 1)
+    }
+
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent")
