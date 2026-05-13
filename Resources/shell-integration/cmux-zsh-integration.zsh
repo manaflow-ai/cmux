@@ -319,7 +319,6 @@ _cmux_tmux_cancel_publish_job() {
         kill "$_CMUX_TMUX_PUSH_JOB_PID" >/dev/null 2>&1 || true
     fi
     [[ -n "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" ]] && /bin/rm -f -- "$_CMUX_TMUX_PUSH_SUCCESS_MARKER" >/dev/null 2>&1 || true
-    _CMUX_TMUX_PUSH_SIGNATURE=""
     _CMUX_TMUX_PUSH_PENDING_SIGNATURE=""
     _CMUX_TMUX_PUSH_JOB_PID=""
     _CMUX_TMUX_PUSH_SUCCESS_MARKER=""
@@ -337,10 +336,7 @@ _cmux_tmux_publish_cmux_environment() {
     _cmux_tmux_finish_completed_publish_job
 
     if [[ "$mode" == "sync" ]]; then
-        if [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" && "$signature" != "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]]; then
-            if [[ -n "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] || _cmux_tmux_publish_job_is_running; then
-                _cmux_tmux_cancel_publish_job
-            fi
+        if [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" && -z "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] && ! _cmux_tmux_publish_job_is_running; then
             return 0
         fi
         _cmux_tmux_cancel_publish_job
@@ -350,10 +346,10 @@ _cmux_tmux_publish_cmux_environment() {
     fi
 
     if [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]]; then
-        if [[ -n "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] || _cmux_tmux_publish_job_is_running; then
-            _cmux_tmux_cancel_publish_job
+        if [[ -z "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] && ! _cmux_tmux_publish_job_is_running; then
+            return 0
         fi
-        return 0
+        _cmux_tmux_cancel_publish_job
     fi
     if [[ "$signature" == "$_CMUX_TMUX_PUSH_PENDING_SIGNATURE" ]] && _cmux_tmux_publish_job_is_running; then
         return 0
