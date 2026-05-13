@@ -1470,6 +1470,7 @@ struct ContentView: View {
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
         static let browserDisabled = "browser.disabled"
+        static let supportedFileRoutingDisabled = "filePreview.supportedFileRoutingDisabled"
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
@@ -2176,6 +2177,9 @@ struct ContentView: View {
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
             },
+            onOpenAsPane: { mode in
+                openRightSidebarToolPane(mode)
+            },
             onClose: {
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")
@@ -2293,7 +2297,7 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
-            HStack(spacing: 8) {
+            HStack(spacing: TitlebarFolderIconMetrics.iconTitleSpacing) {
                 if isFullScreen && !sidebarState.isVisible {
                     fullscreenControls
                 }
@@ -2301,8 +2305,11 @@ struct ContentView: View {
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
-                        .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
+                        .frame(
+                            width: TitlebarFolderIconMetrics.iconSize,
+                            height: TitlebarFolderIconMetrics.iconSize
+                        )
+                        .padding(.leading, TitlebarFolderIconMetrics.iconLeadingPadding)
                 }
 
                 Text(titlebarText)
@@ -2432,46 +2439,20 @@ struct ContentView: View {
     }
 
     private func resumeSession(entry: SessionEntry) {
-        guard let resumeCommand = entry.resumeCommand else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
+        SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+    }
 
-        // Smart placement: if the focused workspace's tracked cwd matches, open a
-        // new tab inside that workspace. Otherwise create a new workspace.
-        // Remote workspaces are excluded from cwd-match: a session indexed from
-        // the local filesystem must not be resumed inside a remote shell just
-        // because the path string happens to coincide.
-        let selected = tabManager.selectedWorkspace
-        let selectedTab = tabManager.selectedTabId.flatMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
-        let workspaceCwd = selected?.currentDirectory
-        let pwdMatches: Bool = {
-            guard !isRemoteSelection,
-                  let targetCwd, !targetCwd.isEmpty,
-                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
-            let lhs = (targetCwd as NSString).standardizingPath
-            let rhs = (workspaceCwd as NSString).standardizingPath
-            return lhs == rhs
-        }()
-
-        if pwdMatches,
-           let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: inputWithReturn
-            )
+    func openRightSidebarToolPane(_ mode: RightSidebarMode) {
+        guard mode.canOpenAsPane,
+              let workspace = tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            NSSound.beep()
             return
         }
 
-        tabManager.addWorkspace(
-            workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
-        )
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {
@@ -5847,6 +5828,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
+        case .rightSidebarTool:
+            return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         }
     }
 
@@ -5859,7 +5842,9 @@ struct ContentView: View {
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
-            return ["file", "preview", "text", "pdf", "image"]
+            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
+        case .rightSidebarTool:
+            return ["tool", "files", "find", "vault", "sidebar"]
         }
     }
 
@@ -6022,6 +6007,10 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(
+            CommandPaletteContextKeys.supportedFileRoutingDisabled,
+            !CmdClickSupportedFileRouteSettings.isEnabled()
+        )
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -6285,6 +6274,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleMatchTerminalBackground",
@@ -6398,6 +6388,24 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
                 keywords: ["browser", "enable", "embedded", "open"],
                 when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.disableSupportedFileRouting",
+                title: constant(String(localized: "command.disableSupportedFileRouting.title", defaultValue: "Disable Cmd-click File Previews")),
+                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
+                keywords: ["file", "preview", "disable", "external", "editor", "pdf", "image", "audio", "video"],
+                when: { !$0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.enableSupportedFileRouting",
+                title: constant(String(localized: "command.enableSupportedFileRouting.title", defaultValue: "Enable Cmd-click File Previews")),
+                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
+                keywords: ["file", "preview", "enable", "cmux", "pdf", "image", "audio", "video"],
+                when: { $0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
             )
         )
 
@@ -7172,6 +7180,11 @@ struct ContentView: View {
                 handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
         }
+        for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
+            registry.register(commandId: descriptor.commandId) {
+                handleCommandPaletteRightSidebarToolPane(descriptor.mode)
+            }
+        }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {
             sidebarMatchTerminalBackground.toggle()
         }
@@ -7224,6 +7237,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.enableBrowser") {
             BrowserAvailabilitySettings.setDisabled(false)
+        }
+        registry.register(commandId: "palette.disableSupportedFileRouting") {
+            CmdClickSupportedFileRouteSettings.setEnabled(false)
+        }
+        registry.register(commandId: "palette.enableSupportedFileRouting") {
+            CmdClickSupportedFileRouteSettings.setEnabled(true)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {
