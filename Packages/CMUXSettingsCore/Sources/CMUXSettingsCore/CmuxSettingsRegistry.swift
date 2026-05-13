@@ -26,6 +26,7 @@ public enum CmuxSettingsRegistry {
         case hexColor
         case nullableHexColor
         case stringList
+        case objectList
         case stringDictionary
         case hexColorDictionary
     }
@@ -120,11 +121,13 @@ public enum CmuxSettingsRegistry {
         SettingDefinition(key: "app.appIcon", kind: .enumValue(["automatic", "light", "dark"]), defaultValue: "automatic"),
         SettingDefinition(key: "app.menuBarOnly", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.newWorkspacePlacement", kind: .enumValue(["top", "afterCurrent", "end"]), defaultValue: "afterCurrent"),
+        SettingDefinition(key: "app.workspaceInheritWorkingDirectory", kind: .bool, defaultValue: true),
         SettingDefinition(key: "app.minimalMode", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.keepWorkspaceOpenWhenClosingLastSurface", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.focusPaneOnFirstClick", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.fileDropDefaultBehavior", kind: .enumValue(["text", "preview"]), defaultValue: "text"),
         SettingDefinition(key: "app.preferredEditor", kind: .string(allowEmpty: true), defaultValue: ""),
+        SettingDefinition(key: "app.openSupportedFilesInCmux", kind: .bool, defaultValue: true),
         SettingDefinition(key: "app.openMarkdownInCmuxViewer", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.iMessageMode", kind: .bool, defaultValue: false),
         SettingDefinition(key: "app.reorderOnNotification", kind: .bool, defaultValue: true),
@@ -142,7 +145,10 @@ public enum CmuxSettingsRegistry {
         SettingDefinition(key: "notifications.sound", kind: .enumValue(notificationSoundValues), defaultValue: "default"),
         SettingDefinition(key: "notifications.customSoundFilePath", kind: .string(allowEmpty: true), defaultValue: ""),
         SettingDefinition(key: "notifications.command", kind: .string(allowEmpty: true), defaultValue: ""),
+        SettingDefinition(key: "notifications.hooksMode", kind: .enumValue(["append", "replace"]), defaultValue: "append"),
+        SettingDefinition(key: "notifications.hooks", kind: .objectList, defaultValue: [Any]()),
         SettingDefinition(key: "sidebar.hideAllDetails", kind: .bool, defaultValue: false),
+        SettingDefinition(key: "sidebar.showWorkspaceDescription", kind: .bool, defaultValue: true),
         SettingDefinition(key: "sidebar.branchLayout", kind: .enumValue(["vertical", "inline"]), defaultValue: "vertical"),
         SettingDefinition(key: "sidebar.showNotificationMessage", kind: .bool, defaultValue: true),
         SettingDefinition(key: "sidebar.showBranchDirectory", kind: .bool, defaultValue: true),
@@ -364,6 +370,11 @@ public enum CmuxSettingsRegistry {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             return try normalizeJSONValue(values, for: definition)
+        case .objectList:
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
+            throw ValidationError(message: "\(definition.key) expects a JSON array value")
         case .stringDictionary, .hexColorDictionary:
             if let jsonValue = parseJSONLiteral(raw) {
                 return try normalizeJSONValue(jsonValue, for: definition)
@@ -375,12 +386,12 @@ public enum CmuxSettingsRegistry {
     public static func normalizeJSONValue(_ value: Any, for definition: SettingDefinition) throws -> Any {
         switch definition.kind {
         case .bool:
-            guard let bool = value as? Bool else {
+            guard let bool = booleanValue(value) else {
                 throw ValidationError(message: "\(definition.key) expects a boolean")
             }
             return bool
         case let .int(min):
-            guard let int = numericInt(value), !(value is Bool) else {
+            guard let int = numericInt(value), booleanValue(value) == nil else {
                 throw ValidationError(message: "\(definition.key) expects an integer")
             }
             if let min, int < min {
@@ -388,7 +399,7 @@ public enum CmuxSettingsRegistry {
             }
             return int
         case let .double(min, max):
-            guard let double = numericDouble(value), !(value is Bool) else {
+            guard let double = numericDouble(value), booleanValue(value) == nil else {
                 throw ValidationError(message: "\(definition.key) expects a number")
             }
             if let min, double < min {
@@ -448,6 +459,21 @@ public enum CmuxSettingsRegistry {
                 }
                 return string.trimmingCharacters(in: .whitespacesAndNewlines)
             }.filter { !$0.isEmpty }
+        case .objectList:
+            guard let rawValues = value as? [Any] else {
+                throw ValidationError(message: "\(definition.key) expects an array of objects")
+            }
+            var normalized: [[String: Any]] = []
+            for (index, value) in rawValues.enumerated() {
+                guard let object = value as? [String: Any] else {
+                    throw ValidationError(message: "\(definition.key)[\(index)] expects an object")
+                }
+                if definition.key == "notifications.hooks" {
+                    try validateNotificationHook(object, key: definition.key, index: index)
+                }
+                normalized.append(object)
+            }
+            return normalized
         case .stringDictionary:
             guard let raw = value as? [String: Any] else {
                 throw ValidationError(message: "\(definition.key) expects an object")
@@ -515,6 +541,48 @@ public enum CmuxSettingsRegistry {
         if let int = value as? Int { return Double(int) }
         if let number = value as? NSNumber { return number.doubleValue }
         return nil
+    }
+
+    private static func booleanValue(_ value: Any) -> Bool? {
+        if let number = value as? NSNumber {
+            guard CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() else {
+                return nil
+            }
+            return number.boolValue
+        }
+        return value as? Bool
+    }
+
+    private static func validateNotificationHook(
+        _ object: [String: Any],
+        key: String,
+        index: Int
+    ) throws {
+        let allowedKeys: Set<String> = ["id", "command", "timeoutSeconds", "enabled"]
+        let unknownKeys = Set(object.keys).subtracting(allowedKeys)
+        if let unknownKey = unknownKeys.sorted().first {
+            throw ValidationError(message: "\(key)[\(index)].\(unknownKey) is not supported")
+        }
+        for requiredKey in ["id", "command"] {
+            guard let string = object[requiredKey] as? String,
+                  !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ValidationError(message: "\(key)[\(index)].\(requiredKey) expects a non-empty string")
+            }
+        }
+        if let timeout = object["timeoutSeconds"] {
+            guard let double = numericDouble(timeout),
+                  booleanValue(timeout) == nil,
+                  double.isFinite,
+                  double > 0 else {
+                throw ValidationError(message: "\(key)[\(index)].timeoutSeconds must be greater than 0")
+            }
+        }
+        if let enabled = object["enabled"], booleanValue(enabled) == nil {
+            throw ValidationError(message: "\(key)[\(index)].enabled expects a boolean")
+        }
+        guard JSONSerialization.isValidJSONObject(["value": [object]]) else {
+            throw ValidationError(message: "\(key)[\(index)] must be JSON-serializable")
+        }
     }
 }
 

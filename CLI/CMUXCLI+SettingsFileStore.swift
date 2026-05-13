@@ -106,7 +106,9 @@ extension CMUXCLI {
                     ?? CmuxSettingsRegistry.shortcutActionsByName[rawAction.lowercased()] else {
                     continue
                 }
-                let shortcut = try CLIShortcut.parseJSONValue(rawValue, action: definition)
+                guard let shortcut = try? CLIShortcut.parseJSONValue(rawValue, action: definition) else {
+                    continue
+                }
                 result[definition.action] = shortcut.configString
             }
             return result
@@ -275,7 +277,7 @@ extension CMUXCLI {
             if let string = value as? String {
                 return string
             }
-            if let bool = value as? Bool {
+            if let bool = booleanValue(value) {
                 return bool ? "true" : "false"
             }
             if let number = value as? NSNumber {
@@ -360,8 +362,10 @@ extension CMUXCLI {
             var result: [(path: [String], value: Any)] = []
             for (key, value) in root {
                 let path = prefix + [key]
+                let registryKey = path.joined(separator: ".")
                 if let dictionary = value as? [String: Any],
-                   !dictionary.isEmpty {
+                   !dictionary.isEmpty,
+                   CmuxSettingsRegistry.definitionsByKey[registryKey] == nil {
                     result.append(contentsOf: flattenForTomlExport(dictionary, prefix: path))
                 } else {
                     result.append((path, value))
@@ -396,10 +400,10 @@ extension CMUXCLI {
             if value is NSNull {
                 throw CLIError(message: "TOML format does not support null values; use --format json for settings with null values")
             }
-            if let bool = value as? Bool {
+            if let bool = booleanValue(value) {
                 return bool ? "true" : "false"
             }
-            if let number = value as? NSNumber, !(value is Bool) {
+            if let number = value as? NSNumber {
                 return number.stringValue
             }
             if let string = value as? String {
@@ -415,6 +419,16 @@ extension CMUXCLI {
                 throw CLIError(message: "TOML format does not support complex array values; use --format json for settings with complex array values")
             }
             return "\"\(escapeToml(String(describing: value)))\""
+        }
+
+        private func booleanValue(_ value: Any) -> Bool? {
+            if let number = value as? NSNumber {
+                guard CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() else {
+                    return nil
+                }
+                return number.boolValue
+            }
+            return value as? Bool
         }
 
         private func escapeToml(_ value: String) -> String {

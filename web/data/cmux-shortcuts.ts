@@ -31,6 +31,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Show/hide all cmux windows", ja: "すべてのcmuxウインドウを表示/非表示" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
+      {
+        id: "globalSearch",
+        combos: [["⌥", "⌘", "F"]],
+        description: { en: "Global search", ja: "グローバル検索" },
+        note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
+      },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
       {
         id: "commandPaletteNext",
@@ -47,7 +53,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "newWindow", combos: [["⌘", "⇧", "N"]], description: { en: "New window", ja: "新規ウインドウ" } },
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },
-      { id: "sendFeedback", combos: [["⌥", "⌘", "F"]], description: { en: "Send feedback", ja: "フィードバックを送信" } },
+      {
+        id: "sendFeedback",
+        combos: [],
+        description: { en: "Send feedback", ja: "フィードバックを送信" },
+        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
+      },
       {
         id: "reopenPreviousSession",
         combos: [["⌘", "⇧", "O"]],
@@ -175,6 +186,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "showNotifications", combos: [["⌘", "I"]], description: { en: "Show notifications", ja: "通知を表示" } },
       { id: "jumpToUnread", combos: [["⌘", "⇧", "U"]], description: { en: "Jump to latest unread", ja: "最新の未読へ移動" } },
+      { id: "markOldestUnreadAndJumpNext", combos: [["⌃", "⌘", "U"]], description: { en: "Mark current item as oldest unread and jump to the next latest unread", ja: "現在の項目を最古の未読にして次の最新未読へ移動" } },
       { id: "triggerFlash", combos: [["⌘", "⇧", "H"]], description: { en: "Flash focused panel", ja: "フォーカス中のパネルをフラッシュ" } },
     ],
   },
