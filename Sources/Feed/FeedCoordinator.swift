@@ -537,8 +537,8 @@ private extension FeedCoordinator {
     func cancelNotification(requestId: String) {
         let identifier = "feed.\(requestId)"
         let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
-        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
     }
 }
 
