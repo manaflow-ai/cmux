@@ -179,13 +179,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnostic file saved to ~/.local/state/ghostty/crash/"
+            "value": "Diagnostic file saved to ~/.local/state/cmux/crash/"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "診断ファイルは ~/.local/state/ghostty/crash/ に保存されました"
+            "value": "診断ファイルは ~/.local/state/cmux/crash/ に保存されました"
           }
         }
       }
@@ -9876,6 +9876,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "右サイドバー"
+          }
+        }
+      }
+    },
+    "command.openRightSidebarToolAsPane.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        }
+      }
+    },
+    "command.openFilesPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Files as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをペインで開く"
+          }
+        }
+      }
+    },
+    "command.openFindPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Find as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をペインで開く"
+          }
+        }
+      }
+    },
+    "command.openVaultPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Vault as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaultをペインで開く"
           }
         }
       }
@@ -28834,6 +28902,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "마크다운"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.rightSidebarTool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール"
           }
         }
       }
@@ -52555,6 +52640,57 @@
         }
       }
     },
+    "settings.app.workspaceInheritWorkingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit Workspace Working Directory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの作業ディレクトリを継承"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceInheritWorkingDirectory.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースの作業ディレクトリを未設定にして、Ghostty の working-directory 設定を適用します。"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceInheritWorkingDirectory.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces start in the focused workspace's working directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースはフォーカス中のワークスペースの作業ディレクトリで開始します。"
+          }
+        }
+      }
+    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {
@@ -72270,6 +72406,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.newWorkspacePlacement new tab insert position order top bottom end програма загальні параметри поведінка док рядок меню статус бічна панель робочий простір вкладка кольори палітра значок вибрано підсвічування індикатор активний крапка нова Робоча область • %@ Розташування нової робочої області В кінці На початку"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.workspace-inherit-working-directory": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory 作業ディレクトリ 継承 現在 フォーカス Ghostty"
                 }
             }
         }
@@ -105919,6 +106072,40 @@
         }
       }
     },
+    "rightSidebar.openAsPane.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open %@ as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@をペインで開く"
+          }
+        }
+      }
+    },
+    "rightSidebar.openAsPane.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインで開く"
+          }
+        }
+      }
+    },
     "rightSidebar.toggle.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -111475,6 +111662,76 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Process" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "shortcut.globalSearch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Global Search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
+      }
+    },
+    "statusMenu.searchAllWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search All Windows..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウを検索..." } }
+      }
+    },
+    "globalSearch.palette.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+      }
+    },
+    "globalSearch.empty.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type to search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力して検索" } }
+      }
+    },
+    "globalSearch.empty.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.noOpenPanels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No open panels" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開いているパネルがありません" } }
+      }
+    },
+    "globalSearch.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ" } }
+      }
+    },
+    "globalSearch.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
+      }
+    },
+    "globalSearch.kind.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Title" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無題" } }
       }
     },
     "cli.rightSidebar.usage": {
