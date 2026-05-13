@@ -328,6 +328,19 @@ jobs:
             echo "No recording file"
             cat /tmp/screencapture.log 2>/dev/null || true
             cat /tmp/ffmpeg.log 2>/dev/null || true
+            BEFORE_SCREENSHOT=/tmp/cmux-configured-menubar-demo-before.png
+            OPEN_SCREENSHOT=/tmp/cmux-configured-menubar-demo-open.png
+            if [ -f "$BEFORE_SCREENSHOT" ] && [ -f "$OPEN_SCREENSHOT" ]; then
+              echo "Creating fallback recording from UI test screenshots"
+              ffmpeg -y \
+                -loop 1 -t 1 -i "$BEFORE_SCREENSHOT" \
+                -loop 1 -t 4 -i "$OPEN_SCREENSHOT" \
+                -filter_complex "[0:v]fps=10,format=yuv420p[v0];[1:v]fps=10,format=yuv420p[v1];[v0][v1]concat=n=2:v=1:a=0[v]" \
+                -map "[v]" /tmp/test-recording.mp4 2>/tmp/fallback-recording.log
+              cat /tmp/fallback-recording.log 2>/dev/null || true
+              ls -lh /tmp/test-recording.mp4
+              exit 0
+            fi
             exit 0
           }
 

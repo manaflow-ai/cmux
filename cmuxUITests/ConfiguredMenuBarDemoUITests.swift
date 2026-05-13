@@ -37,6 +37,9 @@ private let configuredMenuBarLaunchArguments = [
     "-menuBarOnly", "false",
 ]
 
+private let configuredMenuBarDemoBeforeScreenshotPath = "/tmp/cmux-configured-menubar-demo-before.png"
+private let configuredMenuBarDemoOpenScreenshotPath = "/tmp/cmux-configured-menubar-demo-open.png"
+
 final class ConfiguredMenuBarDemoUITests: XCTestCase {
     private var app: XCUIApplication?
     private var configURL: URL?
@@ -69,6 +72,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
             },
             "Expected a cmux window before opening the configured menu"
         )
+        saveDemoScreenshot(path: configuredMenuBarDemoBeforeScreenshotPath)
 
         XCTAssertTrue(
             openConfiguredToolsMenu(in: app, timeout: 12.0),
@@ -78,6 +82,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.menuItems["Nested Commands"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.menuItems["Live Bash Items"].waitForExistence(timeout: 3.0))
+        saveDemoScreenshot(path: configuredMenuBarDemoOpenScreenshotPath)
 
         RunLoop.current.run(until: Date().addingTimeInterval(3.0))
     }
@@ -172,6 +177,11 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         let titles = items.map(\.label).joined(separator: ", ")
         let frames = items.map { NSStringFromRect($0.frame) }.joined(separator: ", ")
         return "Expected configured Tools menu to open. Visible menu count: \(items.count). Titles: \(titles). Frames: \(frames)"
+    }
+
+    private func saveDemoScreenshot(path: String) {
+        let url = URL(fileURLWithPath: path)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: url, options: .atomic)
     }
 
     private func restoreOriginalConfig() {
