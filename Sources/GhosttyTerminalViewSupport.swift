@@ -39,6 +39,15 @@ extension TerminalSurface {
         tmuxStartCommand
     }
 
+    func debugConfigTemplateWaitAfterCommand() -> Bool {
+        configTemplate?.waitAfterCommand ?? false
+    }
+
+    func debugRuntimeWaitAfterCommand(context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT) -> Bool? {
+        guard let surface else { return nil }
+        return cmuxInheritedSurfaceConfig(sourceSurface: surface, context: context).waitAfterCommand
+    }
+
     func debugInitialInputMetadata() -> (hasInitialInput: Bool, byteCount: Int) {
         let byteCount = initialInput?.utf8.count ?? 0
         return (byteCount > 0, byteCount)

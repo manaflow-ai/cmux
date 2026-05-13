@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 import Bonsplit
 
 #if canImport(cmux_DEV)
@@ -18,6 +19,45 @@ private func workspaceSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNod
 
 @MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
+    private func waitForCondition(
+        timeout: TimeInterval = 2,
+        pollInterval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date.now.addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+
+    private func hostTerminalPanelInWindow(_ panel: TerminalPanel) throws -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try XCTUnwrap(window.contentView)
+        let hostedView = panel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(
+            waitForCondition {
+                panel.surface.surface != nil
+            },
+            "Expected runtime surface to materialize after hosting panel in a window"
+        )
+        return window
+    }
+
     func testTabManagerSplitCarriesRequestedWorkingDirectoryAndStartupCommand() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -59,6 +99,10 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             tmuxStartCommand,
             "Programmatic tmux-compatible splits must preserve the original tmux command for pane format queries"
         )
+        XCTAssertFalse(
+            splitPanel.surface.debugConfigTemplateWaitAfterCommand(),
+            "Startup-command splits must not ask Ghostty to retain a child-exited PTY"
+        )
         guard let split = workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
             XCTFail("Expected split terminal panel to create a split node")
             return
@@ -96,6 +140,46 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.requestedWorkingDirectory, requestedDirectory)
         XCTAssertEqual(surface.surface.debugInitialCommand(), startupCommand)
         XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
+        XCTAssertFalse(
+            surface.surface.debugConfigTemplateWaitAfterCommand(),
+            "Startup-command tabs must not ask Ghostty to retain a child-exited PTY"
+        )
+    }
+
+    func testInitialWorkspaceStartupCommandDoesNotRequestWaitAfterCommand() throws {
+        let startupCommand = "/bin/cat"
+        let workspace = Workspace(initialTerminalCommand: startupCommand)
+        defer { workspace.teardownAllPanels() }
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        XCTAssertEqual(panel.surface.debugInitialCommand(), startupCommand)
+        XCTAssertFalse(
+            panel.surface.debugConfigTemplateWaitAfterCommand(),
+            "Initial startup commands must close through the normal child-exit lifecycle instead of retaining a dead PTY"
+        )
+    }
+
+    func testRuntimeSurfaceDisablesWaitAfterCommandEvenWhenTemplateRequestsIt() throws {
+        var template = CmuxSurfaceConfigTemplate()
+        template.waitAfterCommand = true
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_TAB,
+            configTemplate: template,
+            initialCommand: "/bin/cat"
+        )
+        let window = try hostTerminalPanelInWindow(panel)
+        defer {
+            panel.close()
+            window.close()
+        }
+
+        XCTAssertEqual(panel.surface.debugInitialCommand(), "/bin/cat")
+        XCTAssertFalse(
+            try XCTUnwrap(panel.surface.debugRuntimeWaitAfterCommand(context: GHOSTTY_SURFACE_CONTEXT_TAB)),
+            "cmux must override inherited/user wait-after-command before creating the Ghostty runtime surface"
+        )
     }
 
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {
