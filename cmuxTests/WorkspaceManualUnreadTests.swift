@@ -330,13 +330,12 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
     }
 
-    func testSidebarContextMenuIntentDoesNotDismissUnreadWhenCurrentEventIsUnavailable() {
+    func testSidebarEventlessSelectionDoesNotDismissUnread() {
         XCTAssertFalse(
             SidebarWorkspaceDirectInteractionPolicy.shouldDismissUnreadNotification(
                 wasSelected: true,
                 modifierFlags: [],
-                event: nil,
-                contextMenuPointerDownPending: true
+                event: nil
             )
         )
     }
@@ -361,15 +360,6 @@ final class WorkspaceManualUnreadTests: XCTestCase {
                 event: leftMouseEvent
             )
         )
-    }
-
-    func testSidebarRowInteractionStateConsumesContextMenuPointerDown() {
-        var state = SidebarWorkspaceRowInteractionState()
-        state.contextMenuPointerDownDidBegin()
-
-        XCTAssertFalse(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
-        XCTAssertTrue(state.consumePendingContextMenuPointerDown())
-        XCTAssertFalse(state.consumePendingContextMenuPointerDown())
     }
 
     private func withTabContextMenuFixture(

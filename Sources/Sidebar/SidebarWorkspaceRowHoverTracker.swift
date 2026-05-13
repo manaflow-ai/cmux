@@ -17,9 +17,6 @@ struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
         view.onMenuTrackingChanged = { tracking in
             coordinator.menuTrackingChanged(tracking)
         }
-        view.onContextMenuPointerDown = {
-            coordinator.contextMenuPointerDown()
-        }
         return view
     }
 
@@ -44,10 +41,6 @@ struct SidebarWorkspaceRowHoverTracker: NSViewRepresentable {
             } else {
                 rowInteractionState.wrappedValue.contextMenuTrackingDidEnd()
             }
-        }
-
-        func contextMenuPointerDown() {
-            rowInteractionState.wrappedValue.contextMenuPointerDownDidBegin()
         }
     }
 }
@@ -74,11 +67,9 @@ enum SidebarWorkspaceRowMenuTrackingScope {
 final class SidebarWorkspaceRowHoverTrackingView: NSView {
     var onPointerHoverChanged: ((Bool) -> Void)?
     var onMenuTrackingChanged: ((Bool) -> Void)?
-    var onContextMenuPointerDown: (() -> Void)?
     private var trackingArea: NSTrackingArea?
     private var menuBeginObserver: NSObjectProtocol?
     private var menuEndObserver: NSObjectProtocol?
-    private var contextClickMonitor: Any?
     private var lastReportedHover: Bool?
     private var isMenuTracking = false
 
@@ -101,7 +92,6 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         refreshMenuTrackingObservers()
-        refreshContextClickMonitor()
         reconcileCurrentPointerLocation()
     }
 
@@ -123,9 +113,6 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
         }
         if let menuEndObserver {
             NotificationCenter.default.removeObserver(menuEndObserver)
-        }
-        if let contextClickMonitor {
-            NSEvent.removeMonitor(contextClickMonitor)
         }
     }
 
@@ -167,30 +154,6 @@ final class SidebarWorkspaceRowHoverTrackingView: NSView {
                 onMenuTrackingChanged?(false)
                 reconcileCurrentPointerLocation()
             }
-        }
-    }
-
-    private func refreshContextClickMonitor() {
-        if let contextClickMonitor {
-            NSEvent.removeMonitor(contextClickMonitor)
-            self.contextClickMonitor = nil
-        }
-
-        guard window != nil else { return }
-        contextClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] event in
-            guard let self else { return event }
-            guard event.window === window else { return event }
-            let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point) else { return event }
-            guard SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
-                pointerInsideRow: true,
-                eventType: event.type,
-                modifierFlags: event.modifierFlags
-            ) else {
-                return event
-            }
-            onContextMenuPointerDown?()
-            return event
         }
     }
 

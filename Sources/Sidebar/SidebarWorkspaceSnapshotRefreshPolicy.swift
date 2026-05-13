@@ -82,7 +82,6 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     private(set) var contextMenuVisible = false
     private var contextMenuTrackingSuppressesCloseButton = false
     private var deferredPointerHoveringWhileContextMenuTracking: Bool?
-    private var pendingContextMenuPointerDown = false
 
     mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuTrackingSuppressesCloseButton {
@@ -104,18 +103,7 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     mutating func contextMenuDidDisappear() {
         contextMenuVisible = false
         contextMenuTrackingSuppressesCloseButton = false
-        pendingContextMenuPointerDown = false
         applyDeferredPointerHovering()
-    }
-
-    mutating func contextMenuPointerDownDidBegin() {
-        pendingContextMenuPointerDown = true
-        contextMenuTrackingDidBegin()
-    }
-
-    mutating func consumePendingContextMenuPointerDown() -> Bool {
-        defer { pendingContextMenuPointerDown = false }
-        return pendingContextMenuPointerDown
     }
 
     mutating func contextMenuTrackingDidBegin() {
@@ -126,7 +114,6 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
 
     mutating func contextMenuTrackingDidEnd() {
         contextMenuTrackingSuppressesCloseButton = false
-        pendingContextMenuPointerDown = false
         applyDeferredPointerHovering()
     }
 
