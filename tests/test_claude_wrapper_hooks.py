@@ -854,11 +854,15 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         "update",
         "upgrade",
         "auth",
+        "auto-mode",
+        "experimental-next",
+        "plugin",
+        "plugins",
         "project",
         "setup-token",
         "install",
         "daemon",
-        "experimental-next",
+        "ultrareview",
     ]
     for subcommand in subcommands:
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
@@ -1260,6 +1264,45 @@ def test_background_claude_env_only_subcommands_after_options_get_env_without_se
         if launch_argv:
             expect(launch_argv[0].endswith("/child-bin/claude"), f"background {label}: expected child executable in launch argv, got {launch_argv}", failures)
         expect(launch_argv[1:] == child_args, f"background {label}: expected env-only launch argv recorded, got {launch_argv}", failures)
+
+
+def test_background_claude_passthrough_subcommands_skip_hook_env(failures: list[str]) -> None:
+    cases = [
+        ("auto-mode", ["auto-mode"]),
+        ("experimental-next", ["experimental-next"]),
+        ("plugin", ["plugin", "list"]),
+        ("plugins", ["plugins"]),
+        ("debug plugin", ["--debug", "plugin", "list"]),
+        ("ultrareview", ["ultrareview"]),
+    ]
+    for label, child_args in cases:
+        code, _, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn(
+            child_args=child_args,
+            launch_method="execSync",
+        )
+        expect(code == 0, f"background passthrough {label}: wrapper exited {code}: {stderr}", failures)
+        expect(child_argv == child_args, f"background passthrough {label}: expected passthrough args to stay raw, got {child_argv}", failures)
+        expect("--settings" not in child_argv, f"background passthrough {label}: expected no --settings injection, got {child_argv}", failures)
+        expect(
+            child_node_options_env == "__UNSET__",
+            f"background passthrough {label}: expected no preload NODE_OPTIONS, got {child_node_options_env!r}",
+            failures,
+        )
+        expect(
+            child_runtime_node_options == "__UNSET__",
+            f"background passthrough {label}: expected runtime NODE_OPTIONS passthrough, got {child_runtime_node_options!r}",
+            failures,
+        )
+        expect(
+            child_cmux_pid == "__UNSET__",
+            f"background passthrough {label}: expected CMUX_CLAUDE_PID passthrough, got {child_cmux_pid!r}",
+            failures,
+        )
+        expect(
+            child_launch_argv_b64 == "__UNSET__",
+            f"background passthrough {label}: expected no launch argv marker, got {child_launch_argv_b64!r}",
+            failures,
+        )
 
 
 def test_background_claude_wrapper_exec_env_only_subcommands_after_value_options(failures: list[str]) -> None:
@@ -1835,6 +1878,7 @@ def main() -> int:
     test_background_claude_child_settings_detection_parses_hooks_json(failures)
     test_background_claude_daemon_child_gets_env_without_settings(failures)
     test_background_claude_env_only_subcommands_after_options_get_env_without_settings(failures)
+    test_background_claude_passthrough_subcommands_skip_hook_env(failures)
     test_background_claude_wrapper_exec_env_only_subcommands_after_value_options(failures)
     test_background_claude_child_short_model_value_does_not_skip_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
