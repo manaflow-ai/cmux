@@ -1682,6 +1682,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             commands.append(command)
             lock.unlock()
         }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return commands
+        }
     }
 
     private func makeSocketPath(_ name: String) -> String {
@@ -1709,6 +1715,21 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 }
             } else {
                 consecutiveHits = 0
+            }
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
+        }
+        return false
+    }
+
+    private func waitForSocketCommand(
+        state: MockSocketServerState,
+        timeout: TimeInterval,
+        matching predicate: (String) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if state.snapshot().contains(where: predicate) {
+                return true
             }
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
         }
@@ -2936,6 +2957,106 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             },
             "Expected monitor to publish high-priority Codex network error status, saw \(state.commands)"
         )
+    }
+
+    func testCodexHookMonitorNotifiesOnRequestUserInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-user-input"
+        let turnId = "turn-monitor-user-input"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnId)","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.700Z","type":"event_msg","payload":{"type":"request_user_input","call_id":"call-plan-question","turn_id":"\(turnId)","questions":[{"id":"demo_path","header":"Demo","question":"Which demo path should I use?","options":[{"label":"Plan","description":"Show plan mode"}]}]}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        _ = startMockServerSignal(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "hooks", "codex", "monitor",
+            "--workspace",
+            workspaceId,
+            "--surface",
+            surfaceId,
+            "--session",
+            sessionId,
+            "--turn",
+            turnId,
+            "--transcript",
+            transcriptURL.path,
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+        defer {
+            if process.isRunning {
+                process.terminate()
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+            _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        XCTAssertTrue(
+            waitForProcess(process, toHoldOpenFile: transcriptURL.path, timeout: 2),
+            "Monitor did not start watching the request_user_input transcript"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+            },
+            "Expected monitor to send Codex input notification, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex needs input") &&
+                    command.contains("--icon=bell.fill") &&
+                    command.contains("--color=#4C8DFF") &&
+                    command.contains("--priority=100") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
     }
 
     func testCodexHookMonitorReResolvesUnavailableTranscriptPath() throws {

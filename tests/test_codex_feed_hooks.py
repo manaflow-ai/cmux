@@ -50,6 +50,9 @@ CMUX_CODEX_FEED_EVENTS = (
     "PermissionRequest",
 )
 
+FAKE_WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
+FAKE_SURFACE_ID = "22222222-2222-2222-2222-222222222222"
+
 
 class FakeCmuxSocket:
     def __init__(
@@ -61,7 +64,7 @@ class FakeCmuxSocket:
     ):
         self.path = path
         self.decision = decision
-        self.surfaces = surfaces if surfaces is not None else [{"id": "surface-codex-feed-test"}]
+        self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
         self._dropped_surface_list = False
         self.frames: list[dict] = []
@@ -195,8 +198,8 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
     turn_id = f"codex-monitor-reap-turn-{os.getpid()}"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
-    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
 
     with FakeCmuxSocket(socket_path, None):
@@ -259,8 +262,8 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
     session_id = f"codex-monitor-session-wide-session-{os.getpid()}"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
-    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
 
     with FakeCmuxSocket(socket_path, None):
@@ -338,8 +341,8 @@ def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str
     turn_id = f"codex-monitor-lease-failure-turn-{os.getpid()}"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
-    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_AGENT_HOOK_STATE_DIR"] = str(bad_state_dir)
 
     with FakeCmuxSocket(socket_path, None):
@@ -380,7 +383,7 @@ def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root:
     session_id = f"codex-monitor-empty-surfaces-session-{os.getpid()}"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
 
     with FakeCmuxSocket(socket_path, None, surfaces=[]) as fake:
@@ -394,7 +397,7 @@ def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root:
                     "codex",
                     "monitor",
                     "--workspace",
-                    "workspace-codex-feed-test",
+                    FAKE_WORKSPACE_ID,
                     "--session",
                     session_id,
                     "--transcript",
@@ -434,7 +437,7 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
     session_id = f"codex-monitor-timeout-session-{os.getpid()}"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
-    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
 
     with FakeCmuxSocket(socket_path, None, drop_first_surface_list=True) as fake:
         result = subprocess.run(
@@ -446,7 +449,7 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
                 "codex",
                 "monitor",
                 "--workspace",
-                "workspace-codex-feed-test",
+                FAKE_WORKSPACE_ID,
                 "--session",
                 session_id,
                 "--turn",
@@ -474,8 +477,8 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
 
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
     env = os.environ.copy()
-    env["CMUX_SURFACE_ID"] = "surface-codex-feed-test"
-    env["CMUX_WORKSPACE_ID"] = "workspace-codex-feed-test"
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     with FakeCmuxSocket(socket_path, decision) as fake:
         result = subprocess.run(
             [

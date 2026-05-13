@@ -16007,6 +16007,11 @@ struct CMUXCLI {
         let isStreamError: Bool
     }
 
+    private struct CodexHookUserInputCandidate {
+        let callId: String
+        let question: String?
+    }
+
     private enum CodexTranscriptFailureReadResult {
         case unavailable
         case pending
@@ -16206,6 +16211,84 @@ struct CMUXCLI {
             return .pending
         }
         return .healthy
+    }
+
+    private func readCodexTranscriptUserInput(
+        path: String,
+        turnId: String?,
+        excluding publishedCallIds: Set<String>
+    ) -> CodexHookUserInputCandidate? {
+        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+            return nil
+        }
+
+        var sawRelevantTurn = turnId == nil
+        var candidate: CodexHookUserInputCandidate?
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  (object["type"] as? String) == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  let eventType = payload["type"] as? String else {
+                continue
+            }
+
+            switch eventType {
+            case "task_started":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    sawRelevantTurn = payloadTurnId == turnId
+                } else {
+                    sawRelevantTurn = true
+                }
+
+            case "request_user_input":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else { continue }
+                    } else {
+                        guard sawRelevantTurn else { continue }
+                    }
+                }
+
+                let question = codexUserInputQuestionText(from: payload)
+                let rawCallId = firstString(in: payload, keys: ["call_id", "callId"])
+                let callId = rawCallId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? "\(payloadTurnId ?? turnId ?? "session"):\(question ?? "request_user_input")"
+                guard !publishedCallIds.contains(callId) else { continue }
+                candidate = CodexHookUserInputCandidate(callId: callId, question: question)
+
+            case "task_complete", "turn_complete":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    guard payloadTurnId == turnId else { continue }
+                }
+                sawRelevantTurn = true
+                candidate = nil
+
+            default:
+                break
+            }
+        }
+
+        return candidate
+    }
+
+    private func codexUserInputQuestionText(from payload: [String: Any]) -> String? {
+        guard let questions = payload["questions"] as? [[String: Any]] else {
+            return nil
+        }
+        for question in questions {
+            let text = firstString(in: question, keys: ["question", "header", "id"])
+            let normalized = text.map(normalizedSingleLine)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let normalized, !normalized.isEmpty {
+                return truncate(normalized, maxLength: 220)
+            }
+        }
+        return nil
     }
 
     private func codexHookStopPayloadHasAssistantMessage(_ object: [String: Any]?) -> Bool {
@@ -16668,6 +16751,7 @@ struct CMUXCLI {
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
         var nextOwnerCheck = Date.distantPast
+        var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
@@ -16685,6 +16769,20 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
+                if let userInput = readCodexTranscriptUserInput(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    excluding: publishedUserInputCallIds
+                ) {
+                    publishedUserInputCallIds.insert(userInput.callId)
+                    publishCodexMonitorUserInput(
+                        userInput,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                }
+
                 switch readCodexTranscriptFailure(
                     path: currentTranscriptPath,
                     turnId: turnId,
@@ -16718,6 +16816,28 @@ struct CMUXCLI {
             guard remaining > 0 else { return }
             waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
         }
+    }
+
+    private func publishCodexMonitorUserInput(
+        _ userInput: CodexHookUserInputCandidate,
+        workspaceId: String,
+        surfaceId: String?,
+        client: SocketClient
+    ) {
+        let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting")
+        let body = userInput.question ?? String(
+            localized: "agent.codex.input.body.needsInput",
+            defaultValue: "Codex is asking a question"
+        )
+        if let surfaceId, !surfaceId.isEmpty {
+            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+        }
+        let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
+        _ = try? sendV1Command(
+            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
     }
 
     private func publishCodexMonitorFailure(
