@@ -1,18 +1,48 @@
 import AppKit
 import SwiftUI
-import MarkdownUI
+import WebKit
 
-/// SwiftUI view that renders a MarkdownPanel's content using MarkdownUI.
+/// SwiftUI view that renders a MarkdownPanel's content in a WKWebView using
+/// marked.js + github-markdown-css + highlight.js.
+///
+/// We render through a web view (rather than the previous MarkdownUI path)
+/// so that:
+///   - Native browser text selection works across the entire document
+///     (Cmd+A / drag-select span paragraphs, headings, code blocks, etc.).
+///     MarkdownUI rendered each block as an isolated SwiftUI `Text`, which
+///     made it impossible to select more than one block at a time.
+///   - Rendering uses GitHub's actual markdown CSS, so tables, task lists,
+///     nested lists, blockquotes, and code blocks look identical to what
+///     users see on github.com.
+///   - We can copy the rendered HTML straight from the same source the user
+///     is reading.
 struct MarkdownPanelView: View {
     @ObservedObject var panel: MarkdownPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
-    @Environment(\.colorScheme) private var colorScheme
+    @State private var copyConfirmation: CopyConfirmation? = nil
+    @State private var copyConfirmationGeneration: Int = 0
+    @State private var renderer = MarkdownWebRendererHandle()
+
+    private enum CopyConfirmation: Equatable {
+        case markdown
+        case html
+
+        var label: String {
+            switch self {
+            case .markdown:
+                return String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
+            case .html:
+                return String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -23,7 +53,7 @@ struct MarkdownPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(backgroundColor)
+        .background(Color.clear)
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -31,63 +61,101 @@ struct MarkdownPanelView: View {
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
-        .overlay {
-            if isVisibleInUI {
-                // Observe left-clicks without intercepting them so markdown text
-                // selection and link activation continue to use the native path.
-                MarkdownPointerObserver(onPointerDown: onRequestPanelFocus)
-            }
-        }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
         }
+        .environment(\.colorScheme, themeColorScheme)
     }
 
     // MARK: - Content
 
     private var markdownContentView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // File path breadcrumb
-                filePathHeader
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
+        VStack(alignment: .leading, spacing: 0) {
+            filePathHeader
 
-                Divider()
-                    .padding(.horizontal, 16)
+            Divider()
 
-                // Rendered markdown
-                Markdown(panel.content)
-                    .markdownTheme(cmuxMarkdownTheme)
-                    .textSelection(.enabled)
-                    // Wire link activation through NSWorkspace explicitly.
-                    // SwiftUI's default Link path does not fire reliably
-                    // for the rendered Markdown in this panel; setting the
-                    // env action makes it deterministic. Surface failures
-                    // (no registered handler for the scheme, etc.) by
-                    // returning .systemAction so the click is not silently
-                    // swallowed.
-                    .environment(\.openURL, OpenURLAction { url in
-                        NSWorkspace.shared.open(url) ? .handled : .systemAction
-                    })
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
+            markdownBody
+        }
+    }
+
+    @ViewBuilder
+    private var markdownBody: some View {
+        ZStack {
+            MarkdownWebRenderer(
+                markdown: panel.content,
+                theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
+                panelId: panel.id,
+                workspaceId: panel.workspaceId,
+                filePath: panel.filePath,
+                handle: renderer,
+                onRequestPanelFocus: onRequestPanelFocus
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(panel.displayMode == .preview ? 1 : 0)
+            .allowsHitTesting(panel.displayMode == .preview)
+            .accessibilityHidden(panel.displayMode != .preview)
+
+            if panel.displayMode == .text {
+                FilePreviewTextEditor(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    themeBackgroundColor: .clear,
+                    themeForegroundColor: themeForegroundColor
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
 
     private var filePathHeader: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "doc.richtext")
-                .foregroundColor(.secondary)
-                .font(.system(size: 12))
-            Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
+        PanelFilePathHeader(
+            iconSystemName: panel.displayIcon ?? "doc.richtext",
+            filePath: panel.filePath,
+            foregroundColor: themeForegroundColor
+        ) {
+            if panel.displayMode == .text {
+                PanelHeaderIconButton(
+                    systemName: "arrow.counterclockwise",
+                    label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
+                    isDisabled: !panel.isDirty,
+                    action: { panel.loadTextContent() }
+                )
+
+                PanelHeaderIconButton(
+                    systemName: "square.and.arrow.down",
+                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
+                    isDisabled: !panel.isDirty || panel.isSaving,
+                    action: { panel.saveTextContent() }
+                )
+            }
+            markdownModeButton
+            MarkdownPanelToolbar(
+                confirmation: copyConfirmation?.label,
+                onCopyMarkdown: { copyAsMarkdown() },
+                onCopyHTML: { copyAsHTML() }
+            )
+            FileExternalOpenMenu(
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isDisabled: panel.isFileUnavailable
+            )
+        }
+    }
+
+    private var markdownModeButton: some View {
+        switch panel.displayMode {
+        case .preview:
+            PanelHeaderIconButton(
+                systemName: "doc.plaintext",
+                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                action: { panel.setDisplayMode(.text) }
+            )
+        case .text:
+            PanelHeaderIconButton(
+                systemName: "eye",
+                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                action: { panel.setDisplayMode(.preview) }
+            )
         }
     }
 
@@ -115,162 +183,52 @@ struct MarkdownPanelView: View {
 
     // MARK: - Theme
 
-    private var backgroundColor: Color {
-        colorScheme == .dark
-            ? Color(nsColor: NSColor(white: 0.12, alpha: 1.0))
-            : Color(nsColor: NSColor(white: 0.98, alpha: 1.0))
+    private var themeBackgroundColor: NSColor {
+        appearance.backgroundColor
     }
 
-    private var cmuxMarkdownTheme: Theme {
-        let isDark = colorScheme == .dark
+    private var themeForegroundColor: NSColor {
+        appearance.foregroundColor
+    }
 
-        return Theme()
-            // Text
-            .text {
-                ForegroundColor(isDark ? .white.opacity(0.9) : .primary)
-                FontSize(14)
+    private var themeColorScheme: ColorScheme {
+        themeBackgroundColor.isLightColor ? .light : .dark
+    }
+
+    // MARK: - Copy actions
+
+    private func copyAsMarkdown() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(panel.content, forType: .string)
+        flashCopyConfirmation(.markdown)
+    }
+
+    private func copyAsHTML() {
+        Task { @MainActor in
+            guard let html = await renderer.renderedHTML(markdown: panel.content) else { return }
+            let text = await renderer.renderedText() ?? panel.content
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
+            // and a plain-text fallback so plain editors still receive content.
+            pb.setString(html, forType: .html)
+            pb.setString(text, forType: .string)
+            flashCopyConfirmation(.html)
+        }
+    }
+
+    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
+        copyConfirmationGeneration &+= 1
+        let generation = copyConfirmationGeneration
+        copyConfirmation = kind
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard copyConfirmationGeneration == generation else { return }
+            if copyConfirmation == kind {
+                copyConfirmation = nil
             }
-            // Headings
-            .heading1 { configuration in
-                VStack(alignment: .leading, spacing: 8) {
-                    configuration.label
-                        .markdownTextStyle {
-                            FontWeight(.bold)
-                            FontSize(28)
-                            ForegroundColor(isDark ? .white : .primary)
-                        }
-                    Divider()
-                }
-                .markdownMargin(top: 24, bottom: 16)
-            }
-            .heading2 { configuration in
-                VStack(alignment: .leading, spacing: 6) {
-                    configuration.label
-                        .markdownTextStyle {
-                            FontWeight(.bold)
-                            FontSize(22)
-                            ForegroundColor(isDark ? .white : .primary)
-                        }
-                    Divider()
-                }
-                .markdownMargin(top: 20, bottom: 12)
-            }
-            .heading3 { configuration in
-                configuration.label
-                    .markdownTextStyle {
-                        FontWeight(.semibold)
-                        FontSize(18)
-                        ForegroundColor(isDark ? .white : .primary)
-                    }
-                    .markdownMargin(top: 16, bottom: 8)
-            }
-            .heading4 { configuration in
-                configuration.label
-                    .markdownTextStyle {
-                        FontWeight(.semibold)
-                        FontSize(16)
-                        ForegroundColor(isDark ? .white : .primary)
-                    }
-                    .markdownMargin(top: 12, bottom: 6)
-            }
-            .heading5 { configuration in
-                configuration.label
-                    .markdownTextStyle {
-                        FontWeight(.medium)
-                        FontSize(14)
-                        ForegroundColor(isDark ? .white : .primary)
-                    }
-                    .markdownMargin(top: 10, bottom: 4)
-            }
-            .heading6 { configuration in
-                configuration.label
-                    .markdownTextStyle {
-                        FontWeight(.medium)
-                        FontSize(13)
-                        ForegroundColor(isDark ? .white.opacity(0.7) : .secondary)
-                    }
-                    .markdownMargin(top: 8, bottom: 4)
-            }
-            // Code blocks
-            .codeBlock { configuration in
-                ScrollView(.horizontal, showsIndicators: true) {
-                    configuration.label
-                        .markdownTextStyle {
-                            FontFamilyVariant(.monospaced)
-                            FontSize(13)
-                            ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
-                        }
-                        .padding(12)
-                }
-                .background(isDark
-                    ? Color(nsColor: NSColor(white: 0.08, alpha: 1.0))
-                    : Color(nsColor: NSColor(white: 0.93, alpha: 1.0)))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .markdownMargin(top: 8, bottom: 8)
-            }
-            // Inline code
-            .code {
-                FontFamilyVariant(.monospaced)
-                FontSize(13)
-                ForegroundColor(isDark ? Color(red: 0.85, green: 0.6, blue: 0.95) : Color(red: 0.6, green: 0.2, blue: 0.7))
-                BackgroundColor(isDark
-                    ? Color(nsColor: NSColor(white: 0.18, alpha: 1.0))
-                    : Color(nsColor: NSColor(white: 0.92, alpha: 1.0)))
-            }
-            // Block quotes
-            .blockquote { configuration in
-                HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(isDark ? Color.white.opacity(0.2) : Color.gray.opacity(0.4))
-                        .frame(width: 3)
-                    configuration.label
-                        .markdownTextStyle {
-                            ForegroundColor(isDark ? .white.opacity(0.6) : .secondary)
-                            FontSize(14)
-                        }
-                        .padding(.leading, 12)
-                }
-                .markdownMargin(top: 8, bottom: 8)
-            }
-            // Links
-            .link {
-                ForegroundColor(Color.accentColor)
-            }
-            // Strong
-            .strong {
-                FontWeight(.semibold)
-            }
-            // Tables
-            .table { configuration in
-                configuration.label
-                    .markdownTableBorderStyle(.init(color: isDark ? .white.opacity(0.15) : .gray.opacity(0.3)))
-                    .markdownTableBackgroundStyle(
-                        .alternatingRows(
-                            isDark
-                                ? Color(nsColor: NSColor(white: 0.14, alpha: 1.0))
-                                : Color(nsColor: NSColor(white: 0.96, alpha: 1.0)),
-                            isDark
-                                ? Color(nsColor: NSColor(white: 0.10, alpha: 1.0))
-                                : Color(nsColor: NSColor(white: 1.0, alpha: 1.0))
-                        )
-                    )
-                    .markdownMargin(top: 8, bottom: 8)
-            }
-            // Thematic break (horizontal rule)
-            .thematicBreak {
-                Divider()
-                    .markdownMargin(top: 16, bottom: 16)
-            }
-            // List items
-            .listItem { configuration in
-                configuration.label
-                    .markdownMargin(top: 4, bottom: 4)
-            }
-            // Paragraphs
-            .paragraph { configuration in
-                configuration.label
-                    .markdownMargin(top: 4, bottom: 8)
-            }
+        }
     }
 
     // MARK: - Focus Flash
@@ -300,48 +258,69 @@ struct MarkdownPanelView: View {
     }
 }
 
-private struct MarkdownPointerObserver: NSViewRepresentable {
-    let onPointerDown: () -> Void
+// MARK: - Toolbar
 
-    func makeNSView(context: Context) -> MarkdownPanelPointerObserverView {
-        let view = MarkdownPanelPointerObserverView()
-        view.onPointerDown = onPointerDown
-        return view
+private struct MarkdownPanelToolbar: View {
+    let confirmation: String?
+    let onCopyMarkdown: () -> Void
+    let onCopyHTML: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let confirmation {
+                Text(confirmation)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
+
+            toolbarButton(
+                title: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
+                systemImage: "doc.on.doc",
+                action: onCopyMarkdown
+            )
+            toolbarButton(
+                title: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
+                systemImage: "chevron.left.forwardslash.chevron.right",
+                action: onCopyHTML
+            )
+        }
+        .animation(.easeOut(duration: 0.15), value: confirmation)
     }
 
-    func updateNSView(_ nsView: MarkdownPanelPointerObserverView, context: Context) {
-        nsView.onPointerDown = onPointerDown
+    private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        PanelHeaderIconButton(
+            systemName: systemImage,
+            label: title,
+            action: action
+        )
     }
 }
 
-final class MarkdownPanelPointerObserverView: NSView {
+// MARK: - Renderer handle
+
+/// Lightweight reference object the SwiftUI view holds across re-renders so
+/// it can talk to the underlying WKWebView (primarily to fetch the rendered
+/// HTML for "Copy as HTML"). Owned via @State; the coordinator registers
+/// itself when the NSView is created.
+@MainActor
+final class MarkdownWebRendererHandle {
+    weak var coordinator: MarkdownWebRenderer.Coordinator?
+
+    func renderedHTML(markdown: String? = nil) async -> String? {
+        guard let coordinator else { return nil }
+        return await coordinator.renderedHTML(markdown: markdown)
+    }
+
+    func renderedText() async -> String? {
+        guard let coordinator else { return nil }
+        return await coordinator.renderedText()
+    }
+}
+
+final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
-    private var eventMonitor: Any?
-    private weak var forwardedMouseTarget: NSView?
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        installEventMonitorIfNeeded()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard PaneFirstClickFocusSettings.isEnabled(),
-              window?.isKeyWindow != true,
-              bounds.contains(point) else { return nil }
-        return self
-    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -349,63 +328,6 @@ final class MarkdownPanelPointerObserverView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
-        forwardedMouseTarget = forwardedTarget(for: event)
-        forwardedMouseTarget?.mouseDown(with: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        forwardedMouseTarget?.mouseDragged(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        forwardedMouseTarget?.mouseUp(with: event)
-        forwardedMouseTarget = nil
-    }
-
-    func shouldHandle(_ event: NSEvent) -> Bool {
-        guard event.type == .leftMouseDown,
-              let window,
-              event.window === window,
-              !isHiddenOrHasHiddenAncestor else { return false }
-        if PaneFirstClickFocusSettings.isEnabled(), window.isKeyWindow != true {
-            return false
-        }
-        let point = convert(event.locationInWindow, from: nil)
-        return bounds.contains(point)
-    }
-
-    func handleEventIfNeeded(_ event: NSEvent) -> NSEvent {
-        guard shouldHandle(event) else { return event }
-        DispatchQueue.main.async { [weak self] in
-            self?.onPointerDown?()
-        }
-        return event
-    }
-
-    private func installEventMonitorIfNeeded() {
-        guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-            self?.handleEventIfNeeded(event) ?? event
-        }
-    }
-
-    private func forwardedTarget(for event: NSEvent) -> NSView? {
-        guard let window else {
-#if DEBUG
-            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=0 contentView=0")
-#endif
-            return nil
-        }
-        guard let contentView = window.contentView else {
-#if DEBUG
-            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=1 contentView=0")
-#endif
-            return nil
-        }
-        isHidden = true
-        defer { isHidden = false }
-        let point = contentView.convert(event.locationInWindow, from: nil)
-        let target = contentView.hitTest(point)
-        return target === self ? nil : target
+        super.mouseDown(with: event)
     }
 }

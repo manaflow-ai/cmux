@@ -289,11 +289,6 @@ struct WindowGlassSettingsSnapshot {
 }
 
 struct WindowAppearanceSnapshot {
-    /// Treat opacity values within floating-point round-trip tolerance of 1.0
-    /// as opaque so user-configured `1.0` does not accidentally trigger host
-    /// ownership after Double/CGFloat conversions.
-    private static let opaqueBackgroundOwnershipThreshold: CGFloat = 0.999
-
     let terminalBackgroundColor: NSColor
     let terminalBackgroundOpacity: CGFloat
     let terminalBackgroundBlur: GhosttyBackgroundBlur
@@ -364,28 +359,6 @@ struct WindowAppearanceSnapshot {
         usesHostLayerBackground: Bool
     ) -> GhosttyTerminalBackdropRenderingMode {
         usesHostLayerBackground ? .windowHostBackdrop : .ghosttyRendererOwnedBackgroundImage
-    }
-
-    static func usesHostLayerBackground(
-        backgroundOpacity: Double,
-        backgroundBlur: GhosttyBackgroundBlur
-    ) -> Bool {
-        if backgroundBlur != .disabled {
-            return true
-        }
-        return clampedOpacity(backgroundOpacity) < opaqueBackgroundOwnershipThreshold
-    }
-
-    static func terminalRenderingMode(
-        backgroundOpacity: Double,
-        backgroundBlur: GhosttyBackgroundBlur
-    ) -> GhosttyTerminalBackdropRenderingMode {
-        terminalRenderingMode(
-            usesHostLayerBackground: usesHostLayerBackground(
-                backgroundOpacity: backgroundOpacity,
-                backgroundBlur: backgroundBlur
-            )
-        )
     }
 
     var compositedTerminalBackgroundColor: NSColor {

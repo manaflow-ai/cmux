@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 透传",
       "tmuxDesc": "如果在 cmux 内使用 tmux，启用透传：",
-      "metaTitle": "通知"
+      "metaTitle": "通知",
+      "hooksTitle": "通知钩子",
+      "hooksIntro": "<config>cmux.json</config> 可以定义通知钩子，让每条通知策略以 JSON 形式从 stdin 传入。每个钩子通过 stdout 返回 JSON。钩子默认关闭；只有当 <hooksMode>notifications.hooks</hooksMode> 包含至少一个已启用的钩子时，cmux 才会运行它们。cmux 会应用返回的通知文本和效果，因此钩子可以过滤横幅、保留或跳过侧边栏历史、播放声音，或停止后续钩子。",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "钩子输入和输出",
+      "hooksDetails": "钩子会从全局 <globalConfig>~/.config/cmux/cmux.json</globalConfig> 以及从父目录到当前 workspace 的项目 <projectConfig>.cmux/cmux.json</projectConfig> 文件继承。项目钩子运行前会使用与其他项目 <config>cmux.json</config> 命令相同的信任提示。Feed 审批横幅也会经过这些钩子；禁用 <desktop>desktop</desktop> 会抑制原生横幅，同时在 cmux 中保留 Feed 项。若要忽略继承的钩子，请在项目配置中将 <hooksMode>notifications.hooksMode</hooksMode> 设为 <replace>replace</replace>。如果钩子失败、超时或返回无效 JSON，cmux 会使用默认通知行为并显示钩子失败提醒。"
     },
     "browserAutomation": {
       "title": "浏览器自动化",
