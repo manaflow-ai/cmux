@@ -324,6 +324,8 @@ private final class SyncedWindowProjectionController {
     private var isPointerInTarget = false
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
+    private var localOrderingMonitor: Any?
+    private var orderingObservers: [(NotificationCenter, NSObjectProtocol)] = []
     private var placementGeneration: UInt64 = 0
     private var pendingPlacementRequest: PlacementRequest?
     private var isPlacementRunning = false
@@ -332,14 +334,17 @@ private final class SyncedWindowProjectionController {
     func start(window: SyncedHostWindow) {
         targetWindow = window
         installMouseMonitors()
+        installOrderingObservers()
     }
 
     func updateSlot(_ slot: SyncedWindowSlotFrame) {
         targetSlot = slot
+        installOrderingObservers()
     }
 
     func stop() {
         removeMouseMonitors()
+        removeOrderingObservers()
         targetWindow = nil
         targetSlot = nil
         isPointerInTarget = false
@@ -351,6 +356,7 @@ private final class SyncedWindowProjectionController {
         targetWindow = window
         targetSlot = slot
         installMouseMonitors()
+        installOrderingObservers()
         isPointerInTarget = slot.cocoaFrame.contains(NSEvent.mouseLocation)
         placementGeneration &+= 1
         pendingPlacementRequest = PlacementRequest(
@@ -372,6 +378,10 @@ private final class SyncedWindowProjectionController {
             keepTargetAboveOwningWindow()
         }
         return result
+    }
+
+    func maintainTargetOrdering() {
+        keepTargetAboveOwningWindow()
     }
 
     private func installMouseMonitors() {
@@ -401,6 +411,89 @@ private final class SyncedWindowProjectionController {
         }
         globalMouseMonitor = nil
         localMouseMonitor = nil
+    }
+
+    private func installOrderingObservers() {
+        guard orderingObservers.isEmpty || localOrderingMonitor == nil else {
+            return
+        }
+
+        if orderingObservers.isEmpty {
+            let appCenter = NotificationCenter.default
+            orderingObservers = [
+                (
+                    appCenter,
+                    appCenter.addObserver(
+                        forName: NSApplication.didBecomeActiveNotification,
+                        object: NSApp,
+                        queue: .main
+                    ) { [weak self] _ in
+                        Task { @MainActor in
+                            self?.keepTargetAboveOwningWindow()
+                        }
+                    }
+                ),
+                (
+                    appCenter,
+                    appCenter.addObserver(
+                        forName: NSWindow.didBecomeKeyNotification,
+                        object: nil,
+                        queue: .main
+                    ) { [weak self] notification in
+                        let windowNumber = (notification.object as? NSWindow)?.windowNumber
+                        Task { @MainActor in
+                            self?.handleOwningWindowOrderingSignal(windowNumber: windowNumber)
+                        }
+                    }
+                ),
+                (
+                    appCenter,
+                    appCenter.addObserver(
+                        forName: NSWindow.didBecomeMainNotification,
+                        object: nil,
+                        queue: .main
+                    ) { [weak self] notification in
+                        let windowNumber = (notification.object as? NSWindow)?.windowNumber
+                        Task { @MainActor in
+                            self?.handleOwningWindowOrderingSignal(windowNumber: windowNumber)
+                        }
+                    }
+                ),
+            ]
+        }
+
+        if localOrderingMonitor == nil {
+            localOrderingMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+            ) { [weak self] event in
+                Task { @MainActor in
+                    self?.keepTargetAboveOwningWindow()
+                }
+                return event
+            }
+        }
+    }
+
+    private func removeOrderingObservers() {
+        for (center, observer) in orderingObservers {
+            center.removeObserver(observer)
+        }
+        orderingObservers.removeAll()
+        if let localOrderingMonitor {
+            NSEvent.removeMonitor(localOrderingMonitor)
+        }
+        localOrderingMonitor = nil
+    }
+
+    private func handleOwningWindowOrderingSignal(windowNumber: Int?) {
+        guard let windowNumber,
+              let targetSlot,
+              windowNumber == targetSlot.owningWindowNumber
+        else {
+            return
+        }
+
+        keepTargetAboveOwningWindow()
     }
 
     private func updateFocusForPointer() {
@@ -644,7 +737,11 @@ final class SyncedWindowPanel: Panel, ObservableObject {
         }
     }
 
-    func unfocus() {}
+    func unfocus() {
+        if isSynced {
+            projectionController.maintainTargetOrdering()
+        }
+    }
 
     func close() {
         removeAccessibilityStatusObservers()
