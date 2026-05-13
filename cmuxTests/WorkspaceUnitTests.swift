@@ -3872,6 +3872,7 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
 
         workspace.moveFocus(direction: .left)
 
+        AppFocusState.overrideIsFocused = false
         notificationStore.addNotification(
             tabId: workspace.id,
             surfaceId: leftPanelId,
@@ -3879,6 +3880,7 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
             subtitle: "",
             body: "Left pane owns notification attention"
         )
+        AppFocusState.overrideIsFocused = true
 
         XCTAssertTrue(
             notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId),
