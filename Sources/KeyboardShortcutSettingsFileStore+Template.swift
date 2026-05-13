@@ -90,6 +90,8 @@ extension CmuxSettingsFileStore {
                     "sound": NotificationSoundSettings.defaultValue,
                     "customSoundFilePath": NotificationSoundSettings.defaultCustomFilePath,
                     "command": NotificationSoundSettings.defaultCustomCommand,
+                    "hooksMode": "append",
+                    "hooks": [],
                 ],
             ],
             [

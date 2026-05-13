@@ -1493,7 +1493,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
 
         if let surfaceId,
-           let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
+           let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+           notificationStore.hasUnreadNotificationRequiringPaneFlash(forTabId: tabId, surfaceId: surfaceId) {
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
@@ -3729,6 +3730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func registerMainWindowContextForTesting(
         windowId: UUID = UUID(),
         tabManager: TabManager,
+        cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
@@ -3737,7 +3739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
-            cmuxConfigStore: nil,
+            cmuxConfigStore: cmuxConfigStore,
             window: nil
         )
         notifyMainWindowContextsDidChange()

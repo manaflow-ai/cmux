@@ -80,6 +80,61 @@ afplay /path/to/sound.aiff
 echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`}</CodeBlock>
       <p>{t("customCommandNote")}</p>
 
+      <h2 id="notification-hooks">Notification hooks</h2>
+      <p>
+        <code>cmux.json</code> can define notification hooks that receive every notification policy
+        as JSON on stdin. Each hook returns JSON on stdout. cmux applies the returned notification
+        text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or
+        stop later hooks.
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "quiet-docs",
+        "command": "sed 's/\"desktop\":true/\"desktop\":false/'",
+        "timeoutSeconds": 20
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <CodeBlock title="Hook input and output" lang="json">{`{
+  "version": 1,
+  "notification": {
+    "workspaceId": "3B3F0D83-...",
+    "surfaceId": "7E9C1A02-...",
+    "title": "Codex",
+    "subtitle": "Waiting",
+    "body": "Agent needs input"
+  },
+  "context": {
+    "cwd": "/path/to/project",
+    "configPath": "/path/to/project/.cmux/cmux.json",
+    "hookId": "quiet-docs",
+    "appFocused": false,
+    "focusedPanel": false
+  },
+  "effects": {
+    "record": true,
+    "markUnread": true,
+    "reorderWorkspace": true,
+    "desktop": true,
+    "sound": true,
+    "command": true,
+    "paneFlash": true
+  }
+}`}</CodeBlock>
+      <p>
+        Hooks are inherited from global <code>~/.config/cmux/cmux.json</code> and project
+        <code>.cmux/cmux.json</code> files from parent directories to the current workspace.
+        Project hooks use the same trust prompt as other project <code>cmux.json</code> commands
+        before they run. Feed approval banners also pass through these hooks; disabling
+        <code>desktop</code> suppresses the native banner while keeping the Feed item available in
+        cmux. Set <code>notifications.hooksMode</code> to <code>replace</code> in a project config
+        to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses
+        the default notification behavior and posts a hook failure alert.
+      </p>
+
       <h2>{t("sending")}</h2>
 
       <h3 id="cli-usage">{t("cli")}</h3>

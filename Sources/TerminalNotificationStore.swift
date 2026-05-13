@@ -664,6 +664,274 @@ struct TerminalNotification: Identifiable, Hashable {
     let body: String
     let createdAt: Date
     var isRead: Bool
+    var paneFlash: Bool = true
+}
+
+struct TerminalNotificationPolicyPayload: Codable, Sendable, Equatable {
+    var workspaceId: String
+    var surfaceId: String?
+    var title: String
+    var subtitle: String
+    var body: String
+}
+
+struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
+    var cwd: String?
+    var configPath: String?
+    var hookId: String?
+    var appFocused: Bool
+    var focusedPanel: Bool
+}
+
+struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
+    var record: Bool = true
+    var markUnread: Bool = true
+    var reorderWorkspace: Bool = true
+    var desktop: Bool = true
+    var sound: Bool = true
+    var command: Bool = true
+    var paneFlash: Bool = true
+}
+
+struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
+    var version: Int = 1
+    var notification: TerminalNotificationPolicyPayload
+    var context: TerminalNotificationPolicyContext
+    var effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
+    var stop: Bool?
+}
+
+struct TerminalNotificationPolicyRequest: Sendable {
+    let tabId: UUID
+    let surfaceId: UUID?
+    let title: String
+    let subtitle: String
+    let body: String
+    let cwd: String?
+    let isAppFocused: Bool
+    let isFocusedPanel: Bool
+}
+
+struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
+    let hookId: String
+    let sourcePath: String?
+    let message: String
+}
+
+enum TerminalNotificationPolicyEngine {
+    private static let queue = DispatchQueue(
+        label: "com.cmuxterm.notification-policy-hooks",
+        qos: .utility
+    )
+    private static let maxOutputBytes = 1_048_576
+
+    static func evaluate(
+        request: TerminalNotificationPolicyRequest,
+        hooks: [CmuxResolvedNotificationHook],
+        completion: @escaping (Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>) -> Void
+    ) {
+        let initialEnvelope = TerminalNotificationPolicyEnvelope(
+            notification: TerminalNotificationPolicyPayload(
+                workspaceId: request.tabId.uuidString,
+                surfaceId: request.surfaceId?.uuidString,
+                title: request.title,
+                subtitle: request.subtitle,
+                body: request.body
+            ),
+            context: TerminalNotificationPolicyContext(
+                cwd: request.cwd,
+                configPath: nil,
+                hookId: nil,
+                appFocused: request.isAppFocused,
+                focusedPanel: request.isFocusedPanel
+            )
+        )
+
+        evaluate(
+            envelope: initialEnvelope,
+            hooks: hooks,
+            completion: completion
+        )
+    }
+
+    static func evaluate(
+        envelope initialEnvelope: TerminalNotificationPolicyEnvelope,
+        hooks: [CmuxResolvedNotificationHook],
+        completion: @escaping (Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>) -> Void
+    ) {
+
+        guard !hooks.isEmpty else {
+            completion(.success(initialEnvelope))
+            return
+        }
+
+        queue.async {
+            var envelope = initialEnvelope
+            for hook in hooks {
+                envelope.context.cwd = hook.cwd
+                envelope.context.configPath = hook.sourcePath
+                envelope.context.hookId = hook.id
+                switch run(hook: hook, envelope: envelope) {
+                case .success(let nextEnvelope):
+                    envelope = nextEnvelope
+                    if envelope.stop == true {
+                        completion(.success(envelope))
+                        return
+                    }
+                case .failure(let failure):
+                    completion(.failure(failure))
+                    return
+                }
+            }
+            completion(.success(envelope))
+        }
+    }
+
+    private static func run(
+        hook: CmuxResolvedNotificationHook,
+        envelope: TerminalNotificationPolicyEnvelope
+    ) -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
+        let inputData: Data
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            inputData = try encoder.encode(envelope)
+        } catch {
+            return .failure(failure(hook: hook, message: "Could not encode notification policy input: \(error.localizedDescription)"))
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", hook.command]
+        process.currentDirectoryURL = URL(fileURLWithPath: hook.cwd, isDirectory: true)
+        var env = ProcessInfo.processInfo.environment
+        env["CMUX_NOTIFICATION_TITLE"] = envelope.notification.title
+        env["CMUX_NOTIFICATION_SUBTITLE"] = envelope.notification.subtitle
+        env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body
+        env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
+        env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
+        env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""
+        process.environment = env
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            semaphore.signal()
+        }
+
+        do {
+            try process.run()
+            stdinPipe.fileHandleForWriting.write(inputData)
+            stdinPipe.fileHandleForWriting.closeFile()
+        } catch {
+            return .failure(failure(hook: hook, message: "Could not launch notification hook: \(error.localizedDescription)"))
+        }
+
+        let waitResult = semaphore.wait(timeout: .now() + hook.timeoutSeconds)
+        if waitResult == .timedOut {
+            process.terminate()
+            return .failure(failure(hook: hook, message: "Notification hook timed out after \(Int(hook.timeoutSeconds))s"))
+        }
+
+        let stdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0 else {
+            let detail = String(data: stderr, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(failure(
+                hook: hook,
+                message: "Notification hook exited with status \(process.terminationStatus)\(detail.map { ": \($0)" } ?? "")"
+            ))
+        }
+
+        guard stdout.count <= maxOutputBytes else {
+            return .failure(failure(hook: hook, message: "Notification hook output exceeded \(maxOutputBytes) bytes"))
+        }
+
+        let trimmedOutput = String(data: stdout, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedOutput.isEmpty else {
+            return .success(envelope)
+        }
+        guard let outputData = trimmedOutput.data(using: .utf8) else {
+            return .failure(failure(hook: hook, message: "Notification hook returned non-UTF-8 output"))
+        }
+        do {
+            let decoded = try JSONDecoder().decode(TerminalNotificationPolicyEnvelope.self, from: outputData)
+            return .success(decoded)
+        } catch {
+            return .failure(failure(hook: hook, message: "Notification hook returned invalid JSON: \(error.localizedDescription)"))
+        }
+    }
+
+    private static func failure(
+        hook: CmuxResolvedNotificationHook,
+        message: String
+    ) -> TerminalNotificationPolicyFailure {
+        TerminalNotificationPolicyFailure(
+            hookId: hook.id,
+            sourcePath: hook.sourcePath,
+            message: message
+        )
+    }
+}
+
+@MainActor
+enum NotificationPolicyHookAuthorizer {
+    static func authorize(
+        _ hooks: [CmuxResolvedNotificationHook],
+        globalConfigPath: String?,
+        presentingWindow: NSWindow? = nil,
+        completion: @escaping ([CmuxResolvedNotificationHook]) -> Void
+    ) {
+        var authorizedHooks: [CmuxResolvedNotificationHook] = []
+        let resolvedPresentingWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+
+        func authorize(index: Int) {
+            guard index < hooks.count else {
+                completion(authorizedHooks)
+                return
+            }
+
+            let hook = hooks[index]
+            guard let descriptor = hook.trustDescriptor else {
+                authorizedHooks.append(hook)
+                authorize(index: index + 1)
+                return
+            }
+            guard !CmuxActionTrust.shared.isTrusted(descriptor) else {
+                authorizedHooks.append(hook)
+                authorize(index: index + 1)
+                return
+            }
+            guard let globalConfigPath else {
+                authorize(index: index + 1)
+                return
+            }
+
+            CmuxConfigExecutor.authorizeProjectAutomationIfNeeded(
+                descriptor: descriptor,
+                confirm: false,
+                configSourcePath: hook.sourcePath,
+                globalConfigPath: globalConfigPath,
+                displayCommand: "[\(hook.id)] \(hook.command)",
+                presentingWindow: resolvedPresentingWindow
+            ) {
+                authorizedHooks.append(hook)
+                authorize(index: index + 1)
+            } onDenied: {
+                authorize(index: index + 1)
+            }
+        }
+
+        authorize(index: 0)
+    }
 }
 
 @MainActor
@@ -731,17 +999,20 @@ final class TerminalNotificationStore: ObservableObject {
     private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
-    private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
+    private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
-        notification in
-        store.scheduleUserNotification(notification)
+        notification,
+        effects in
+        store.scheduleUserNotification(notification, effects: effects)
     }
-    private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
+    private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
-        notification in
-        store.playSuppressedNotificationFeedback(for: notification)
+        notification,
+        effects in
+        store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    private var lastNotificationHookFailureDateByKey: [String: Date] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -919,6 +1190,15 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        notifications.contains { notification in
+            notification.tabId == tabId &&
+                notification.surfaceId == surfaceId &&
+                !notification.isRead &&
+                notification.paneFlash
+        }
+    }
+
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
             focusedReadIndicatorByTabId[tabId] == surfaceId
@@ -960,45 +1240,213 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        var updated = notifications
-        var idsToClear: [String] = []
-        updated.removeAll { existing in
-            guard existing.tabId == tabId, existing.surfaceId == surfaceId else { return false }
-            idsToClear.append(existing.id.uuidString)
-            return true
-        }
-
-        if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[tabId],
-           existingIndicatorSurfaceId != surfaceId {
-            focusedReadIndicatorByTabId.removeValue(forKey: tabId)
-        }
-
-        let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
-        let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
-        let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
-        let isFocusedPanel = isActiveTab && isFocusedSurface
-        let isAppFocused = AppFocusState.isAppFocused()
-        let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
-        if shouldSuppressExternalDelivery {
-            setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
-        }
-
-        if WorkspaceAutoReorderSettings.isEnabled() {
-            AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
-        }
-
-        let notification = TerminalNotification(
-            id: UUID(),
+        let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body,
-            createdAt: now,
-            isRead: false
+            body: body
         )
+        guard !policyContext.hooks.isEmpty else {
+            applyNotification(
+                request: policyContext.request,
+                effects: TerminalNotificationPolicyEffects(),
+                now: now,
+                cooldownKey: cooldownKey,
+                resolvedCooldownInterval: resolvedCooldownInterval
+            )
+            return
+        }
+
+        NotificationPolicyHookAuthorizer.authorize(
+            policyContext.hooks,
+            globalConfigPath: policyContext.globalConfigPath
+        ) { [weak self] authorizedHooks in
+            guard let self else { return }
+            guard !authorizedHooks.isEmpty else {
+                self.applyNotification(
+                    request: policyContext.request,
+                    effects: TerminalNotificationPolicyEffects(),
+                    now: Date(),
+                    cooldownKey: cooldownKey,
+                    resolvedCooldownInterval: resolvedCooldownInterval
+                )
+                return
+            }
+
+            TerminalNotificationPolicyEngine.evaluate(
+                request: policyContext.request,
+                hooks: authorizedHooks
+            ) { [weak self] result in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch result {
+                    case .success(let envelope):
+                        self.applyNotification(
+                            request: policyContext.request,
+                            envelope: envelope,
+                            now: Date(),
+                            cooldownKey: cooldownKey,
+                            resolvedCooldownInterval: resolvedCooldownInterval
+                        )
+                    case .failure(let failure):
+                        self.applyNotification(
+                            request: policyContext.request,
+                            effects: TerminalNotificationPolicyEffects(),
+                            now: Date(),
+                            cooldownKey: cooldownKey,
+                            resolvedCooldownInterval: resolvedCooldownInterval
+                        )
+                        self.reportNotificationHookFailure(failure)
+                    }
+                }
+            }
+        }
+    }
+
+    private struct NotificationPolicyContext: Sendable {
+        let request: TerminalNotificationPolicyRequest
+        let hooks: [CmuxResolvedNotificationHook]
+        let globalConfigPath: String?
+    }
+
+    private func makeNotificationPolicyContext(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> NotificationPolicyContext {
+        let appDelegate = AppDelegate.shared
+        let context = appDelegate?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let cmuxConfigStore = context?.cmuxConfigStore
+        let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
+        let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
+        let isActiveTab = tabManager?.selectedTabId == tabId
+        let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
+        let isFocusedPanel = isActiveTab && isFocusedSurface
+        let isAppFocused = AppFocusState.isAppFocused()
+        let cwd = workspace?.surfaceTabBarDirectory
+            ?? workspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+
+        return NotificationPolicyContext(
+            request: TerminalNotificationPolicyRequest(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                cwd: cwd,
+                isAppFocused: isAppFocused,
+                isFocusedPanel: isFocusedPanel
+            ),
+            hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
+            globalConfigPath: cmuxConfigStore?.globalConfigPath
+        )
+    }
+
+    private func applyNotification(
+        request: TerminalNotificationPolicyRequest,
+        envelope: TerminalNotificationPolicyEnvelope,
+        now: Date,
+        cooldownKey: String?,
+        resolvedCooldownInterval: TimeInterval?
+    ) {
+        let payload = envelope.notification
+        applyNotification(
+            request: TerminalNotificationPolicyRequest(
+                tabId: request.tabId,
+                surfaceId: request.surfaceId,
+                title: payload.title,
+                subtitle: payload.subtitle,
+                body: payload.body,
+                cwd: request.cwd,
+                isAppFocused: request.isAppFocused,
+                isFocusedPanel: request.isFocusedPanel
+            ),
+            effects: envelope.effects,
+            now: now,
+            cooldownKey: cooldownKey,
+            resolvedCooldownInterval: resolvedCooldownInterval
+        )
+    }
+
+    private func applyNotification(
+        request: TerminalNotificationPolicyRequest,
+        effects: TerminalNotificationPolicyEffects,
+        now: Date,
+        cooldownKey: String?,
+        resolvedCooldownInterval: TimeInterval?
+    ) {
+        let shouldSuppressExternalDelivery = request.isAppFocused && request.isFocusedPanel
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: request.tabId,
+            surfaceId: request.surfaceId,
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body,
+            createdAt: now,
+            isRead: !effects.markUnread,
+            paneFlash: effects.paneFlash
+        )
+
+        if effects.record {
+            recordNotification(
+                notification,
+                shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+                effects: effects,
+                now: now,
+                cooldownKey: cooldownKey,
+                resolvedCooldownInterval: resolvedCooldownInterval
+            )
+            return
+        }
+
+        if let cooldownKey, resolvedCooldownInterval != nil, hasAnyNotificationEffect(effects) {
+            lastNotificationDateByCooldownKey[cooldownKey] = now
+        }
+        deliverNotificationSideEffects(
+            notification,
+            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+            effects: effects
+        )
+    }
+
+    private func recordNotification(
+        _ notification: TerminalNotification,
+        shouldSuppressExternalDelivery: Bool,
+        effects: TerminalNotificationPolicyEffects,
+        now: Date,
+        cooldownKey: String?,
+        resolvedCooldownInterval: TimeInterval?
+    ) {
+        var updated = notifications
+        var idsToClear: [String] = []
+        updated.removeAll { existing in
+            guard existing.tabId == notification.tabId, existing.surfaceId == notification.surfaceId else { return false }
+            idsToClear.append(existing.id.uuidString)
+            return true
+        }
+
+        if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[notification.tabId],
+           existingIndicatorSurfaceId != notification.surfaceId {
+            focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
+        }
+
+        if shouldSuppressExternalDelivery, effects.markUnread {
+            setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
+        }
+
+        if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
+            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
+                .moveTabToTopForNotification(notification.tabId)
+        }
+
         updated.insert(notification, at: 0)
-        setWorkspaceManualUnread(false, forTabId: tabId)
+        setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
         if let cooldownKey, resolvedCooldownInterval != nil {
             lastNotificationDateByCooldownKey[cooldownKey] = now
@@ -1007,10 +1455,73 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
+        deliverNotificationSideEffects(
+            notification,
+            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+            effects: effects
+        )
+    }
+
+    private func deliverNotificationSideEffects(
+        _ notification: TerminalNotification,
+        shouldSuppressExternalDelivery: Bool,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard effects.desktop || effects.sound || effects.command else { return }
         if shouldSuppressExternalDelivery {
-            suppressedNotificationFeedbackHandler(self, notification)
+            suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {
-            notificationDeliveryHandler(self, notification)
+            notificationDeliveryHandler(self, notification, effects)
+        }
+    }
+
+    private func hasAnyNotificationEffect(_ effects: TerminalNotificationPolicyEffects) -> Bool {
+        effects.record || effects.desktop || effects.sound || effects.command || effects.reorderWorkspace || effects.markUnread
+    }
+
+    func reportNotificationHookFailure(_ failure: TerminalNotificationPolicyFailure) {
+        let key = [
+            failure.hookId,
+            failure.sourcePath ?? ""
+        ].joined(separator: "|")
+        let now = Date()
+        if let lastDate = lastNotificationHookFailureDateByKey[key],
+           now.timeIntervalSince(lastDate) < 300 {
+            return
+        }
+        lastNotificationHookFailureDateByKey[key] = now
+        NSLog(
+            "Notification hook '%@' failed from %@: %@",
+            failure.hookId,
+            failure.sourcePath ?? "<unknown>",
+            failure.message
+        )
+
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+            guard let self, authorized else { return }
+            let title = String(
+                localized: "notificationHook.failure.title",
+                defaultValue: "Notification Hook Failed"
+            )
+            let format = String(
+                localized: "notificationHook.failure.body",
+                defaultValue: "cmux used default notification behavior because '%@' failed: %@"
+            )
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = String(format: format, failure.hookId, failure.message)
+            content.sound = NotificationSoundSettings.sound()
+            content.categoryIdentifier = Self.categoryIdentifier
+            let request = UNNotificationRequest(
+                identifier: "cmux.notification-hook.failure.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            self.center.add(request) { error in
+                if let error {
+                    NSLog("Failed to schedule notification hook failure alert: \(error)")
+                }
+            }
         }
     }
 
@@ -1184,7 +1695,8 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: notification.subtitle,
                 body: notification.body,
                 createdAt: notification.createdAt,
-                isRead: notification.isRead
+                isRead: notification.isRead,
+                paneFlash: notification.paneFlash
             )
         }
         if didMoveNotification {
@@ -1232,7 +1744,20 @@ final class TerminalNotificationStore: ObservableObject {
         return notification.title.isEmpty ? appName : notification.title
     }
 
-    private func scheduleUserNotification(_ notification: TerminalNotification) {
+    private func scheduleUserNotification(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard effects.desktop else {
+            playLocalNotificationFeedback(
+                title: resolvedNotificationTitle(for: notification),
+                subtitle: notification.subtitle,
+                body: notification.body,
+                effects: effects
+            )
+            return
+        }
+
         ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
             guard let self, authorized else { return }
 
@@ -1240,7 +1765,7 @@ final class TerminalNotificationStore: ObservableObject {
             content.title = self.resolvedNotificationTitle(for: notification)
             content.subtitle = notification.subtitle
             content.body = notification.body
-            content.sound = NotificationSoundSettings.sound()
+            content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
             content.categoryIdentifier = Self.categoryIdentifier
             content.userInfo = [
                 "tabId": notification.tabId.uuidString,
@@ -1259,7 +1784,7 @@ final class TerminalNotificationStore: ObservableObject {
             self.center.add(request) { error in
                 if let error {
                     NSLog("Failed to schedule notification: \(error)")
-                } else {
+                } else if effects.command {
                     NotificationSoundSettings.runCustomCommand(
                         title: content.title,
                         subtitle: content.subtitle,
@@ -1270,13 +1795,34 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func playSuppressedNotificationFeedback(for notification: TerminalNotification) {
-        NotificationSoundSettings.playSelectedSound()
-        NotificationSoundSettings.runCustomCommand(
+    private func playSuppressedNotificationFeedback(
+        for notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        playLocalNotificationFeedback(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
-            body: notification.body
+            body: notification.body,
+            effects: effects
         )
+    }
+
+    private func playLocalNotificationFeedback(
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        if effects.sound {
+            NotificationSoundSettings.playSelectedSound()
+        }
+        if effects.command {
+            NotificationSoundSettings.runCustomCommand(
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
     }
 
     private func ensureAuthorization(
@@ -1498,24 +2044,40 @@ final class TerminalNotificationStore: ObservableObject {
     func configureNotificationDeliveryHandlerForTesting(
         _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
     ) {
+        notificationDeliveryHandler = { store, notification, _ in
+            handler(store, notification)
+        }
+    }
+
+    func configureNotificationDeliveryHandlerForTesting(
+        _ handler: @escaping (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void
+    ) {
         notificationDeliveryHandler = handler
     }
 
     func resetNotificationDeliveryHandlerForTesting() {
-        notificationDeliveryHandler = { store, notification in
-            store.scheduleUserNotification(notification)
+        notificationDeliveryHandler = { store, notification, effects in
+            store.scheduleUserNotification(notification, effects: effects)
         }
     }
 
     func configureSuppressedNotificationFeedbackHandlerForTesting(
         _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
     ) {
+        suppressedNotificationFeedbackHandler = { store, notification, _ in
+            handler(store, notification)
+        }
+    }
+
+    func configureSuppressedNotificationFeedbackHandlerForTesting(
+        _ handler: @escaping (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void
+    ) {
         suppressedNotificationFeedbackHandler = handler
     }
 
     func resetSuppressedNotificationFeedbackHandlerForTesting() {
-        suppressedNotificationFeedbackHandler = { store, notification in
-            store.playSuppressedNotificationFeedback(for: notification)
+        suppressedNotificationFeedbackHandler = { store, notification, effects in
+            store.playSuppressedNotificationFeedback(for: notification, effects: effects)
         }
     }
 
