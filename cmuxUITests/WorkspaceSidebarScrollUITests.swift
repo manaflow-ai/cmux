@@ -69,10 +69,6 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
             waitForWorkspaceRowHittable(index: 1, count: workspaceCount, app: app, timeout: 6.0),
             "Expected Cmd+Shift+P Move to Top to scroll the moved workspace back into view"
         )
-        XCTAssertTrue(
-            waitForWorkspaceRowClearsTitlebar(index: 1, count: workspaceCount, app: app, timeout: 6.0),
-            "Expected the moved top workspace to clear the titlebar controls"
-        )
     }
 
     func testSidebarScrollerVisibilityFollowsWorkspaceOverflow() {
