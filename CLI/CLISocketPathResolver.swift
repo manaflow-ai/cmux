@@ -144,13 +144,20 @@ enum CLISocketPathResolver {
     ) -> [String] {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
+        let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment))
+        candidates.append(defaultPath)
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
             candidates.append(last)
         }
-        candidates.append(requestedPath)
-        candidates.append(contentsOf: knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment))
+        if shouldIncludeImplicitRequestedPath(
+            requestedPath,
+            defaultPath: defaultPath,
+            variant: variant
+        ) {
+            candidates.append(requestedPath)
+        }
+        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant))
         if shouldDiscoverTaggedSockets(
             variant: variant,
             bundleIdentifier: bundleIdentifier,
@@ -159,6 +166,28 @@ enum CLISocketPathResolver {
             candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
         }
         return candidates
+    }
+
+    private static func shouldIncludeImplicitRequestedPath(
+        _ requestedPath: String,
+        defaultPath: String,
+        variant: SocketPathVariant
+    ) -> Bool {
+        switch variant {
+        case .stable:
+            return true
+        case .nightly, .staging, .dev:
+            return requestedPath == defaultPath || !stableImplicitDefaultPaths().contains(requestedPath)
+        }
+    }
+
+    private static func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
+        switch variant {
+        case .stable:
+            return stableImplicitDefaultPaths()
+        case .nightly, .staging, .dev:
+            return []
+        }
     }
 
     private static func shouldDiscoverTaggedSockets(
@@ -280,8 +309,14 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
+        dedupe(
+            [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
+                + stableImplicitDefaultPaths()
+        )
+    }
+
+    private static func stableImplicitDefaultPaths() -> [String] {
         dedupe([
-            defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment),
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
         ])
