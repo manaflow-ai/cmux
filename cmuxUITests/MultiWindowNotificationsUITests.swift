@@ -374,6 +374,126 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(notifyStdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyStdout) stderr=\(notifyStderr)")
     }
 
+    func testOpenNotificationCLISelectsWorkspaceSurfaceAndMarksRowRead() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for open-notification CLI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 20.0) { data in
+                let tabId2 = data["tabId2"] ?? ""
+                let surfaceId2 = data["surfaceId2"] ?? ""
+                let window2Id = data["window2Id"] ?? ""
+                let socketReady = data["socketReady"] ?? ""
+                return !tabId2.isEmpty &&
+                    !surfaceId2.isEmpty &&
+                    !window2Id.isEmpty &&
+                    !socketReady.isEmpty &&
+                    socketReady != "pending"
+            },
+            "Expected multi-window notification setup data and socket readiness"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing setup data")
+            return
+        }
+        if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        guard setup["socketReady"] == "1" else {
+            XCTFail(
+                "Control socket unavailable in this test environment. expected=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard setup["socketPingResponse"] == "PONG" else {
+            XCTFail(
+                "Control socket ping sanity check failed. path=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        let tabId2 = try XCTUnwrap(setup["tabId2"])
+        let surfaceId2 = try XCTUnwrap(setup["surfaceId2"])
+        let window2Id = try XCTUnwrap(setup["window2Id"])
+
+        let title = "open-cli-\(UUID().uuidString.prefix(8))"
+        let notifyResult = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "notify",
+                "--workspace",
+                tabId2,
+                "--surface",
+                surfaceId2,
+                "--title",
+                title,
+                "--subtitle",
+                "ui-test",
+                "--body",
+                "open-notification",
+            ],
+            responseTimeoutSeconds: 6.0,
+            cliStrategy: .bundledOnly
+        )
+        XCTAssertEqual(notifyResult.terminationStatus, 0, notifyResult.stderr)
+
+        guard let notification = waitForNotification(title: title, timeout: 8.0),
+              let notificationId = notification["id"] as? String,
+              !notificationId.isEmpty else {
+            XCTFail("Expected CLI-created notification to appear in list-notifications")
+            return
+        }
+
+        let beforeToken = loadData()?["focusToken"]
+        let openResult = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "open-notification",
+                "--id",
+                notificationId,
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            responseTimeoutSeconds: 6.0,
+            cliStrategy: .bundledOnly
+        )
+        XCTAssertEqual(openResult.terminationStatus, 0, openResult.stderr)
+        let openPayload = parseJSONObject(openResult.stdout)
+        XCTAssertEqual(openPayload?["workspace_id"] as? String, tabId2)
+        XCTAssertEqual(openPayload?["surface_id"] as? String, surfaceId2)
+
+        XCTAssertTrue(
+            waitForFocusChange(from: beforeToken, timeout: 8.0),
+            "Expected focus record after open-notification CLI command"
+        )
+        guard let afterOpen = loadData() else {
+            XCTFail("Missing focus data after open-notification")
+            return
+        }
+        XCTAssertEqual(afterOpen["focusedWindowId"], window2Id)
+        XCTAssertEqual(afterOpen["focusedTabId"], tabId2)
+        XCTAssertEqual(afterOpen["focusedSurfaceId"], surfaceId2)
+        XCTAssertEqual(afterOpen["focusedSidebarSelection"], "tabs")
+        XCTAssertTrue(
+            waitForNotificationRead(notificationId, timeout: 8.0),
+            "Expected open-notification to mark the opened row read"
+        )
+    }
+
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
         app: XCUIApplication,
@@ -444,6 +564,43 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             guard let data = self.loadData() else { return false }
             return predicate(data)
         }
+    }
+
+    private func waitForNotification(title: String, timeout: TimeInterval) -> [String: Any]? {
+        var matched: [String: Any]?
+        _ = waitForCondition(timeout: timeout) {
+            guard let rows = self.notificationRowsViaCLI() else { return false }
+            matched = rows.first(where: { $0["title"] as? String == title })
+            return matched != nil
+        }
+        return matched
+    }
+
+    private func waitForNotificationRead(_ id: String, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let rows = self.notificationRowsViaCLI(),
+                  let row = rows.first(where: { $0["id"] as? String == id }) else {
+                return false
+            }
+            return row["is_read"] as? Bool == true
+        }
+    }
+
+    private func notificationRowsViaCLI() -> [[String: Any]]? {
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: ["list-notifications", "--json", "--id-format", "uuids"],
+            responseTimeoutSeconds: 4.0,
+            cliStrategy: .bundledOnly
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        guard let data = result.stdout.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data, options: [])) as? [[String: Any]]
+    }
+
+    private func parseJSONObject(_ text: String) -> [String: Any]? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> String? {

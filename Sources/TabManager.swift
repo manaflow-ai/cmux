@@ -88,8 +88,10 @@ enum SidebarBranchLayoutSettings {
 
 enum SidebarWorkspaceDetailSettings {
     static let hideAllDetailsKey = "sidebarHideAllDetails"
+    static let showWorkspaceDescriptionKey = "sidebarShowWorkspaceDescription"
     static let showNotificationMessageKey = "sidebarShowNotificationMessage"
     static let defaultHideAllDetails = false
+    static let defaultShowWorkspaceDescription = true
     static let defaultShowNotificationMessage = true
 
     static func hidesAllDetails(defaults: UserDefaults = .standard) -> Bool {
@@ -99,11 +101,25 @@ enum SidebarWorkspaceDetailSettings {
         return defaults.bool(forKey: hideAllDetailsKey)
     }
 
+    static func showsWorkspaceDescription(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showWorkspaceDescriptionKey) == nil {
+            return defaultShowWorkspaceDescription
+        }
+        return defaults.bool(forKey: showWorkspaceDescriptionKey)
+    }
+
     static func showsNotificationMessage(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showNotificationMessageKey) == nil {
             return defaultShowNotificationMessage
         }
         return defaults.bool(forKey: showNotificationMessageKey)
+    }
+
+    static func resolvedWorkspaceDescriptionVisibility(
+        showWorkspaceDescription: Bool,
+        hideAllDetails: Bool
+    ) -> Bool {
+        showWorkspaceDescription && !hideAllDetails
     }
 
     static func resolvedNotificationMessageVisibility(
@@ -244,6 +260,18 @@ enum WorkspacePlacementSettings {
             }
             return min(clampedSelectedIndex + 1, clampedTotalCount)
         }
+    }
+}
+
+enum WorkspaceWorkingDirectoryInheritanceSettings {
+    static let key = "workspaceInheritWorkingDirectory"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
     }
 }
 
@@ -2092,7 +2120,7 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let dir = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -3825,6 +3853,13 @@ class TabManager: ObservableObject {
         return workspace.panelDirectories.values.lazy.compactMap { directory in
             self.normalizedWorkingDirectory(directory)
         }.first
+    }
+
+    func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
+        guard WorkspaceWorkingDirectoryInheritanceSettings.isEnabled() else {
+            return nil
+        }
+        return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
     }
 
     func moveTabToTop(_ tabId: UUID) {
