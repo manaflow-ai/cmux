@@ -152,7 +152,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testRemoteShellSnippetSourcesCleanlyUnderZshWithPathIntact() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-zsh-path-\(UUID().uuidString)")
-        let project = root.appendingPathComponent("[WIP]-project", isDirectory: true)
+        let project = root.appendingPathComponent("[WIP];project", isDirectory: true)
         try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -192,7 +192,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("file://remote%5Bhost%5D/"), result.stdout.debugDescription)
-        XCTAssertTrue(result.stdout.contains("%5BWIP%5D-project"), result.stdout.debugDescription)
+        XCTAssertTrue(result.stdout.contains("%5BWIP%5D%3Bproject"), result.stdout.debugDescription)
         XCTAssertTrue(result.stdout.contains("PATH_OK=\(shellPath)"), result.stdout.debugDescription)
     }
 
@@ -245,7 +245,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(NSTemporaryDirectory())",
                 "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR=\(NSTemporaryDirectory())",
-                "CMUX_REMOTE_HOST=remote host/frag?x#y@deploy",
+                "CMUX_REMOTE_HOST=remote host/frag?x#y@deploy;semi",
                 "CMUX_REMOTE_DISABLE_GIT=1",
                 "/bin/bash",
                 "-c",
@@ -257,7 +257,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(
-            result.stdout.contains("\u{1B}]7;file://remote%20host%2Ffrag%3Fx%23y%40deploy/"),
+            result.stdout.contains("\u{1B}]7;file://remote%20host%2Ffrag%3Fx%23y%40deploy%3Bsemi/"),
             result.stdout.debugDescription
         )
     }
