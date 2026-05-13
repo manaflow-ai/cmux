@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
-          cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          cd ghostty && zig build -Dcrash-report-subdir=cmux/crash -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
         if: steps.check-release.outputs.exists == 'false'
