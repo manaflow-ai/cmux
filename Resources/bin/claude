@@ -343,6 +343,37 @@ claude_interactive_entry_flag() {
     return 1
 }
 
+claude_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_builtin_command_name() {
+    case "$1" in
+        agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        ultrareview|update|upgrade)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*)
+            return 1
+            ;;
+    esac
+    claude_builtin_command_name "$candidate"
+}
+
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
@@ -358,6 +389,9 @@ should_inject_claude_hooks() {
                 return 0
                 ;;
             -*)
+                if claude_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
                 if claude_interactive_entry_flag "$arg"; then
                     return 0
                 fi
@@ -367,7 +401,10 @@ should_inject_claude_hooks() {
                 continue
                 ;;
             *)
-                return 1
+                if claude_command_like_invocation "$arg"; then
+                    return 1
+                fi
+                return 0
                 ;;
         esac
     done
@@ -375,8 +412,8 @@ should_inject_claude_hooks() {
     return 0
 }
 
-# Only inject hooks for Claude session entrypoints. Other command-like
-# invocations pass through so new Claude subcommands do not need cmux changes.
+# Only inject hooks for Claude session entrypoints. Command-like invocations
+# pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
     exec_real_claude_passthrough "$@"
 fi
