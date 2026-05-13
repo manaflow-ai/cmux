@@ -213,6 +213,7 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
+        let hasUnreadIndicator = AppDelegate.shared?.notificationStore?.workspaceIsUnread(forTabId: id) ?? false
 
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
@@ -220,6 +221,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            hasUnreadIndicator: hasUnreadIndicator,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -311,6 +313,7 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+        restoreWorkspaceUnreadIndicator(snapshot.hasUnreadIndicator == true)
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -414,6 +417,7 @@ extension Workspace {
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
+        let hasUnreadIndicator = isManuallyUnread || hasUnreadNotification(panelId: panelId)
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
@@ -518,6 +522,7 @@ extension Workspace {
             directory: directory,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
+            hasUnreadIndicator: hasUnreadIndicator,
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
@@ -879,7 +884,7 @@ extension Workspace {
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
-        if snapshot.isManuallyUnread {
+        if snapshot.hasUnreadIndicator ?? snapshot.isManuallyUnread {
             markPanelUnread(panelId)
         } else {
             clearManualUnread(panelId: panelId)
@@ -920,6 +925,16 @@ extension Workspace {
                 _ = browserPanel.hideDeveloperTools()
             }
         }
+    }
+
+    private func restoreWorkspaceUnreadIndicator(_ hasUnreadIndicator: Bool) {
+        guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
+        if hasUnreadIndicator {
+            notificationStore.markUnread(forTabId: id)
+        } else {
+            _ = notificationStore.clearManualUnread(forTabId: id)
+        }
+        syncUnreadBadgeStateForAllPanels()
     }
 
     private func applySessionDividerPositions(

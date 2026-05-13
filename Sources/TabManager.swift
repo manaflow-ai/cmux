@@ -7284,6 +7284,7 @@ extension TabManager {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
+        let notificationStore = AppDelegate.shared?.notificationStore
 
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
@@ -7303,11 +7304,19 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+            hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
 
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
+                hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
+                hasher.combine(
+                    notificationStore?.hasVisibleNotificationIndicator(
+                        forTabId: workspace.id,
+                        surfaceId: panelId
+                    ) ?? false
+                )
                 Self.hashRestorableAgentSnapshot(
                     restorableAgentIndex.snapshot(
                         workspaceId: workspace.id,
