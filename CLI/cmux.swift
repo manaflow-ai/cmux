@@ -17379,17 +17379,12 @@ const CMUXSessionRestore = async (ctx) => {
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
-          } else {
-            sendHook("session-start", ctx, event);
           }
           break;
         case "session.status":
           if (props.status && props.status.type === "idle") {
             sendHook("stop", ctx, event);
           }
-          break;
-        case "session.idle":
-          sendHook("stop", ctx, event);
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
