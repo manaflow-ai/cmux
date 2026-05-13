@@ -3,7 +3,13 @@ import Bonsplit
 import CMUXAgentLaunch
 import Combine
 import Foundation
+import os
 import SQLite3
+
+nonisolated private let sessionIndexLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "SessionIndexStore"
+)
 
 // MARK: - Parsed metadata cache
 
@@ -1210,7 +1216,17 @@ final class SessionIndexStore: ObservableObject {
     /// Path to `rg` (ripgrep), if installed. nil when not found — the search
     /// code falls back to the Foundation substring scan.
     nonisolated private static func resolvedRipgrepPath() -> String? {
-        RipgrepExecutableResolver.resolve()?.url.path
+        switch RipgrepExecutableResolver.resolution() {
+        case .found(let executable):
+            return executable.url.path
+        case .configuredPathNotExecutable(let path):
+            sessionIndexLogger.warning(
+                "Configured ripgrep path is not executable; falling back to Foundation session search: \(path, privacy: .public)"
+            )
+            return nil
+        case .notFound:
+            return nil
+        }
     }
 
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
