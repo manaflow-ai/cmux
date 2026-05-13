@@ -750,6 +750,12 @@ enum CLIIDFormat: String {
     }
 }
 
+private enum TopSortKey: Equatable {
+    case cpu
+    case rss
+    case proc
+}
+
 enum SocketPasswordResolver {
     private static let service = "com.cmuxterm.app.socket-control"
     private static let account = "local-socket-password"
@@ -9734,6 +9740,7 @@ struct CMUXCLI {
               --all                         Include all windows (default: current window only)
               --workspace <id|ref|index>   Show only one workspace
               --processes                  Include process trees under surfaces, webviews, and tags
+              --sort <cpu|rss|proc>         Sort sibling rows by CPU, memory, or process count
               --json                        Structured JSON output
 
             Output:
@@ -9744,6 +9751,7 @@ struct CMUXCLI {
             Example:
               cmux top
               cmux top --all
+              cmux top --sort cpu
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
@@ -11024,6 +11032,7 @@ struct CMUXCLI {
         let workspaceHandle: String?
         let jsonOutput: Bool
         let showProcesses: Bool
+        let sortKey: TopSortKey?
     }
 
     private struct TreePath {
@@ -11088,11 +11097,19 @@ struct CMUXCLI {
     ) throws {
         let options = try parseTopCommandOptions(commandArgs)
         let structuredOutput = jsonOutput || options.jsonOutput
+        if structuredOutput, options.sortKey != nil {
+            throw CLIError(message: "top: --sort is only supported for text output; use --json to sort structured data externally")
+        }
         let payload = try buildTopPayload(options: options, client: client)
         if structuredOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
-            print(renderTopText(payload: payload, idFormat: idFormat, showProcesses: options.showProcesses))
+            print(renderTopText(
+                payload: payload,
+                idFormat: idFormat,
+                showProcesses: options.showProcesses,
+                sortKey: options.sortKey
+            ))
         }
     }
 
@@ -11101,12 +11118,16 @@ struct CMUXCLI {
         if rem0.contains("--workspace") {
             throw CLIError(message: "top requires --workspace <id|ref|index>")
         }
+        let (sortOpt, rem1) = parseOption(rem0, name: "--sort")
+        if rem1.contains("--sort") {
+            throw CLIError(message: "top requires --sort <cpu|rss|proc>")
+        }
 
         var includeAll = false
         var jsonOutput = false
         var showProcesses = false
         var remaining: [String] = []
-        for arg in rem0 {
+        for arg in rem1 {
             if arg == "--all" {
                 includeAll = true
                 continue
@@ -11123,7 +11144,7 @@ struct CMUXCLI {
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|rss|proc> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
@@ -11133,8 +11154,24 @@ struct CMUXCLI {
             includeAllWindows: includeAll,
             workspaceHandle: workspaceOpt,
             jsonOutput: jsonOutput,
-            showProcesses: showProcesses
+            showProcesses: showProcesses,
+            sortKey: try parseTopSortKey(sortOpt)
         )
+    }
+
+    private func parseTopSortKey(_ raw: String?) throws -> TopSortKey? {
+        guard let raw else { return nil }
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "cpu", "cpu%":
+            return .cpu
+        case "rss", "mem", "memory", "ram":
+            return .rss
+        case "proc", "process", "processes", "count":
+            return .proc
+        default:
+            throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, rss, or proc")
+        }
     }
 
     private func buildTopPayload(
@@ -11639,7 +11676,8 @@ struct CMUXCLI {
     private func renderTopText(
         payload: [String: Any],
         idFormat: CLIIDFormat,
-        showProcesses: Bool
+        showProcesses: Bool,
+        sortKey: TopSortKey? = nil
     ) -> String {
         let windows = payload["windows"] as? [[String: Any]] ?? []
         guard !windows.isEmpty else { return "No windows" }
@@ -11649,10 +11687,10 @@ struct CMUXCLI {
             lines.append("\(topResourceColumns(resources: totals))total")
         }
 
-        for window in windows {
+        for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
             lines.append("\(topResourceColumns(node: window))\(topWindowLabel(window, idFormat: idFormat))")
 
-            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
             for (workspaceIndex, workspace) in workspaces.enumerated() {
                 let workspaceIsLast = workspaceIndex == workspaces.count - 1
                 let workspaceBranch = workspaceIsLast ? "└── " : "├── "
@@ -11661,57 +11699,69 @@ struct CMUXCLI {
 
                 let tags = workspace["tags"] as? [[String: Any]] ?? []
                 let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let workspaceChildCount = tags.count + panes.count
-                var workspaceChildIndex = 0
+                let workspaceChildren = topSortedItems(
+                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                    sortKey: sortKey,
+                    node: { $0.node }
+                )
 
-                for tag in tags {
-                    let tagIsLast = workspaceChildIndex == workspaceChildCount - 1
-                    workspaceChildIndex += 1
-                    let tagBranch = tagIsLast ? "└── " : "├── "
-                    let tagIndent = tagIsLast ? "    " : "│   "
-                    lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
-                    if showProcesses {
-                        appendTopProcessLines(
-                            tag["processes"] as? [[String: Any]] ?? [],
-                            to: &lines,
-                            indent: workspaceIndent + tagIndent
-                        )
-                    }
-                }
+                for (workspaceChildIndex, workspaceChild) in workspaceChildren.enumerated() {
+                    let childIsLast = workspaceChildIndex == workspaceChildren.count - 1
+                    switch workspaceChild {
+                    case .tag(let tag):
+                        let tagIsLast = childIsLast
+                        let tagBranch = tagIsLast ? "└── " : "├── "
+                        let tagIndent = tagIsLast ? "    " : "│   "
+                        lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
+                        if showProcesses {
+                            appendTopProcessLines(
+                                tag["processes"] as? [[String: Any]] ?? [],
+                                to: &lines,
+                                indent: workspaceIndent + tagIndent,
+                                sortKey: sortKey
+                            )
+                        }
+                    case .pane(let pane):
+                        let paneIsLast = childIsLast
+                        let paneBranch = paneIsLast ? "└── " : "├── "
+                        let paneIndent = paneIsLast ? "    " : "│   "
+                        lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
 
-                for pane in panes {
-                    let paneIsLast = workspaceChildIndex == workspaceChildCount - 1
-                    workspaceChildIndex += 1
-                    let paneBranch = paneIsLast ? "└── " : "├── "
-                    let paneIndent = paneIsLast ? "    " : "│   "
-                    lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
+                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                        for (surfaceIndex, surface) in surfaces.enumerated() {
+                            let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                            let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                            let surfaceIndent = surfaceIsLast ? "    " : "│   "
+                            lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
 
-                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
-                    for (surfaceIndex, surface) in surfaces.enumerated() {
-                        let surfaceIsLast = surfaceIndex == surfaces.count - 1
-                        let surfaceBranch = surfaceIsLast ? "└── " : "├── "
-                        let surfaceIndent = surfaceIsLast ? "    " : "│   "
-                        lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
-
-                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
-                        let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
-                        let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
-                        if !webviews.isEmpty {
-                            for (webviewIndex, webview) in webviews.enumerated() {
-                                let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
-                                let webviewBranch = webviewIsLast ? "└── " : "├── "
-                                let webviewIndent = webviewIsLast ? "    " : "│   "
-                                lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
-                                if showProcesses {
-                                    appendTopProcessLines(
-                                        webview["processes"] as? [[String: Any]] ?? [],
-                                        to: &lines,
-                                        indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent
-                                    )
+                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
+                            let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
+                            if !webviews.isEmpty {
+                                for (webviewIndex, webview) in webviews.enumerated() {
+                                    let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
+                                    let webviewBranch = webviewIsLast ? "└── " : "├── "
+                                    let webviewIndent = webviewIsLast ? "    " : "│   "
+                                    lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
+                                    if showProcesses {
+                                        appendTopProcessLines(
+                                            webview["processes"] as? [[String: Any]] ?? [],
+                                            to: &lines,
+                                            indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent,
+                                            sortKey: sortKey
+                                        )
+                                    }
                                 }
                             }
+                            if showProcesses {
+                                appendTopProcessLines(
+                                    surfaceProcesses,
+                                    to: &lines,
+                                    indent: workspaceIndent + paneIndent + surfaceIndent,
+                                    sortKey: sortKey
+                                )
+                            }
                         }
-                        if showProcesses { appendTopProcessLines(surfaceProcesses, to: &lines, indent: workspaceIndent + paneIndent + surfaceIndent) }
                     }
                 }
             }
@@ -11720,20 +11770,62 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    private enum TopWorkspaceChild {
+        case tag([String: Any])
+        case pane([String: Any])
+
+        var node: [String: Any] {
+            switch self {
+            case .tag(let node), .pane(let node):
+                return node
+            }
+        }
+    }
+
+    private func topSortedItems<T>(
+        _ items: [T],
+        sortKey: TopSortKey?,
+        node: (T) -> [String: Any]
+    ) -> [T] {
+        guard let sortKey else { return items }
+        return items.enumerated().sorted { lhs, rhs in
+            let lhsValue = topSortValue(node(lhs.element), sortKey: sortKey)
+            let rhsValue = topSortValue(node(rhs.element), sortKey: sortKey)
+            guard lhsValue != rhsValue else { return lhs.offset < rhs.offset }
+            return lhsValue > rhsValue
+        }.map(\.element)
+    }
+
+    private func topSortValue(_ node: [String: Any], sortKey: TopSortKey) -> Double {
+        let resources = node["resources"] as? [String: Any] ?? [:]
+        switch sortKey {
+        case .cpu:
+            let value = topDouble(resources["cpu_percent"])
+            return value.isFinite ? value : 0
+        case .rss:
+            return Double(topInt64(resources["resident_bytes"]))
+        case .proc:
+            return Double(topInt(resources["process_count"]) ?? 0)
+        }
+    }
+
     private func appendTopProcessLines(
         _ processes: [[String: Any]],
         to lines: inout [String],
-        indent: String
+        indent: String,
+        sortKey: TopSortKey?
     ) {
-        for (index, process) in processes.enumerated() {
-            let isLast = index == processes.count - 1
+        let sortedProcesses = topSortedItems(processes, sortKey: sortKey, node: { $0 })
+        for (index, process) in sortedProcesses.enumerated() {
+            let isLast = index == sortedProcesses.count - 1
             let branch = isLast ? "└── " : "├── "
             let childIndent = isLast ? "    " : "│   "
             lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
             appendTopProcessLines(
                 process["children"] as? [[String: Any]] ?? [],
                 to: &lines,
-                indent: indent + childIndent
+                indent: indent + childIndent,
+                sortKey: sortKey
             )
         }
     }
@@ -21717,7 +21809,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--processes]
+          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
