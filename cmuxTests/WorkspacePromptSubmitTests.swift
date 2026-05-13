@@ -77,6 +77,29 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(third.latestConversationMessage, "final response")
     }
 
+    func testAssistantFinalMessageMovesWorkspaceWhenPreviewMatchesExistingMessage() throws {
+        let manager = TabManager()
+        let pinned = manager.tabs[0]
+        manager.setPinned(pinned, pinned: true)
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        XCTAssertTrue(third.recordConversationMessage("Done."))
+
+        let outcome = try XCTUnwrap(
+            manager.handleAssistantFinalMessage(
+                workspaceId: third.id,
+                message: "Done.",
+                iMessageModeEnabled: true
+            )
+        )
+
+        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertTrue(outcome.reordered)
+        XCTAssertEqual(outcome.index, 1)
+        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, third.id, second.id])
+        XCTAssertEqual(third.latestConversationMessage, "Done.")
+    }
+
     func testBlankAssistantFinalMessageDoesNotMoveWorkspace() throws {
         let manager = TabManager()
         let first = manager.tabs[0]

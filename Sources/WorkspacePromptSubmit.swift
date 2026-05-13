@@ -129,8 +129,9 @@ extension TabManager {
         }
 
         let workspace = tabs[originalIndex]
+        let hasMessage = Workspace.conversationMessagePreview(from: message) != nil
         let messageRecorded = workspace.recordConversationMessage(message)
-        guard messageRecorded || reorderWithoutMessage else {
+        guard messageRecorded || reorderWithoutMessage || hasMessage else {
             return (messageRecorded, false, originalIndex)
         }
         moveTabToTop(workspaceId)
