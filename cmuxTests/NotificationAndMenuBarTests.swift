@@ -155,6 +155,44 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertTrue(patched.effects.record)
     }
 
+    func testPartialNotificationPatchPreservesOmittedPayloadFields() async throws {
+        let envelope = TerminalNotificationPolicyEnvelope(
+            notification: TerminalNotificationPolicyPayload(
+                workspaceId: "workspace-1",
+                surfaceId: "surface-1",
+                title: "Title",
+                subtitle: "Subtitle",
+                body: "Body"
+            ),
+            context: TerminalNotificationPolicyContext(
+                cwd: "/tmp/original",
+                configPath: nil,
+                hookId: nil,
+                appFocused: false,
+                focusedPanel: false
+            )
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "partial-notification",
+            command: #"printf '{"notification":{"title":"Retitled"},"context":{"appFocused":true}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook])
+        let patched = try result.get()
+        XCTAssertEqual(patched.notification.workspaceId, "workspace-1")
+        XCTAssertEqual(patched.notification.surfaceId, "surface-1")
+        XCTAssertEqual(patched.notification.title, "Retitled")
+        XCTAssertEqual(patched.notification.subtitle, "Subtitle")
+        XCTAssertEqual(patched.notification.body, "Body")
+        XCTAssertEqual(patched.context.configPath, "/tmp/cmux.json")
+        XCTAssertEqual(patched.context.hookId, "partial-notification")
+        XCTAssertTrue(patched.context.appFocused)
+        XCTAssertFalse(patched.context.focusedPanel)
+    }
+
     func testHookFailureReturnsFailureForDefaultFallback() async throws {
         let request = TerminalNotificationPolicyRequest(
             tabId: UUID(),

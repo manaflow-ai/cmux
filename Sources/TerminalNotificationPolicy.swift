@@ -87,6 +87,96 @@ private struct TerminalNotificationPolicyEffectsPatch: Decodable {
     }
 }
 
+private struct TerminalNotificationPolicyPayloadPatch: Decodable {
+    var workspaceId: String?
+    var surfaceId: String??
+    var title: String?
+    var subtitle: String?
+    var body: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case workspaceId
+        case surfaceId
+        case title
+        case subtitle
+        case body
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspaceId = try container.decodeIfNonNullValuePresent(String.self, forKey: .workspaceId)
+        surfaceId = try container.decodeNullableValueIfPresent(String.self, forKey: .surfaceId)
+        title = try container.decodeIfNonNullValuePresent(String.self, forKey: .title)
+        subtitle = try container.decodeIfNonNullValuePresent(String.self, forKey: .subtitle)
+        body = try container.decodeIfNonNullValuePresent(String.self, forKey: .body)
+    }
+
+    func merged(into payload: TerminalNotificationPolicyPayload) -> TerminalNotificationPolicyPayload {
+        var merged = payload
+        if let workspaceId {
+            merged.workspaceId = workspaceId
+        }
+        if let surfaceId {
+            merged.surfaceId = surfaceId
+        }
+        if let title {
+            merged.title = title
+        }
+        if let subtitle {
+            merged.subtitle = subtitle
+        }
+        if let body {
+            merged.body = body
+        }
+        return merged
+    }
+}
+
+private struct TerminalNotificationPolicyContextPatch: Decodable {
+    var cwd: String??
+    var configPath: String??
+    var hookId: String??
+    var appFocused: Bool?
+    var focusedPanel: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case cwd
+        case configPath
+        case hookId
+        case appFocused
+        case focusedPanel
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cwd = try container.decodeNullableValueIfPresent(String.self, forKey: .cwd)
+        configPath = try container.decodeNullableValueIfPresent(String.self, forKey: .configPath)
+        hookId = try container.decodeNullableValueIfPresent(String.self, forKey: .hookId)
+        appFocused = try container.decodeIfNonNullValuePresent(Bool.self, forKey: .appFocused)
+        focusedPanel = try container.decodeIfNonNullValuePresent(Bool.self, forKey: .focusedPanel)
+    }
+
+    func merged(into context: TerminalNotificationPolicyContext) -> TerminalNotificationPolicyContext {
+        var merged = context
+        if let cwd {
+            merged.cwd = cwd
+        }
+        if let configPath {
+            merged.configPath = configPath
+        }
+        if let hookId {
+            merged.hookId = hookId
+        }
+        if let appFocused {
+            merged.appFocused = appFocused
+        }
+        if let focusedPanel {
+            merged.focusedPanel = focusedPanel
+        }
+        return merged
+    }
+}
+
 struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     var version: Int = 1
     var notification: TerminalNotificationPolicyPayload
@@ -799,18 +889,36 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
 
 private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
     var version: Int?
-    var notification: TerminalNotificationPolicyPayload?
-    var context: TerminalNotificationPolicyContext?
+    var notification: TerminalNotificationPolicyPayloadPatch?
+    var context: TerminalNotificationPolicyContextPatch?
     var effects: TerminalNotificationPolicyEffectsPatch?
     var stop: Bool?
 
     func merged(into envelope: TerminalNotificationPolicyEnvelope) -> TerminalNotificationPolicyEnvelope {
         TerminalNotificationPolicyEnvelope(
             version: version ?? envelope.version,
-            notification: notification ?? envelope.notification,
-            context: context ?? envelope.context,
+            notification: notification?.merged(into: envelope.notification) ?? envelope.notification,
+            context: context?.merged(into: envelope.context) ?? envelope.context,
             effects: effects?.merged(into: envelope.effects) ?? envelope.effects,
             stop: stop ?? envelope.stop
         )
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeIfNonNullValuePresent<T: Decodable>(
+        _ type: T.Type,
+        forKey key: Key
+    ) throws -> T? {
+        guard contains(key) else { return nil }
+        return try decode(type, forKey: key)
+    }
+
+    func decodeNullableValueIfPresent<T: Decodable>(
+        _ type: T.Type,
+        forKey key: Key
+    ) throws -> T?? {
+        guard contains(key) else { return nil }
+        return try decode(T?.self, forKey: key)
     }
 }
