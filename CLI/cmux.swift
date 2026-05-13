@@ -18183,6 +18183,73 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return nil
     }
 
+    private func codexPlanFeedToolInput(
+        rawEvent: String,
+        toolName: String,
+        rawObject: [String: Any]
+    ) -> [String: Any]? {
+        let eventTokens = [
+            rawEvent,
+            firstString(in: rawObject, keys: ["method", "type", "event", "hook_event_name"]) ?? "",
+            toolName,
+        ].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+        let looksLikeCodexPlanUpdate = eventTokens.contains { token in
+            switch token {
+            case "turn/plan/updated", "turnplanupdated", "planupdate", "plan_update", "update_plan":
+                return true
+            default:
+                return false
+            }
+        }
+        guard looksLikeCodexPlanUpdate else { return nil }
+
+        let candidate = (rawObject["params"] as? [String: Any])
+            ?? feedToolInputDictionary(rawObject["tool_input"])
+            ?? rawObject
+        guard let rawPlan = candidate["plan"] as? [Any] else { return nil }
+
+        let todos: [[String: Any]] = rawPlan.enumerated().compactMap { index, raw in
+            let step: String?
+            let status: Any?
+            if let text = raw as? String {
+                step = text
+                status = nil
+            } else if let dict = raw as? [String: Any] {
+                step = firstString(in: dict, keys: ["step", "content", "text", "title"])
+                status = dict["status"] ?? dict["state"]
+            } else {
+                step = nil
+                status = nil
+            }
+            guard let step else { return nil }
+            return [
+                "id": "plan-\(index)",
+                "content": step,
+                "status": codexPlanTodoStatus(from: status),
+            ]
+        }
+        guard !todos.isEmpty else { return nil }
+
+        var toolInput: [String: Any] = ["todos": todos]
+        if let explanation = firstString(in: candidate, keys: ["explanation"]) {
+            toolInput["explanation"] = explanation
+        }
+        return toolInput
+    }
+
+    private func codexPlanTodoStatus(from raw: Any?) -> String {
+        guard let string = raw as? String else { return "pending" }
+        switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "completed", "complete", "done":
+            return "completed"
+        case "inprogress", "in_progress", "active", "running":
+            return "in_progress"
+        default:
+            return "pending"
+        }
+    }
+
     private func enrichUserPromptSubmitFeedEvent(
         _ event: inout [String: Any],
         hookEventName: String,
@@ -18376,6 +18443,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             summary = firstString(in: dict, keys: ["description", "command"])
         } else if ["write", "edit", "multiedit", "read"].contains(lower) {
             summary = firstString(in: dict, keys: ["file_path", "path"])
+        } else if lower == "update_plan" {
+            summary = firstString(in: dict, keys: ["explanation"])
+            if summary == nil,
+               let todos = dict["todos"] as? [[String: Any]],
+               let first = todos.first {
+                summary = firstString(in: first, keys: ["content", "step", "text", "title"])
+            }
         } else if lower == "askuserquestion" {
             if let questions = dict["questions"] as? [[String: Any]],
                let first = questions.first {
@@ -19894,12 +19968,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         // Derive the hook event name, mapped to our wire format. Claude
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
-        let rawEvent = (stdinObj["hook_event_name"] as? String)
+        var rawEvent = (stdinObj["hook_event_name"] as? String)
             ?? (stdinObj["event"] as? String)
             ?? optionValue(commandArgs, name: "--event")
             ?? ""
-        let toolName = (stdinObj["tool_name"] as? String) ?? ""
+        var toolName = (stdinObj["tool_name"] as? String) ?? ""
         let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
+        let codexPlanToolInput: [String: Any]?
+        if source == "codex" {
+            codexPlanToolInput = codexPlanFeedToolInput(
+                rawEvent: rawEvent,
+                toolName: toolName,
+                rawObject: stdinObj
+            )
+        } else {
+            codexPlanToolInput = nil
+        }
+        if codexPlanToolInput != nil {
+            rawEvent = "TodoWrite"
+            toolName = "update_plan"
+        }
 
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
@@ -19948,7 +20036,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput = stdinObj["tool_input"] {
+        if let codexPlanToolInput {
+            eventDict["tool_input"] = codexPlanToolInput
+        } else if let toolInput = stdinObj["tool_input"] {
             eventDict["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -20063,6 +20153,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return ("Stop", false)
             case "Notification":
                 return ("Notification", false)
+            case "TodoWrite":
+                return ("TodoWrite", false)
             default:
                 return ("PreToolUse", false)
             }

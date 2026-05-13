@@ -75,7 +75,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Agent        | Config                                    | Feed trigger             |
 |--------------|-------------------------------------------|--------------------------|
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
-| Codex        | `~/.codex/hooks.json`                     | PermissionRequest        |
+| Codex        | `~/.codex/hooks.json`                     | PermissionRequest, bridged plan updates |
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
@@ -124,7 +124,7 @@ For Claude Code, the cmux wrapper launches Claude with `--allow-dangerously-skip
 
 For Claude Code, AskUserQuestion is answered by allowing the PermissionRequest with an updated tool input containing the selected answers. Other agents use their native question reply shape where available.
 
-Codex's `request_user_input` and `update_plan` currently surface through its app-server request/notification path, not through command hooks. A stock `codex` TUI running in a cmux terminal keeps those frames inside Codex's in-process app-server client, so its plan-mode questions still fall back to Codex's own TUI. cmux can route Codex permission approvals through `PermissionRequest`; showing Codex plan questions in Feed would require launching Codex against a shared standalone app server and adding a Codex app-server Feed adapter, or upstream Codex hook coverage for those frames.
+Codex's command hook list currently includes lifecycle, tool, compact, prompt, permission, and stop events, but no dedicated plan event. Codex `update_plan` emits app-server `turn/plan/updated` notifications and `request_user_input` emits app-server requests. When a Codex app-server bridge forwards `turn/plan/updated` or `update_plan` payloads into `cmux hooks feed --source codex`, cmux normalizes them into Feed todo/progress telemetry. A stock `codex` TUI running in a cmux terminal still keeps plan-mode questions inside Codex's in-process app-server client, so those questions fall back to Codex's own TUI unless Codex adds command-hook coverage or cmux launches Codex against a shared app server adapter.
 
 ## Timeout behavior
 
@@ -156,7 +156,7 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 
 **Feed shows nothing even though the agent is running.** Check that the hook got installed: `cat ~/.codex/hooks.json` (or similar) should contain a `cmux hooks feed --source codex` entry. Re-run `cmux hooks setup`.
 
-**Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
+**Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a command hook event in the stock TUI path. Feed sees Codex permission hooks and any app-server plan-update frames that a bridge forwards into `cmux hooks feed`.
 
 **Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
 
