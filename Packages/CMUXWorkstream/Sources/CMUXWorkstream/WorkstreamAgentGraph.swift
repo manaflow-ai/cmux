@@ -622,7 +622,7 @@ private struct AgentGraphMetadata {
     }
 
     var taskDescription: String? {
-        string(keys: ["task_description", "taskDescription", "prompt", "message", "description"])
+        string(keys: ["task_description", "taskDescription", "prompt", "message"])
     }
 
     func parentWorkstreamId(source: WorkstreamSource) -> String? {

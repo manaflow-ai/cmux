@@ -83,6 +83,32 @@ struct WorkstreamAgentGraphTests {
         #expect(root?.title == "Coordinate rollout")
         #expect(root?.subagentType == "planner")
         #expect(root?.model == "sonnet")
+        #expect(root?.taskDescription == nil)
+    }
+
+    @Test("Description-only spawn metadata is not duplicated as task text")
+    func descriptionOnlySpawnMetadataDoesNotDuplicateTaskText() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        let child = graph.roots.first?.children.first
+        #expect(child?.kind == .spawnRequest)
+        #expect(child?.title == "Explore settings")
+        #expect(child?.taskDescription == nil)
     }
 
     @Test("Non-spawn tool input does not create graph metadata")
