@@ -5745,34 +5745,92 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
     /// events so the shell processes them, while regular text is sent via the
-    /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
+    /// same key-text path used for attached socket input.
     func sendInput(_ text: String) {
-        guard let surface = surface else { return }
-        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return }
-        var bufferedText = ""
-        for scalar in text.unicodeScalars {
-            switch scalar.value {
-            case 0x0A, 0x0D:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
-            case 0x09:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
-            case 0x1B:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
-            case 0x7F:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x33) // kVK_Delete
-            default:
-                bufferedText.unicodeScalars.append(scalar)
+        let inputs = parsedSocketInputs(from: text)
+        guard !inputs.isEmpty else { return }
+
+        guard let surface = surface else {
+            var queued = false
+            for input in inputs {
+                queued = enqueuePendingSocketInputIfAllowed(input, reason: "sendInput.queue") || queued
             }
+            if queued {
+                requestBackgroundSurfaceStartIfNeeded()
+            }
+            return
         }
-        flushText(&bufferedText, surface: surface)
+
+        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return }
+        for input in inputs {
+            writePendingSocketInput(input, to: surface)
+        }
     }
 
-    private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
-        guard !buffer.isEmpty else { return }
+    private func parsedSocketInputs(from text: String) -> [PendingSocketInput] {
+        guard !text.isEmpty else { return [] }
+
+        var inputs: [PendingSocketInput] = []
+        inputs.reserveCapacity(8)
+        var bufferedText = ""
+        bufferedText.reserveCapacity(text.count)
+        var previousWasCR = false
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
+            inputs.append(.text(Data(bufferedText.utf8)))
+            bufferedText.removeAll(keepingCapacity: true)
+        }
+
+        func appendKey(keycode: UInt32, label: String) {
+            inputs.append(.key(PendingKeyEvent(keycode: keycode, mods: GHOSTTY_MODS_NONE, label: label)))
+        }
+
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0A:
+                if !previousWasCR {
+                    flushBufferedText()
+                    appendKey(keycode: 0x24, label: "input.return")
+                }
+                previousWasCR = false
+            case 0x0D:
+                flushBufferedText()
+                appendKey(keycode: 0x24, label: "input.return")
+                previousWasCR = true
+            case 0x09:
+                flushBufferedText()
+                appendKey(keycode: 0x30, label: "input.tab")
+                previousWasCR = false
+            case 0x1B:
+                flushBufferedText()
+                appendKey(keycode: 0x35, label: "input.escape")
+                previousWasCR = false
+            case 0x7F:
+                flushBufferedText()
+                appendKey(keycode: 0x33, label: "input.delete")
+                previousWasCR = false
+            default:
+                bufferedText.unicodeScalars.append(scalar)
+                previousWasCR = false
+            }
+        }
+        flushBufferedText()
+        return inputs
+    }
+
+    private func writePendingSocketInput(_ input: PendingSocketInput, to surface: ghostty_surface_t) {
+        switch input {
+        case .text(let data):
+            sendTextKeyData(data, to: surface)
+        case .key(let event):
+            sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+        }
+    }
+
+    private func sendTextKeyData(_ data: Data, to surface: ghostty_surface_t) {
+        guard !data.isEmpty else { return }
+        let text = String(decoding: data, as: UTF8.self)
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = 0
@@ -5780,11 +5838,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
-        buffer.withCString { ptr in
+        text.withCString { ptr in
             keyEvent.text = ptr
             _ = ghostty_surface_key(surface, keyEvent)
         }
-        buffer.removeAll(keepingCapacity: true)
+    }
+
+    private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
     }
 
     private func sendKeyEvent(
@@ -5839,13 +5903,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
             )
             #endif
-        }
-    }
-
-    private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-            ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
 
@@ -6076,13 +6133,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         var queuedKeys = 0
         for item in queued {
-            switch item {
-            case .text(let chunk):
-                writeTextData(chunk, to: surface)
-            case .key(let event):
+            if case .key = item {
                 queuedKeys += 1
-                sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             }
+            writePendingSocketInput(item, to: surface)
         }
 #if DEBUG
         cmuxDebugLog(

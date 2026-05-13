@@ -15357,34 +15357,6 @@ class TerminalController {
         return result.isEmpty ? "ERROR: No tab selected" : result
     }
 
-    private func sendKeyEvent(
-        surface: ghostty_surface_t,
-        keycode: UInt32,
-        mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE,
-        text: String? = nil
-    ) {
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = keycode
-        keyEvent.mods = mods
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = 0
-        keyEvent.composing = false
-        if let text {
-            text.withCString { ptr in
-                keyEvent.text = ptr
-                _ = ghostty_surface_key(surface, keyEvent)
-            }
-        } else {
-            keyEvent.text = nil
-            _ = ghostty_surface_key(surface, keyEvent)
-        }
-    }
-
-    private func sendTextEvent(surface: ghostty_surface_t, text: String) {
-        sendKeyEvent(surface: surface, keycode: 0, text: text)
-    }
-
     enum SocketTextChunk: Equatable {
         case text(String)
         case control(UnicodeScalar)
@@ -15425,42 +15397,18 @@ class TerminalController {
         }
     }
 
-    private func handleControlScalar(_ scalar: UnicodeScalar, surface: ghostty_surface_t) -> Bool {
-        switch scalar.value {
-        case 0x0A, 0x0D:
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Return))
-            return true
-        case 0x09:
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab))
-            return true
-        case 0x1B:
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Escape))
-            return true
-        case 0x7F:
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
-            return true
-        default:
-            return false
-        }
-    }
-
     private struct RoutedTerminalInputResult {
         let queued: Bool
         let shouldForceRefresh: Bool
     }
 
     private static func routeUnescapedInput(_ text: String, to terminalPanel: TerminalPanel) -> RoutedTerminalInputResult {
-        if terminalPanel.surface.surface != nil {
-            let acceptsInput = terminalPanel.surface.acceptsTerminalInput
-            terminalPanel.surface.sendInput(text)
-            return RoutedTerminalInputResult(queued: false, shouldForceRefresh: acceptsInput)
-        }
-
-        terminalPanel.sendText(text)
-        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        let hasSurface = terminalPanel.surface.surface != nil
+        let acceptsInput = terminalPanel.surface.acceptsTerminalInput
+        terminalPanel.surface.sendInput(text)
         return RoutedTerminalInputResult(
-            queued: terminalPanel.surface.acceptsTerminalInput,
-            shouldForceRefresh: false
+            queued: !hasSurface && acceptsInput,
+            shouldForceRefresh: hasSurface && acceptsInput
         )
     }
 
@@ -15492,29 +15440,6 @@ class TerminalController {
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
-    }
-
-    private func sendSocketText(_ text: String, surface: ghostty_surface_t) {
-        let chunks = Self.socketTextChunks(text)
-#if DEBUG
-        let startedAt = ProcessInfo.processInfo.systemUptime
-#endif
-        for chunk in chunks {
-            switch chunk {
-            case .text(let value):
-                sendTextEvent(surface: surface, text: value)
-            case .control(let scalar):
-                _ = handleControlScalar(scalar, surface: surface)
-            }
-        }
-#if DEBUG
-        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
-        if elapsedMs >= 8 || chunks.count > 1 {
-            cmuxDebugLog(
-                "socket.send_text.inject chars=\(text.count) chunks=\(chunks.count) ms=\(String(format: "%.2f", elapsedMs))"
-            )
-        }
-#endif
     }
 
     private func sendInputToWorkspace(_ args: String) -> String {
