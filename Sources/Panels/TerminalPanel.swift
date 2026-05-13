@@ -3,48 +3,6 @@ import Combine
 import AppKit
 import Bonsplit
 
-nonisolated struct TerminalSidekickState: Codable, Equatable, Sendable {
-    static let defaultSplitRatio = 0.4
-    private static let minimumSplitRatio = 0.25
-    private static let maximumSplitRatio = 0.7
-
-    var urlString: String?
-    var isOpen: Bool
-    var splitRatio: Double
-
-    init(
-        urlString: String? = nil,
-        isOpen: Bool = false,
-        splitRatio: Double = Self.defaultSplitRatio
-    ) {
-        self.urlString = Self.normalizedURLString(urlString)
-        self.isOpen = isOpen
-        self.splitRatio = Self.clampedSplitRatio(splitRatio)
-    }
-
-    static func clampedSplitRatio(_ value: Double) -> Double {
-        min(max(value, minimumSplitRatio), maximumSplitRatio)
-    }
-
-    static func normalizedURLString(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
-    }
-
-    var url: URL? {
-        urlString.flatMap(URL.init(string:))
-    }
-
-    var hasPersistableValue: Bool {
-        isOpen ||
-            urlString != nil ||
-            abs(splitRatio - Self.defaultSplitRatio) > 0.0001
-    }
-}
-
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -80,17 +38,14 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
-    @Published private(set) var sidekickState = TerminalSidekickState()
-    @Published private(set) var sidekickBrowserPanel: BrowserPanel? {
-        didSet {
-            observeSidekickBrowserPanelChanges()
-        }
-    }
-
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
-    private var sidekickBrowserPanelCancellable: AnyCancellable?
+    private lazy var sidekickCoordinator = TerminalSidekickCoordinator(
+        workspaceId: workspaceId
+    ) { [weak self] in
+        self?.objectWillChange.send()
+    }
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -119,6 +74,14 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var requestedWorkingDirectory: String? {
         surface.requestedWorkingDirectory
+    }
+
+    var sidekickState: TerminalSidekickState {
+        sidekickCoordinator.state
+    }
+
+    var sidekickBrowserPanel: BrowserPanel? {
+        sidekickCoordinator.browserPanel
     }
 
     init(workspaceId: UUID, surface: TerminalSurface) {
@@ -183,152 +146,41 @@ final class TerminalPanel: Panel, ObservableObject {
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
         surface.updateWorkspaceId(newWorkspaceId)
-        sidekickBrowserPanel?.updateWorkspaceId(newWorkspaceId)
+        sidekickCoordinator.updateWorkspaceId(newWorkspaceId)
     }
 
     @discardableResult
     func toggleSidekick() -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
-        if sidekickState.isOpen {
-            closeSidekick()
-            return true
-        }
-        return openSidekick()
+        sidekickCoordinator.toggleSidekick()
     }
 
     @discardableResult
     func openSidekick(url: URL? = nil) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
-        guard let browserPanel = ensureSidekickBrowserPanel(renderInitialNavigation: url == nil) else { return false }
-
-        var next = sidekickState
-        next.isOpen = true
-        if let url {
-            next.urlString = url.absoluteString
-        }
-        sidekickState = next
-
-        if let url {
-            browserPanel.navigate(to: url, recordTypedNavigation: true)
-        }
-        return true
+        sidekickCoordinator.openSidekick(url: url)
     }
 
     func closeSidekick() {
-        var next = sidekickState
-        next.urlString = currentSidekickURLString()
-        next.isOpen = false
-        sidekickState = next
-        sidekickBrowserPanel?.close()
-        sidekickBrowserPanel = nil
+        sidekickCoordinator.closeSidekick()
     }
 
     func navigateSidekick(input: String) {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard BrowserAvailabilitySettings.isEnabled() else { return }
-        guard let browserPanel = ensureSidekickBrowserPanel(renderInitialNavigation: false) else { return }
-        var next = sidekickState
-        next.isOpen = true
-        sidekickState = next
-        browserPanel.navigateSmart(trimmed)
+        sidekickCoordinator.navigateSidekick(input: input)
     }
 
     func recordSidekickCurrentURL(_ url: URL?) {
-        let nextURLString = TerminalSidekickState.normalizedURLString(url?.absoluteString)
-        guard sidekickState.urlString != nextURLString else { return }
-        var next = sidekickState
-        next.urlString = nextURLString
-        sidekickState = next
+        sidekickCoordinator.recordSidekickCurrentURL(url)
     }
 
     func setSidekickSplitRatio(_ splitRatio: Double) {
-        let clamped = TerminalSidekickState.clampedSplitRatio(splitRatio)
-        guard sidekickState.splitRatio != clamped else { return }
-        var next = sidekickState
-        next.splitRatio = clamped
-        sidekickState = next
+        sidekickCoordinator.setSidekickSplitRatio(splitRatio)
     }
 
     func restoreSidekick(_ snapshot: SessionTerminalSidekickSnapshot?) {
-        guard let snapshot else {
-            sidekickState = TerminalSidekickState()
-            sidekickBrowserPanel?.close()
-            sidekickBrowserPanel = nil
-            return
-        }
-
-        sidekickState = TerminalSidekickState(
-            urlString: snapshot.urlString,
-            isOpen: snapshot.isOpen,
-            splitRatio: snapshot.splitRatio
-        )
-
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            var next = sidekickState
-            next.isOpen = false
-            sidekickState = next
-            sidekickBrowserPanel?.close()
-            sidekickBrowserPanel = nil
-            return
-        }
-
-        if sidekickState.isOpen {
-            let hadBrowserPanel = sidekickBrowserPanel != nil
-            guard let browserPanel = ensureSidekickBrowserPanel() else {
-                var next = sidekickState
-                next.isOpen = false
-                sidekickState = next
-                return
-            }
-            if hadBrowserPanel, let url = sidekickState.url {
-                browserPanel.navigate(to: url, recordTypedNavigation: false)
-            }
-        }
+        sidekickCoordinator.restoreSidekick(snapshot)
     }
 
     func sidekickSessionSnapshot() -> SessionTerminalSidekickSnapshot? {
-        let urlString = currentSidekickURLString()
-        let snapshotState = TerminalSidekickState(
-            urlString: urlString,
-            isOpen: sidekickState.isOpen,
-            splitRatio: sidekickState.splitRatio
-        )
-        guard snapshotState.hasPersistableValue else { return nil }
-        return SessionTerminalSidekickSnapshot(
-            urlString: snapshotState.urlString,
-            isOpen: snapshotState.isOpen,
-            splitRatio: snapshotState.splitRatio
-        )
-    }
-
-    private func currentSidekickURLString() -> String? {
-        TerminalSidekickState.normalizedURLString(
-            sidekickBrowserPanel?.preferredURLStringForOmnibar() ?? sidekickState.urlString
-        )
-    }
-
-    private func observeSidekickBrowserPanelChanges() {
-        sidekickBrowserPanelCancellable = sidekickBrowserPanel?.objectWillChange.sink { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.objectWillChange.send()
-            }
-        }
-    }
-
-    @discardableResult
-    private func ensureSidekickBrowserPanel(renderInitialNavigation: Bool = true) -> BrowserPanel? {
-        if let sidekickBrowserPanel {
-            return sidekickBrowserPanel
-        }
-
-        let browserPanel = BrowserPanel(
-            workspaceId: workspaceId,
-            initialURL: sidekickState.url,
-            renderInitialNavigation: renderInitialNavigation && sidekickState.url != nil
-        )
-        sidekickBrowserPanel = browserPanel
-        return browserPanel
+        sidekickCoordinator.sessionSnapshot()
     }
 
     func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
@@ -364,8 +216,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func close() {
-        sidekickBrowserPanel?.close()
-        sidekickBrowserPanel = nil
+        sidekickCoordinator.closeBrowserPanel()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.
