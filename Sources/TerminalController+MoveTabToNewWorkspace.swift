@@ -11,6 +11,7 @@ private enum SurfaceSplitOffMessage {
     static let surfaceNotFoundInWorkspace = String(localized: "socket.surfaceSplitOff.error.surfaceNotFoundInWorkspace", defaultValue: "Surface not found in workspace")
     static let surfaceNotFoundInWindow = String(localized: "socket.surfaceSplitOff.error.surfaceNotFoundInWindow", defaultValue: "Surface not found in window")
     static let sourcePaneNotFound = String(localized: "socket.surfaceSplitOff.error.sourcePaneNotFound", defaultValue: "Source pane not found")
+    static let wouldEmptySourcePane = String(localized: "socket.surfaceSplitOff.error.wouldEmptySourcePane", defaultValue: "splitting off would leave the source pane empty")
     static let splitPaneFailed = String(localized: "socket.surfaceSplitOff.error.splitPaneFailed", defaultValue: "Failed to split pane")
     static let moveSurfaceFailed = String(localized: "socket.surfaceSplitOff.error.moveSurfaceFailed", defaultValue: "Failed to move surface")
 }
@@ -169,8 +170,15 @@ extension TerminalController {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard ws.paneId(forPanelId: surfaceId) != nil else {
+            guard let sourcePane = ws.paneId(forPanelId: surfaceId) else {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.sourcePaneNotFound, data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard ws.bonsplitController.tabs(inPane: sourcePane).count > 1 else {
+                result = .err(code: "invalid_state", message: SurfaceSplitOffMessage.wouldEmptySourcePane, data: [
+                    "surface_id": surfaceId.uuidString,
+                    "pane_id": sourcePane.id.uuidString
+                ])
                 return
             }
             let previousFocusedPanelId = ws.focusedPanelId
