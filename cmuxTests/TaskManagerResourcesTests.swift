@@ -7,6 +7,23 @@ import XCTest
 #endif
 
 final class TaskManagerResourcesTests: XCTestCase {
+    func testAttributedPayloadProratesSharedResourceMeasurements() {
+        var summary = CmuxTopResourceSummary()
+        summary.cpuPercent = 42
+        summary.residentBytes = 1001
+        summary.virtualBytes = 2001
+        summary.processCount = 1
+        summary.pids = [101]
+
+        let payload = summary.attributedPayload(sharedAcross: 2)
+
+        XCTAssertEqual(double(payload["cpu_percent"]), 21)
+        XCTAssertEqual(int64(payload["resident_bytes"]), 500)
+        XCTAssertEqual(int64(payload["virtual_bytes"]), 1000)
+        XCTAssertEqual(int(payload["process_count"]), 1)
+        XCTAssertEqual(intArray(payload["pids"]), [101])
+    }
+
     func testParsesTypedIntPIDArrayFromSummaryPayload() {
         let payload: [String: Any] = [
             "cpu_percent": 3.5,
@@ -31,5 +48,35 @@ final class TaskManagerResourcesTests: XCTestCase {
         let resources = CmuxTaskManagerResources(payload)
 
         XCTAssertEqual(resources.processIds, [101, 202])
+    }
+
+    private func double(_ raw: Any?) -> Double {
+        if let value = raw as? Double { return value }
+        if let value = raw as? NSNumber { return value.doubleValue }
+        return 0
+    }
+
+    private func int64(_ raw: Any?) -> Int64 {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        return 0
+    }
+
+    private func int(_ raw: Any?) -> Int {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        return 0
+    }
+
+    private func intArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] { return values }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap { raw in
+            if let value = raw as? Int { return value }
+            if let value = raw as? NSNumber { return value.intValue }
+            if let value = raw as? String { return Int(value) }
+            return nil
+        }
     }
 }
