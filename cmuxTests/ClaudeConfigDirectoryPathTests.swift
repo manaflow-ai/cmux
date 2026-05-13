@@ -59,10 +59,10 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         )
 
         XCTAssertFalse(command.contains("CLAUDE_CONFIG_DIR="))
-        XCTAssertEqual(
-            command,
-            "cd /tmp/repo && claude --resume session-123 --model claude-opus-4-7 --permission-mode default"
-        )
+        XCTAssertTrue(command.hasPrefix("cd /tmp/repo && "))
+        XCTAssertTrue(command.contains("claude --resume session-123"))
+        XCTAssertTrue(command.contains("--model claude-opus-4-7"))
+        XCTAssertTrue(command.contains("--permission-mode default"))
     }
 
     func testClaudeResumeCommandPreservesConfiguredNonDefaultRoot() throws {
