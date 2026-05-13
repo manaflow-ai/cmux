@@ -7012,7 +7012,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
-    @IBAction override func selectAll(_ sender: Any?) {
+    @IBAction private override func selectAll(_ sender: Any?) {
         _ = selectCommandLineAtCursorOrAll()
     }
 

@@ -14484,7 +14484,7 @@ private extension NSWindow {
             }
 
             if shouldRouteTerminalSelectAllToNaturalTextEngine(event) {
-                ghosttyView.selectAll(nil)
+                NSApp.sendAction(#selector(NSResponder.selectAll(_:)), to: ghosttyView, from: nil)
 #if DEBUG
                 cmuxDebugLog("  → terminal natural text select-all")
 #endif
