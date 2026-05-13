@@ -9723,6 +9723,13 @@ private final class GhosttyFlashOverlayView: NSView {
 }
 
 private final class TerminalTimestampGutterView: NSView {
+    private struct DrawStyle {
+        let fontSize: CGFloat
+        let attributes: [NSAttributedString.Key: Any]
+        let lineHeight: CGFloat
+        let separatorColor: NSColor
+    }
+
     private let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
@@ -9734,6 +9741,7 @@ private final class TerminalTimestampGutterView: NSView {
     private var rows: [TerminalTimestampVisibleRow] = []
     private var visibleTopRow: CGFloat = 0
     private var cellHeight: CGFloat = 0
+    private var cachedDrawStyle: DrawStyle?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -9753,6 +9761,12 @@ private final class TerminalTimestampGutterView: NSView {
     override var acceptsFirstResponder: Bool { false }
     override var isOpaque: Bool { false }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        cachedDrawStyle = nil
+        needsDisplay = true
+    }
+
     func update(
         rows: [TerminalTimestampVisibleRow],
         visibleTopRow: CGFloat,
@@ -9768,34 +9782,48 @@ private final class TerminalTimestampGutterView: NSView {
         onMouseDown?()
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        NSColor.separatorColor.withAlphaComponent(0.35).setFill()
-        NSRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
-
-        guard cellHeight > 0, !rows.isEmpty else { return }
-
+    private func drawStyle(for cellHeight: CGFloat) -> DrawStyle {
         let fontSize = min(11, max(9, cellHeight * 0.58))
+        if let cachedDrawStyle, cachedDrawStyle.fontSize == fontSize {
+            return cachedDrawStyle
+        }
+
         let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .right
         paragraph.lineBreakMode = .byClipping
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.72),
-            .paragraphStyle: paragraph,
-        ]
-        let lineHeight = font.ascender - font.descender + font.leading
+        let style = DrawStyle(
+            fontSize: fontSize,
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.72),
+                .paragraphStyle: paragraph,
+            ],
+            lineHeight: font.ascender - font.descender + font.leading,
+            separatorColor: NSColor.separatorColor.withAlphaComponent(0.35)
+        )
+        cachedDrawStyle = style
+        return style
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let style = drawStyle(for: cellHeight)
+        style.separatorColor.setFill()
+        NSRect(x: bounds.maxX - 1, y: 0, width: 1, height: bounds.height).fill()
+
+        guard cellHeight > 0, !rows.isEmpty else { return }
+
         let textWidth = max(0, bounds.width - 12)
 
         for row in rows {
             let rowOffset = CGFloat(row.row) - visibleTopRow
             let rowTopFromBottom = bounds.height - ((rowOffset + 1) * cellHeight)
-            let textY = floor(rowTopFromBottom + ((cellHeight - lineHeight) / 2))
-            let textRect = NSRect(x: 4, y: textY, width: textWidth, height: lineHeight)
+            let textY = floor(rowTopFromBottom + ((cellHeight - style.lineHeight) / 2))
+            let textRect = NSRect(x: 4, y: textY, width: textWidth, height: style.lineHeight)
             guard textRect.intersects(dirtyRect) else { continue }
-            formatter.string(from: row.timestamp).draw(in: textRect, withAttributes: attributes)
+            formatter.string(from: row.timestamp).draw(in: textRect, withAttributes: style.attributes)
         }
     }
 }
