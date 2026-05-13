@@ -7756,7 +7756,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
-            event: translationEvent,
+            event: event,
             inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)

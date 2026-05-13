@@ -16,8 +16,6 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
-    deinit {}
-
     private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
