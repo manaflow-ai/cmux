@@ -274,7 +274,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
 
         window.makeFirstResponder(surfaceView)
-        withExtendedLifetime(terminalSurface) {
+        try withExtendedLifetime(terminalSurface) {
             for probe in probes {
                 surfaceView.setMarkedText(
                     "안녕하세요",
