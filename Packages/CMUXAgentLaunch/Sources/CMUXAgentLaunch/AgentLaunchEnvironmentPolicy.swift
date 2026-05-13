@@ -25,6 +25,12 @@ public enum ClaudeConfigDirectoryPath {
 
 public enum AgentLaunchEnvironmentPolicy {
     private static let safeEnvironmentKeys: Set<String> = [
+        // AMP_API_KEY is intentionally NOT allowlisted: it's a secret.
+        // Amp resolves auth from ~/.config/amp/settings.json on resume.
+        "AMP_LOG_FILE",
+        "AMP_LOG_LEVEL",
+        "AMP_SETTINGS_FILE",
+        "AMP_URL",
         "ANTHROPIC_BASE_URL",
         "ANTHROPIC_MODEL",
         "CLAUDE_CONFIG_DIR",
@@ -50,8 +56,15 @@ public enum AgentLaunchEnvironmentPolicy {
         "COPILOT_PROVIDER_WIRE_MODEL",
         "GEMINI_CLI_HOME",
         "GH_HOST",
+        "HERMES_HOME",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
+        "PI_CACHE_RETENTION",
+        "PI_CODING_AGENT_DIR",
+        "PI_CODING_AGENT_SESSION_DIR",
+        "PI_OFFLINE",
+        "PI_PACKAGE_DIR",
+        "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
         "USE_BUILTIN_RIPGREP"
     ]

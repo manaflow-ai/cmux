@@ -39,6 +39,122 @@
         "additionalProperties": true
       }
     },
+    "vault": {
+      "title": "vault",
+      "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "type": "array",
+          "description": "Custom coding agents that Vault can detect, list, and resume.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["id", "name", "sessionIdSource", "resumeCommand"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable lowercase-ish identifier used in Vault persistence, for example pi."
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name shown in Vault."
+              },
+              "iconAssetName": {
+                "type": "string",
+                "description": "Optional asset catalog image name shown for this agent in Vault."
+              },
+              "detect": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Rules for detecting a running agent process inside a cmux terminal.",
+                "properties": {
+                  "processName": {
+                    "type": "string",
+                    "description": "Executable basename to match, for example pi."
+                  },
+                  "argvContains": {
+                    "oneOf": [
+                      { "type": "string" },
+                      {
+                        "type": "array",
+                        "items": { "type": "string" }
+                      }
+                    ],
+                    "description": "Substring or substrings that must appear in the process argv."
+                  }
+                }
+              },
+              "sessionIdSource": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Use piSessionFile for Pi JSONL discovery, or an argv option such as --session."
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": ["argvOption", "piSessionFile"]
+                      },
+                      "argvOption": {
+                        "type": "string",
+                        "description": "Option whose following value is the session id, for example --session."
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "argvOption" }
+                          }
+                        },
+                        "then": { "required": ["argvOption"] }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "type": { "const": "piSessionFile" }
+                          }
+                        },
+                        "then": {
+                          "not": { "required": ["argvOption"] }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "description": "Where cmux reads the native session id for an active process."
+              },
+              "resumeCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
+              },
+              "cwd": {
+                "type": "string",
+                "enum": ["preserve", "ignore"],
+                "default": "preserve",
+                "description": "Whether Vault should cd to the saved working directory before running resumeCommand."
+              },
+              "sessionDirectory": {
+                "type": "string",
+                "description": "Optional root directory for JSONL session discovery, such as ~/.pi/agent/sessions."
+              }
+            }
+          },
+          "default": []
+        }
+      }
+    },
     "newWorkspaceCommand": {
       "type": "string",
       "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."
@@ -157,6 +273,11 @@
           "default": true,
           "description": "Show a confirmation before quitting cmux."
         },
+        "warnBeforeClosingTab": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a tab."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,
@@ -179,6 +300,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        },
+        "autoResumeAgentSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit."
         }
       }
     },
@@ -374,6 +500,24 @@
           "additionalProperties": {
             "$ref": "#/$defs/colorHex"
           }
+        },
+        "paletteOverrides": {
+          "type": "object",
+          "description": "Legacy workspace color overrides for built-in palette names. Prefer workspaceColors.colors for new configs.",
+          "default": {},
+          "deprecated": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/colorHex"
+          }
+        },
+        "customColors": {
+          "type": "array",
+          "description": "Legacy list of custom workspace colors. Prefer workspaceColors.colors for new configs.",
+          "default": [],
+          "deprecated": true,
+          "items": {
+            "$ref": "#/$defs/colorHex"
+          }
         }
       }
     },
@@ -456,6 +600,16 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "cursorIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Cursor."
+        },
+        "geminiIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Gemini."
+        },
         "portBase": {
           "type": "integer",
           "minimum": 1,
@@ -526,6 +680,7 @@
           },
           "default": [
             "localhost",
+            "*.localhost",
             "127.0.0.1",
             "::1",
             "0.0.0.0",
@@ -551,11 +706,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "showModifierHoldHints": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show shortcut hint pills while holding Cmd or Ctrl."
-        },
         "bindings": {
           "type": "object",
           "default": {},
@@ -612,6 +762,7 @@
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
+              "toggleFileExplorer",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",

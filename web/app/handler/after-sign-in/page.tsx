@@ -7,6 +7,7 @@ import { OpenNativeClient } from "./OpenNativeClient";
 export const dynamic = "force-dynamic";
 
 const NATIVE_SCHEME = "cmux://";
+const NATIVE_SCHEMES = [NATIVE_SCHEME, "cmux-nightly://", "cmux-dev://"];
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -114,7 +115,8 @@ export default async function AfterSignInPage({ searchParams: searchParamsPromis
   if (
     refreshToken &&
     accessCookie &&
-    (nativeReturnTo?.startsWith(NATIVE_SCHEME) || nativeReturnTo?.startsWith("cmux-dev://"))
+    nativeReturnTo !== null &&
+    NATIVE_SCHEMES.some((scheme) => nativeReturnTo.startsWith(scheme))
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) return <OpenNativeClient href={href} />;

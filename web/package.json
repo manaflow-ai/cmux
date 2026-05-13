@@ -10,6 +10,7 @@
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
     "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
+    "cloud-vm:stress": "bun scripts/cloud-vm/stress-vm-api.mjs",
     "db:check": "bunx drizzle-kit check --config drizzle.config.ts",
     "db:down": "bash scripts/db-local.sh down",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",

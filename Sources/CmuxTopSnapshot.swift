@@ -1,9 +1,9 @@
 import Foundation
 import Darwin
-import WebKit
-import ObjectiveC.runtime
 
-struct CmuxTopResourceSummary: Sendable {
+private nonisolated let cmuxTopPIDPathBufferSize = 4096
+
+nonisolated struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var residentBytes: Int64 = 0
     var virtualBytes: Int64 = 0
@@ -23,7 +23,7 @@ struct CmuxTopResourceSummary: Sendable {
     }
 }
 
-struct CmuxTopProcessInfo: Sendable {
+nonisolated struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -33,21 +33,18 @@ struct CmuxTopProcessInfo: Sendable {
     let cmuxSurfaceID: UUID?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
-    let cpuPercent: Double
+    var cpuPercent: Double
     let residentBytes: Int64
     let virtualBytes: Int64
     let threadCount: Int
 }
 
-struct CmuxTopProcessScope: Sendable {
+nonisolated struct CmuxTopProcessScope: Sendable {
     let workspaceID: UUID?
     let surfaceID: UUID?
 }
 
-final class CmuxTopProcessSnapshot: @unchecked Sendable {
-    private static let cpuScale = 2048.0
-    private static let pidPathBufferSize = 4096
-
+nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
     private let includesProcessDetails: Bool
     private let processesByPID: [Int: CmuxTopProcessInfo]
@@ -95,7 +92,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
-            "cpu_source": "kinfo_proc.p_pctcpu",
+            "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
             "memory_source": "proc_pidinfo.PROC_PIDTASKINFO",
             "process_details": includesProcessDetails
         ]
@@ -110,6 +107,12 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
+    }
+
+    func cmuxScopedProcesses() -> [CmuxTopProcessInfo] {
+        processesByPID.values
+            .filter { $0.cmuxWorkspaceID != nil && $0.cmuxSurfaceID != nil }
+            .sorted { $0.pid < $1.pid }
     }
 
     func expandedPIDs(rootPIDs: Set<Int>) -> Set<Int> {
@@ -269,11 +272,33 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 let count = min(processes.count, length / stride)
                 let sampledProcesses = Array(processes.prefix(count))
                 let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
-                let processInfos = sampledProcesses.compactMap {
-                    processInfo(from: $0, includeProcessDetails: includeProcessDetails)
+                let sampledAtNanoseconds = cpuSampleClockNanoseconds()
+                var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+                var processRecords: [(info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)] = []
+                processRecords.reserveCapacity(sampledProcesses.count)
+                for process in sampledProcesses {
+                    guard let processRecord = processInfo(
+                        from: process,
+                        includeProcessDetails: includeProcessDetails,
+                        sampledAtNanoseconds: sampledAtNanoseconds,
+                        currentCPUSamples: &currentCPUSamples
+                    ) else {
+                        continue
+                    }
+                    processRecords.append(processRecord)
+                }
+                let cpuPercentages = cpuPercentages(
+                    for: currentCPUSamples,
+                    activeKeys: activeScopeKeys,
+                    sampledAtNanoseconds: sampledAtNanoseconds
+                )
+                for index in processRecords.indices {
+                    guard let key = processRecords[index].cpuSampleKey,
+                          let cpuPercent = cpuPercentages[key] else { continue }
+                    processRecords[index].info.cpuPercent = cpuPercent
                 }
                 pruneCMUXScopeCache(activeKeys: activeScopeKeys)
-                return processInfos
+                return processRecords.map(\.info)
             }
 
             guard errno == ENOMEM else {
@@ -285,24 +310,35 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     private static func processInfo(
         from kinfo: kinfo_proc,
-        includeProcessDetails: Bool
-    ) -> CmuxTopProcessInfo? {
+        includeProcessDetails: Bool,
+        sampledAtNanoseconds: UInt64,
+        currentCPUSamples: inout [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]
+    ) -> (info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)? {
         let pid = Int(kinfo.kp_proc.p_pid)
         guard pid > 0 else { return nil }
 
         let taskInfo = taskInfo(for: pid)
+        let cacheKey = scopeCacheKey(from: kinfo)
         let fallbackName = fixedString(kinfo.kp_proc.p_comm)
         let name = includeProcessDetails ? processName(pid: pid, fallback: fallbackName) : fallbackName
         let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(kinfo.kp_eproc.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
-        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: scopeCacheKey(from: kinfo))
+        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: cacheKey)
         let rawProcessGroupID = Int(kinfo.kp_eproc.e_pgid)
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
         let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
+        let cpuSampleKey: CmuxTopProcessScopeCacheKey?
+        if let taskInfo {
+            let currentCPUSample = cpuSample(from: taskInfo, sampledAtNanoseconds: sampledAtNanoseconds)
+            currentCPUSamples[cacheKey] = currentCPUSample
+            cpuSampleKey = cacheKey
+        } else {
+            cpuSampleKey = nil
+        }
 
-        return CmuxTopProcessInfo(
+        return (CmuxTopProcessInfo(
             pid: pid,
             parentPID: Int(kinfo.kp_eproc.e_ppid),
             name: name.isEmpty ? "pid-\(pid)" : name,
@@ -312,134 +348,11 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             cmuxSurfaceID: cmuxScope?.surfaceID,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
-            cpuPercent: max(0, Double(kinfo.kp_proc.p_pctcpu) / cpuScale * 100.0),
+            cpuPercent: 0,
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
-        )
-    }
-
-    static func cmuxScope(for pid: Int) -> CmuxTopProcessScope? {
-        guard pid > 0, pid <= Int(Int32.max) else { return nil }
-
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
-        var size: size_t = 0
-        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
-              size > MemoryLayout<Int32>.size else {
-            return nil
-        }
-
-        var buffer = [UInt8](repeating: 0, count: size)
-        let success = buffer.withUnsafeMutableBytes { rawBuffer in
-            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
-        }
-        guard success else { return nil }
-
-        return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
-    }
-
-    static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {
-        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
-
-        var argcRaw: Int32 = 0
-        withUnsafeMutableBytes(of: &argcRaw) { rawBuffer in
-            rawBuffer.copyBytes(from: bytes.prefix(MemoryLayout<Int32>.size))
-        }
-        let argc = Int(Int32(littleEndian: argcRaw))
-        guard argc > 0 else { return nil }
-
-        var index = MemoryLayout<Int32>.size
-        skipString(in: bytes, index: &index)
-        skipNulls(in: bytes, index: &index)
-
-        for _ in 0..<argc {
-            guard index < bytes.count else { return nil }
-            skipString(in: bytes, index: &index)
-            skipNulls(in: bytes, index: &index)
-        }
-
-        var workspaceID: UUID?
-        var surfaceID: UUID?
-        while index < bytes.count {
-            skipNulls(in: bytes, index: &index)
-            guard index < bytes.count else { break }
-
-            let start = index
-            skipString(in: bytes, index: &index)
-            guard start < index,
-                  let entry = String(bytes: bytes[start..<index], encoding: .utf8) else {
-                continue
-            }
-
-            if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_WORKSPACE_ID") {
-                workspaceID = UUID(uuidString: value) ?? workspaceID
-            } else if workspaceID == nil,
-                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_TAB_ID") {
-                workspaceID = UUID(uuidString: value)
-            } else if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_SURFACE_ID") {
-                surfaceID = UUID(uuidString: value) ?? surfaceID
-            } else if surfaceID == nil,
-                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_PANEL_ID") {
-                surfaceID = UUID(uuidString: value)
-            }
-
-            if workspaceID != nil, surfaceID != nil {
-                break
-            }
-        }
-
-        guard workspaceID != nil || surfaceID != nil else { return nil }
-        return CmuxTopProcessScope(workspaceID: workspaceID, surfaceID: surfaceID)
-    }
-
-    private static func value(inEnvironmentEntry entry: String, forKey key: String) -> String? {
-        let prefix = "\(key)="
-        guard entry.hasPrefix(prefix) else { return nil }
-        let value = String(entry.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
-    private static func skipString(in bytes: [UInt8], index: inout Int) {
-        while index < bytes.count, bytes[index] != 0 {
-            index += 1
-        }
-    }
-
-    private static func skipNulls(in bytes: [UInt8], index: inout Int) {
-        while index < bytes.count, bytes[index] == 0 {
-            index += 1
-        }
-    }
-
-    private static func taskInfo(for pid: Int) -> proc_taskinfo? {
-        var info = proc_taskinfo()
-        let expectedSize = MemoryLayout<proc_taskinfo>.stride
-        let size = proc_pidinfo(pid_t(pid), PROC_PIDTASKINFO, 0, &info, Int32(expectedSize))
-        return size == expectedSize ? info : nil
-    }
-
-    private static func processName(pid: Int, fallback: String) -> String {
-        var buffer = [CChar](repeating: 0, count: Int(MAXCOMLEN + 1))
-        let length = proc_name(pid_t(pid), &buffer, UInt32(buffer.count))
-        guard length > 0 else { return fallback }
-        let name = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? fallback : name
-    }
-
-    private static func processPath(pid: Int) -> String? {
-        var buffer = [CChar](repeating: 0, count: pidPathBufferSize)
-        let length = proc_pidpath(pid_t(pid), &buffer, UInt32(buffer.count))
-        guard length > 0 else { return nil }
-        let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
-    }
-
-    private static func fixedString<T>(_ value: T) -> String {
-        withUnsafeBytes(of: value) { rawBuffer in
-            let chars = rawBuffer.bindMemory(to: CChar.self)
-            guard let baseAddress = chars.baseAddress else { return "" }
-            return String(cString: baseAddress).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        ), cpuSampleKey)
     }
 
     private static func deviceIdentifier(forTTYName ttyName: String) -> Int64? {
@@ -462,28 +375,45 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return Int64(statInfo.st_rdev)
     }
 
-    private static func int64Clamped(_ value: UInt64) -> Int64 {
-        value > UInt64(Int64.max) ? Int64.max : Int64(value)
-    }
-
     private static func clampedAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
         if rhs > 0, lhs > Int64.max - rhs {
             return Int64.max
         }
         return lhs + rhs
     }
-}
 
-enum CmuxWebContentProcessIdentifier {
-    static func pid(for webView: WKWebView) -> Int? {
-        let selector = NSSelectorFromString("_webProcessIdentifier")
-        guard let method = class_getInstanceMethod(WKWebView.self, selector) else {
-            return nil
+    private static func taskInfo(for pid: Int) -> proc_taskinfo? {
+        var info = proc_taskinfo()
+        let expectedSize = MemoryLayout<proc_taskinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTASKINFO, 0, &info, Int32(expectedSize))
+        return size == expectedSize ? info : nil
+    }
+
+    private static func processName(pid: Int, fallback: String) -> String {
+        var buffer = [CChar](repeating: 0, count: Int(MAXCOMLEN + 1))
+        let length = proc_name(pid_t(pid), &buffer, UInt32(buffer.count))
+        guard length > 0 else { return fallback }
+        let name = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? fallback : name
+    }
+
+    private static func processPath(pid: Int) -> String? {
+        var buffer = [CChar](repeating: 0, count: cmuxTopPIDPathBufferSize)
+        let length = proc_pidpath(pid_t(pid), &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    private static func fixedString<T>(_ value: T) -> String {
+        withUnsafeBytes(of: value) { rawBuffer in
+            let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
+            return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
 
-        typealias WebProcessIdentifierFn = @convention(c) (AnyObject, Selector) -> Int32
-        let implementation = method_getImplementation(method)
-        let pid = unsafeBitCast(implementation, to: WebProcessIdentifierFn.self)(webView, selector)
-        return pid > 0 ? Int(pid) : nil
+    private static func int64Clamped(_ value: UInt64) -> Int64 {
+        value > UInt64(Int64.max) ? Int64.max : Int64(value)
     }
 }

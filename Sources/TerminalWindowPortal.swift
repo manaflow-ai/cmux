@@ -217,7 +217,20 @@ final class WindowTerminalHostView: NSView {
             in: self,
             eventType: eventType
         ) else { return false }
-        return decision.result
+        guard decision.result else { return false }
+        return hostedTerminalHitView(at: point) == nil
+    }
+
+    private func hostedTerminalHitView(at point: NSPoint) -> NSView? {
+        for subview in subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  !hostedView.isHidden,
+                  hostedView.alphaValue > 0,
+                  hostedView.frame.contains(point) else { continue }
+
+            return hostedView.hitTest(point) ?? hostedView
+        }
+        return nil
     }
 
     private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {

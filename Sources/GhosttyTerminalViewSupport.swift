@@ -29,3 +29,18 @@ func shouldAllowEnsureFocusWindowActivation(
 
     return true
 }
+
+extension TerminalSurface {
+    func debugInitialCommand() -> String? {
+        initialCommand
+    }
+
+    func debugTmuxStartCommand() -> String? {
+        tmuxStartCommand
+    }
+
+    func debugInitialInputMetadata() -> (hasInitialInput: Bool, byteCount: Int) {
+        let byteCount = initialInput?.utf8.count ?? 0
+        return (byteCount > 0, byteCount)
+    }
+}

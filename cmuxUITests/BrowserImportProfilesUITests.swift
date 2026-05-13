@@ -20,18 +20,22 @@ private func browserImportPollUntil(
 
 final class BrowserImportProfilesUITests: XCTestCase {
     private var capturePath = ""
+    private var settingsOpenCapturePath = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         capturePath = "/tmp/cmux-ui-test-browser-import-\(UUID().uuidString).json"
+        settingsOpenCapturePath = "/tmp/cmux-ui-test-settings-open-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: capturePath)
+        try? FileManager.default.removeItem(atPath: settingsOpenCapturePath)
     }
 
     func testMultipleSourceProfilesDefaultToSeparateDestinations() throws {
         let app = launchApp()
 
         app.buttons["Next"].click()
+        selectSourceProfile(named: "austin", in: app)
         app.buttons["Next"].click()
 
         XCTAssertTrue(
@@ -62,6 +66,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let app = launchApp()
 
         app.buttons["Next"].click()
+        selectSourceProfile(named: "austin", in: app)
         app.buttons["Next"].click()
 
         let mergeRadio = app.radioButtons["Merge into one"]
@@ -112,30 +117,17 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertEqual(capture["scope"] as? String, "everything")
     }
 
-    func testBlankBrowserImportHintCanOpenBrowserSettings() {
+    func testBlankBrowserImportHintRequestsBrowserImportSettings() throws {
         let app = launchAppForBlankImportHint()
 
         let settingsButton = app.buttons["BrowserImportHintSettingsButton"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5.0))
         settingsButton.click()
 
-        let importSection = app.otherElements["SettingsBrowserImportSection"]
-        XCTAssertTrue(
-            importSection.waitForExistence(timeout: 5.0),
-            "Expected Browser Settings to scroll to the import section"
-        )
-
-        let chooseButton = app.buttons["SettingsBrowserImportChooseButton"]
-        XCTAssertTrue(
-            chooseButton.waitForExistence(timeout: 5.0),
-            "Expected Browser Settings to expose the import actions"
-        )
-        XCTAssertTrue(
-            browserImportPollUntil(timeout: 5.0) {
-                importSection.isHittable && chooseButton.isHittable
-            },
-            "Expected Browser Settings to scroll directly to the import controls"
-        )
+        let capture = try XCTUnwrap(waitForSettingsOpenCapture(timeout: 5.0))
+        XCTAssertEqual(capture["opened"] as? Bool, true)
+        XCTAssertEqual(capture["target"] as? String, "browserImport")
+        XCTAssertEqual(capture["used_open_window_override"] as? Bool, true)
     }
 
     func testBlankBrowserImportHintCanBeDismissed() {
@@ -174,6 +166,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] = "0"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"] = settingsOpenCapturePath
         launchAndActivate(app)
         waitForBlankImportHint(app)
         return app
@@ -203,8 +196,28 @@ final class BrowserImportProfilesUITests: XCTestCase {
         waitForImportWizard(app)
     }
 
+    private func selectSourceProfile(named name: String, in app: XCUIApplication) {
+        let checkbox = app.checkBoxes[name]
+        XCTAssertTrue(
+            checkbox.waitForExistence(timeout: 5.0),
+            "Expected source profile checkbox named \(name)"
+        )
+        if checkbox.value as? String != "1" {
+            checkbox.click()
+        }
+    }
+
     private func waitForCapturedSelection(timeout: TimeInterval) -> [String: Any]? {
         let url = URL(fileURLWithPath: capturePath)
+        return waitForJSONCapture(at: url, timeout: timeout)
+    }
+
+    private func waitForSettingsOpenCapture(timeout: TimeInterval) -> [String: Any]? {
+        let url = URL(fileURLWithPath: settingsOpenCapturePath)
+        return waitForJSONCapture(at: url, timeout: timeout)
+    }
+
+    private func waitForJSONCapture(at url: URL, timeout: TimeInterval) -> [String: Any]? {
         let foundCapture = browserImportPollUntil(timeout: timeout) {
             if let data = try? Data(contentsOf: url),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {

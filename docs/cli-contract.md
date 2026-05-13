@@ -14,8 +14,9 @@ written around user-visible behavior so the implementation can change behind it.
   connecting to the cmux socket.
 - Keep documented `cmux <command> --help` probes working without a socket where
   they already do.
-- Keep `--socket`, `--password`, `--json`, `--id-format`, and `--window` as
-  global options before the command.
+- Keep `--socket`, `--password`, and `--window` as global options before the
+  command. Keep presentation options `--json` and `--id-format` accepted either
+  before or after the command.
 - Keep UUIDs, refs such as `workspace:2`, and indexes accepted wherever the
   command accepts a window, workspace, pane, surface, or tab handle.
 - Keep text output stable for scripting commands unless a command already
@@ -27,7 +28,7 @@ written around user-visible behavior so the implementation can change behind it.
 | Form | Contract |
 | --- | --- |
 | `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
-| `cmux [global-options] <command> [options]` | Run a named command. |
+| `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
 | `cmux help` | Print top-level usage without a socket. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
@@ -77,6 +78,7 @@ Environment:
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
+| `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -124,8 +126,13 @@ Environment:
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface. |
-| `list-notifications` | List queued notifications. |
+| `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
+| `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
+| `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
+| `open-notification` | Focus the notification's workspace/surface and mark it read. |
+| `jump-to-unread` | Focus the latest unread notification. |
 | `clear-notifications` | Clear queued notifications. |
+| `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
 | `clear-status` | Remove a sidebar status pill. |
 | `list-status` | List sidebar status pills. |
@@ -172,7 +179,8 @@ VM subcommands:
 | `vm new`, `vm create` | Create a VM. Supports `--image`, `--provider`, `--detach`, and `-d`. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
-| `vm ssh`, `vm ssh-info` | Print SSH connection info. |
+| `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
+| `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
 
@@ -242,6 +250,8 @@ Browser subcommands:
 | `browser frame` | Select frame context. |
 | `browser dialog` | Accept or dismiss dialogs. |
 | `browser download` | Wait for or save downloads. |
+| `browser profiles` | List, add, rename, clear, or delete cmux browser profiles. `clear` refuses to wipe active profiles unless `--force` is passed. |
+| `browser import` | Open the browser import wizard. In detected coding-agent environments, defaults to non-interactive cookie import; pass `--interactive` to force the wizard. Non-interactive import supports `--from`, `--profile`, `--all-profiles`, `--to-profile`, `--create-profile`, and `--domain`. |
 | `browser cookies` | Get, set, or clear cookies. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |
@@ -262,14 +272,27 @@ Hook subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>` and `--yes`. |
-| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>` and `--yes`. |
+| `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>`, positional agent filters such as `cmux hooks setup rovo`, and `--yes`. |
+| `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>`, positional agent filters such as `cmux hooks uninstall rovo`, and `--yes`. |
 | `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `opencode`, `cursor`, `gemini`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `amp`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+
+Right sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
+| `right-sidebar focus` | Focus the current right-sidebar mode. |
+| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
+| `right-sidebar mode` | Print JSON with `visible` and `mode`. |
+| `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
+| `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
+| `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
 Docs topics:
 
@@ -306,6 +329,32 @@ Config subcommands:
 `label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
 `message` and `bytes`.
 
+Events command:
+
+| Option | Contract |
+| --- | --- |
+| `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
+| `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
+| `--name <event>` | Filter by event name. Repeatable. |
+| `--category <name>` | Filter by category. Repeatable. |
+| `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
+| `--limit <n>` | Exit after printing `n` event frames. |
+| `--no-ack` | Suppress the initial ack frame in stdout. |
+| `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
+
+`events.stream` is a v2 socket method advertised by `capabilities`. The first
+response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
+`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
+carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
+should persist `seq` after processing each event and reconnect with that value.
+See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
+`~/.cmuxterm/events.jsonl`, including model lifecycle events for window
+creation, close, focus, key-window state, workspace selection, pane focus, and
+surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
+4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
+slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
+16 MiB archive at `events.jsonl.1`.
+
 ## No-Socket Help Probes
 
 The following probes are executable contract checks. They must exit 0 and print
@@ -316,9 +365,10 @@ the expected text without connecting to a cmux socket.
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
+- `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`
@@ -332,6 +382,8 @@ the expected text without connecting to a cmux socket.
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
+- `cmux welcome` -> `Toggle Left Sidebar`
+- `cmux welcome` -> `Toggle Right Sidebar`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
@@ -339,7 +391,7 @@ the expected text without connecting to a cmux socket.
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
-- `cmux hooks --help` -> `Usage: cmux hooks setup [--agent <name>] [--yes|-y]`
+- `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
@@ -413,7 +465,12 @@ the expected text without connecting to a cmux socket.
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
 - `cmux notify --help` -> `Usage: cmux notify`
 - `cmux list-notifications --help` -> `Usage: cmux list-notifications`
+- `cmux dismiss-notification --help` -> `Usage: cmux dismiss-notification`
+- `cmux mark-notification-read --help` -> `Usage: cmux mark-notification-read`
+- `cmux open-notification --help` -> `Usage: cmux open-notification`
+- `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
+- `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
 - `cmux clear-status --help` -> `Usage: cmux clear-status`
 - `cmux list-status --help` -> `Usage: cmux list-status`

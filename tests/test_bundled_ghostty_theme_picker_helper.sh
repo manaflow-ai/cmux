@@ -8,6 +8,11 @@ APP_PATH="${CMUX_APP_PATH:-}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-theme-picker-helper.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+if [ "${CMUX_SKIP_ZIG_BUILD:-0}" = "1" ]; then
+  echo "SKIP: bundled Ghostty helper regression requires the real Zig-built helper"
+  exit 0
+fi
+
 if [ -n "$APP_PATH" ]; then
   if [ ! -d "$APP_PATH" ]; then
     echo "FAIL: supplied app path does not exist at $APP_PATH" >&2

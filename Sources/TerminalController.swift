@@ -148,6 +148,8 @@ class TerminalController {
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
+        "notification.open",
+        "notification.jump_to_unread",
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
@@ -210,6 +212,23 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
+
+    func cleanupSurfaceState(surfaceIds: [UUID]) {
+        for surfaceId in Set(surfaceIds) {
+            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+            v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
+            v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
+
+            if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
+                v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)
+            }
+            v2RefByUUID[.surface]?.removeValue(forKey: surfaceId)
+        }
+    }
 
     private init() {
         browserDownloadObserver = NotificationCenter.default.addObserver(
@@ -301,7 +320,23 @@ class TerminalController {
             return focusIntentV2Methods.contains(commandKey)
                 || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
         }
+        if commandKey == "right_sidebar" {
+            return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
+        }
         return focusIntentV1Commands.contains(commandKey)
+    }
+
+    private nonisolated static func rightSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
+        let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
+        guard case .success(let request) = parsed else { return false }
+        switch request.command {
+        case .toggle, .show, .focus:
+            return true
+        case .setMode(_, let focus):
+            return focus
+        case .hide, .getState:
+            return false
+        }
     }
 
     nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, params: [String: Any] = [:], _ body: () -> T) -> T {
@@ -1483,6 +1518,12 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.profiles.list",
+        "browser.profiles.create",
+        "browser.profiles.rename",
+        "browser.profiles.clear",
+        "browser.profiles.delete",
+        "browser.import.cookies",
         "system.top",
     ]
 
@@ -1564,6 +1605,31 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.profiles.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.list(params: request.params)
+            }
+        case "browser.profiles.create":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.create(params: request.params)
+            }
+        case "browser.profiles.rename":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserProfileAutomation.rename(params: request.params)
+            }
+        case "browser.profiles.clear":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.clear(params: request.params)
+            }
+        case "browser.profiles.delete":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserProfileAutomation.delete(params: request.params)
+            }
+        case "browser.import.cookies":
+            return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
+                let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
+                return outcome.socketPayload
+            }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case let method where method.hasPrefix("vm."):
@@ -1908,9 +1974,22 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
+                if isEventsStreamRequest(trimmed) {
+                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                        guard writeSocketResponse(response, to: socket) else {
+                            return
+                        }
+                        continue
+                    }
+                    handleEventsStreamRequest(trimmed, socket: socket)
+                    return
+                }
+
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                guard writeSocketResponse(result.response, to: socket) else {
+                let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                publishSocketEvents(command: trimmed, response: result.response)
+                guard didWriteResponse else {
                     return
                 }
             }
@@ -1979,7 +2058,8 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        return withSocketCommandPolicy(commandKey: cmd, isV2: false) {
+        let policyParams = cmd == "right_sidebar" ? ["args": args] : [:]
+        return withSocketCommandPolicy(commandKey: cmd, isV2: false, params: policyParams) {
             switch cmd {
         case "ping":
             return "PONG"
@@ -2154,6 +2234,9 @@ class TerminalController {
 
         case "reset_sidebar":
             return resetSidebar(args)
+
+        case "right_sidebar":
+            return rightSidebar(args)
 
         case "read_screen":
             return readScreenText(args)
@@ -2543,6 +2626,14 @@ class TerminalController {
             return v2Ok(id: id, result: self.v2NotificationList())
         case "notification.clear":
             return v2Result(id: id, self.v2NotificationClear())
+        case "notification.dismiss":
+            return v2Result(id: id, self.v2NotificationDismiss(params: params))
+        case "notification.mark_read":
+            return v2Result(id: id, self.v2NotificationMarkRead(params: params))
+        case "notification.open":
+            return v2Result(id: id, self.v2NotificationOpen(params: params))
+        case "notification.jump_to_unread":
+            return v2Result(id: id, self.v2NotificationJumpToUnread())
 
         // App focus
         case "app.focus_override.set":
@@ -2655,6 +2746,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.download.wait":
             return v2Result(id: id, self.v2BrowserDownloadWait(params: params))
+        case "browser.import.dialog":
+            return v2Result(id: id, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
             return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
         case "browser.cookies.set":
@@ -2768,6 +2861,10 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+#if DEBUG
+        case "debug.terminal.simulate_file_drop":
+            return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+#endif
         case "debug.terminal.read_text":
             return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
@@ -2811,6 +2908,7 @@ class TerminalController {
             "system.identify",
             "system.tree",
             "system.top",
+            "events.stream",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -2894,6 +2992,10 @@ class TerminalController {
             "notification.create_for_target",
             "notification.list",
             "notification.clear",
+            "notification.dismiss",
+            "notification.mark_read",
+            "notification.open",
+            "notification.jump_to_unread",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",
@@ -3020,6 +3122,9 @@ class TerminalController {
             "debug.session_snapshot_seed_scrollback",
             "debug.window.screenshot",
         ])
+#endif
+#if DEBUG
+        methods.append("debug.terminal.simulate_file_drop")
 #endif
 
         return [
@@ -3273,6 +3378,7 @@ class TerminalController {
                 )
             }
         }
+        v2AttachTopApplicationProcess(to: &windowNodes)
 
         let processSnapshot = await Task.detached(priority: .utility) {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
@@ -3391,6 +3497,10 @@ class TerminalController {
                     )
                 )
             }
+        }
+
+        if workspaceFilter == nil {
+            v2AttachTopApplicationProcess(to: &windowNodes)
         }
 
         if let workspaceFilter, !workspaceFound {
@@ -3746,6 +3856,21 @@ class TerminalController {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
         if let value { return value }
         return NSNull()
+    }
+
+    private static func notificationCreatedAtString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    private static func notificationListTrailingField(_ value: String) -> String {
+        "pct:" + value
+            .replacingOccurrences(of: "%", with: "%25")
+            .replacingOccurrences(of: "|", with: "%7C")
+            .replacingOccurrences(of: "\n", with: "%0A")
+            .replacingOccurrences(of: "\r", with: "%0D")
     }
 
     nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
@@ -7879,18 +8004,228 @@ class TerminalController {
         var items: [[String: Any]] = []
         v2MainSync {
             items = TerminalNotificationStore.shared.notifications.map { n in
-                return [
-                    "id": n.id.uuidString,
-                    "workspace_id": n.tabId.uuidString,
-                    "surface_id": v2OrNull(n.surfaceId?.uuidString),
-                    "is_read": n.isRead,
-                    "title": n.title,
-                    "subtitle": n.subtitle,
-                    "body": n.body
-                ]
+                return notificationPayload(n, opened: nil, includeReadState: true)
             }
         }
         return ["notifications": items]
+    }
+
+    private func v2NotificationDismiss(params: [String: Any]) -> V2CallResult {
+        let id = v2UUID(params, "id")
+        let allRead = v2Bool(params, "all_read") ?? false
+        let selectorCount = (id == nil ? 0 : 1) + (allRead ? 1 : 0)
+
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.dismissSelectorRequired", defaultValue: "Select exactly one of id or all_read"),
+                data: nil
+            )
+        }
+
+        if allRead {
+            var dismissedCount = 0
+            v2MainSync {
+                let readIds = TerminalNotificationStore.shared.notifications
+                    .filter(\.isRead)
+                    .map(\.id)
+                for id in readIds {
+                    TerminalNotificationStore.shared.remove(id: id)
+                }
+                dismissedCount = readIds.count
+            }
+            return .ok(["dismissed": dismissedCount, "all_read": true])
+        }
+
+        guard let id else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.idRequired", defaultValue: "Missing or invalid notification id"),
+                data: nil
+            )
+        }
+
+        var dismissed = false
+        var payload: [String: Any] = [:]
+        v2MainSync {
+            let notification = TerminalNotificationStore.shared.notifications.first(where: { $0.id == id })
+            if let notification {
+                payload = notificationPayload(notification, opened: nil, includeReadState: true)
+                TerminalNotificationStore.shared.remove(id: id)
+                dismissed = true
+            }
+        }
+        guard dismissed else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
+        }
+        payload["dismissed"] = 1
+        return .ok(payload)
+    }
+
+    private func v2NotificationMarkRead(params: [String: Any]) -> V2CallResult {
+        let id = v2UUID(params, "id")
+        let tabId = v2UUID(params, "tab_id") ?? v2UUID(params, "workspace_id")
+        let hasSurfaceSelector = v2HasNonNullParam(params, "surface_id")
+        let surfaceId = v2UUID(params, "surface_id")
+        let all = v2Bool(params, "all") ?? false
+        let selectorCount = (id == nil ? 0 : 1) + (tabId == nil ? 0 : 1) + (all ? 1 : 0)
+
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.markReadSelectorRequired", defaultValue: "Select exactly one of id, tab_id, or all"),
+                data: nil
+            )
+        }
+        if hasSurfaceSelector, surfaceId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.surfaceIdInvalid", defaultValue: "Missing or invalid surface_id"),
+                data: nil
+            )
+        }
+        if hasSurfaceSelector, tabId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.surfaceIdRequiresWorkspace", defaultValue: "surface_id requires tab_id or workspace_id"),
+                data: nil
+            )
+        }
+
+        var markedCount = 0
+        var selectedNotificationExists = true
+        v2MainSync {
+            let store = TerminalNotificationStore.shared
+            let before = store.notifications
+            if let id {
+                guard before.contains(where: { $0.id == id }) else {
+                    selectedNotificationExists = false
+                    return
+                }
+                store.markRead(id: id)
+            } else if let tabId {
+                if hasSurfaceSelector {
+                    store.markRead(forTabId: tabId, surfaceId: surfaceId)
+                } else {
+                    store.markRead(forTabId: tabId)
+                }
+            } else if all {
+                store.markAllRead()
+            }
+            let afterById = Dictionary(uniqueKeysWithValues: store.notifications.map { ($0.id, $0.isRead) })
+            markedCount = before.filter { !$0.isRead && afterById[$0.id] == true }.count
+        }
+
+        if !selectedNotificationExists, let id {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
+        }
+
+        var result: [String: Any] = ["marked_read": markedCount]
+        if let id { result["id"] = id.uuidString }
+        if let tabId {
+            result["workspace_id"] = tabId.uuidString
+            result["workspace_ref"] = v2Ref(kind: .workspace, uuid: tabId)
+        }
+        if hasSurfaceSelector {
+            result["surface_id"] = v2OrNull(surfaceId?.uuidString)
+            result["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+        }
+        if all { result["all"] = true }
+        return .ok(result)
+    }
+
+    private func v2NotificationOpen(params: [String: Any]) -> V2CallResult {
+        guard let id = v2UUID(params, "id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.idRequired", defaultValue: "Missing or invalid notification id"),
+                data: nil
+            )
+        }
+
+        var notification: TerminalNotification?
+        var opened = false
+        var payload: [String: Any] = [:]
+        v2MainSync {
+            let store = TerminalNotificationStore.shared
+            notification = store.notifications.first(where: { $0.id == id })
+            if let notification {
+                opened = AppDelegate.shared?.openNotification(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId,
+                    notificationId: notification.id
+                ) ?? false
+                let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
+                payload = notificationPayload(current, opened: opened, includeReadState: true)
+            }
+        }
+
+        guard notification != nil else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
+        }
+        guard opened else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.targetNotFound", defaultValue: "Notification target not found"),
+                data: payload
+            )
+        }
+        return .ok(payload)
+    }
+
+    private func v2NotificationJumpToUnread() -> V2CallResult {
+        var openedNotification: TerminalNotification?
+        var payload: [String: Any] = [:]
+        v2MainSync {
+            openedNotification = AppDelegate.shared?.jumpToLatestUnread()
+            if let openedNotification {
+                let store = TerminalNotificationStore.shared
+                let current = store.notifications.first(where: { $0.id == openedNotification.id }) ?? openedNotification
+                payload = notificationPayload(current, opened: true, includeReadState: true)
+            }
+        }
+        guard openedNotification != nil else {
+            return .ok(["opened": false])
+        }
+        return .ok(payload)
+    }
+
+    private func notificationPayload(
+        _ notification: TerminalNotification,
+        opened: Bool?,
+        includeReadState: Bool
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": notification.id.uuidString,
+            "workspace_id": notification.tabId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: notification.tabId),
+            "surface_id": v2OrNull(notification.surfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: notification.surfaceId),
+            "title": notification.title,
+            "subtitle": notification.subtitle,
+            "body": notification.body,
+            "created_at": Self.notificationCreatedAtString(notification.createdAt),
+            "tab_title": v2OrNull(AppDelegate.shared?.tabTitle(for: notification.tabId)),
+        ]
+        if includeReadState {
+            payload["is_read"] = notification.isRead
+        }
+        if let opened {
+            payload["opened"] = opened
+        }
+        return payload
     }
 
     private func v2NotificationClear() -> V2CallResult {
@@ -8078,11 +8413,17 @@ class TerminalController {
             )
         }
 
+        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyPromptSubmitSideEffects(for: event)
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
             waitTimeout: waitTimeout
+        )
+        CmuxEventBus.shared.publishWorkstreamEvent(
+            event,
+            phase: "completed",
+            result: FeedSocketEncoding.payload(for: result)
         )
         return .ok(FeedSocketEncoding.payload(for: result))
     }
@@ -11052,6 +11393,81 @@ class TerminalController {
         }
     }
 
+    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
+        let scope: BrowserImportScope?
+        if params.keys.contains("scope") {
+            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !raw.isEmpty else {
+                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
+            }
+            switch raw {
+            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
+                scope = .cookiesOnly
+            case "history", "historyonly", "history_only", "history-only":
+                scope = .historyOnly
+            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
+                scope = .cookiesAndHistory
+            case "everything", "all":
+                scope = .everything
+            default:
+                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
+            }
+        } else {
+            scope = nil
+        }
+
+        let defaultDestinationProfileID: UUID?
+        if params.keys.contains("destination_profile") {
+            guard let query = v2String(params, "destination_profile")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !query.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile must be a non-empty string",
+                    data: ["param": "destination_profile"]
+                )
+            }
+            let profiles = BrowserProfileStore.shared.profiles
+            if let uuid = UUID(uuidString: query),
+               profiles.contains(where: { $0.id == uuid }) {
+                defaultDestinationProfileID = uuid
+            } else if let profile = profiles.first(where: {
+                $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
+                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }) {
+                defaultDestinationProfileID = profile.id
+            } else if v2Bool(params, "create_destination_profile") == true ||
+                v2Bool(params, "create_profile") == true {
+                guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
+                    return .err(
+                        code: "invalid_params",
+                        message: "destination_profile could not be created",
+                        data: ["param": "destination_profile"]
+                    )
+                }
+                defaultDestinationProfileID = createdProfileID
+            } else {
+                return .err(
+                    code: "invalid_params",
+                    message: "destination_profile does not match a cmux browser profile",
+                    data: ["param": "destination_profile"]
+                )
+            }
+        } else {
+            defaultDestinationProfileID = nil
+        }
+        Task { @MainActor in
+            BrowserDataImportCoordinator.shared.presentImportDialog(
+                defaultDestinationProfileID: defaultDestinationProfileID,
+                defaultScope: scope
+            )
+        }
+        return .ok([
+            "opened": true,
+            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
+        ])
+    }
+
     private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
@@ -12376,6 +12792,109 @@ class TerminalController {
         return .ok(["focused": resp.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"])
     }
 
+#if DEBUG
+    private func v2DebugSimulateTerminalFileDrop(params: [String: Any]) -> V2CallResult {
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2String(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
+        }
+        guard let rawPaths = params["paths"] as? [String] else {
+            return .err(code: "invalid_params", message: "Missing paths", data: nil)
+        }
+        let paths = rawPaths
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !paths.isEmpty else {
+            return .err(code: "invalid_params", message: "paths must not be empty", data: nil)
+        }
+
+        let route = (v2String(params, "route") ?? "text_destination")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        enum TerminalFileDropSimulationRoute {
+            case terminal
+            case textDestination
+        }
+        enum TerminalFileDropSimulationPayload {
+            case fileURLs
+            case imageData
+        }
+        let simulationRoute: TerminalFileDropSimulationRoute
+        switch route {
+        case "terminal", "direct":
+            simulationRoute = .terminal
+        case "text", "text_destination", "pane_text":
+            simulationRoute = .textDestination
+        default:
+            return .err(code: "invalid_params", message: "Unknown route", data: [
+                "route": route
+            ])
+        }
+        let payload = (v2String(params, "payload") ?? "file_urls")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let simulationPayload: TerminalFileDropSimulationPayload
+        switch payload {
+        case "file", "files", "file_url", "file_urls":
+            simulationPayload = .fileURLs
+        case "image", "image_data", "images":
+            simulationPayload = .imageData
+        default:
+            return .err(code: "invalid_params", message: "Unknown payload", data: [
+                "payload": payload
+            ])
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Terminal surface not found", data: [
+            "surface_id": surfaceId
+        ])
+        v2MainSync {
+            guard let panel = resolveTerminalPanel(from: surfaceId, tabManager: tabManager) else {
+                return
+            }
+
+            switch simulationRoute {
+            case .terminal:
+                let handled = panel.hostedView.debugSimulateFileDrop(
+                    paths: paths,
+                    asImageData: simulationPayload == .imageData
+                )
+                result = handled
+                    ? .ok(["handled": true, "route": "terminal", "payload": payload])
+                    : .err(code: "internal_error", message: "Terminal drop simulation failed", data: nil)
+            case .textDestination:
+                guard simulationPayload == .fileURLs else {
+                    result = .err(code: "invalid_params", message: "Image data payload requires terminal route", data: [
+                        "route": route,
+                        "payload": payload
+                    ])
+                    return
+                }
+                guard let workspace = tabManager.tabs.first(where: { $0.id == panel.workspaceId }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: [
+                        "workspace_id": panel.workspaceId.uuidString
+                    ])
+                    return
+                }
+                let urls = paths.map { URL(fileURLWithPath: $0).standardizedFileURL }
+                let handled = FileDropTextDropController.performTerminalFileDrop(
+                    workspace: workspace,
+                    panelId: panel.id,
+                    hostedView: panel.hostedView,
+                    urls: urls,
+                    window: panel.hostedView.window
+                )
+                result = handled
+                    ? .ok(["handled": true, "route": "text_destination", "payload": payload])
+                    : .err(code: "internal_error", message: "Text destination drop simulation failed", data: nil)
+            }
+        }
+        return result
+    }
+#endif
+
     private func v2DebugReadTerminalText(params: [String: Any]) -> V2CallResult {
         let surfaceArg = v2String(params, "surface_id") ?? ""
         let resp = readTerminalText(surfaceArg)
@@ -12704,6 +13223,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
 
@@ -14020,7 +14540,9 @@ class TerminalController {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
-                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)"
+                let createdAt = Self.notificationCreatedAtString(notification.createdAt)
+                let tabTitle = Self.notificationListTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
+                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
             }
             result = lines.joined(separator: "\n")
         }
@@ -15662,7 +16184,7 @@ class TerminalController {
 
     // MARK: - Option Parsing (sidebar metadata commands)
 
-    private func tokenizeArgs(_ args: String) -> [String] {
+    private nonisolated static func tokenizeArgs(_ args: String) -> [String] {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -15738,7 +16260,7 @@ class TerminalController {
     }
 
     private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = tokenizeArgs(args)
+        let tokens = Self.tokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
         var positional: [String] = []
@@ -15774,7 +16296,7 @@ class TerminalController {
     }
 
     private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = tokenizeArgs(args)
+        let tokens = Self.tokenizeArgs(args)
         guard !tokens.isEmpty else { return ([], [:]) }
 
         var positional: [String] = []
@@ -15900,6 +16422,23 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func parseOptionalPanelIdOption(
+        options: [String: String],
+        usage: String
+    ) -> (panelId: UUID?, error: String?) {
+        guard let rawPanelArg = options["panel"] ?? options["surface"] else {
+            return (nil, nil)
+        }
+        let panelArg = rawPanelArg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !panelArg.isEmpty else {
+            return (nil, "ERROR: Missing panel id — usage: \(usage)")
+        }
+        guard let panelId = UUID(uuidString: panelArg) else {
+            return (nil, "ERROR: Invalid panel id '\(rawPanelArg)'")
+        }
+        return (panelId, nil)
+    }
+
     private func scheduleSidebarMutation(
         target: SidebarMutationTabTarget,
         mutation: @escaping (TerminalController, Tab) -> Void
@@ -16005,6 +16544,13 @@ class TerminalController {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let panelResolution = parseOptionalPanelIdOption(
+            options: parsed.options,
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        )
+        if let error = panelResolution.error {
+            return error
+        }
 
         let pidValue: pid_t? = {
             if let rawPid = normalizedOptionValue(parsed.options["pid"]),
@@ -16014,7 +16560,10 @@ class TerminalController {
             return nil
         }()
 
-        scheduleSidebarMutation(target: target) { controller, tab in
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -16027,8 +16576,7 @@ class TerminalController {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
-                    tab.agentPIDs[key] = pidValue
-                    controller.refreshTrackedAgentPorts(for: tab)
+                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
                 }
                 return
             }
@@ -16043,8 +16591,7 @@ class TerminalController {
                 timestamp: Date()
             )
             if let pidValue {
-                tab.agentPIDs[key] = pidValue
-                controller.refreshTrackedAgentPorts(for: tab)
+                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
             }
         }
         return "OK"
@@ -16061,55 +16608,66 @@ class TerminalController {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
 
-        scheduleSidebarMutation(target: target) { controller, tab in
+        scheduleSidebarMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
-            if tab.agentPIDs.removeValue(forKey: key) != nil {
-                controller.refreshTrackedAgentPorts(for: tab)
-            }
+            tab.clearAgentPID(key: key)
         }
         return "OK"
     }
 
     /// Register an agent PID for stale-session detection without setting a visible status entry.
-    /// Usage: set_agent_pid <key> <pid> [--tab=<id>]
+    /// Usage: set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]
     private func setAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
+        let usage = "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]"
         guard parsed.positional.count >= 2,
               let pid = Int32(parsed.positional[1]), pid > 0 else {
-            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>]"
+            return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        scheduleSidebarMutation(target: target) { controller, tab in
-            tab.agentPIDs[key] = pid
-            controller.refreshTrackedAgentPorts(for: tab)
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
+            tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
         }
         return "OK"
     }
 
-    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>]
+    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]
     private func clearAgentPID(_ args: String) -> String {
         let parsed = parseOptions(args)
+        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
         guard let key = parsed.positional.first else {
-            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>]"
+            return "ERROR: Usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
-        scheduleSidebarMutation(target: target) { controller, tab in
-            tab.agentPIDs.removeValue(forKey: key)
-            controller.refreshTrackedAgentPorts(for: tab)
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
+            tab.clearAgentPID(
+                key: key,
+                panelId: panelResolution.panelId,
+                clearStatus: parsed.options["clear-status"] != nil
+            )
         }
         return "OK"
-    }
-
-    private func refreshTrackedAgentPorts(for tab: Workspace) {
-        let agentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: agentPIDs)
     }
 
     private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {
@@ -16990,6 +17548,52 @@ class TerminalController {
         }
         return result
     }
+
+    private func rightSidebar(_ args: String) -> String {
+        let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
+        let request: RightSidebarRemoteRequest
+        switch parsed {
+        case .success(let value):
+            request = value
+        case .failure(let error):
+            return error.message
+        }
+
+        return v2MainSync {
+            guard let app = AppDelegate.shared else {
+                return String(localized: "rightSidebar.remote.error.appDelegateUnavailable", defaultValue: "ERROR: App delegate not available")
+            }
+            switch app.applyRightSidebarRemoteCommand(request.command, target: request.target) {
+            case .ok:
+                return "OK"
+            case .state(let state):
+                return v2Encode([
+                    "visible": state.visible,
+                    "mode": state.mode.rawValue
+                ])
+            case .failure(let message):
+                return message
+            }
+        }
+    }
+
+#if DEBUG
+    func parseRightSidebarRemoteRequestForTesting(_ commandLine: String) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else {
+            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode>"))
+        }
+        return RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(parts.count > 1 ? parts[1] : ""))
+    }
+
+    func rightSidebarCommandAllowsInAppFocusMutationsForTesting(_ commandLine: String) -> Bool {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else { return false }
+        return Self.rightSidebarCommandAllowsInAppFocusMutations(args: parts.count > 1 ? parts[1] : "")
+    }
+#endif
 
     private func resetSidebar(_ args: String) -> String {
         var result = "OK"

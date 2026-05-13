@@ -298,7 +298,7 @@
       "browserLinkBehavior": "瀏覽器連結行為",
       "browserLinkDesc": "在「設定 > 瀏覽器」中，cmux 提供兩個不同用途的主機列表：",
       "browserHostsEmbed": "在內建瀏覽器中開啟的主機：適用於從終端機輸出點擊的連結。此列表中的主機會在 cmux 中開啟；其他主機會在你的預設瀏覽器中開啟。支援每行一個主機或萬用字元（例如：example.com、*.internal.example）。",
-      "browserHostsHttp": "內建瀏覽器中允許的 HTTP 主機：僅適用於 HTTP（非 HTTPS）URL。此列表中的主機可以在 cmux 中開啟而不會出現警告提示。預設包含 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
+      "browserHostsHttp": "內建瀏覽器中允許的 HTTP 主機：僅適用於 HTTP（非 HTTPS）URL。此列表中的主機可以在 cmux 中開啟而不會出現警告提示。預設包含 localhost、*.localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
       "exampleConfig": "範例設定",
       "metaTitle": "設定"
     },

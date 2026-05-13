@@ -43,8 +43,7 @@ final class FilePreviewDragRegistry {
         let registeredAt: Date
     }
 
-    func register(_ entry: FilePreviewDragEntry, now: Date = Date()) -> UUID {
-        let id = UUID()
+    func register(_ entry: FilePreviewDragEntry, id: UUID = UUID(), now: Date = Date()) -> UUID {
         lock.lock()
         sweepExpiredLocked(now: now)
         pending[id] = PendingEntry(entry: entry, registeredAt: now)
@@ -64,6 +63,13 @@ final class FilePreviewDragRegistry {
         defer { lock.unlock() }
         sweepExpiredLocked(now: now)
         return pending[id] != nil
+    }
+
+    func entry(id: UUID, now: Date = Date()) -> FilePreviewDragEntry? {
+        lock.lock()
+        defer { lock.unlock() }
+        sweepExpiredLocked(now: now)
+        return pending[id]?.entry
     }
 
     func discard(id: UUID) {
@@ -563,6 +569,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
+    func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
+        guard previewMode == .text, let textView else { return false }
+        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        guard !text.isEmpty else { return false }
+        textView.window?.makeFirstResponder(textView)
+        textView.insertText(text, replacementRange: textView.selectedRange())
+        updateTextContent(textView.string)
+        return true
+    }
+
     func retryPendingFocus() {
         focusCoordinator.fulfillPendingFocusIfNeeded()
     }
@@ -1019,7 +1035,7 @@ final class FilePreviewPDFChromeHostView: NSView {
 
 final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+        PaneFirstClickFocusSettings.isEnabled()
     }
 }
 
@@ -1724,6 +1740,7 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
     }
 
     func configure(image: NSImage?, pageNumber: String) {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         imageView.image = image
         pageLabel.stringValue = pageNumber
     }
@@ -3019,6 +3036,7 @@ private final class FilePreviewImageContainerView: NSView {
     }
 
     func setURL(_ url: URL) {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         guard currentURL != url else { return }
         currentURL = url
         documentView.imageView.image = nil
@@ -3040,6 +3058,7 @@ private final class FilePreviewImageContainerView: NSView {
     }
 
     private func applyLoadedImage(_ image: NSImage?) {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         documentView.imageView.image = image
         imageSize = normalizedSize(image?.size ?? .zero)
         isFitMode = true
@@ -3547,6 +3566,7 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         guard let image, rotationDegrees != 0 else {
             super.draw(dirtyRect)
             return

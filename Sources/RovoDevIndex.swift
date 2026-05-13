@@ -1,4 +1,4 @@
-import CMUXRovoDevIndex
+import CMUXAgentVault
 import Foundation
 
 extension SessionIndexStore {
