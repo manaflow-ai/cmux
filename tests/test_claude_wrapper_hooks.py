@@ -1385,16 +1385,25 @@ def test_background_claude_env_only_subcommands_after_options_get_env_without_se
 
 def test_background_claude_passthrough_subcommands_skip_hook_env(failures: list[str]) -> None:
     cases = [
-        ("auto-mode", ["auto-mode"]),
-        ("experimental-next", ["experimental-next"]),
-        ("plugin", ["plugin", "list"]),
-        ("plugins", ["plugins"]),
-        ("debug plugin", ["--debug", "plugin", "list"]),
-        ("ultrareview", ["ultrareview"]),
+        ("auto-mode", ["auto-mode"], None),
+        ("experimental-next", ["experimental-next"], None),
+        ("plugin", ["plugin", "list"], None),
+        ("plugins", ["plugins"], None),
+        ("debug plugin", ["--debug", "plugin", "list"], None),
+        ("ultrareview", ["ultrareview"], None),
+        ("help flag", ["--help"], None),
+        ("version flag", ["--version"], None),
+        ("short help flag", ["-h"], None),
+        ("short version flag", ["-v"], None),
+        ("help before agents", ["--help", "agents"], None),
+        ("version before daemon", ["--version", "daemon"], None),
+        ("wrapper help flag", ["--help"], "claude"),
+        ("wrapper version flag", ["--version"], "claude"),
     ]
-    for label, child_args in cases:
+    for label, child_args, child_command in cases:
         code, _, child_argv, child_node_options_env, child_runtime_node_options, child_cmux_pid, child_launch_argv_b64, _, stderr = run_wrapper_background_child_spawn(
             child_args=child_args,
+            child_command=child_command,
             launch_method="execSync",
         )
         expect(code == 0, f"background passthrough {label}: wrapper exited {code}: {stderr}", failures)

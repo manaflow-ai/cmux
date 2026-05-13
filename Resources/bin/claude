@@ -386,6 +386,7 @@ function installClaudeChildHookPropagation() {
     "-w",
   ]);
   const optionalValueOptions = new Set(["--debug"]);
+  const passthroughOptionFlags = new Set(["--help", "-h", "--version", "-v"]);
   const interactiveEntryFlags = new Set([
     "--continue",
     "-c",
@@ -409,23 +410,26 @@ function installClaudeChildHookPropagation() {
     return null;
   }
 
-  function firstClaudeSubcommand(args, startIndex) {
+  function claudeInvocationMode(args, startIndex) {
     let index = startIndex;
     while (index < args.length) {
       const arg = String(args[index]);
       if (arg === "--") {
-        return "";
+        return { mode: "session", subcommand: "" };
       }
       if (arg.startsWith("--")) {
         const equalsIndex = arg.indexOf("=");
         const hasInlineValue = equalsIndex !== -1;
         const optionName = hasInlineValue ? arg.slice(0, equalsIndex) : arg;
+        if (passthroughOptionFlags.has(arg)) {
+          return { mode: "passthrough", subcommand: "" };
+        }
         if (valueOptions.has(optionName)) {
           index += hasInlineValue ? 1 : 2;
           continue;
         }
         if (interactiveEntryFlags.has(optionName)) {
-          return "";
+          return { mode: "session", subcommand: "" };
         }
         if (!hasInlineValue && optionalValueOptions.has(optionName)) {
           const next = args[index + 1];
@@ -443,12 +447,15 @@ function installClaudeChildHookPropagation() {
       if (arg.startsWith("-") && arg !== "-") {
         const equalsIndex = arg.indexOf("=");
         const optionName = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
+        if (passthroughOptionFlags.has(arg)) {
+          return { mode: "passthrough", subcommand: "" };
+        }
         if (valueOptions.has(optionName)) {
           index += equalsIndex === -1 ? 2 : 1;
           continue;
         }
         if (interactiveEntryFlags.has(optionName)) {
-          return "";
+          return { mode: "session", subcommand: "" };
         }
         if (optionalValueOptions.has(optionName)) {
           const next = args[index + 1];
@@ -459,9 +466,15 @@ function installClaudeChildHookPropagation() {
         index += 1;
         continue;
       }
-      return arg;
+      if (passthroughSubcommands.has(arg)) {
+        return { mode: "passthrough", subcommand: arg };
+      }
+      if (envOnlySubcommands.has(arg)) {
+        return { mode: "env-only", subcommand: arg };
+      }
+      return { mode: "session", subcommand: arg };
     }
-    return "";
+    return { mode: "session", subcommand: "" };
   }
 
   function isCmuxHookCommand(command) {
@@ -614,8 +627,8 @@ function installClaudeChildHookPropagation() {
       return { args: normalizedArgs, options, patched: false };
     }
 
-    const subcommand = firstClaudeSubcommand(normalizedArgs, insertIndex);
-    if (passthroughSubcommands.has(subcommand)) {
+    const invocation = claudeInvocationMode(normalizedArgs, insertIndex);
+    if (invocation.mode === "passthrough") {
       return {
         args: normalizedArgs,
         options: withCmuxPassthroughEnv(options),
@@ -623,7 +636,7 @@ function installClaudeChildHookPropagation() {
       };
     }
 
-    const nextArgs = envOnlySubcommands.has(subcommand)
+    const nextArgs = invocation.mode === "env-only"
       ? normalizedArgs
       : withCmuxSettings(normalizedArgs, insertIndex);
     return {
@@ -882,11 +895,11 @@ function installClaudeChildHookPropagation() {
       return callOriginalArgsOptions(originalFork, this, modulePath, argCount, args, options);
     }
     const actualArgs = normalized.args.map(String);
-    const subcommand = firstClaudeSubcommand(actualArgs, 0);
-    if (passthroughSubcommands.has(subcommand)) {
+    const invocation = claudeInvocationMode(actualArgs, 0);
+    if (invocation.mode === "passthrough") {
       return originalFork.call(this, modulePath, actualArgs, withCmuxPassthroughEnv(normalized.options));
     }
-    const nextArgs = envOnlySubcommands.has(subcommand) ? actualArgs : withCmuxSettings(actualArgs, 0);
+    const nextArgs = invocation.mode === "env-only" ? actualArgs : withCmuxSettings(actualArgs, 0);
     return originalFork.call(this, modulePath, nextArgs, withCmuxClaudeEnv(normalized.options, process.execPath, [modulePath, ...nextArgs], 1));
   };
 }
