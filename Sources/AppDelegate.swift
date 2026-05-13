@@ -10596,10 +10596,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
         preferredWindow: NSWindow? = nil
     ) -> TerminalNotification? {
-        guard let deferredNotificationId = markFocusedNotificationAsOldestUnread(preferredWindow: preferredWindow) else {
+        guard let result = markFocusedNotificationAsOldestUnread(preferredWindow: preferredWindow) else {
             return nil
         }
-        return jumpToLatestUnread(excludingNotificationId: deferredNotificationId)
+        switch result {
+        case .deferredNotification(let notificationId):
+            return jumpToLatestUnread(excludingNotificationId: notificationId)
+        case .markedWorkspaceWithoutNotification:
+            return jumpToLatestUnread()
+        }
     }
 
     private struct FocusedNotificationTarget {
@@ -10607,15 +10612,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let surfaceId: UUID?
     }
 
-    private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> UUID? {
+    private enum FocusedNotificationMarkResult {
+        case deferredNotification(UUID)
+        case markedWorkspaceWithoutNotification
+    }
+
+    private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> FocusedNotificationMarkResult? {
         guard let notificationStore,
               let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
             return nil
         }
-        return notificationStore.markLatestNotificationAsOldestUnread(
+        if let notificationId = notificationStore.markLatestNotificationAsOldestUnread(
             forTabId: target.tabId,
             surfaceId: target.surfaceId
-        )
+        ) {
+            return .deferredNotification(notificationId)
+        }
+        return .markedWorkspaceWithoutNotification
     }
 
     private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
