@@ -240,7 +240,7 @@ def run_wrapper_terminal_env_probe(
     argv: list[str],
     *,
     hooks_disabled: bool = False,
-) -> tuple[int, dict[str, str], list[str], str, set[str]]:
+) -> tuple[int, dict[str, str], list[str], str, dict[str, str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
@@ -333,7 +333,7 @@ exit 0
             test_socket.close()
 
         observed_env = dict(line.split("=", 1) for line in read_lines(env_log))
-        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(fingerprint_env)
+        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), fingerprint_env
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -875,7 +875,7 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
 
     env_only_subcommands = ["agents", "daemon"]
     for subcommand in env_only_subcommands:
-        code, real_argv, _, stderr, _, node_options, runtime_node_options, _, _, _ = run_wrapper(
+        code, real_argv, _, stderr, _, node_options, runtime_node_options, _, hook_cmux_bin, _ = run_wrapper(
             socket_state="live",
             argv=[subcommand],
         )
@@ -893,8 +893,13 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
             f"{subcommand} env-only: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}",
             failures,
         )
+        expect(
+            hook_cmux_bin.endswith("/bundled cli/cmux"),
+            f"{subcommand} env-only: expected bundled cmux pin, got {hook_cmux_bin!r}",
+            failures,
+        )
 
-    code, real_argv, _, stderr, _, node_options, runtime_node_options, _, _, _ = run_wrapper(
+    code, real_argv, _, stderr, _, node_options, runtime_node_options, _, hook_cmux_bin, _ = run_wrapper(
         socket_state="live",
         argv=["--model", "sonnet", "agents"],
     )
@@ -910,6 +915,11 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect(
         runtime_node_options == "__UNSET__",
         f"agents after global option env-only: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}",
+        failures,
+    )
+    expect(
+        hook_cmux_bin.endswith("/bundled cli/cmux"),
+        f"agents after global option env-only: expected bundled cmux pin, got {hook_cmux_bin!r}",
         failures,
     )
 
@@ -1480,19 +1490,21 @@ def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]
         ("agents hooks-disabled env probe", {"hooks_disabled": True}),
     ]
     for label, kwargs in scenarios:
-        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"], **kwargs)
+        code, observed_env, real_argv, stderr, fingerprint_env = run_wrapper_terminal_env_probe(["agents"], **kwargs)
         expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
         expect(real_argv == ["agents"], f"{label}: expected raw argv, got {real_argv}", failures)
         expect(
-            set(observed_env) == expected_keys,
-            f"{label}: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            set(observed_env) == set(fingerprint_env),
+            f"{label}: expected probed keys {sorted(fingerprint_env)}, got {sorted(observed_env)}",
             failures,
         )
 
+        preserved_keys = set() if kwargs.get("hooks_disabled") else {"CMUX_BUNDLED_CLI_PATH", "CMUX_SOCKET_PATH"}
         for key, value in observed_env.items():
+            expected_value = fingerprint_env[key] if key in preserved_keys else "__UNSET__"
             expect(
-                value == "__UNSET__",
-                f"{label}: expected {key} unset, got {value!r}",
+                value == expected_value,
+                f"{label}: expected {key}={expected_value!r}, got {value!r}",
                 failures,
             )
 

@@ -183,8 +183,16 @@ fi
 
 clear_inherited_cmux_terminal_env() {
     if [[ "$IN_CMUX" == "1" ]]; then
+        local preserve_operational="${1:-}"
         local cmux_key
         for cmux_key in "${!CMUX_@}"; do
+            if [[ "$preserve_operational" == "preserve-operational" ]]; then
+                case "$cmux_key" in
+                    CMUX_SOCKET_PATH|CMUX_BUNDLED_CLI_PATH)
+                        continue
+                        ;;
+                esac
+            fi
             unset "$cmux_key"
         done
         unset TERMINFO
@@ -1397,7 +1405,7 @@ if ! should_inject_claude_hooks "$@"; then
         agents|daemon)
             unset CLAUDECODE
             clear_inherited_claude_auth_selection_env
-            clear_inherited_cmux_terminal_env
+            clear_inherited_cmux_terminal_env preserve-operational
             configure_claude_hook_environment "$@"
             exec "$REAL_CLAUDE" "$@"
             ;;
