@@ -315,15 +315,15 @@ struct cmuxApp: App {
                 // Existing panes keep the engine they were born with;
                 // there is no live migration. CEF availability also
                 // depends on the `CEF/` Swift package being linked
-                // into this build — when it isn't, the CEF option is
-                // disabled and a hint points at `CEF/INTEGRATION.md`.
+                // into this build and on the host OS meeting CEF's
+                // runtime floor.
                 Menu(String(
                     localized: "debug.menu.browserEngine",
                     defaultValue: "Browser Engine"
                 )) {
                     ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
                         let isCurrent = browserEngineRaw == kind.rawValue
-                        let isAvailable = (kind != .cef) || BrowserEngineKind.isCEFAvailable
+                        let isAvailable = (kind != .cef) || BrowserEngineKind.canSelectCEF
                         Button(action: {
                             if kind == .cef {
                                 Task { @MainActor in
@@ -353,6 +353,12 @@ struct cmuxApp: App {
                         Text(String(
                             localized: "debug.menu.browserEngine.cefMissing",
                             defaultValue: "CEF is not linked. See CEF/INTEGRATION.md."
+                        ))
+                    } else if !BrowserEngineKind.isCEFSupportedOnCurrentOS {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefUnsupportedOS",
+                            defaultValue: "CEF requires macOS 15.0 or later."
                         ))
                     }
                 }

@@ -45,7 +45,9 @@ public enum BrowserEngineKind: String, CaseIterable, Sendable {
             return .default
         }
         if kind == .cef {
-            guard isCEFAvailable, CEFRuntimeLocator.resolvedLocation() != nil else {
+            guard isCEFAvailable,
+                  isCEFSupportedOnCurrentOS,
+                  CEFRuntimeLocator.resolvedLocation() != nil else {
                 return .default
             }
         }
@@ -62,6 +64,22 @@ public enum BrowserEngineKind: String, CaseIterable, Sendable {
         #else
         return false
         #endif
+    }
+
+    /// Whether the current macOS version can run this CEF integration.
+    /// Keep this aligned with `CEFEngine.start`, which rejects older
+    /// macOS versions before booting Chromium.
+    public static var isCEFSupportedOnCurrentOS: Bool {
+        if #available(macOS 15.0, *) {
+            return true
+        } else {
+            return false
+        }
+    }
+
+    /// True only when CEF is linked and the current OS can run it.
+    static var canSelectCEF: Bool {
+        isCEFAvailable && isCEFSupportedOnCurrentOS
     }
 
     /// Human-readable label used by the Debug menu.
@@ -288,6 +306,9 @@ final class CEFRuntimeInstaller: ObservableObject {
     }
 
     var menuStatusText: String? {
+        guard BrowserEngineKind.isCEFSupportedOnCurrentOS else {
+            return String(localized: "cefRuntime.menuStatus.unsupportedOS", defaultValue: "requires macOS 15.0")
+        }
         if isInstalledOrBundled { return nil }
         switch phase {
         case .idle:
@@ -310,6 +331,16 @@ final class CEFRuntimeInstaller: ObservableObject {
     }
 
     func ensureInstalledAfterUserConfirmation(presentingWindow: NSWindow?) async -> Bool {
+        guard BrowserEngineKind.isCEFSupportedOnCurrentOS else {
+            presentFailure(
+                String(
+                    localized: "cefRuntime.installFailed.unsupportedOS",
+                    defaultValue: "CEF requires macOS 15.0 or later."
+                ),
+                presentingWindow: presentingWindow
+            )
+            return false
+        }
         if isInstalledOrBundled {
             phase = .installed
             return true
