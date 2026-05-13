@@ -1032,7 +1032,6 @@ struct FilePreviewPanelView: View {
         PanelFilePathHeader(
             iconSystemName: panel.displayIcon ?? "doc.viewfinder",
             filePath: panel.filePath,
-            backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor
         ) {
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)

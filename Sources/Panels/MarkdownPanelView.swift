@@ -112,7 +112,6 @@ struct MarkdownPanelView: View {
         PanelFilePathHeader(
             iconSystemName: panel.displayIcon ?? "doc.richtext",
             filePath: panel.filePath,
-            backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor
         ) {
             FileExternalOpenMenu(

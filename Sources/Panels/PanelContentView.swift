@@ -115,7 +115,6 @@ struct PanelContentView: View {
 struct PanelFilePathHeader<TrailingContent: View>: View {
     let iconSystemName: String
     let filePath: String
-    let backgroundColor: NSColor
     let foregroundColor: NSColor
     @ViewBuilder let trailingContent: () -> TrailingContent
 
@@ -135,7 +134,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 30)
-        .background(Color(nsColor: backgroundColor))
+        .background(Color.clear)
     }
 }
 
