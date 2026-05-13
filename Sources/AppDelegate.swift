@@ -843,7 +843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
-    private var windowMoveTargetSnapshotCache: [WindowMoveTargetSnapshotCacheKey: [WindowMoveTargetSnapshot]] = [:]
+    private var windowMoveTargetSnapshotCache: [WindowMoveTargetSnapshotCacheKey: WindowMoveTargetSnapshotCacheEntry] = [:]
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -3994,7 +3994,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private struct WindowMoveTargetSnapshotCacheKey: Hashable {
         let referenceWindowId: UUID?
+    }
+
+    private struct WindowMoveTargetSnapshotCacheEntry {
         let orderingFingerprint: String
+        let snapshots: [WindowMoveTargetSnapshot]
     }
 
     struct WorkspaceMoveTarget: Identifiable {
@@ -4013,12 +4017,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func windowMoveTargetSnapshots(referenceWindowId: UUID?) -> [WindowMoveTargetSnapshot] {
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
-        let cacheKey = WindowMoveTargetSnapshotCacheKey(
-            referenceWindowId: referenceWindowId,
-            orderingFingerprint: windowMoveTargetOrderingFingerprint(orderedSummaries)
-        )
-        if let cached = windowMoveTargetSnapshotCache[cacheKey] {
-            return cached
+        let cacheKey = WindowMoveTargetSnapshotCacheKey(referenceWindowId: referenceWindowId)
+        let fingerprint = windowMoveTargetOrderingFingerprint(orderedSummaries)
+        if let cached = windowMoveTargetSnapshotCache[cacheKey],
+           cached.orderingFingerprint == fingerprint {
+            return cached.snapshots
         }
 
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
@@ -4029,7 +4032,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 isCurrentWindow: summary.windowId == referenceWindowId
             )
         }
-        windowMoveTargetSnapshotCache[cacheKey] = snapshots
+        windowMoveTargetSnapshotCache[cacheKey] = WindowMoveTargetSnapshotCacheEntry(
+            orderingFingerprint: fingerprint,
+            snapshots: snapshots
+        )
         return snapshots
     }
 
