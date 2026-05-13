@@ -40,6 +40,7 @@ public final class CEFEngine {
 
     private let cefBridge = CMUXCEFEngineBridge.shared()
     private(set) public var config: CEFEngineConfig?
+    private var hasShutdown = false
 
     private init() {}
 
@@ -63,7 +64,7 @@ public final class CEFEngine {
         guard #available(macOS 15.0, *) else {
             throw CEFEngineError.unsupportedOperatingSystem(minimum: "macOS 15.0")
         }
-        guard self.config == nil else {
+        guard !hasShutdown, self.config == nil else {
             throw CEFEngineError.alreadyInitialized
         }
 
@@ -100,6 +101,7 @@ public final class CEFEngine {
         guard config != nil else { return }
         cefBridge.shutdown()
         config = nil
+        hasShutdown = true
     }
 
     public var isRunning: Bool { cefBridge.isInitialized }

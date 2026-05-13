@@ -1,9 +1,12 @@
 import AppKit
 import Foundation
+import OSLog
 
 #if canImport(CMUXCEF)
 import CMUXCEF
 #endif
+
+private let cefStartupLogger = Logger(subsystem: "com.cmuxterm.app", category: "cef-startup")
 
 /// Boots the Chromium Embedded Framework runtime if (a) the `CMUXCEF`
 /// SwiftPM package is linked into this build and (b) the user has
@@ -33,7 +36,7 @@ func startCEFEngineIfNeeded() {
             #if DEBUG
             cmuxDebugLog("cef.runtime.missing result=fallback_wkwebview")
             #endif
-            NSLog("cmux: CEF runtime is not installed")
+            cefStartupLogger.error("CEF runtime is not installed")
             return
         }
 
@@ -49,7 +52,7 @@ func startCEFEngineIfNeeded() {
             let err = dlerror().map { String(cString: $0) } ?? "unknown"
             cmuxDebugLog("cef.dlopen.failed path=\(cefFw) err=\(err)")
             #endif
-            NSLog("cmux: CEF dlopen failed at \(cefFw)")
+            cefStartupLogger.error("CEF dlopen failed at \(cefFw, privacy: .private)")
             return
         }
         #if DEBUG
@@ -88,7 +91,7 @@ func startCEFEngineIfNeeded() {
                 #if DEBUG
                 cmuxDebugLog("cef.helper.missing path=\(helperExec.path)")
                 #endif
-                NSLog("cmux: CEF helper executable is missing at \(helperExec.path)")
+                cefStartupLogger.error("CEF helper executable is missing at \(helperExec.path, privacy: .private)")
                 return
             }
 
@@ -109,7 +112,7 @@ func startCEFEngineIfNeeded() {
             #if DEBUG
             cmuxDebugLog("cef.engine.start.failed error=\(error)")
             #endif
-            NSLog("cmux: failed to start CEF engine: \(error)")
+            cefStartupLogger.error("Failed to start CEF engine: \(String(describing: error), privacy: .private)")
         }
         #endif
 }

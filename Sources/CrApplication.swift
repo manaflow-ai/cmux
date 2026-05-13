@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 private enum CrApplicationSendEventState {
     static var isHandlingSendEvent = false
 }

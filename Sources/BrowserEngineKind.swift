@@ -272,21 +272,45 @@ enum CEFRuntimeInstallerError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupportedArchitecture(let architecture):
-            return "CEF runtime install is only configured for macOS arm64 right now. Current architecture: \(architecture)."
+            return String(
+                localized: "cefRuntime.installError.unsupportedArchitecture",
+                defaultValue: "CEF runtime install is only configured for macOS arm64 right now. Current architecture: \(architecture)."
+            )
         case .insufficientDiskSpace(let available, let required):
-            return "Not enough free disk space to install CEF. Available: \(Self.formatBytes(available)); required: \(Self.formatBytes(required))."
+            return String(
+                localized: "cefRuntime.installError.insufficientDiskSpace",
+                defaultValue: "Not enough free disk space to install CEF. Available: \(Self.formatBytes(available)); required: \(Self.formatBytes(required))."
+            )
         case .downloadedFileMissing:
-            return "The CEF download did not produce a file."
+            return String(
+                localized: "cefRuntime.installError.downloadedFileMissing",
+                defaultValue: "The CEF download did not produce a file."
+            )
         case .downloadedFileSizeMismatch(let got, let expected):
-            return "CEF download size mismatch. Got \(got) bytes, expected \(expected) bytes."
+            return String(
+                localized: "cefRuntime.installError.downloadedFileSizeMismatch",
+                defaultValue: "CEF download size mismatch. Got \(got) bytes, expected \(expected) bytes."
+            )
         case .downloadedFileHashMismatch(let got, let expected):
-            return "CEF download SHA1 mismatch. Got \(got), expected \(expected)."
+            return String(
+                localized: "cefRuntime.installError.downloadedFileHashMismatch",
+                defaultValue: "CEF download SHA1 mismatch. Got \(got), expected \(expected)."
+            )
         case .expectedExtractedDirectoryMissing(let path):
-            return "The CEF archive did not contain the expected directory: \(path)."
+            return String(
+                localized: "cefRuntime.installError.expectedExtractedDirectoryMissing",
+                defaultValue: "The CEF archive did not contain the expected directory: \(path)."
+            )
         case .expectedFrameworkMissing(let path):
-            return "The installed CEF framework is missing: \(path)."
+            return String(
+                localized: "cefRuntime.installError.expectedFrameworkMissing",
+                defaultValue: "The installed CEF framework is missing: \(path)."
+            )
         case .commandFailed(let message):
-            return message
+            return String(
+                localized: "cefRuntime.installError.commandFailed",
+                defaultValue: "CEF installer command failed: \(message)"
+            )
         }
     }
 
@@ -424,7 +448,7 @@ final class CEFRuntimeInstaller: ObservableObject {
         progressReporter: CEFRuntimeInstallProgressReporter?
     ) async throws {
         try await Task.detached(priority: .userInitiated) {
-            try installRuntimeSynchronously(
+            try await installRuntimeInBackground(
                 descriptor: descriptor,
                 fileManager: .default,
                 progressReporter: progressReporter
@@ -460,11 +484,11 @@ final class CEFRuntimeInstaller: ObservableObject {
         }
     }
 
-    private nonisolated static func installRuntimeSynchronously(
+    private nonisolated static func installRuntimeInBackground(
         descriptor: CEFRuntimeDescriptor,
         fileManager: FileManager,
         progressReporter: CEFRuntimeInstallProgressReporter?
-    ) throws {
+    ) async throws {
         #if arch(arm64)
         #else
         throw CEFRuntimeInstallerError.unsupportedArchitecture(ProcessInfo.processInfo.machineArchitecture)
@@ -493,7 +517,7 @@ final class CEFRuntimeInstaller: ObservableObject {
 
         let downloadURL = workRoot.appendingPathComponent(descriptor.tarballName)
         progressReporter?.report(.downloading(progress: nil))
-        try download(
+        try await download(
             descriptor.downloadURL,
             to: downloadURL,
             fileManager: fileManager,
@@ -501,7 +525,7 @@ final class CEFRuntimeInstaller: ObservableObject {
         )
         progressReporter?.report(.installing)
         try verifyTarballMetadata(fileURL: downloadURL, descriptor: descriptor, fileManager: fileManager)
-        try runCommand("/usr/bin/tar", arguments: ["-xjf", downloadURL.path, "-C", extractRoot.path])
+        try await runCommand("/usr/bin/tar", arguments: ["-xjf", downloadURL.path, "-C", extractRoot.path])
 
         let extracted = extractRoot.appendingPathComponent(descriptor.extractedDirectoryName, isDirectory: true)
         guard fileManager.fileExists(atPath: extracted.path) else {
@@ -518,8 +542,8 @@ final class CEFRuntimeInstaller: ObservableObject {
         guard fileManager.fileExists(atPath: sourceFramework.path) else {
             throw CEFRuntimeInstallerError.expectedFrameworkMissing(sourceFramework.path)
         }
-        try runCommand("/bin/cp", arguments: ["-R", sourceFramework.path, installedFramework.path])
-        try restructureFramework(installedFramework)
+        try await runCommand("/bin/cp", arguments: ["-R", sourceFramework.path, installedFramework.path])
+        try await restructureFramework(installedFramework)
 
         let finalRoot = runtimeRoot.appendingPathComponent(descriptor.version, isDirectory: true)
         if fileManager.fileExists(atPath: finalRoot.path) {
@@ -540,27 +564,20 @@ final class CEFRuntimeInstaller: ObservableObject {
         to destinationURL: URL,
         fileManager: FileManager,
         progressReporter: CEFRuntimeInstallProgressReporter?
-    ) throws {
-        let semaphore = DispatchSemaphore(value: 0)
+    ) async throws {
         let delegate = CEFRuntimeDownloadDelegate(
-            destinationURL: destinationURL,
-            fileManager: fileManager,
-            progressReporter: progressReporter,
-            semaphore: semaphore
+            progressReporter: progressReporter
         )
         let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-        let task = session.downloadTask(with: sourceURL)
-        task.resume()
-        semaphore.wait()
-        session.invalidateAndCancel()
-
-        guard let result = delegate.result else {
-            throw CEFRuntimeInstallerError.downloadedFileMissing
+        defer { session.invalidateAndCancel() }
+        let (temporaryURL, _) = try await session.download(from: sourceURL, delegate: delegate)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
         }
-        _ = try result.get()
+        try fileManager.moveItem(at: temporaryURL, to: destinationURL)
     }
 
-    private nonisolated static func restructureFramework(_ frameworkURL: URL) throws {
+    private nonisolated static func restructureFramework(_ frameworkURL: URL) async throws {
         let name = frameworkURL.deletingPathExtension().lastPathComponent
         let versions = frameworkURL.appendingPathComponent("Versions", isDirectory: true)
         let versionA = versions.appendingPathComponent("A", isDirectory: true)
@@ -587,13 +604,13 @@ final class CEFRuntimeInstaller: ObservableObject {
             }
         }
 
-        try runCommand("/usr/bin/install_name_tool", arguments: [
+        try await runCommand("/usr/bin/install_name_tool", arguments: [
             "-id",
             "@rpath/\(name).framework/Versions/A/\(name)",
             binary.path
         ])
-        _ = try? runCommand("/usr/bin/codesign", arguments: ["--remove-signature", binary.path])
-        try runCommand("/usr/bin/codesign", arguments: [
+        _ = try? await runCommand("/usr/bin/codesign", arguments: ["--remove-signature", binary.path])
+        try await runCommand("/usr/bin/codesign", arguments: [
             "--force",
             "--sign",
             "-",
@@ -611,23 +628,41 @@ final class CEFRuntimeInstaller: ObservableObject {
     }
 
     @discardableResult
-    private nonisolated static func runCommand(_ launchPath: String, arguments: [String]) throws -> String {
+    private nonisolated static func runCommand(_ launchPath: String, arguments: [String]) async throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        process.waitUntilExit()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let text = String(data: data, encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            throw CEFRuntimeInstallerError.commandFailed(
-                "\(launchPath) \(arguments.joined(separator: " ")) failed with exit \(process.terminationStatus): \(text)"
-            )
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cef-command-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        process.standardOutput = outputHandle
+        process.standardError = outputHandle
+
+        return try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { terminatedProcess in
+                try? outputHandle.close()
+                let data = (try? Data(contentsOf: outputURL)) ?? Data()
+                try? FileManager.default.removeItem(at: outputURL)
+                let text = String(data: data, encoding: .utf8) ?? ""
+                guard terminatedProcess.terminationStatus == 0 else {
+                    continuation.resume(throwing: CEFRuntimeInstallerError.commandFailed(
+                        "\(launchPath) \(arguments.joined(separator: " ")) failed with exit \(terminatedProcess.terminationStatus): \(text)"
+                    ))
+                    return
+                }
+                continuation.resume(returning: text)
+            }
+
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                try? outputHandle.close()
+                try? FileManager.default.removeItem(at: outputURL)
+                continuation.resume(throwing: error)
+            }
         }
-        return text
     }
 
     private nonisolated static func availableCapacity(for url: URL) -> Int64 {
@@ -718,6 +753,7 @@ private final class CEFRuntimeInstallProgressPresenter {
         window.title = String(localized: "cefRuntime.progress.windowTitle", defaultValue: "Chromium Runtime")
         window.contentView = contentView
         window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.cefRuntime.installProgress")
     }
 
     func show() {
@@ -793,24 +829,12 @@ private final class CEFRuntimeInstallProgressReporter: @unchecked Sendable {
 }
 
 private final class CEFRuntimeDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let destinationURL: URL
-    private let fileManager: FileManager
     private let progressReporter: CEFRuntimeInstallProgressReporter?
-    private let semaphore: DispatchSemaphore
-    private var didSignal = false
-
-    var result: Result<URL, Error>?
 
     init(
-        destinationURL: URL,
-        fileManager: FileManager,
-        progressReporter: CEFRuntimeInstallProgressReporter?,
-        semaphore: DispatchSemaphore
+        progressReporter: CEFRuntimeInstallProgressReporter?
     ) {
-        self.destinationURL = destinationURL
-        self.fileManager = fileManager
         self.progressReporter = progressReporter
-        self.semaphore = semaphore
     }
 
     func urlSession(
@@ -829,34 +853,7 @@ private final class CEFRuntimeDownloadDelegate: NSObject, URLSessionDownloadDele
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
-    ) {
-        do {
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.removeItem(at: destinationURL)
-            }
-            try fileManager.moveItem(at: location, to: destinationURL)
-            result = .success(destinationURL)
-        } catch {
-            result = .failure(error)
-        }
-        signalOnce()
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: Error?
-    ) {
-        guard let error else { return }
-        result = .failure(error)
-        signalOnce()
-    }
-
-    private func signalOnce() {
-        guard !didSignal else { return }
-        didSignal = true
-        semaphore.signal()
-    }
+    ) {}
 }
 
 private extension ProcessInfo {

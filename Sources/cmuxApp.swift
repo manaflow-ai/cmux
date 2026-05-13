@@ -337,7 +337,8 @@ struct cmuxApp: App {
                             }
                         }) {
                             HStack {
-                                Image(systemName: isCurrent ? "checkmark" : "")
+                                Image(systemName: "checkmark")
+                                    .opacity(isCurrent ? 1 : 0)
                                     .frame(width: 16)
                                 if kind == .cef, let status = cefRuntimeInstaller.menuStatusText {
                                     Text("\(kind.displayLabel) (\(status))")
@@ -1223,6 +1224,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
+    "cmux.cefRuntime.installProgress",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.backgroundDebug",

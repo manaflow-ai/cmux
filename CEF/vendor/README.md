@@ -60,8 +60,8 @@ If neither works *and* the cache is empty, the script exits non-zero.
    diff minimal.
 3. Run `vendor/fetch_cef.sh`. It should download the new tarball and
    verify it against the new SHA1.
-4. Run cmux against the new CEF and exercise the dogfood checklist (see
-   `MIGRATION_PLAN.md` Phase 8).
+4. Run cmux against the new CEF and exercise the runtime flow described in
+   `../INTEGRATION.md`.
 5. Commit `cef.lock.json` in a separate PR titled `cef: bump to <version>`.
    Include the cef-builds release notes link in the PR body.
 

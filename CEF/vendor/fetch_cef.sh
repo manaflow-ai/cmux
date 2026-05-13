@@ -64,6 +64,10 @@ while (( $# > 0 )); do
   case "$1" in
     --dest)
       shift
+      if (( $# == 0 )); then
+        echo "fetch_cef: --dest requires a path" >&2
+        exit 2
+      fi
       DEST="$1"
       ;;
     --no-build)

@@ -42,8 +42,7 @@ esac
 (cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" --product CMUXCEFHelper)
 (cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" --product CMUXCEFHelperRenderer)
 
-ARCH="$(uname -m)"
-BUILD_BIN="${CEF_ROOT}/.build/${ARCH}-apple-macosx/${SWIFT_CFG}"
+BUILD_BIN="$(cd "${CEF_ROOT}" && xcrun swift build -c "${SWIFT_CFG}" --show-bin-path)"
 HELPER_BIN="${BUILD_BIN}/CMUXCEFHelper"
 RENDERER_BIN="${BUILD_BIN}/CMUXCEFHelperRenderer"
 
