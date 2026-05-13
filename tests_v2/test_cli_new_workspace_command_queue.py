@@ -70,7 +70,7 @@ def _wait_for_marker(marker: Path, token: str, timeout_s: float = 12.0) -> str:
                 observed = marker.read_text(encoding="utf-8").strip()
             except OSError:
                 observed = ""
-            if observed:
+            if observed == token:
                 break
         time.sleep(0.05)
 
