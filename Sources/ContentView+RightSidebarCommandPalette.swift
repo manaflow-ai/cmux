@@ -98,12 +98,12 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.paneModes.map { mode in
+        return commandPaletteRightSidebarToolPaneCommandDescriptors().map { descriptor in
             CommandPaletteCommandContribution(
-                commandId: Self.commandPaletteRightSidebarToolPaneCommandID(mode),
-                title: constant(commandPaletteRightSidebarToolPaneTitle(mode)),
+                commandId: descriptor.commandId,
+                title: constant(descriptor.title),
                 subtitle: constant(String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")),
-                keywords: ["open", "pane", "tool", "right", "sidebar", mode.rawValue, mode.label.lowercased()]
+                keywords: ["open", "pane", "tool", "right", "sidebar", descriptor.mode.rawValue, descriptor.mode.label.lowercased()]
             )
         }
     }
@@ -123,34 +123,24 @@ extension ContentView {
         }
     }
 
-    static func commandPaletteRightSidebarToolPaneCommandID(_ mode: RightSidebarMode) -> String {
-        switch mode {
-        case .files:
-            return "palette.openFilesPane"
-        case .find:
-            return "palette.openFindPane"
-        case .sessions:
-            return "palette.openVaultPane"
-        case .feed:
-            return "palette.openFeedPane"
-        case .dock:
-            return "palette.openDockPane"
-        }
-    }
-
-    static func commandPaletteRightSidebarToolPaneTitle(_ mode: RightSidebarMode) -> String {
-        switch mode {
-        case .files:
-            return String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane")
-        case .find:
-            return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
-        case .sessions:
-            return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed:
-            return String(localized: "command.openFeedPane.title", defaultValue: "Open Feed as Pane")
-        case .dock:
-            return String(localized: "command.openDockPane.title", defaultValue: "Open Dock as Pane")
-        }
+    static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
+        [
+            (
+                mode: .files,
+                commandId: "palette.openFilesPane",
+                title: String(localized: "command.openFilesPane.title", defaultValue: "Open Files as Pane")
+            ),
+            (
+                mode: .find,
+                commandId: "palette.openFindPane",
+                title: String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
+            ),
+            (
+                mode: .sessions,
+                commandId: "palette.openVaultPane",
+                title: String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
+            )
+        ]
     }
 
     func handleCommandPaletteRightSidebarMode(_ mode: RightSidebarMode, observedWindow: NSWindow?) {

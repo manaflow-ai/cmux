@@ -7154,9 +7154,9 @@ struct ContentView: View {
                 handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
         }
-        for mode in RightSidebarMode.paneModes {
-            registry.register(commandId: Self.commandPaletteRightSidebarToolPaneCommandID(mode)) {
-                handleCommandPaletteRightSidebarToolPane(mode)
+        for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
+            registry.register(commandId: descriptor.commandId) {
+                handleCommandPaletteRightSidebarToolPane(descriptor.mode)
             }
         }
         registry.register(commandId: "palette.toggleMatchTerminalBackground") {

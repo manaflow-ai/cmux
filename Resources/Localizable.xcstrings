@@ -9948,40 +9948,6 @@
         }
       }
     },
-    "command.openFeedPane.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Feed as Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィードをペインで開く"
-          }
-        }
-      }
-    },
-    "command.openDockPane.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Dock as Pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dockをペインで開く"
-          }
-        }
-      }
-    },
     "browser.import.warning.additionalDataUnavailable": {
       "extractionState": "manual",
       "localizations": {
