@@ -319,6 +319,7 @@
 		B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
+		C0DE40520000000000000005 /* ConfiguredMenuBarDemoUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE40520000000000000006 /* ConfiguredMenuBarDemoUITests.swift */; };
 		B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
@@ -813,6 +814,7 @@
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
+		C0DE40520000000000000006 /* ConfiguredMenuBarDemoUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfiguredMenuBarDemoUITests.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
@@ -1043,6 +1045,7 @@
 					B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */,
 					818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
 					C0DE34020000000000000006 /* HelpMenuUITests.swift */,
+					C0DE40520000000000000006 /* ConfiguredMenuBarDemoUITests.swift */,
 					B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
 					C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
 					B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
@@ -2031,6 +2034,7 @@
 					F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
 					B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
 					C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */,
+					C0DE40520000000000000005 /* ConfiguredMenuBarDemoUITests.swift in Sources */,
 					B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
 					C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 					B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
