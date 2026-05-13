@@ -2,6 +2,8 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
+    // Issue #4093 is specifically Korean 2-Set. Other Korean layouts should be
+    // validated separately before this allow-list is broadened.
     private static let korean2SetInputSourceIDs: Set<String> = [
         "com.apple.inputmethod.Korean.2SetKorean",
     ]

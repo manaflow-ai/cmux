@@ -288,6 +288,11 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                     windowNumber: window.windowNumber
                 )
                 window.sendEvent(event)
+                XCTAssertEqual(
+                    surfaceView.selectedRange(),
+                    probe.selectionAfter,
+                    "Korean 2-Set arrow handling should apply the IME marked-selection update"
+                )
             }
         }
 
@@ -428,6 +433,33 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             view.keyTextAccumulatorForTesting,
             [],
             "Raw Zhuyin components must not be committed to the terminal before candidate selection"
+        )
+    }
+
+    func testBuffersZhuyinComponentInsertTextAtMarkedSelection() {
+        let view = GhosttyNSView(frame: .zero)
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        defer {
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            view.setKeyTextAccumulatorForTesting(nil)
+        }
+
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+        view.setKeyTextAccumulatorForTesting([])
+        view.setMarkedText(
+            "ㄉㄚ",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        view.insertText("ㄅ", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        XCTAssertEqual(view.attributedString().string, "ㄉㄅㄚ")
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 2, length: 0))
+        XCTAssertEqual(
+            view.keyTextAccumulatorForTesting,
+            [],
+            "Raw Zhuyin insertion inside preedit should not commit to the terminal"
         )
     }
 
