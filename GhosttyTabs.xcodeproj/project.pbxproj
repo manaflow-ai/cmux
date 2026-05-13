@@ -310,6 +310,10 @@
 		C3551A110000000000000001 /* CmuxSettingsManagedValues.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551A120000000000000001 /* CmuxSettingsManagedValues.swift */; };
 		C3551B110000000000000001 /* JSONCValueEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551B120000000000000001 /* JSONCValueEditor.swift */; };
 		C3551C110000000000000001 /* CmuxSettingsWriteBackTargets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551C120000000000000001 /* CmuxSettingsWriteBackTargets.swift */; };
+		C3551D110000000000000001 /* CmuxSettingsJSONWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551D120000000000000001 /* CmuxSettingsJSONWriter.swift */; };
+		C3551E110000000000000001 /* ManagedSettingsWriteBackPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551E120000000000000001 /* ManagedSettingsWriteBackPlan.swift */; };
+		C3551F110000000000000001 /* ManagedSettingsWriteBackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551F120000000000000001 /* ManagedSettingsWriteBackCoordinator.swift */; };
+		C3551D210000000000000001 /* CmuxSettingsManagedEditWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3551D220000000000000001 /* CmuxSettingsManagedEditWriter.swift */; };
 		A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
@@ -808,6 +812,10 @@
 		C3551A120000000000000001 /* CmuxSettingsManagedValues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsManagedValues.swift; sourceTree = "<group>"; };
 		C3551B120000000000000001 /* JSONCValueEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCValueEditor.swift; sourceTree = "<group>"; };
 		C3551C120000000000000001 /* CmuxSettingsWriteBackTargets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsWriteBackTargets.swift; sourceTree = "<group>"; };
+		C3551D120000000000000001 /* CmuxSettingsJSONWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsJSONWriter.swift; sourceTree = "<group>"; };
+		C3551E120000000000000001 /* ManagedSettingsWriteBackPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedSettingsWriteBackPlan.swift; sourceTree = "<group>"; };
+		C3551F120000000000000001 /* ManagedSettingsWriteBackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedSettingsWriteBackCoordinator.swift; sourceTree = "<group>"; };
+		C3551D220000000000000001 /* CmuxSettingsManagedEditWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsManagedEditWriter.swift; sourceTree = "<group>"; };
 		A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+Template.swift"; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarPerformanceSupportTests.swift; sourceTree = "<group>"; };
@@ -1159,7 +1167,11 @@
 				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
 				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
 				C3551A120000000000000001 /* CmuxSettingsManagedValues.swift */,
+				C3551D220000000000000001 /* CmuxSettingsManagedEditWriter.swift */,
+				C3551D120000000000000001 /* CmuxSettingsJSONWriter.swift */,
 				C3551C120000000000000001 /* CmuxSettingsWriteBackTargets.swift */,
+				C3551F120000000000000001 /* ManagedSettingsWriteBackCoordinator.swift */,
+				C3551E120000000000000001 /* ManagedSettingsWriteBackPlan.swift */,
 				C3551B120000000000000001 /* JSONCValueEditor.swift */,
 				A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */,
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
@@ -1797,7 +1809,11 @@
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C3551A110000000000000001 /* CmuxSettingsManagedValues.swift in Sources */,
+				C3551D210000000000000001 /* CmuxSettingsManagedEditWriter.swift in Sources */,
+				C3551D110000000000000001 /* CmuxSettingsJSONWriter.swift in Sources */,
 				C3551C110000000000000001 /* CmuxSettingsWriteBackTargets.swift in Sources */,
+				C3551F110000000000000001 /* ManagedSettingsWriteBackCoordinator.swift in Sources */,
+				C3551E110000000000000001 /* ManagedSettingsWriteBackPlan.swift in Sources */,
 				C3551B110000000000000001 /* JSONCValueEditor.swift in Sources */,
 				A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
