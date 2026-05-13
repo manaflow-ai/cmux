@@ -175,7 +175,7 @@ struct CmuxTaskManagerSortOrder: Equatable {
     func sortedRows(_ rows: [CmuxTaskManagerRow]) -> [CmuxTaskManagerRow] {
         guard !rows.isEmpty else { return rows }
         var index = 0
-        let rootLevel = rows[0].level
+        let rootLevel = rows.reduce(Int.max) { min($0, $1.level) }
         let nodes = parseNodes(rows, index: &index, level: rootLevel)
         return flatten(sortNodes(nodes))
     }
@@ -356,124 +356,122 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     let directBasenames: [String]
     let argumentNeedles: [String]
 
-    static var builtIns: [CmuxTaskManagerCodingAgentDefinition] {
-        [
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "claude",
-                displayName: String(localized: "taskManager.agent.claudeCode", defaultValue: "Claude Code"),
-                assetName: "AgentIcons/Claude",
-                launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
-                directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
-                argumentNeedles: [
-                    "claude-code",
-                    "claude_code",
-                    "claude-teams",
-                    "@anthropic-ai/claude-code",
-                    "oh-my-claude",
-                    "omc",
-                    "/.local/bin/claude",
-                    "/.local/share/claude/versions/",
-                    "/library/application support/claude/claude-code/",
-                ]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "codex",
-                displayName: String(localized: "taskManager.agent.codex", defaultValue: "Codex"),
-                assetName: "AgentIcons/Codex",
-                launchKinds: ["codex", "omx"],
-                directBasenames: ["codex", "omx"],
-                argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "opencode",
-                displayName: String(localized: "taskManager.agent.opencode", defaultValue: "OpenCode"),
-                assetName: "AgentIcons/OpenCode",
-                launchKinds: ["opencode", "omo"],
-                directBasenames: ["opencode", "opencode-ai", "open-code"],
-                argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "pi",
-                displayName: String(localized: "taskManager.agent.pi", defaultValue: "Pi"),
-                assetName: "AgentIcons/Pi",
-                launchKinds: ["pi"],
-                directBasenames: ["pi", "pi-coding-agent"],
-                argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "amp",
-                displayName: String(localized: "taskManager.agent.amp", defaultValue: "Amp"),
-                assetName: nil,
-                launchKinds: ["amp"],
-                directBasenames: ["amp"],
-                argumentNeedles: ["@ampcode"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "cursor",
-                displayName: String(localized: "taskManager.agent.cursor", defaultValue: "Cursor"),
-                assetName: nil,
-                launchKinds: ["cursor"],
-                directBasenames: ["cursor-agent"],
-                argumentNeedles: ["cursor-agent"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "gemini",
-                displayName: String(localized: "taskManager.agent.gemini", defaultValue: "Gemini"),
-                assetName: nil,
-                launchKinds: ["gemini"],
-                directBasenames: ["gemini"],
-                argumentNeedles: ["gemini"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "rovodev",
-                displayName: String(localized: "taskManager.agent.rovodev", defaultValue: "Rovo Dev"),
-                assetName: "AgentIcons/RovoDev",
-                launchKinds: ["rovodev", "rovo"],
-                directBasenames: ["rovodev"],
-                argumentNeedles: ["rovodev"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "hermes-agent",
-                displayName: String(localized: "taskManager.agent.hermesAgent", defaultValue: "Hermes Agent"),
-                assetName: "AgentIcons/HermesAgent",
-                launchKinds: ["hermes-agent"],
-                directBasenames: ["hermes", "hermes-agent"],
-                argumentNeedles: ["hermes-agent"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "copilot",
-                displayName: String(localized: "taskManager.agent.copilot", defaultValue: "Copilot"),
-                assetName: nil,
-                launchKinds: ["copilot"],
-                directBasenames: ["copilot"],
-                argumentNeedles: ["copilot"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "codebuddy",
-                displayName: String(localized: "taskManager.agent.codebuddy", defaultValue: "CodeBuddy"),
-                assetName: nil,
-                launchKinds: ["codebuddy"],
-                directBasenames: ["codebuddy"],
-                argumentNeedles: ["codebuddy"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "factory",
-                displayName: String(localized: "taskManager.agent.factory", defaultValue: "Factory"),
-                assetName: nil,
-                launchKinds: ["factory"],
-                directBasenames: ["droid", "factory"],
-                argumentNeedles: ["factory"]
-            ),
-            CmuxTaskManagerCodingAgentDefinition(
-                id: "qoder",
-                displayName: String(localized: "taskManager.agent.qoder", defaultValue: "Qoder"),
-                assetName: nil,
-                launchKinds: ["qoder"],
-                directBasenames: ["qoder", "qodercli"],
-                argumentNeedles: ["qoder", "qodercli"]
-            ),
-        ]
-    }
+    static let builtIns: [CmuxTaskManagerCodingAgentDefinition] = [
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "claude",
+            displayName: "Claude Code",
+            assetName: "AgentIcons/Claude",
+            launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
+            directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
+            argumentNeedles: [
+                "claude-code",
+                "claude_code",
+                "claude-teams",
+                "@anthropic-ai/claude-code",
+                "oh-my-claude",
+                "omc",
+                "/.local/bin/claude",
+                "/.local/share/claude/versions/",
+                "/library/application support/claude/claude-code/",
+            ]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "codex",
+            displayName: "Codex",
+            assetName: "AgentIcons/Codex",
+            launchKinds: ["codex", "omx"],
+            directBasenames: ["codex", "omx"],
+            argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "opencode",
+            displayName: "OpenCode",
+            assetName: "AgentIcons/OpenCode",
+            launchKinds: ["opencode", "omo"],
+            directBasenames: ["opencode", "opencode-ai", "open-code", "omo"],
+            argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "pi",
+            displayName: "Pi",
+            assetName: "AgentIcons/Pi",
+            launchKinds: ["pi"],
+            directBasenames: ["pi", "pi-coding-agent"],
+            argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "amp",
+            displayName: "Amp",
+            assetName: nil,
+            launchKinds: ["amp"],
+            directBasenames: ["amp"],
+            argumentNeedles: ["@ampcode"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "cursor",
+            displayName: "Cursor",
+            assetName: nil,
+            launchKinds: ["cursor"],
+            directBasenames: ["cursor-agent"],
+            argumentNeedles: ["cursor-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "gemini",
+            displayName: "Gemini",
+            assetName: nil,
+            launchKinds: ["gemini"],
+            directBasenames: ["gemini"],
+            argumentNeedles: ["gemini"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "rovodev",
+            displayName: "Rovo Dev",
+            assetName: "AgentIcons/RovoDev",
+            launchKinds: ["rovodev", "rovo"],
+            directBasenames: ["rovodev"],
+            argumentNeedles: ["rovodev"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "hermes-agent",
+            displayName: "Hermes Agent",
+            assetName: "AgentIcons/HermesAgent",
+            launchKinds: ["hermes-agent"],
+            directBasenames: ["hermes", "hermes-agent"],
+            argumentNeedles: ["hermes-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "copilot",
+            displayName: "Copilot",
+            assetName: nil,
+            launchKinds: ["copilot"],
+            directBasenames: ["copilot"],
+            argumentNeedles: ["copilot"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "codebuddy",
+            displayName: "CodeBuddy",
+            assetName: nil,
+            launchKinds: ["codebuddy"],
+            directBasenames: ["codebuddy"],
+            argumentNeedles: ["codebuddy"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "factory",
+            displayName: "Factory",
+            assetName: nil,
+            launchKinds: ["factory"],
+            directBasenames: ["droid", "factory"],
+            argumentNeedles: ["factory"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "qoder",
+            displayName: "Qoder",
+            assetName: nil,
+            launchKinds: ["qoder"],
+            directBasenames: ["qoder", "qodercli"],
+            argumentNeedles: ["qoder", "qodercli"]
+        ),
+    ]
 
     static func shouldReadArguments(processName: String, processPath: String?) -> Bool {
         if let normalizedPath = normalized(processPath),
@@ -518,12 +516,9 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         }
 
         guard !arguments.isEmpty else { return nil }
-        let joinedArguments = arguments
-            .map { $0.lowercased() }
-            .joined(separator: "\u{0}")
         return definitions.first { definition in
             definition.argumentNeedles.contains { needle in
-                joinedArguments.contains(needle)
+                arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
             }
         }
     }
@@ -569,6 +564,51 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             !part.isEmpty && part.unicodeScalars.allSatisfy { CharacterSet.decimalDigits.contains($0) }
         }
     }
+
+    private static func argumentMatchesNeedle(argument: String, needle: String) -> Bool {
+        guard let normalizedArgument = normalized(argument),
+              let normalizedNeedle = normalized(needle) else { return false }
+        if normalizedNeedle.contains("/") {
+            return containsNeedleWithBoundaries(normalizedNeedle, in: normalizedArgument)
+        }
+        return argumentTokens(from: normalizedArgument).contains(normalizedNeedle)
+    }
+
+    private static func containsNeedleWithBoundaries(_ needle: String, in value: String) -> Bool {
+        var searchRange = value.startIndex..<value.endIndex
+        while let range = value.range(of: needle, range: searchRange) {
+            let previous = range.lowerBound == value.startIndex ? nil : value[value.index(before: range.lowerBound)]
+            let next = range.upperBound == value.endIndex ? nil : value[range.upperBound]
+            let hasLeadingBoundary = needle.hasPrefix("/") || isNeedleBoundary(previous)
+            let hasTrailingBoundary = needle.hasSuffix("/") || isNeedleBoundary(next)
+            if hasLeadingBoundary, hasTrailingBoundary {
+                return true
+            }
+            searchRange = range.upperBound..<value.endIndex
+        }
+        return false
+    }
+
+    private static func isNeedleBoundary(_ character: Character?) -> Bool {
+        guard let character else { return true }
+        return character.unicodeScalars.allSatisfy { scalar in
+            argumentBoundaryScalars.contains(scalar)
+        }
+    }
+
+    private static func argumentTokens(from value: String) -> Set<String> {
+        let tokens = value
+            .components(separatedBy: argumentTokenSeparators)
+            .filter { !$0.isEmpty }
+        return Set(tokens.flatMap { token in
+            let stem = (token as NSString).deletingPathExtension
+            return stem.isEmpty || stem == token ? [token] : [token, stem]
+        })
+    }
+
+    private static let argumentTokenSeparators = CharacterSet(charactersIn: "/\\ \t\r\n\u{0}:=?&#\"'`<>(),;[]{}")
+
+    private static let argumentBoundaryScalars = CharacterSet(charactersIn: "/\\ \t\r\n\u{0}:=?&#\"'`<>(),;[]{}").union(.newlines)
 
     private static func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)

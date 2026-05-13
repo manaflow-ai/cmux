@@ -264,9 +264,10 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var cpuPercent: Double = 0
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
+        var seenProcessIds: Set<Int> = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
-            guard !processIds.contains(process.pid) else { return }
+            guard seenProcessIds.insert(process.pid).inserted else { return }
             cpuPercent += process.cpuPercent
             residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
             processIds.append(process.pid)
@@ -292,9 +293,10 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var cpuPercent: Double = 0
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
+        var seenProcessIds: Set<Int> = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
-            guard !processIds.contains(process.pid) else { return }
+            guard seenProcessIds.insert(process.pid).inserted else { return }
             cpuPercent += process.cpuPercent
             residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
             processIds.append(process.pid)

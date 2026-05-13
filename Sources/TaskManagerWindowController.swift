@@ -49,10 +49,14 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
 
 @MainActor
 final class CmuxTaskManagerModel: ObservableObject {
-    @Published private(set) var snapshot = CmuxTaskManagerSnapshot.empty
+    @Published private(set) var snapshot = CmuxTaskManagerSnapshot.empty {
+        didSet { updateSortedRows() }
+    }
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
-    @Published private(set) var sortOrder = CmuxTaskManagerSortOrder.defaultOrder
+    @Published private(set) var sortOrder = CmuxTaskManagerSortOrder.defaultOrder {
+        didSet { updateSortedRows() }
+    }
     @Published var includesProcesses = false {
         didSet {
             guard oldValue != includesProcesses else { return }
@@ -66,24 +70,20 @@ final class CmuxTaskManagerModel: ObservableObject {
     private let refreshInterval: TimeInterval = 3.0
     private let terminationGraceInterval: TimeInterval = 2.0
 
+    private(set) var sortedRows: [CmuxTaskManagerRow] = []
+    private(set) var sortedAgentRows: [CmuxTaskManagerRow] = []
+    private(set) var sortedAggregateRows: [CmuxTaskManagerRow] = []
+
+    init() {
+        updateSortedRows()
+    }
+
     var isInitialLoading: Bool {
         !snapshot.hasLoadedResourceUsage && errorMessage == nil
     }
 
     private var hasLoadedSnapshot: Bool {
         snapshot.hasLoadedResourceUsage
-    }
-
-    var sortedRows: [CmuxTaskManagerRow] {
-        sortOrder.sortedRows(snapshot.rows)
-    }
-
-    var sortedAgentRows: [CmuxTaskManagerRow] {
-        sortOrder.sortedRows(snapshot.agentRows)
-    }
-
-    var sortedAggregateRows: [CmuxTaskManagerRow] {
-        sortOrder.sortedRows(snapshot.aggregateRows)
     }
 
     func sort(by column: CmuxTaskManagerSortOrder.Column) {
@@ -254,6 +254,12 @@ final class CmuxTaskManagerModel: ObservableObject {
             localized: "taskManager.killProcess.target.pid",
             defaultValue: "PID %lld"
         ), Int64(processId))
+    }
+
+    private func updateSortedRows() {
+        sortedRows = sortOrder.sortedRows(snapshot.rows)
+        sortedAgentRows = sortOrder.sortedRows(snapshot.agentRows)
+        sortedAggregateRows = sortOrder.sortedRows(snapshot.aggregateRows)
     }
 
     private func sendSignal(_ signal: Int32, toProcessId processId: Int) -> String? {

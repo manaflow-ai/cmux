@@ -111723,6 +111723,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
       }
     },
+    "taskManager.aggregate.processCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 個のプロセス" } }
+      }
+    },
+    "taskManager.aggregate.processCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
+      }
+    },
     "taskManager.agent.claudeCode": {
       "extractionState": "manual",
       "localizations": {

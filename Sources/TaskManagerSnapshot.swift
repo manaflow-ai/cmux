@@ -71,16 +71,12 @@ struct CmuxTaskManagerSnapshot {
                   let title = nonEmptyString(payload["display_name"]) else { return nil }
             let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
             guard resources.processCount > 0 else { return nil }
-            let detail = String(format: String(
-                localized: "taskManager.aggregate.processCount",
-                defaultValue: "%lld processes"
-            ), Int64(resources.processCount))
             return CmuxTaskManagerRow(
                 id: "codingAgentAggregate:\(id)",
                 kind: .codingAgentAggregate,
                 level: 0,
                 title: title,
-                detail: detail,
+                detail: processCountDetail(resources.processCount),
                 resources: resources,
                 isDimmed: false,
                 workspaceId: nil,
@@ -182,16 +178,12 @@ struct CmuxTaskManagerSnapshot {
             .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             .map { aggregate in
                 let processIds = aggregate.processIds.sorted()
-                let detail = String(format: String(
-                    localized: "taskManager.aggregate.processCount",
-                    defaultValue: "%lld processes"
-                ), Int64(processIds.count))
                 return CmuxTaskManagerRow(
                     id: "programAggregate:\(aggregate.title.lowercased())",
                     kind: .programAggregate,
                     level: 0,
                     title: aggregate.title,
-                    detail: detail,
+                    detail: processCountDetail(processIds.count),
                     resources: CmuxTaskManagerResources(
                         cpuPercent: aggregate.cpuPercent,
                         residentBytes: aggregate.residentBytes,
@@ -214,18 +206,14 @@ struct CmuxTaskManagerSnapshot {
         payloads.compactMap { payload in
             guard let title = nonEmptyString(payload["name"]) else { return nil }
             let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
-            guard resources.processCount > 1 else { return nil }
-            let detail = String(format: String(
-                localized: "taskManager.aggregate.processCount",
-                defaultValue: "%lld processes"
-            ), Int64(resources.processCount))
+            guard resources.processCount > 0 else { return nil }
             let id = nonEmptyString(payload["id"]) ?? title.lowercased()
             return CmuxTaskManagerRow(
                 id: "programAggregate:\(id)",
                 kind: .programAggregate,
                 level: 0,
                 title: title,
-                detail: detail,
+                detail: processCountDetail(resources.processCount),
                 resources: resources,
                 isDimmed: false,
                 workspaceId: nil,
@@ -237,6 +225,16 @@ struct CmuxTaskManagerSnapshot {
                 agentAssetName: agentAssetName(for: [title])
             )
         }
+    }
+
+    private static func processCountDetail(_ processCount: Int) -> String {
+        if processCount == 1 {
+            return String(localized: "taskManager.aggregate.processCount.one", defaultValue: "1 process")
+        }
+        return String(format: String(
+            localized: "taskManager.aggregate.processCount.other",
+            defaultValue: "%lld processes"
+        ), Int64(processCount))
     }
 
     private static func appendWindow(_ window: [String: Any], to rows: inout [CmuxTaskManagerRow]) {

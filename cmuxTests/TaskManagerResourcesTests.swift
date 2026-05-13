@@ -183,6 +183,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(aggregateRow.resources.residentBytes, 300)
         XCTAssertEqual(aggregateRow.resources.processCount, 2)
         XCTAssertEqual(aggregateRow.resources.processIds, [101, 202])
+        XCTAssertEqual(aggregateRow.detail, "2 processes")
     }
 
     func testSnapshotParsesProgramTotalsFromTopPayloadWithoutProcessRows() throws {
@@ -211,6 +212,34 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(aggregateRow.title, "node")
         XCTAssertEqual(aggregateRow.resources.cpuPercent, 9.5)
         XCTAssertEqual(aggregateRow.resources.processIds, [101, 202, 303])
+        XCTAssertEqual(aggregateRow.detail, "3 processes")
+    }
+
+    func testSnapshotParsesSingleProcessProgramTotalsFromTopPayload() throws {
+        let snapshot = CmuxTaskManagerSnapshot(payload: [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "totals": [:],
+            "program_totals": [
+                [
+                    "id": "claude",
+                    "name": "claude",
+                    "resources": [
+                        "cpu_percent": 2.0,
+                        "resident_bytes": 4096,
+                        "process_count": 1,
+                        "pids": [101],
+                    ],
+                ],
+            ],
+            "windows": [],
+        ])
+
+        XCTAssertEqual(snapshot.aggregateRows.count, 1)
+        let aggregateRow = try XCTUnwrap(snapshot.aggregateRows.first)
+        XCTAssertEqual(aggregateRow.title, "claude")
+        XCTAssertEqual(aggregateRow.resources.processCount, 1)
+        XCTAssertEqual(aggregateRow.resources.processIds, [101])
+        XCTAssertEqual(aggregateRow.detail, "1 process")
     }
 
     func testSnapshotOnlyCountsAsLoadedAfterSamplingOrRowsArrive() {
@@ -253,6 +282,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(agentRow.agentAssetName, "AgentIcons/Codex")
         XCTAssertEqual(agentRow.resources.cpuPercent, 12.5)
         XCTAssertEqual(agentRow.resources.processIds, [101, 202])
+        XCTAssertEqual(agentRow.detail, "2 processes")
     }
 
     func testSnapshotAnnotatesRestoredHierarchyRowsFromAgentProcessTotals() throws {
@@ -406,6 +436,15 @@ final class TaskManagerResourcesTests: XCTestCase {
         )
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "omo",
+                processPath: nil,
+                arguments: [],
+                environment: [:]
+            )?.id,
+            "opencode"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "agent.js"],
@@ -428,6 +467,27 @@ final class TaskManagerResourcesTests: XCTestCase {
             arguments: ["node", "api/server.js"],
             environment: [:]
         ))
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "node",
+            processPath: nil,
+            arguments: ["node", "/tmp/gemini-api-test/server.js"],
+            environment: [:]
+        ))
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "node",
+            processPath: nil,
+            arguments: ["node", "/tmp/factory-reset-tool/index.js"],
+            environment: [:]
+        ))
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "/usr/local/lib/node_modules/@openai/codex/bin/codex.js"],
+                environment: [:]
+            )?.id,
+            "codex"
+        )
     }
 
     func testCodingAgentMatcherCoversSupportedAgentExecutableNames() {
