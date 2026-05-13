@@ -24,7 +24,30 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
-socket_path="/tmp/cmux-debug-${CMUX_TAG}.sock"
+sanitize_bundle() {
+  local raw="$1"
+  local cleaned
+  cleaned="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\.+//; s/\.+$//; s/\.+/./g')"
+  if [[ -z "$cleaned" ]]; then
+    cleaned="agent"
+  fi
+  printf '%s\n' "$cleaned"
+}
+
+sanitize_path() {
+  local raw="$1"
+  local cleaned
+  cleaned="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+  if [[ -z "$cleaned" ]]; then
+    cleaned="agent"
+  fi
+  printf '%s\n' "$cleaned"
+}
+
+tag_slug="$(sanitize_path "$CMUX_TAG")"
+tag_bundle_id="$(sanitize_bundle "$CMUX_TAG")"
+
+socket_path="/tmp/cmux-debug-${tag_slug}.sock"
 if [[ ! -S "$socket_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux socket not found:
@@ -36,7 +59,7 @@ EOF
   exit 1
 fi
 
-cli_path="${HOME}/Library/Developer/Xcode/DerivedData/cmux-${CMUX_TAG}/Build/Products/Debug/cmux DEV ${CMUX_TAG}.app/Contents/Resources/bin/cmux"
+cli_path="${HOME}/Library/Developer/Xcode/DerivedData/cmux-${tag_slug}/Build/Products/Debug/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
 if [[ ! -x "$cli_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux CLI not found:
@@ -49,5 +72,15 @@ EOF
 fi
 
 unset CMUX_SOCKET
+unset CMUX_SOCKET_PASSWORD
+unset CMUX_WORKSPACE_ID
+unset CMUX_SURFACE_ID
+unset CMUX_TAB_ID
+unset CMUX_PANEL_ID
+unset CMUXD_UNIX_PATH
+unset CMUX_DEBUG_LOG
 export CMUX_SOCKET_PATH="$socket_path"
+export CMUX_TAG="$tag_slug"
+export CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${tag_bundle_id}"
+export CMUX_BUNDLED_CLI_PATH="$cli_path"
 exec "$cli_path" "$@"
