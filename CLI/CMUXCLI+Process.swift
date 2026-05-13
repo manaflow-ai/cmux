@@ -233,7 +233,7 @@ enum CLIProcessRunner {
             if let data = stdinText.data(using: .utf8) {
                 _ = cliWrite(data, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
             }
-            stdinPipe.fileHandleForWriting.closeFile()
+            try? stdinPipe.fileHandleForWriting.close()
         }
 
         let timedOut: Bool
