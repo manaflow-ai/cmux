@@ -1305,6 +1305,37 @@ def test_background_claude_passthrough_subcommands_skip_hook_env(failures: list[
         )
 
 
+def test_background_claude_interactive_flags_inject_hooks_for_known_prompt_words(failures: list[str]) -> None:
+    cases = [
+        ("print agents prompt", ["-p", "agents"]),
+        ("long print agents prompt", ["--print", "agents"]),
+        ("continue daemon prompt", ["-c", "daemon"]),
+        ("long continue daemon prompt", ["--continue", "daemon"]),
+        ("remote control agents prompt", ["--remote-control", "agents"]),
+    ]
+    for label, child_args in cases:
+        code, _, child_argv, child_node_options_env, child_runtime_node_options, _, _, _, stderr = run_wrapper_background_child_spawn(
+            child_args=child_args,
+        )
+        expect(code == 0, f"background interactive {label}: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" in child_argv, f"background interactive {label}: expected full hook settings injection, got {child_argv}", failures)
+        expect(
+            child_argv[-len(child_args):] == child_args,
+            f"background interactive {label}: expected original args preserved, got {child_argv}",
+            failures,
+        )
+        expect(
+            "--require=" in child_node_options_env and "--max-old-space-size=4096" in child_node_options_env,
+            f"background interactive {label}: expected preload NODE_OPTIONS, got {child_node_options_env!r}",
+            failures,
+        )
+        expect(
+            child_runtime_node_options == "__UNSET__",
+            f"background interactive {label}: expected runtime NODE_OPTIONS restored, got {child_runtime_node_options!r}",
+            failures,
+        )
+
+
 def test_background_claude_wrapper_exec_env_only_subcommands_after_value_options(failures: list[str]) -> None:
     cases = [
         ("session id agents", ["--session-id", "agent-session-123", "agents"]),
@@ -1758,6 +1789,22 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     expect(child_node_options == restored, f"space-separated heap flag: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_live_socket_preserves_empty_node_options(failures: list[str]) -> None:
+    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="",
+    )
+    expect(code == 0, f"empty NODE_OPTIONS: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--require=" in node_options and "--max-old-space-size=4096" in node_options,
+        f"empty NODE_OPTIONS: expected wrapper preload NODE_OPTIONS, got {node_options!r}",
+        failures,
+    )
+    expect(runtime_node_options == "", f"empty NODE_OPTIONS: expected runtime NODE_OPTIONS restored empty, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "", f"empty NODE_OPTIONS: expected child NODE_OPTIONS restored empty, got {child_node_options!r}", failures)
+
+
 def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
@@ -1896,6 +1943,7 @@ def main() -> int:
     test_background_claude_daemon_child_gets_env_without_settings(failures)
     test_background_claude_env_only_subcommands_after_options_get_env_without_settings(failures)
     test_background_claude_passthrough_subcommands_skip_hook_env(failures)
+    test_background_claude_interactive_flags_inject_hooks_for_known_prompt_words(failures)
     test_background_claude_wrapper_exec_env_only_subcommands_after_value_options(failures)
     test_background_claude_child_short_model_value_does_not_skip_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
@@ -1910,6 +1958,7 @@ def main() -> int:
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
+    test_live_socket_preserves_empty_node_options(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)

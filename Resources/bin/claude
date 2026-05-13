@@ -374,6 +374,13 @@ function installClaudeChildHookPropagation() {
     "-w",
   ]);
   const optionalValueOptions = new Set(["--debug"]);
+  const interactiveEntryFlags = new Set([
+    "--continue",
+    "-c",
+    "--print",
+    "-p",
+    "--remote-control",
+  ]);
 
   function samePath(lhs, rhs) {
     return Boolean(lhs && rhs && path.resolve(String(lhs)) === path.resolve(String(rhs)));
@@ -398,22 +405,46 @@ function installClaudeChildHookPropagation() {
         return "";
       }
       if (arg.startsWith("--")) {
-        const hasInlineValue = arg.includes("=");
-        if (!hasInlineValue && valueOptions.has(arg)) {
-          index += 2;
+        const equalsIndex = arg.indexOf("=");
+        const hasInlineValue = equalsIndex !== -1;
+        const optionName = hasInlineValue ? arg.slice(0, equalsIndex) : arg;
+        if (valueOptions.has(optionName)) {
+          index += hasInlineValue ? 1 : 2;
           continue;
         }
-        if (!hasInlineValue && optionalValueOptions.has(arg)) {
+        if (interactiveEntryFlags.has(optionName)) {
+          return "";
+        }
+        if (!hasInlineValue && optionalValueOptions.has(optionName)) {
           const next = args[index + 1];
           const nextValue = next === undefined ? "" : String(next);
           index += nextValue && !nextValue.startsWith("-") && !knownSubcommands.has(nextValue) ? 2 : 1;
+          continue;
+        }
+        if (hasInlineValue && optionalValueOptions.has(optionName)) {
+          index += 1;
           continue;
         }
         index += 1;
         continue;
       }
       if (arg.startsWith("-") && arg !== "-") {
-        index += valueOptions.has(arg) ? 2 : 1;
+        const equalsIndex = arg.indexOf("=");
+        const optionName = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
+        if (valueOptions.has(optionName)) {
+          index += equalsIndex === -1 ? 2 : 1;
+          continue;
+        }
+        if (interactiveEntryFlags.has(optionName)) {
+          return "";
+        }
+        if (optionalValueOptions.has(optionName)) {
+          const next = args[index + 1];
+          const nextValue = next === undefined ? "" : String(next);
+          index += nextValue && !nextValue.startsWith("-") && !knownSubcommands.has(nextValue) ? 2 : 1;
+          continue;
+        }
+        index += 1;
         continue;
       }
       return arg;
@@ -1343,13 +1374,8 @@ configure_claude_hook_environment() {
         elif [[ ${NODE_OPTIONS+x} ]]; then
             local normalized_node_options
             normalized_node_options="$(normalize_node_options_for_restore "$NODE_OPTIONS" "$GUARD_PATH")"
-            if [[ -n "$normalized_node_options" ]]; then
-                export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-                export CMUX_ORIGINAL_NODE_OPTIONS="$normalized_node_options"
-            else
-                export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
-                unset CMUX_ORIGINAL_NODE_OPTIONS
-            fi
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$normalized_node_options"
         else
             export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
             unset CMUX_ORIGINAL_NODE_OPTIONS
