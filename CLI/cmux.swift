@@ -12941,7 +12941,8 @@ struct CMUXCLI {
         func request(
             method: String,
             params: [String: Any]? = nil,
-            notificationHandler: (([String: Any]) throws -> Void)? = nil
+            notificationHandler: (([String: Any]) throws -> Void)? = nil,
+            responseTimeout: TimeInterval = 10
         ) throws -> [String: Any] {
             let requestId = nextRequestId
             nextRequestId += 1
@@ -12955,7 +12956,7 @@ struct CMUXCLI {
             try sendObject(object)
 
             while true {
-                let message = try receiveObject(timeout: 10)
+                let message = try receiveObject(timeout: responseTimeout)
                 if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
                     if let error = message["error"] as? [String: Any] {
                         let message = (error["message"] as? String) ?? "Codex app-server request failed"
@@ -13054,7 +13055,8 @@ struct CMUXCLI {
                         "threadId": threadId,
                         "excludeTurns": true
                     ],
-                    notificationHandler: nil
+                    notificationHandler: nil,
+                    responseTimeout: 2
                 )
                 return true
             } catch {
@@ -13078,6 +13080,9 @@ struct CMUXCLI {
         private var pendingByParentThreadId: [String: [CodexTeamsThread]] = [:]
         private var pendingThreadIds = Set<String>()
         private var openedThreadIds = Set<String>()
+        private var readinessProbeThreadIds = Set<String>()
+        private var attachableThreadIds = Set<String>()
+        private let readinessLock = NSLock()
         private var lastAgentSurfaceId: String?
 
         init(
@@ -13113,6 +13118,8 @@ struct CMUXCLI {
                         version: CMUXCLI.codexTeamsClientVersion
                     )
                     try backfillLoadedThreads(connection: connection)
+                } catch {
+                    fputs("cmux codex-teams watcher reconcile failed: \(error)\n", stderr)
                 }
                 _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
@@ -13123,29 +13130,35 @@ struct CMUXCLI {
                 method: "thread/loaded/list",
                 params: ["limit": 200],
                 notificationHandler: { [weak self] message in
-                    try self?.handleNotification(message, connection: connection)
+                    try self?.handleNotification(message)
                 }
             )
             let threadIds = loaded["data"] as? [String] ?? []
             for threadId in threadIds {
-                let read = try connection.request(
-                    method: "thread/read",
-                    params: [
-                        "threadId": threadId,
-                        "includeTurns": false
-                    ],
-                    notificationHandler: { [weak self] message in
-                        try self?.handleNotification(message, connection: connection)
-                    }
-                )
+                let read: [String: Any]
+                do {
+                    read = try connection.request(
+                        method: "thread/read",
+                        params: [
+                            "threadId": threadId,
+                            "includeTurns": false
+                        ],
+                        notificationHandler: { [weak self] message in
+                            try self?.handleNotification(message)
+                        }
+                    )
+                } catch {
+                    fputs("cmux codex-teams watcher skipped unreadable thread \(threadId): \(error)\n", stderr)
+                    continue
+                }
                 if let threadObject = read["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThread(thread, connection: connection)
+                    try observeThread(thread)
                 }
             }
         }
 
-        private func handleNotification(_ message: [String: Any], connection: CodexTeamsAppServerConnection) throws {
+        private func handleNotification(_ message: [String: Any]) throws {
             guard let method = message["method"] as? String else { return }
             guard method == "thread/started",
                   let params = message["params"] as? [String: Any],
@@ -13153,16 +13166,16 @@ struct CMUXCLI {
                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
                 return
             }
-            try observeThread(thread, connection: connection)
+            try observeThread(thread)
         }
 
-        private func observeThread(_ thread: CodexTeamsThread, connection: CodexTeamsAppServerConnection) throws {
+        private func observeThread(_ thread: CodexTeamsThread) throws {
             if knownThreadIds.contains(thread.id) {
                 if let spawn = thread.spawn {
                     if parentByThreadId[thread.id] == nil {
-                        try observeSpawn(thread, spawn: spawn, connection: connection)
+                        try observeSpawn(thread, spawn: spawn)
                     } else if !openedThreadIds.contains(thread.id) {
-                        try openObservedSubagent(thread, spawn: spawn, connection: connection)
+                        try openObservedSubagent(thread, spawn: spawn)
                     }
                 }
                 return
@@ -13170,18 +13183,17 @@ struct CMUXCLI {
 
             knownThreadIds.insert(thread.id)
             if let spawn = thread.spawn {
-                try observeSpawn(thread, spawn: spawn, connection: connection)
+                try observeSpawn(thread, spawn: spawn)
             } else {
                 depthByThreadId[thread.id] = 0
             }
 
-            try drainPendingChildren(parentThreadId: thread.id, connection: connection)
+            try drainPendingChildren(parentThreadId: thread.id)
         }
 
         private func observeSpawn(
             _ thread: CodexTeamsThread,
-            spawn: CodexTeamsSpawn,
-            connection: CodexTeamsAppServerConnection
+            spawn: CodexTeamsSpawn
         ) throws {
             parentByThreadId[thread.id] = spawn.parentThreadId
             guard knownThreadIds.contains(spawn.parentThreadId) else {
@@ -13191,25 +13203,24 @@ struct CMUXCLI {
                 return
             }
             pendingThreadIds.remove(thread.id)
-            try openObservedSubagent(thread, spawn: spawn, connection: connection)
+            try openObservedSubagent(thread, spawn: spawn)
         }
 
-        private func drainPendingChildren(parentThreadId: String, connection: CodexTeamsAppServerConnection) throws {
+        private func drainPendingChildren(parentThreadId: String) throws {
             guard let pending = pendingByParentThreadId.removeValue(forKey: parentThreadId) else {
                 return
             }
             for child in pending {
                 pendingThreadIds.remove(child.id)
                 guard let spawn = child.spawn else { continue }
-                try openObservedSubagent(child, spawn: spawn, connection: connection)
-                try drainPendingChildren(parentThreadId: child.id, connection: connection)
+                try openObservedSubagent(child, spawn: spawn)
+                try drainPendingChildren(parentThreadId: child.id)
             }
         }
 
         private func openObservedSubagent(
             _ thread: CodexTeamsThread,
-            spawn: CodexTeamsSpawn,
-            connection: CodexTeamsAppServerConnection
+            spawn: CodexTeamsSpawn
         ) throws {
             let parentDepth = depthByThreadId[spawn.parentThreadId]
             let depth = parentDepth.map { $0 + 1 } ?? max(spawn.sourceDepth ?? 1, 1)
@@ -13217,7 +13228,10 @@ struct CMUXCLI {
             guard depth <= maxAutoDepth else { return }
             guard !openedThreadIds.contains(thread.id) else { return }
             guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
-            guard connection.canResumeThread(threadId: thread.id) else { return }
+            guard codexTeamsConsumeAttachableThreadId(thread.id) else {
+                codexTeamsScheduleReadinessProbe(threadId: thread.id)
+                return
+            }
 
             do {
                 try openSubagent(thread, spawn: spawn, depth: depth)
@@ -13230,6 +13244,42 @@ struct CMUXCLI {
                 }
             }
             openedThreadIds.insert(thread.id)
+        }
+
+        private func codexTeamsScheduleReadinessProbe(threadId: String) {
+            readinessLock.lock()
+            if attachableThreadIds.contains(threadId)
+                || readinessProbeThreadIds.contains(threadId)
+                || openedThreadIds.contains(threadId) {
+                readinessLock.unlock()
+                return
+            }
+            readinessProbeThreadIds.insert(threadId)
+            readinessLock.unlock()
+
+            let appServerURL = appServerURL
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let isAttachable = CMUXCLI.codexTeamsThreadCanResume(
+                    appServerURL: appServerURL,
+                    threadId: threadId
+                )
+                guard let self else { return }
+                self.readinessLock.lock()
+                self.readinessProbeThreadIds.remove(threadId)
+                if isAttachable {
+                    self.attachableThreadIds.insert(threadId)
+                }
+                self.readinessLock.unlock()
+            }
+        }
+
+        private func codexTeamsConsumeAttachableThreadId(_ threadId: String) -> Bool {
+            readinessLock.lock()
+            defer { readinessLock.unlock() }
+            guard attachableThreadIds.remove(threadId) != nil else {
+                return false
+            }
+            return true
         }
 
         private func openSubagent(
@@ -13286,6 +13336,25 @@ struct CMUXCLI {
             } catch {
                 // Layout polish is best-effort after the pane is opened.
             }
+        }
+    }
+
+    private static func codexTeamsThreadCanResume(appServerURL: String, threadId: String) -> Bool {
+        guard let url = URL(string: appServerURL) else {
+            return false
+        }
+        let connection = CodexTeamsAppServerConnection(url: url)
+        connection.resume()
+        do {
+            defer { connection.close() }
+            try connection.initialize(
+                clientName: codexTeamsProbeClientName,
+                version: codexTeamsClientVersion
+            )
+            return connection.canResumeThread(threadId: threadId)
+        } catch {
+            connection.close()
+            return false
         }
     }
 
