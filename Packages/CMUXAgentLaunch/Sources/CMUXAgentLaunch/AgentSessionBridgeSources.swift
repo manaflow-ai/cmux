@@ -112,6 +112,7 @@ function base64NulSeparated(values) {
 
 function hookEnvironment(cwd) {
   const env = { ...process.env };
+  delete env.AMP_API_KEY;
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "opencode";
@@ -260,6 +261,7 @@ function base64NulSeparated(values: string[]): string {
 
 function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.AMP_API_KEY;
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "pi";

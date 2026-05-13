@@ -8929,7 +8929,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -8943,6 +8943,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
+              ~/.config/amp/plugins/cmux-session.ts
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
@@ -16947,6 +16948,10 @@ struct CMUXCLI {
             try installPiExtensionHooks(def)
             return
         }
+        if def.name == "amp" {
+            try installAmpExtensionHooks(def)
+            return
+        }
         if def.name == "rovodev" {
             try installRovoDevHooks(def)
             return
@@ -17112,6 +17117,10 @@ struct CMUXCLI {
         }
         if def.name == "pi" {
             try uninstallPiExtensionHooks(def)
+            return
+        }
+        if def.name == "amp" {
+            try uninstallAmpExtensionHooks(def)
             return
         }
         if def.name == "rovodev" {
@@ -20137,7 +20146,7 @@ struct CMUXCLI {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
