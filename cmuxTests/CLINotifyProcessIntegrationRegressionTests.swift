@@ -376,6 +376,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sample = try XCTUnwrap(samples.first)
         XCTAssertEqual(sample["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(sample["resident_bytes"] as? Int, 314_572_800)
+        XCTAssertEqual(sample["memory_percent"] as? Double, 1.8)
         XCTAssertTrue((sample["top_process_names"] as? [String] ?? []).contains("codex"))
 
         let persistedProcessNames = try memoryTelemetryTopProcessNames(in: dbURL)
@@ -466,10 +467,79 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(row["sample_count"] as? Int, 1)
         XCTAssertEqual(row["peak_rss_bytes"] as? Int, 314_572_800)
+        XCTAssertEqual(row["peak_memory_percent"] as? Double, 1.8)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["system.top"]
         )
+    }
+
+    func testMemoryTopSortsByAverageRSSBeforeLimit() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-sort")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-sort")
+        let steadyWorkspace = "11111111-1111-1111-1111-111111111111"
+        let spikyWorkspace = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-120),
+            workspaceId: steadyWorkspace,
+            workspaceRef: "workspace:1",
+            rssBytes: 900
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-60),
+            workspaceId: steadyWorkspace,
+            workspaceRef: "workspace:1",
+            rssBytes: 900
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-120),
+            workspaceId: spikyWorkspace,
+            workspaceRef: "workspace:2",
+            rssBytes: 1_000
+        )
+        try insertMemoryTelemetrySample(
+            in: dbURL,
+            sampledAt: Date().addingTimeInterval(-60),
+            workspaceId: spikyWorkspace,
+            workspaceRef: "workspace:2",
+            rssBytes: 1
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1h", "--sort", "avg", "--limit", "1", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["sort"] as? String, "average")
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(row["workspace_id"] as? String, steadyWorkspace)
+        XCTAssertEqual(row["peak_rss_bytes"] as? Int, 900)
     }
 
     func testMemoryTopPrunesExpiredRowsOnRead() throws {
@@ -1923,6 +1993,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                             "title": "Memory Workspace",
                             "resources": [
                                 "cpu_percent": 12.5,
+                                "memory_percent": 1.8,
                                 "resident_bytes": 314_572_800,
                                 "virtual_bytes": 629_145_600,
                                 "process_count": 3,
@@ -2000,7 +2071,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func insertMemoryTelemetrySample(
         in dbURL: URL,
         sampledAt: Date,
-        workspaceId: String
+        workspaceId: String,
+        workspaceRef: String = "workspace:7",
+        rssBytes: Int64 = 1024,
+        memoryPercent: Double = 0.1,
+        cpuPercent: Double = 1
     ) throws {
         try FileManager.default.createDirectory(
             at: dbURL.deletingLastPathComponent(),
@@ -2025,6 +2100,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 window_ref TEXT,
                 rss_bytes INTEGER NOT NULL,
                 virtual_bytes INTEGER NOT NULL,
+                memory_percent REAL NOT NULL DEFAULT 0,
                 cpu_percent REAL NOT NULL,
                 process_count INTEGER NOT NULL,
                 top_process_names TEXT NOT NULL
@@ -2036,23 +2112,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let insert = """
         INSERT INTO workspace_memory_samples (
             sampled_at, workspace_id, workspace_ref, workspace_title, window_id, window_ref,
-            rss_bytes, virtual_bytes, cpu_percent, process_count, top_process_names
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            rss_bytes, virtual_bytes, memory_percent, cpu_percent, process_count, top_process_names
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         XCTAssertEqual(sqlite3_prepare_v2(db, insert, -1, &stmt, nil), SQLITE_OK)
         defer { sqlite3_finalize(stmt) }
         let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         sqlite3_bind_double(stmt, 1, sampledAt.timeIntervalSince1970)
         sqlite3_bind_text(stmt, 2, workspaceId, -1, transient)
-        sqlite3_bind_text(stmt, 3, "workspace:7", -1, transient)
+        sqlite3_bind_text(stmt, 3, workspaceRef, -1, transient)
         sqlite3_bind_text(stmt, 4, "Expired Memory Workspace", -1, transient)
         sqlite3_bind_text(stmt, 5, "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", -1, transient)
         sqlite3_bind_text(stmt, 6, "window:1", -1, transient)
-        sqlite3_bind_int64(stmt, 7, 1024)
-        sqlite3_bind_int64(stmt, 8, 2048)
-        sqlite3_bind_double(stmt, 9, 1)
-        sqlite3_bind_int64(stmt, 10, 1)
-        sqlite3_bind_text(stmt, 11, #"["codex"]"#, -1, transient)
+        sqlite3_bind_int64(stmt, 7, rssBytes)
+        sqlite3_bind_int64(stmt, 8, rssBytes * 2)
+        sqlite3_bind_double(stmt, 9, memoryPercent)
+        sqlite3_bind_double(stmt, 10, cpuPercent)
+        sqlite3_bind_int64(stmt, 11, 1)
+        sqlite3_bind_text(stmt, 12, #"["codex"]"#, -1, transient)
         XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
     }
 

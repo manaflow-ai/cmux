@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
+private nonisolated let cmuxTopPhysicalMemoryBytes = max(Double(ProcessInfo.processInfo.physicalMemory), 1)
 
 nonisolated struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
@@ -14,12 +15,18 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     func payload() -> [String: Any] {
         [
             "cpu_percent": cpuPercent,
+            "memory_percent": memoryPercent,
             "resident_bytes": residentBytes,
             "virtual_bytes": virtualBytes,
             "process_count": processCount,
             "pids": pids,
             "missing_pids": missingPIDs
         ]
+    }
+
+    private var memoryPercent: Double {
+        guard residentBytes > 0 else { return 0 }
+        return (Double(residentBytes) / cmuxTopPhysicalMemoryBytes) * 100
     }
 
     func attributedPayload(sharedAcross occurrenceCount: Int) -> [String: Any] {

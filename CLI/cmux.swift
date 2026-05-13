@@ -9839,6 +9839,7 @@ struct CMUXCLI {
               top:
                 --since <duration>          Time window (default: 6h; units: s, m, h, d)
                 --limit <n>                 Limit rows (default: 20)
+                --sort <peak|avg>           Rank rows by peak or average RSS (default: peak)
                 --json                      Structured JSON output
 
               trim:
@@ -9856,6 +9857,7 @@ struct CMUXCLI {
               cmux memory snapshot
               cmux memory list --workspace workspace:2
               cmux memory top --since 6h
+              cmux memory top --since 1d --sort avg
               cmux memory trim --workspace workspace:2 --agent codex
             """
         case "focus-pane":
@@ -11145,6 +11147,7 @@ struct CMUXCLI {
         let since: TimeInterval
         let jsonOutput: Bool
         let limit: Int
+        let sort: MemoryTopSort
     }
 
     struct MemoryCurrentCommandOptions {
@@ -11169,6 +11172,7 @@ struct CMUXCLI {
         let workspaceRef: String?
         let workspaceTitle: String
         let cpuPercent: Double
+        let memoryPercent: Double
         let residentBytes: Int64
         let virtualBytes: Int64
         let processCount: Int
@@ -11184,6 +11188,7 @@ struct CMUXCLI {
                 "workspace_ref": workspaceRef ?? NSNull(),
                 "workspace_title": workspaceTitle,
                 "cpu_percent": cpuPercent,
+                "memory_percent": memoryPercent,
                 "resident_bytes": residentBytes,
                 "virtual_bytes": virtualBytes,
                 "process_count": processCount,
@@ -11193,6 +11198,28 @@ struct CMUXCLI {
 
         private static func iso8601(_ date: Date) -> String {
             ISO8601DateFormatter().string(from: date)
+        }
+    }
+
+    enum MemoryTopSort: String {
+        case peak
+        case average
+
+        var payloadValue: String {
+            rawValue
+        }
+
+        static func parse(_ raw: String?) throws -> MemoryTopSort {
+            guard let raw else { return .peak }
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            switch normalized {
+            case "peak", "max", "rss", "peak-rss":
+                return .peak
+            case "avg", "average", "mean", "avg-rss", "average-rss":
+                return .average
+            default:
+                throw CLIError(message: "--sort must be one of: peak, avg")
+            }
         }
     }
 
@@ -11250,10 +11277,11 @@ struct CMUXCLI {
             let options = try parseMemoryTopOptions(args, jsonOutput: jsonOutput)
             let retention = memoryTelemetryRetention()
             let rows = try MemoryTelemetryDatabase(url: memoryTelemetryDatabaseURL())
-                .topRows(since: options.since, limit: options.limit, retention: retention)
+                .topRows(since: options.since, limit: options.limit, retention: retention, sort: options.sort)
             let payload: [String: Any] = [
                 "since_seconds": options.since,
                 "limit": options.limit,
+                "sort": options.sort.payloadValue,
                 "rows": rows
             ]
             if jsonOutput || options.jsonOutput {
@@ -11338,9 +11366,10 @@ struct CMUXCLI {
     private func parseMemoryTopOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTopCommandOptions {
         let (sinceOpt, rem0) = parseOption(args, name: "--since")
         let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
+        let (sortOpt, rem2) = parseOption(rem1, name: "--sort")
         var jsonOutput = globalJSONOutput
         var remaining: [String] = []
-        for arg in rem1 {
+        for arg in rem2 {
             if arg == "--json" {
                 jsonOutput = true
             } else {
@@ -11348,7 +11377,7 @@ struct CMUXCLI {
             }
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "memory top: unknown flag '\(unknown)'. Known flags: --since <duration> --limit <n> --json")
+            throw CLIError(message: "memory top: unknown flag '\(unknown)'. Known flags: --since <duration> --limit <n> --sort <peak|avg> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "memory top: unexpected argument '\(extra)'")
@@ -11358,7 +11387,8 @@ struct CMUXCLI {
         return MemoryTopCommandOptions(
             since: since,
             jsonOutput: jsonOutput,
-            limit: max(1, limit)
+            limit: max(1, limit),
+            sort: try MemoryTopSort.parse(sortOpt)
         )
     }
 
@@ -11491,6 +11521,7 @@ struct CMUXCLI {
                         workspaceRef: workspace["ref"] as? String,
                         workspaceTitle: topLabelText(workspace["title"] as? String),
                         cpuPercent: topDouble(resources["cpu_percent"]),
+                        memoryPercent: topDouble(resources["memory_percent"] ?? resources["percent_mem"]),
                         residentBytes: topInt64(resources["resident_bytes"]),
                         virtualBytes: topInt64(resources["virtual_bytes"]),
                         processCount: topInt(resources["process_count"]) ?? 0,
@@ -11561,7 +11592,7 @@ struct CMUXCLI {
 
     private func renderMemorySamples(_ samples: [MemoryWorkspaceSample], idFormat: CLIIDFormat) -> String {
         guard !samples.isEmpty else { return "No workspace memory samples" }
-        var lines = ["APPROX RSS  CPU%    PROC  WORKSPACE       TITLE  TOP PROCESSES"]
+        var lines = ["APPROX RSS  MEM%    CPU%    PROC  WORKSPACE       TITLE  TOP PROCESSES"]
         for sample in samples {
             let handle = memoryWorkspaceHandle(
                 id: sample.workspaceId,
@@ -11569,18 +11600,19 @@ struct CMUXCLI {
                 idFormat: idFormat
             )
             let rss = padLeft(formatBytes(sample.residentBytes), width: 10)
+            let mem = padLeft(String(format: "%.1f%%", sample.memoryPercent), width: 7)
             let cpu = padLeft(String(format: "%.1f%%", sample.cpuPercent), width: 7)
             let proc = padLeft(String(sample.processCount), width: 5)
             let title = sample.workspaceTitle.isEmpty ? "-" : sample.workspaceTitle
             let processes = sample.topProcessNames.isEmpty ? "-" : sample.topProcessNames.joined(separator: ",")
-            lines.append("\(rss)  \(cpu)  \(proc)  \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title)  \(processes)")
+            lines.append("\(rss)  \(mem)  \(cpu)  \(proc)  \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title)  \(processes)")
         }
         return lines.joined(separator: "\n")
     }
 
     private func renderMemoryTopRows(_ rows: [[String: Any]], idFormat: CLIIDFormat) -> String {
         guard !rows.isEmpty else { return "No memory samples in selected time window" }
-        var lines = ["PEAK RSS    AVG RSS     PEAK CPU  AVG CPU   SAMPLES  LAST SAMPLE           WORKSPACE       TITLE"]
+        var lines = ["PEAK RSS    AVG RSS     PEAK MEM  AVG MEM   PEAK CPU  AVG CPU   SAMPLES  LAST SAMPLE           WORKSPACE       TITLE"]
         for row in rows {
             let handle = memoryWorkspaceHandle(
                 id: row["workspace_id"] as? String,
@@ -11589,12 +11621,14 @@ struct CMUXCLI {
             )
             let peakRSS = padLeft(formatBytes(topInt64(row["peak_rss_bytes"])), width: 10)
             let avgRSS = padLeft(formatBytes(Int64(topDouble(row["avg_rss_bytes"]))), width: 10)
+            let peakMem = padLeft(String(format: "%.1f%%", topDouble(row["peak_memory_percent"])), width: 8)
+            let avgMem = padLeft(String(format: "%.1f%%", topDouble(row["avg_memory_percent"])), width: 8)
             let peakCPU = padLeft(String(format: "%.1f%%", topDouble(row["peak_cpu_percent"])), width: 8)
             let avgCPU = padLeft(String(format: "%.1f%%", topDouble(row["avg_cpu_percent"])), width: 8)
             let samples = padLeft(String(topInt(row["sample_count"]) ?? 0), width: 7)
             let lastSample = (row["last_sampled_at"] as? String) ?? "-"
             let title = topLabelText(row["workspace_title"] as? String)
-            lines.append("\(peakRSS)  \(avgRSS)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title.isEmpty ? "-" : title)")
+            lines.append("\(peakRSS)  \(avgRSS)  \(peakMem)  \(avgMem)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title.isEmpty ? "-" : title)")
         }
         return lines.joined(separator: "\n")
     }

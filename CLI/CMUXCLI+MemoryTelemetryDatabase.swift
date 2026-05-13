@@ -59,11 +59,18 @@ extension CMUXCLI {
             }
         }
 
-        func topRows(since: TimeInterval, limit: Int, retention: TimeInterval) throws -> [[String: Any]] {
+        func topRows(since: TimeInterval, limit: Int, retention: TimeInterval, sort: MemoryTopSort) throws -> [[String: Any]] {
             try open()
             try prune(retention: retention)
 
             let cutoff = Date().addingTimeInterval(-since).timeIntervalSince1970
+            let orderBy: String
+            switch sort {
+            case .peak:
+                orderBy = "MAX(rss_bytes) DESC, AVG(rss_bytes) DESC"
+            case .average:
+                orderBy = "AVG(rss_bytes) DESC, MAX(rss_bytes) DESC"
+            }
             let sql = """
             SELECT
                 workspace_id,
@@ -72,6 +79,8 @@ extension CMUXCLI {
                 COUNT(*),
                 MAX(rss_bytes),
                 AVG(rss_bytes),
+                MAX(memory_percent),
+                AVG(memory_percent),
                 MAX(cpu_percent),
                 AVG(cpu_percent),
                 MAX(process_count),
@@ -79,7 +88,7 @@ extension CMUXCLI {
             FROM workspace_memory_samples
             WHERE sampled_at >= ?
             GROUP BY workspace_id
-            ORDER BY MAX(rss_bytes) DESC, AVG(rss_bytes) DESC
+            ORDER BY \(orderBy)
             LIMIT ?
             """
             var stmt: OpaquePointer?
@@ -100,11 +109,13 @@ extension CMUXCLI {
                     "sample_count": Int(sqlite3_column_int64(stmt, 3)),
                     "peak_rss_bytes": sqlite3_column_int64(stmt, 4),
                     "avg_rss_bytes": sqlite3_column_double(stmt, 5),
-                    "peak_cpu_percent": sqlite3_column_double(stmt, 6),
-                    "avg_cpu_percent": sqlite3_column_double(stmt, 7),
-                    "peak_process_count": Int(sqlite3_column_int64(stmt, 8)),
+                    "peak_memory_percent": sqlite3_column_double(stmt, 6),
+                    "avg_memory_percent": sqlite3_column_double(stmt, 7),
+                    "peak_cpu_percent": sqlite3_column_double(stmt, 8),
+                    "avg_cpu_percent": sqlite3_column_double(stmt, 9),
+                    "peak_process_count": Int(sqlite3_column_int64(stmt, 10)),
                     "last_sampled_at": ISO8601DateFormatter().string(
-                        from: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 9))
+                        from: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 11))
                     ),
                     "approximate": true
                 ])
@@ -128,11 +139,15 @@ extension CMUXCLI {
                 window_ref TEXT,
                 rss_bytes INTEGER NOT NULL,
                 virtual_bytes INTEGER NOT NULL,
+                memory_percent REAL NOT NULL DEFAULT 0,
                 cpu_percent REAL NOT NULL,
                 process_count INTEGER NOT NULL,
                 top_process_names TEXT NOT NULL
             )
             """)
+            if try !columnExists("workspace_memory_samples", column: "memory_percent") {
+                try exec("ALTER TABLE workspace_memory_samples ADD COLUMN memory_percent REAL NOT NULL DEFAULT 0")
+            }
             try exec("CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_time ON workspace_memory_samples(sampled_at)")
             try exec("CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_workspace_time ON workspace_memory_samples(workspace_id, sampled_at)")
         }
@@ -141,8 +156,8 @@ extension CMUXCLI {
             let sql = """
             INSERT INTO workspace_memory_samples (
                 sampled_at, workspace_id, workspace_ref, workspace_title, window_id, window_ref,
-                rss_bytes, virtual_bytes, cpu_percent, process_count, top_process_names
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                rss_bytes, virtual_bytes, memory_percent, cpu_percent, process_count, top_process_names
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -158,12 +173,33 @@ extension CMUXCLI {
             bindText(stmt, 6, sample.windowRef, transient: transient)
             sqlite3_bind_int64(stmt, 7, sample.residentBytes)
             sqlite3_bind_int64(stmt, 8, sample.virtualBytes)
-            sqlite3_bind_double(stmt, 9, sample.cpuPercent)
-            sqlite3_bind_int64(stmt, 10, Int64(sample.processCount))
-            bindText(stmt, 11, Self.jsonArray(sample.topProcessNames), transient: transient)
+            sqlite3_bind_double(stmt, 9, sample.memoryPercent)
+            sqlite3_bind_double(stmt, 10, sample.cpuPercent)
+            sqlite3_bind_int64(stmt, 11, Int64(sample.processCount))
+            bindText(stmt, 12, Self.jsonArray(sample.topProcessNames), transient: transient)
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 throw CLIError(message: sqliteMessage() ?? "SQLite insert failed")
             }
+        }
+
+        private func columnExists(_ table: String, column: String) throws -> Bool {
+            var stmt: OpaquePointer?
+            let sql = "PRAGMA table_info(\(table))"
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite prepare failed")
+            }
+            defer { sqlite3_finalize(stmt) }
+            var stepResult = sqlite3_step(stmt)
+            while stepResult == SQLITE_ROW {
+                if sqliteText(stmt, 1) == column {
+                    return true
+                }
+                stepResult = sqlite3_step(stmt)
+            }
+            guard stepResult == SQLITE_DONE else {
+                throw CLIError(message: sqliteMessage() ?? "SQLite step failed")
+            }
+            return false
         }
 
         private func prune(retention: TimeInterval) throws {
