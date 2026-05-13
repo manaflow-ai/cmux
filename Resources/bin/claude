@@ -281,8 +281,11 @@ REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&
 
 node_options_restore_dir_candidates() {
     # NODE_OPTIONS can be inherited after macOS cleans session-scoped TMPDIR.
-    if [[ -n "${HOME:-}" ]]; then
-        printf '%s\n' "${HOME%/}/.claude/cmux"
+    local home="${HOME:-}"
+    home="${home#"${home%%[![:space:]]*}"}"
+    home="${home%"${home##*[![:space:]]}"}"
+    if [[ -n "$home" ]]; then
+        printf '%s\n' "${home%/}/.claude/cmux"
     fi
     local guard_dir="${TMPDIR:-/tmp}"
     printf '%s\n' "${guard_dir%/}/cmux-claude-node-options"
