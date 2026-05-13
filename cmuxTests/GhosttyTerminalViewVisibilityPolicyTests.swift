@@ -185,6 +185,35 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalTimestampStoreClearsRebasedRowsAfterScrollbackShrink() {
+        let store = TerminalTimestampStore()
+        let oldTimestamp = Date(timeIntervalSince1970: 100)
+        let reboundTimestamp = Date(timeIntervalSince1970: 200)
+
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 8, offset: 0, len: 8),
+            at: oldTimestamp,
+            markVisibleRows: true
+        )
+        store.record(
+            scrollbar: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 5),
+            at: reboundTimestamp,
+            markVisibleRows: true
+        )
+
+        XCTAssertEqual(
+            store.visibleRows(for: TerminalTimestampScrollbarState(total: 5, offset: 0, len: 5)),
+            [
+                TerminalTimestampVisibleRow(row: 0, timestamp: reboundTimestamp),
+                TerminalTimestampVisibleRow(row: 1, timestamp: reboundTimestamp),
+                TerminalTimestampVisibleRow(row: 2, timestamp: reboundTimestamp),
+                TerminalTimestampVisibleRow(row: 3, timestamp: reboundTimestamp),
+                TerminalTimestampVisibleRow(row: 4, timestamp: reboundTimestamp),
+            ]
+        )
+    }
+
+    @MainActor
     func testTerminalTimestampStoreKeepsVisibleRowsMarkedOutsideRetentionWindow() {
         let store = TerminalTimestampStore(maxRetainedRows: 3)
         let tailTimestamp = Date(timeIntervalSince1970: 100)

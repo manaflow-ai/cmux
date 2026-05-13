@@ -69,7 +69,7 @@ final class TerminalTimestampStore {
         let visibleRows = visibleRange(for: scrollbar)
         if let previous = lastScrollbar {
             if scrollbar.total < previous.total {
-                pruneRows(atOrAbove: scrollbar.total)
+                clearRows()
             } else if scrollbar.total > previous.total {
                 let firstRetainedNewRow = max(previous.total, scrollbar.total - maxRetainedRows)
                 for row in firstRetainedNewRow..<scrollbar.total {
@@ -109,15 +109,6 @@ final class TerminalTimestampStore {
         guard isNewRow else { return }
         oldestTrackedRow = min(oldestTrackedRow ?? row, row)
         newestTrackedRow = max(newestTrackedRow ?? row, row)
-    }
-
-    private func pruneRows(atOrAbove upperBound: Int) {
-        guard let newestTrackedRow, newestTrackedRow >= upperBound else { return }
-        let firstTrackedRowToPrune = max(upperBound, oldestTrackedRow ?? upperBound)
-        for row in firstTrackedRowToPrune...newestTrackedRow {
-            timestampsByRow.removeValue(forKey: row)
-        }
-        refreshNewestTrackedRow(startingAt: upperBound - 1)
     }
 
     private func prune(forTotalRows totalRows: Int, preserving preservedRows: Range<Int>) {
@@ -180,28 +171,6 @@ final class TerminalTimestampStore {
         refreshTrackedBounds()
     }
 
-    private func refreshNewestTrackedRow(startingAt row: Int) {
-        guard !timestampsByRow.isEmpty else {
-            clearTrackedBounds()
-            return
-        }
-        guard let oldestTrackedRow else {
-            refreshTrackedBounds()
-            return
-        }
-
-        var candidate = row
-        while candidate >= oldestTrackedRow {
-            if timestampsByRow[candidate] != nil {
-                newestTrackedRow = candidate
-                return
-            }
-            candidate -= 1
-        }
-
-        refreshTrackedBounds()
-    }
-
     private func refreshTrackedBounds() {
         guard !timestampsByRow.isEmpty else {
             clearTrackedBounds()
@@ -221,5 +190,10 @@ final class TerminalTimestampStore {
     private func clearTrackedBounds() {
         oldestTrackedRow = nil
         newestTrackedRow = nil
+    }
+
+    private func clearRows() {
+        timestampsByRow.removeAll(keepingCapacity: true)
+        clearTrackedBounds()
     }
 }
