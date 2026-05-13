@@ -765,7 +765,6 @@ private enum CLISocketPathResolver {
     }()
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
-    private static let stagingSocketPath = "/tmp/cmux-staging.sock"
     private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
     private enum SocketProbeResult {
         case cmux
@@ -832,12 +831,13 @@ private enum CLISocketPathResolver {
 
         candidates.append(requestedPath)
         candidates.append(defaultSocketPath)
+        candidates.append(userScopedStableSocketPath())
         candidates.append(legacyStableSocketPath)
         candidates.append(legacyDefaultSocketPath)
         candidates.append(fallbackSocketPath)
-        candidates.append(stagingSocketPath)
-        candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
-        if let last = readLastSocketPath() {
+        candidates.append(contentsOf: discoverLegacyFallbackSockets(limit: 12))
+        if let last = readLastSocketPath(),
+           shouldUseLastSocketPath(last) {
             candidates.append(last)
         }
         return candidates
@@ -860,21 +860,22 @@ private enum CLISocketPathResolver {
         return nil
     }
 
-    private static func discoverTaggedSockets(limit: Int) -> [String] {
+    private static func discoverLegacyFallbackSockets(limit: Int) -> [String] {
         var discovered: [(path: String, mtime: TimeInterval)] = []
+        let excludedPaths = discoveryExcludedSocketPaths()
         for directory in socketDiscoveryDirectories() {
             guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
                 continue
             }
             discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where isDiscoverableSocketName(name) {
+            for name in entries where isDiscoverableLegacyFallbackSocketName(name) {
                 let path = URL(fileURLWithPath: directory)
                     .appendingPathComponent(name, isDirectory: false)
                     .path
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if path == defaultSocketPath || path == legacyStableSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+                if excludedPaths.contains(path) {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -886,9 +887,49 @@ private enum CLISocketPathResolver {
         return dedupe(discovered.prefix(limit).map(\.path))
     }
 
-    private static func isDiscoverableSocketName(_ name: String) -> Bool {
+    private static func isDiscoverableLegacyFallbackSocketName(_ name: String) -> Bool {
         guard name.hasSuffix(".sock") else { return false }
-        return name.hasPrefix("cmux") || name.hasPrefix("com.cmuxterm.app.")
+        if name == "cmux.sock" { return true }
+        guard name.hasPrefix("cmux-") else { return false }
+        let suffix = ".sock"
+        let portStart = name.index(name.startIndex, offsetBy: "cmux-".count)
+        let portEnd = name.index(name.endIndex, offsetBy: -suffix.count)
+        let port = name[portStart..<portEnd]
+        return !port.isEmpty && port.allSatisfy(\.isNumber)
+    }
+
+    private static func discoveryExcludedSocketPaths() -> Set<String> {
+        Set([
+            defaultSocketPath,
+            userScopedStableSocketPath(),
+            legacyStableSocketPath,
+            legacyDefaultSocketPath,
+            fallbackSocketPath,
+        ])
+    }
+
+    private static func shouldUseLastSocketPath(_ path: String) -> Bool {
+        !isNonReleaseVariantSocketName(URL(fileURLWithPath: path).lastPathComponent)
+    }
+
+    private static func isNonReleaseVariantSocketName(_ name: String) -> Bool {
+        guard name.hasSuffix(".sock") else { return false }
+        if name == "cmux-staging.sock" || name.hasPrefix("cmux-staging-") {
+            return true
+        }
+        if name == "cmux-debug.sock" || name.hasPrefix("cmux-debug-") {
+            return true
+        }
+        if name == "com.cmuxterm.app.dev.sock" || name.hasPrefix("com.cmuxterm.app.dev.") {
+            return true
+        }
+        if name == "com.cmuxterm.app.nightly.sock" || name.hasPrefix("com.cmuxterm.app.nightly-") {
+            return true
+        }
+        if name == "com.cmuxterm.app.staging.sock" || name.hasPrefix("com.cmuxterm.app.staging-") {
+            return true
+        }
+        return false
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
@@ -1018,6 +1059,10 @@ private enum CLISocketPathResolver {
         socketPath(fileName: "com.cmuxterm.app.dev.\(slug).sock")
     }
 
+    private static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        socketPath(fileName: "com.cmuxterm.app.\(currentUserID).sock")
+    }
+
     private static func socketPath(fileName: String) -> String {
         guard let directoryURL = stableSocketDirectoryURL() else {
             return "/tmp/\(shortenedSocketFileName(fileName, directoryPath: "/tmp"))"
@@ -1034,14 +1079,15 @@ private enum CLISocketPathResolver {
     private static func shortenedSocketFileName(_ fileName: String, directoryPath: String) -> String {
         let separatorLength = 1
         let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
-        guard fileName.utf8.count > budget, budget > ".sock".count + 10 else {
+        let suffix = ".sock"
+        let hashSuffixLength = 9
+        guard fileName.utf8.count > budget, budget >= suffix.utf8.count + hashSuffixLength + 1 else {
             return fileName
         }
 
-        let suffix = ".sock"
         let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
         let hashSuffix = "-\(fnv1a32Hex(fileName))"
-        let stemBudget = max(1, budget - hashSuffix.utf8.count - suffix.utf8.count)
+        let stemBudget = budget - hashSuffix.utf8.count - suffix.utf8.count
         let shortenedStem = String(stem.prefix(stemBudget)).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
         let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
         return "\(safeStem)\(hashSuffix)\(suffix)"

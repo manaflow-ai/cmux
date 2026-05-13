@@ -515,14 +515,15 @@ struct SocketControlSettings {
     private static func shortenedSocketFileName(_ fileName: String, directoryPath: String) -> String {
         let separatorLength = 1
         let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
-        guard fileName.utf8.count > budget, budget > ".sock".count + 10 else {
+        let suffix = ".sock"
+        let hashSuffixLength = 9
+        guard fileName.utf8.count > budget, budget >= suffix.utf8.count + hashSuffixLength + 1 else {
             return fileName
         }
 
-        let suffix = ".sock"
         let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
         let hashSuffix = "-\(fnv1a32Hex(fileName))"
-        let stemBudget = max(1, budget - hashSuffix.utf8.count - suffix.utf8.count)
+        let stemBudget = budget - hashSuffix.utf8.count - suffix.utf8.count
         let shortenedStem = String(stem.prefix(stemBudget)).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
         let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
         return "\(safeStem)\(hashSuffix)\(suffix)"
