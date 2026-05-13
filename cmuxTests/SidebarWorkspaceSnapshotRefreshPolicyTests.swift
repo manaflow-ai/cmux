@@ -168,6 +168,46 @@ final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
         XCTAssertEqual(resolved.latestNotificationText, "done")
         XCTAssertTrue(resolved.showsModifierShortcutHints)
     }
+
+    func testNoFrozenPresentationUsesLiveSnapshot() {
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 2,
+            latestNotificationText: "live",
+            showsModifierShortcutHints: true
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: nil
+        )
+
+        XCTAssertEqual(resolved, live)
+    }
+
+    func testNonMatchingTabIdUsesLiveShortcutHints() {
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(resolved.showsModifierShortcutHints)
+    }
 }
 
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {

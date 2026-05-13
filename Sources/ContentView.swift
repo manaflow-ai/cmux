@@ -9945,7 +9945,9 @@ private enum FeedbackComposerClient {
             if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorMessage = payload["error"] as? String,
                errorMessage.isEmpty == false {
+                #if DEBUG
                 NSLog("feedback.submit.rejected status=%@ error=%@", String(httpResponse.statusCode), errorMessage)
+                #endif
             }
             throw FeedbackComposerSubmissionError.rejected(statusCode: httpResponse.statusCode)
         }
