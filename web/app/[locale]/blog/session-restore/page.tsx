@@ -58,6 +58,18 @@ export default function SessionRestoreBlogPage() {
         {t("date")}
       </time>
 
+      <video
+        src="/blog/session-restore.mp4"
+        poster="/blog/session-restore-poster.jpg"
+        width={1024}
+        height={768}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="mt-6 rounded-lg w-full h-auto"
+      />
+
       <p className="mt-6">{t("p1")}</p>
       <p>{t("p2")}</p>
 

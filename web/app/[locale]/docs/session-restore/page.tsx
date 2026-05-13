@@ -27,6 +27,18 @@ export default function SessionRestorePage() {
       <h1>{t("title")}</h1>
       <p>{t("intro")}</p>
 
+      <video
+        src="/blog/session-restore.mp4"
+        poster="/blog/session-restore-poster.jpg"
+        width={1024}
+        height={768}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="my-6 rounded-lg w-full h-auto"
+      />
+
       <h2>{t("restoredTitle")}</h2>
       <p>{t("restoredDesc")}</p>
       <ul>
