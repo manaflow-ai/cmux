@@ -4980,7 +4980,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func beginPortalCloseLifecycle(reason: String) {
-        recordTeardownRequest(reason: reason)
         let generation = withInputLifecycleLock { () -> UInt64? in
             guard portalLifecycleState != .closed else { return nil }
             guard portalLifecycleState != .closing else { return nil }
@@ -4989,6 +4988,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return portalLifecycleGeneration
         }
         guard let generation else { return }
+        recordTeardownRequest(reason: reason)
 #if DEBUG
         cmuxDebugLog(
             "surface.lifecycle.close.begin surface=\(id.uuidString.prefix(5)) " +
