@@ -7225,7 +7225,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published private(set) var latestSubmittedMessage: String?
+    @Published private(set) var latestConversationMessage: String?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7314,7 +7314,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
-            sidebarObservationSignal($latestSubmittedMessage),
+            sidebarObservationSignal($latestConversationMessage),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -8042,6 +8042,20 @@ final class Workspace: Identifiable, ObservableObject {
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
+        }
+    }
+
+    private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
+            guard let self, let browserPanel else { return }
+            guard self.panels[browserPanel.id] is BrowserPanel else { return }
+#if DEBUG
+            cmuxDebugLog(
+                "browser.close.requestedByPage ws=\(self.id.uuidString.prefix(5)) " +
+                "panel=\(browserPanel.id.uuidString.prefix(5))"
+            )
+#endif
+            _ = self.closePanel(browserPanel.id, force: true)
         }
     }
 
@@ -8774,7 +8788,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
-        latestSubmittedMessage = nil
+        latestConversationMessage = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -9084,11 +9098,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
-        guard let preview = Self.submittedMessagePreview(from: message) else { return false }
-        guard latestSubmittedMessage != preview else { return false }
-        latestSubmittedMessage = preview
+    func recordConversationMessage(_ message: String?) -> Bool {
+        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
+        guard latestConversationMessage != preview else { return false }
+        latestConversationMessage = preview
         return true
+    }
+
+    @discardableResult
+    func recordSubmittedMessage(_ message: String?) -> Bool {
+        recordConversationMessage(message)
     }
 
     var isRemoteWorkspace: Bool {
@@ -10273,6 +10292,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
+        configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -10366,6 +10386,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
+        configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -11418,6 +11439,7 @@ final class Workspace: Identifiable, ObservableObject {
                 proxyEndpoint: remoteProxyEndpoint,
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
+            configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)

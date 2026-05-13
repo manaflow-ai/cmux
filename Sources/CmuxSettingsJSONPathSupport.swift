@@ -47,6 +47,8 @@ extension CmuxSettingsFileStore {
         "notifications.sound",
         "notifications.customSoundFilePath",
         "notifications.command",
+        "notifications.hooks",
+        "notifications.hooksMode",
         "sidebar.hideAllDetails",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",

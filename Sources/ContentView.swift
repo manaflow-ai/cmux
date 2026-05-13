@@ -2297,7 +2297,7 @@ struct ContentView: View {
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
-            HStack(spacing: 8) {
+            HStack(spacing: TitlebarFolderIconMetrics.iconTitleSpacing) {
                 if isFullScreen && !sidebarState.isVisible {
                     fullscreenControls
                 }
@@ -2305,8 +2305,11 @@ struct ContentView: View {
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
-                        .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
+                        .frame(
+                            width: TitlebarFolderIconMetrics.iconSize,
+                            height: TitlebarFolderIconMetrics.iconSize
+                        )
+                        .padding(.leading, TitlebarFolderIconMetrics.iconLeadingPadding)
                 }
 
                 Text(titlebarText)
@@ -9041,11 +9044,26 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     }
 }
 
-private struct SidebarTabItemPresentationSnapshot: Equatable {
+struct SidebarTabItemPresentationSnapshot: Equatable {
     let tabId: UUID
     let unreadCount: Int
     let latestNotificationText: String?
     let showsModifierShortcutHints: Bool
+}
+
+struct SidebarTabItemPresentationResolutionPolicy {
+    static func resolved(
+        live: SidebarTabItemPresentationSnapshot,
+        frozen: SidebarTabItemPresentationSnapshot?
+    ) -> SidebarTabItemPresentationSnapshot {
+        guard let frozen, frozen.tabId == live.tabId else { return live }
+        return SidebarTabItemPresentationSnapshot(
+            tabId: live.tabId,
+            unreadCount: live.unreadCount,
+            latestNotificationText: live.latestNotificationText,
+            showsModifierShortcutHints: frozen.showsModifierShortcutHints
+        )
+    }
 }
 
 struct VerticalTabsSidebar: View {
@@ -9520,6 +9538,10 @@ struct VerticalTabsSidebar: View {
         let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
             ? frozenTabItemPresentation
             : nil
+        let resolvedPresentation = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: livePresentation,
+            frozen: frozenPresentation
+        )
 
         return TabItemView(
             tabManager: tabManager,
@@ -9534,13 +9556,13 @@ struct VerticalTabsSidebar: View {
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
-            latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
+            unreadCount: resolvedPresentation.unreadCount,
+            latestNotificationText: resolvedPresentation.latestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: frozenPresentation?.showsModifierShortcutHints ?? liveShowsModifierShortcutHints,
+            showsModifierShortcutHints: resolvedPresentation.showsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
             draggedTabId: $draggedTabId,
             dropIndicator: $dropIndicator,
@@ -9923,7 +9945,9 @@ private enum FeedbackComposerClient {
             if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorMessage = payload["error"] as? String,
                errorMessage.isEmpty == false {
+                #if DEBUG
                 NSLog("feedback.submit.rejected status=%@ error=%@", String(httpResponse.statusCode), errorMessage)
+                #endif
             }
             throw FeedbackComposerSubmissionError.rejected(statusCode: httpResponse.statusCode)
         }
@@ -11926,7 +11950,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
         let copyableSidebarSSHError: String?
-        let latestSubmittedMessage: String?
+        let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
@@ -12263,12 +12287,12 @@ private struct TabItemView: View, Equatable {
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
-        let submittedMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestSubmittedMessage?
+        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
+            ? workspaceSnapshot.latestConversationMessage?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .nilIfEmpty
             : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? submittedMessageSubtitle
+        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
@@ -13269,7 +13293,7 @@ private struct TabItemView: View, Equatable {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
-            latestSubmittedMessage: tab.latestSubmittedMessage,
+            latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
