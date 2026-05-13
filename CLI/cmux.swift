@@ -13228,7 +13228,8 @@ struct CMUXCLI {
             spawn: CodexTeamsSpawn
         ) throws {
             parentByThreadId[thread.id] = spawn.parentThreadId
-            guard knownThreadIds.contains(spawn.parentThreadId) else {
+            guard knownThreadIds.contains(spawn.parentThreadId),
+                  depthByThreadId[spawn.parentThreadId] != nil else {
                 if pendingThreadIds.insert(thread.id).inserted {
                     pendingByParentThreadId[spawn.parentThreadId, default: []].append(thread)
                 }
@@ -13824,6 +13825,13 @@ struct CMUXCLI {
             return nil
         }
 
+        let outputBox = CodexTeamsAsyncBox<Data>()
+        let outputReadSemaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            outputBox.set(output.fileHandleForReading.readDataToEndOfFile())
+            outputReadSemaphore.signal()
+        }
+
         let semaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
             process.waitUntilExit()
@@ -13834,7 +13842,8 @@ struct CMUXCLI {
             return nil
         }
 
-        let data = output.fileHandleForReading.readDataToEndOfFile()
+        _ = outputReadSemaphore.wait(timeout: .now() + 1)
+        let data = outputBox.take() ?? Data()
         let path = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return path?.isEmpty == false ? path : nil
