@@ -1708,7 +1708,21 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() {
+    func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let transcriptURL = root
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-Users-tiffanysun-fun", isDirectory: true)
+            .appendingPathComponent("a22293b7-bcef-4707-8439-2f538c8517a4.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
         let entry = SessionEntry(
             id: "claude:a22293b7-bcef-4707-8439-2f538c8517a4",
             agent: .claude,
@@ -1718,9 +1732,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             gitBranch: nil,
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
-            fileURL: URL(
-                fileURLWithPath: "/Users/tiffanysun/.claude/projects/-Users-tiffanysun-fun/a22293b7-bcef-4707-8439-2f538c8517a4.jsonl"
-            ),
+            fileURL: transcriptURL,
             specifics: .claude(model: nil, permissionMode: nil)
         )
 
