@@ -229,7 +229,7 @@ struct RightSidebarToolPanelView: View {
                     .allowsHitTesting(false)
             }
             .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
-            .onChange(of: panel.focusFlashToken) { _ in
+            .onChange(of: panel.focusFlashToken) { _, _ in
                 triggerFocusFlashAnimation()
             }
     }
