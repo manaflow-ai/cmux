@@ -89,7 +89,7 @@ struct ExtensionBundleDescriptor: Equatable, Sendable {
             throw ExtensionBundleResolveError.disallowedBundle(indexURL.path)
         }
 
-        let manifest = try manifest(for: bundleURL)
+        let manifest = try manifest(for: bundleURL, fileManager: fileManager)
         let contentHash = try contentHash(for: bundleURL, fileManager: fileManager)
         return ExtensionBundleDescriptor(
             bundleURL: bundleURL,
@@ -114,10 +114,27 @@ struct ExtensionBundleDescriptor: Equatable, Sendable {
         return roots
     }
 
-    private static func manifest(for bundleURL: URL) throws -> ExtensionBundleManifest? {
+    private static func manifest(for bundleURL: URL, fileManager: FileManager) throws -> ExtensionBundleManifest? {
         let manifestURL = bundleURL.appendingPathComponent("manifest.json", isDirectory: false)
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return nil }
-        let data = try Data(contentsOf: manifestURL)
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return nil }
+        let readURL: URL
+        if let linkDestination = try? fileManager.destinationOfSymbolicLink(atPath: manifestURL.path) {
+            let resolvedPath: String
+            if linkDestination.hasPrefix("/") {
+                resolvedPath = linkDestination
+            } else {
+                resolvedPath = (manifestURL.deletingLastPathComponent().path as NSString)
+                    .appendingPathComponent(linkDestination)
+            }
+            let resolvedURL = URL(fileURLWithPath: resolvedPath).standardizedFileURL.resolvingSymlinksInPath()
+            guard isPath(resolvedURL.path, containedIn: bundleURL.path) else {
+                throw ExtensionBundleResolveError.disallowedBundle(manifestURL.path)
+            }
+            readURL = resolvedURL
+        } else {
+            readURL = manifestURL
+        }
+        let data = try Data(contentsOf: readURL)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ExtensionBundleResolveError.invalidManifest(manifestURL.path)
         }

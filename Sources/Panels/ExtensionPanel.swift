@@ -152,7 +152,7 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
         webViewObservers.append(titleObserver)
 
         let loadingObserver = webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] webView, change in
-            let isLoading = change.newValue ?? webView.isLoading
+            let isLoading = change.newValue ?? false
             Task { @MainActor in
                 guard let self, webView === self.webView else { return }
                 self.isLoading = isLoading
@@ -183,18 +183,14 @@ final class ExtensionPanel: NSObject, Panel, ObservableObject {
         let surfaceId = id
         let paneId = paneId
         let terminalController = TerminalController.shared
-        DispatchQueue.global(qos: .userInitiated).async { [terminalController] in
-            let response = terminalController.performExtensionBridgeRPC(
-                method: method,
-                params: params,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                paneId: paneId
-            )
-            Task { @MainActor [weak self] in
-                self?.completeBridgeMessage(id: messageId, response: response)
-            }
-        }
+        let response = terminalController.performExtensionBridgeRPC(
+            method: method,
+            params: params,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            paneId: paneId
+        )
+        completeBridgeMessage(id: messageId, response: response)
     }
 
     private func subscribeToEvents(params: [String: Any]) -> [String: Any] {

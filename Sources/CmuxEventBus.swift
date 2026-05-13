@@ -66,6 +66,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
             closed = true
             closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
             queue.removeAll()
+            eventHandlers.removeAll()
             shouldSignal = true
             accepted = false
         } else {

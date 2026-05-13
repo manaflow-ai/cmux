@@ -2932,6 +2932,7 @@ struct CMUXCLI {
             let bundle = optionValue(commandArgs, name: "--bundle")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
+            try validateExtensionBundleOption(commandName: "new-pane", type: type, bundle: bundle)
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
@@ -2949,6 +2950,7 @@ struct CMUXCLI {
             let bundle = optionValue(commandArgs, name: "--bundle")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
+            try validateExtensionBundleOption(commandName: "new-surface", type: type, bundle: bundle)
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
@@ -9438,7 +9440,7 @@ struct CMUXCLI {
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                         URL for browser panes
-              --bundle <path>                     Local extension bundle directory
+              --bundle <path>                     Required with --type extension; invalid for other pane types
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
@@ -9457,7 +9459,7 @@ struct CMUXCLI {
               --pane <id|ref>             Target pane
               --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                 URL for browser surfaces
-              --bundle <path>             Local extension bundle directory
+              --bundle <path>             Required with --type extension; invalid for other surface types
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
@@ -10314,6 +10316,22 @@ struct CMUXCLI {
     func optionValue(_ args: [String], name: String) -> String? {
         guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
         return args[index + 1]
+    }
+
+    private func validateExtensionBundleOption(commandName: String, type: String?, bundle: String?) throws {
+        let normalizedType = type?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        let isExtensionType = normalizedType == "extension" || normalizedType == "extensionpane"
+        let hasBundle = bundle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if bundle != nil, !isExtensionType {
+            throw CLIError(message: "\(commandName): --bundle is only valid with --type extension")
+        }
+        if isExtensionType, !hasBundle {
+            throw CLIError(message: "\(commandName): --bundle is required with --type extension")
+        }
     }
 
     func hasFlag(_ args: [String], name: String) -> Bool {

@@ -3242,8 +3242,15 @@ class TerminalController {
             "surface.create",
             "surface.split"
         ]
-        guard extensionCreationMethods.contains(method),
-              Self.extensionBridgePanelType(params["type"]) == .extensionPane else {
+        guard extensionCreationMethods.contains(method) else {
+            return .ok(params)
+        }
+        let panelTypeResult = Self.extensionBridgePanelType(params["type"])
+        guard case .ok(let rawPanelType) = panelTypeResult else {
+            return panelTypeResult
+        }
+        guard let panelType = rawPanelType as? PanelType,
+              panelType == .extensionPane else {
             return .ok(params)
         }
         guard let bundlePath = Self.extensionBridgeTrimmedString(params["bundle"])
@@ -3271,15 +3278,18 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func extensionBridgePanelType(_ rawValue: Any?) -> PanelType {
+    private nonisolated static func extensionBridgePanelType(_ rawValue: Any?) -> V2CallResult {
         guard let rawType = extensionBridgeTrimmedString(rawValue) else {
-            return .terminal
+            return .ok(PanelType.terminal)
         }
-        let normalized = rawType
-            .replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return PanelType(rawValue: normalized) ?? .terminal
+        guard let panelType = PanelType.userInputValue(rawType) else {
+            return .err(
+                code: "invalid_params",
+                message: "Unknown surface type: \(rawType)",
+                data: ["type": rawType]
+            )
+        }
+        return .ok(panelType)
     }
 
     private nonisolated static func extensionBridgeTrimmedString(_ rawValue: Any?) -> String? {
@@ -16177,17 +16187,17 @@ class TerminalController {
 	        return result
 	    }
 	
-    private func panelTypeForSocketArgument(_ rawType: String) -> PanelType {
-        let normalized = rawType
-            .replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return PanelType(rawValue: normalized) ?? .terminal
+    private func panelTypeForSocketArgument(_ rawType: String) -> Result<PanelType, SocketArgumentParseError> {
+        guard let panelType = PanelType.userInputValue(rawType) else {
+            return .failure(.invalidPanelType(rawType))
+        }
+        return .success(panelType)
     }
 
     private enum SocketArgumentParseError: LocalizedError {
         case unterminatedQuote
         case unterminatedEscape
+        case invalidPanelType(String)
         case missingExtensionBundle
         case invalidExtensionBundle(String)
 
@@ -16197,6 +16207,8 @@ class TerminalController {
                 return "Unterminated quoted argument"
             case .unterminatedEscape:
                 return "Unterminated escaped argument"
+            case .invalidPanelType(let type):
+                return "Unknown pane type: \(type)"
             case .missingExtensionBundle:
                 return "--bundle is required for extension panes"
             case .invalidExtensionBundle(let message):
@@ -16261,6 +16273,8 @@ class TerminalController {
 
     private func resolveSocketExtensionBundle(panelType: PanelType, bundlePath: String?) -> Result<ExtensionBundleDescriptor, SocketArgumentParseError>? {
         guard panelType == .extensionPane else { return nil }
+        // Socket-originated commands are local trusted entrypoints, so a valid bundle path records trust
+        // when the workspace creates the extension panel. Extension bridge calls use the stricter pretrusted path.
         guard let rawBundlePath = bundlePath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawBundlePath.isEmpty else {
             return .failure(.missingExtensionBundle)
@@ -16293,7 +16307,12 @@ class TerminalController {
         for partStr in parts {
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = panelTypeForSocketArgument(typeStr)
+                switch panelTypeForSocketArgument(typeStr) {
+                case .success(let parsedType):
+                    panelType = parsedType
+                case .failure(let error):
+                    return "ERROR: \(error.localizedDescription)"
+                }
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -17939,7 +17958,12 @@ class TerminalController {
         for partStr in parts {
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = panelTypeForSocketArgument(typeStr)
+                switch panelTypeForSocketArgument(typeStr) {
+                case .success(let parsedType):
+                    panelType = parsedType
+                case .failure(let error):
+                    return "ERROR: \(error.localizedDescription)"
+                }
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {

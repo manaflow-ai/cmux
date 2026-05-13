@@ -31,6 +31,20 @@ public enum PanelType: String, Codable, Sendable {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
+
+    public static func userInputValue(_ rawValue: String) -> PanelType? {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        switch normalized {
+        case "extensionpane":
+            return .extensionPane
+        default:
+            return PanelType(rawValue: normalized)
+        }
+    }
 }
 
 public enum TerminalPanelFocusIntent: Equatable {
