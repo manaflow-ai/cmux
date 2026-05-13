@@ -587,62 +587,67 @@ final class AuthManager: ObservableObject {
 
         // Sign in directly via the Stack Auth API and store tokens ourselves,
         // bypassing the StackClientApp which has token refresh issues.
-        let json = try await Self.stackAPIRequest(
-            url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/auth/password/sign-in",
-            body: try JSONSerialization.data(withJSONObject: ["email": email, "password": password]),
-            projectID: AuthEnvironment.stackProjectID,
-            clientKey: AuthEnvironment.stackPublishableClientKey
-        )
-        guard let accessToken = json["access_token"] as? String,
-              let refreshToken = json["refresh_token"] as? String else {
-            throw AuthManagerError.invalidCallback
-        }
-        await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        do {
+            let json = try await Self.stackAPIRequest(
+                url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/auth/password/sign-in",
+                body: try JSONSerialization.data(withJSONObject: ["email": email, "password": password]),
+                projectID: AuthEnvironment.stackProjectID,
+                clientKey: AuthEnvironment.stackPublishableClientKey
+            )
+            guard let accessToken = json["access_token"] as? String,
+                  let refreshToken = json["refresh_token"] as? String else {
+                throw AuthManagerError.invalidCallback
+            }
+            await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
 
-        // Fetch user info directly with the access token
-        let userJSON = try await Self.stackAPIRequest(
-            url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/users/me",
-            body: Data(),
-            projectID: AuthEnvironment.stackProjectID,
-            clientKey: AuthEnvironment.stackPublishableClientKey,
-            extraHeaders: ["x-stack-access-token": accessToken],
-            method: "GET"
-        )
-        let user = CMUXAuthUser(
-            id: userJSON["id"] as? String ?? "",
-            primaryEmail: userJSON["primary_email"] as? String,
-            displayName: userJSON["display_name"] as? String
-        )
+            // Fetch user info directly with the access token
+            let userJSON = try await Self.stackAPIRequest(
+                url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/users/me",
+                body: Data(),
+                projectID: AuthEnvironment.stackProjectID,
+                clientKey: AuthEnvironment.stackPublishableClientKey,
+                extraHeaders: ["x-stack-access-token": accessToken],
+                method: "GET"
+            )
+            let user = CMUXAuthUser(
+                id: userJSON["id"] as? String ?? "",
+                primaryEmail: userJSON["primary_email"] as? String,
+                displayName: userJSON["display_name"] as? String
+            )
 
-        // Fetch teams
-        let teamsJSON = try await Self.stackAPIRequest(
-            url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/teams?user_id=me",
-            body: Data(),
-            projectID: AuthEnvironment.stackProjectID,
-            clientKey: AuthEnvironment.stackPublishableClientKey,
-            extraHeaders: ["x-stack-access-token": accessToken],
-            method: "GET"
-        )
-        var teams: [AuthTeamSummary] = []
-        if let items = teamsJSON["items"] as? [[String: Any]] {
-            for item in items {
-                if let id = item["id"] as? String {
-                    teams.append(AuthTeamSummary(
-                        id: id,
-                        displayName: item["display_name"] as? String ?? ""
-                    ))
+            // Fetch teams
+            let teamsJSON = try await Self.stackAPIRequest(
+                url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/teams?user_id=me",
+                body: Data(),
+                projectID: AuthEnvironment.stackProjectID,
+                clientKey: AuthEnvironment.stackPublishableClientKey,
+                extraHeaders: ["x-stack-access-token": accessToken],
+                method: "GET"
+            )
+            var teams: [AuthTeamSummary] = []
+            if let items = teamsJSON["items"] as? [[String: Any]] {
+                for item in items {
+                    if let id = item["id"] as? String {
+                        teams.append(AuthTeamSummary(
+                            id: id,
+                            displayName: item["display_name"] as? String ?? ""
+                        ))
+                    }
                 }
             }
-        }
 
-        currentUser = user
-        settingsStore.saveCachedUser(user)
-        availableTeams = teams
-        isAuthenticated = true
-        selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
-        lastSignInError = nil
-        authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
-        didCompleteBrowserSignIn = true
+            currentUser = user
+            settingsStore.saveCachedUser(user)
+            availableTeams = teams
+            isAuthenticated = true
+            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+            lastSignInError = nil
+            authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
+            didCompleteBrowserSignIn = true
+        } catch {
+            lastSignInError = Self.signInError(from: error)
+            throw error
+        }
     }
 
     func signOut() async {
