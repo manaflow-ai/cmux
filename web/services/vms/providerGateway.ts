@@ -10,12 +10,14 @@ import {
   type ProviderId,
   type SSHEndpoint,
   type VMHandle,
+  type VMStatus,
 } from "./drivers";
 import { VmProviderOperationError } from "./errors";
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -55,6 +57,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "create", () => getProvider(provider).create(options)),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
+  getStatus: (provider, vmId) =>
+    providerEffect(provider, "getStatus", async () => {
+      const driver = getProvider(provider);
+      if (!driver.getStatus) return "running" as const;
+      return await driver.getStatus(vmId);
+    }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   openAttach: (provider, vmId, options) =>
