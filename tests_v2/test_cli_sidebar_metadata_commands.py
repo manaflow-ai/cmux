@@ -85,7 +85,11 @@ def main() -> int:
             _must("build=compiling" in status_list, f"list-status should include the inserted status entry: {status_list!r}")
             _must("priority=80" in status_list, f"list-status should include the inserted status priority: {status_list!r}")
             status_lines = [line for line in status_list.splitlines() if line.strip()]
-            _must(status_lines[0].startswith("build=compiling"), f"higher-priority status should list first: {status_list!r}")
+            build_index = next((idx for idx, line in enumerate(status_lines) if line.startswith("build=compiling")), None)
+            deploy_index = next((idx for idx, line in enumerate(status_lines) if line.startswith("deploy=v1.2.3")), None)
+            _must(build_index is not None, f"list-status should include the build status row: {status_list!r}")
+            _must(deploy_index is not None, f"list-status should include the deploy status row: {status_list!r}")
+            _must(build_index < deploy_index, f"higher-priority status should list before default priority: {status_list!r}")
 
             progress_response = _run_cli(cli, ["set-progress", "0.5", "--workspace", workspace_id, "--label", "Building"])
             _must(progress_response.startswith("OK"), f"set-progress should succeed, got {progress_response!r}")
