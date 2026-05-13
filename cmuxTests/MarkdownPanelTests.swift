@@ -11,6 +11,78 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
+        let theme = MarkdownWebTheme.resolve(
+            backgroundColor: NSColor(
+                srgbRed: 0.10,
+                green: 0.12,
+                blue: 0.14,
+                alpha: 0.42
+            )
+        )
+
+        XCTAssertTrue(theme.isDark)
+        XCTAssertEqual(theme.background, "transparent")
+        XCTAssertEqual(Self.cssRGBAComponents(theme.mutedBackground)?.red, 255)
+        XCTAssertEqual(Self.cssRGBAComponents(theme.mutedBackground)?.green, 255)
+        XCTAssertEqual(Self.cssRGBAComponents(theme.mutedBackground)?.blue, 255)
+        XCTAssertEqual(Self.cssRGBAComponents(theme.neutralMutedBackground)?.red, 255)
+        XCTAssertGreaterThan(
+            try XCTUnwrap(Self.cssRGBAComponents(theme.neutralMutedBackground)?.alpha),
+            try XCTUnwrap(Self.cssRGBAComponents(theme.mutedBackground)?.alpha)
+        )
+        XCTAssertFalse(theme.mutedBackground.contains("0.420"))
+        XCTAssertFalse(theme.neutralMutedBackground.contains("0.420"))
+    }
+
+    func testMarkdownThemeOverlayFallsBackToFullOverlayWhenContrastIsUnreachable() {
+        let base = NSColor(srgbRed: 0.2, green: 0.24, blue: 0.28, alpha: 0.4)
+        let overlay = base.markdownThemeOverlay(targetContrast: 21, of: base)
+
+        XCTAssertEqual(overlay.alphaComponent, 1, accuracy: 0.0001)
+    }
+
+    func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-file-open-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            try? fileManager.removeItem(at: directoryURL)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Title\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let result = TerminalController.shared.v2FileOpen(params: [
+            "paths": [fileURL.path],
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": pane.id.uuidString,
+            "focus": false
+        ])
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let openedPanelIdString = payload["surface_id"] as? String,
+              let openedPanelId = UUID(uuidString: openedPanelIdString) else {
+            XCTFail("Expected file.open to succeed for markdown, got \(result)")
+            return
+        }
+
+        let panel = try XCTUnwrap(workspace.markdownPanel(for: openedPanelId))
+        XCTAssertEqual(panel.filePath, fileURL.path)
+        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertNil(workspace.filePreviewPanel(for: openedPanelId))
+        XCTAssertEqual(payload["panel_type"] as? String, PanelType.markdown.rawValue)
+        XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
+    }
+
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -146,6 +218,26 @@ final class MarkdownPanelTests: XCTestCase {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func cssRGBAComponents(_ css: String) -> (red: Int, green: Int, blue: Int, alpha: Double)? {
+        let pattern = #"rgba\((\d+), (\d+), (\d+), ([0-9.]+)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: css, range: NSRange(css.startIndex..., in: css)),
+              match.numberOfRanges == 5 else {
+            return nil
+        }
+        func string(at index: Int) -> String? {
+            guard let range = Range(match.range(at: index), in: css) else { return nil }
+            return String(css[range])
+        }
+        guard let red = string(at: 1).flatMap(Int.init),
+              let green = string(at: 2).flatMap(Int.init),
+              let blue = string(at: 3).flatMap(Int.init),
+              let alpha = string(at: 4).flatMap(Double.init) else {
+            return nil
+        }
+        return (red, green, blue, alpha)
     }
 }
 

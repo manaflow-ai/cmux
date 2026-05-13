@@ -15,7 +15,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: false,
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
-            latestSubmittedMessage: "old message",
+            latestConversationMessage: "old message",
             listeningPorts: [3000]
         )
         let next = Self.snapshot(
@@ -23,7 +23,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: true,
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
-            latestSubmittedMessage: "new message",
+            latestConversationMessage: "new message",
             listeningPorts: [3000, 4000]
         )
 
@@ -39,7 +39,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(decision.workspaceSnapshotStorage, expectedDisplayed)
         XCTAssertTrue(decision.workspaceSnapshotStorage?.isPinned == true)
         XCTAssertEqual(decision.workspaceSnapshotStorage?.remoteConnectionStatusText, "Connected")
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestSubmittedMessage, "old message")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
         XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
         XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
         XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
@@ -94,7 +94,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         isPinned: Bool = false,
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
-        latestSubmittedMessage: String? = nil,
+        latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -107,7 +107,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
             copyableSidebarSSHError: nil,
-            latestSubmittedMessage: latestSubmittedMessage,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,
@@ -140,6 +140,73 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             showsGitBranch: showsGitBranch,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
+    }
+}
+
+final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
+    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertTrue(resolved.showsModifierShortcutHints)
+    }
+
+    func testNoFrozenPresentationUsesLiveSnapshot() {
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 2,
+            latestNotificationText: "live",
+            showsModifierShortcutHints: true
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: nil
+        )
+
+        XCTAssertEqual(resolved, live)
+    }
+
+    func testNonMatchingTabIdUsesLiveShortcutHints() {
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(resolved.showsModifierShortcutHints)
     }
 }
 

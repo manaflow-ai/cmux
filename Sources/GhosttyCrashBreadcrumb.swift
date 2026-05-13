@@ -12,7 +12,7 @@ nonisolated enum GhosttyCrashBreadcrumb {
 
     static var defaultCrashDirectoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/ghostty/crash", isDirectory: true)
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
     }
 
     @Sendable
