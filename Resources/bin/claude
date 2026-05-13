@@ -175,6 +175,8 @@ clear_inherited_claude_auth_selection_env() {
 }
 
 hide_cmux_passthrough_environment() {
+    [[ "${IN_CMUX:-0}" == "1" ]] || return 0
+
     local key
     while IFS='=' read -r key _; do
         [[ "$key" == CMUX_* ]] || continue

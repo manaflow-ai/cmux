@@ -232,6 +232,7 @@ def run_wrapper_terminal_env_probe(
     argv: list[str],
     *,
     hooks_disabled: bool = False,
+    in_cmux: bool = True,
 ) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
@@ -263,6 +264,8 @@ def run_wrapper_terminal_env_probe(
             "CMUX_WORKSPACE_ID": "workspace:test",
             "TERMINFO": str(tmp / "terminfo"),
         }
+        if not in_cmux:
+            fingerprint_env.pop("CMUX_SURFACE_ID")
         if hooks_disabled:
             fingerprint_env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         probe_key_lines = "\n".join(f"  {key}" for key in fingerprint_env)
@@ -644,6 +647,17 @@ def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]
                 f"{label}: expected {key} unset, got {value!r}",
                 failures,
             )
+
+
+def test_outside_cmux_passthrough_preserves_user_terminfo(failures: list[str]) -> None:
+    code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(["agents"], in_cmux=False)
+    expect(code == 0, f"outside cmux passthrough: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["agents"], f"outside cmux passthrough: expected raw argv, got {real_argv}", failures)
+    expect(
+        observed_env.get("TERMINFO") not in {None, "__UNSET__"},
+        f"outside cmux passthrough: expected user TERMINFO preserved, got {observed_env.get('TERMINFO')!r}",
+        failures,
+    )
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
@@ -1095,6 +1109,7 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
+    test_outside_cmux_passthrough_preserves_user_terminfo(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
