@@ -12934,7 +12934,7 @@ struct CMUXCLI {
             session.invalidateAndCancel()
         }
 
-        func initialize(clientName: String, version: String) throws {
+        func initialize(clientName: String, version: String, responseTimeout: TimeInterval = 10) throws {
             _ = try request(
                 method: "initialize",
                 params: [
@@ -12947,9 +12947,10 @@ struct CMUXCLI {
                         "experimentalApi": true
                     ]
                 ],
-                notificationHandler: nil
+                notificationHandler: nil,
+                responseTimeout: responseTimeout
             )
-            try sendObject(["method": "initialized"])
+            try sendObject(["method": "initialized"], timeout: responseTimeout)
         }
 
         func request(
@@ -12967,7 +12968,7 @@ struct CMUXCLI {
             if let params {
                 object["params"] = params
             }
-            try sendObject(object)
+            try sendObject(object, timeout: responseTimeout)
 
             while true {
                 let message = try receiveObject(timeout: responseTimeout)
@@ -13020,7 +13021,7 @@ struct CMUXCLI {
             }
         }
 
-        private func sendObject(_ object: [String: Any]) throws {
+        private func sendObject(_ object: [String: Any], timeout: TimeInterval = 10) throws {
             let data = try JSONSerialization.data(withJSONObject: object, options: [])
             guard let text = String(data: data, encoding: .utf8) else {
                 throw CLIError(message: "Failed to encode Codex app-server request")
@@ -13033,7 +13034,7 @@ struct CMUXCLI {
                 semaphore.signal()
             }
 
-            if semaphore.wait(timeout: .now() + 10) == .timedOut {
+            if semaphore.wait(timeout: .now() + timeout) == .timedOut {
                 throw CLIError(message: "Timed out sending Codex app-server request")
             }
             if let error = box.take() ?? nil {
@@ -13092,11 +13093,13 @@ struct CMUXCLI {
         private var parentByThreadId: [String: String] = [:]
         private var depthByThreadId: [String: Int] = [:]
         private var pendingByParentThreadId: [String: [CodexTeamsThread]] = [:]
+        private var threadById: [String: CodexTeamsThread] = [:]
         private var pendingThreadIds = Set<String>()
         private var openedThreadIds = Set<String>()
         private var readinessProbeThreadIds = Set<String>()
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
+        private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
 
         init(
@@ -13132,8 +13135,9 @@ struct CMUXCLI {
                         version: CMUXCLI.codexTeamsClientVersion
                     )
                     try backfillLoadedThreads(connection: connection)
+                    try listenForNotifications(connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher reconcile failed: \(error)\n", stderr)
+                    fputs("cmux codex-teams watcher connection failed: \(error)\n", stderr)
                 }
                 _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
@@ -13167,23 +13171,37 @@ struct CMUXCLI {
                 }
                 if let threadObject = read["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThread(thread)
+                    try observeThreadSafely(thread)
                 }
+            }
+        }
+
+        private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
+            while true {
+                let message = try connection.receiveObject()
+                try handleNotification(message)
             }
         }
 
         private func handleNotification(_ message: [String: Any]) throws {
             guard let method = message["method"] as? String else { return }
-            guard method == "thread/started",
+            guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
                   let threadObject = params["thread"] as? [String: Any],
                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
                 return
             }
+            try observeThreadSafely(thread)
+        }
+
+        private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
+            stateLock.lock()
+            defer { stateLock.unlock() }
             try observeThread(thread)
         }
 
         private func observeThread(_ thread: CodexTeamsThread) throws {
+            threadById[thread.id] = thread
             if knownThreadIds.contains(thread.id) {
                 if let spawn = thread.spawn {
                     if parentByThreadId[thread.id] == nil {
@@ -13284,7 +13302,24 @@ struct CMUXCLI {
                     self.attachableThreadIds.insert(threadId)
                 }
                 self.readinessLock.unlock()
+                guard isAttachable else { return }
+                do {
+                    try self.openAttachableThread(threadId: threadId)
+                } catch {
+                    fputs("cmux codex-teams watcher failed to open ready subagent \(threadId): \(error)\n", stderr)
+                }
             }
+        }
+
+        private func openAttachableThread(threadId: String) throws {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard let thread = threadById[threadId],
+                  let spawn = thread.spawn,
+                  parentByThreadId[threadId] != nil else {
+                return
+            }
+            try openObservedSubagent(thread, spawn: spawn)
         }
 
         private func codexTeamsConsumeAttachableThreadId(_ threadId: String) -> Bool {
@@ -13363,11 +13398,11 @@ struct CMUXCLI {
             defer { connection.close() }
             try connection.initialize(
                 clientName: codexTeamsProbeClientName,
-                version: codexTeamsClientVersion
+                version: codexTeamsClientVersion,
+                responseTimeout: 1
             )
             return connection.canResumeThread(threadId: threadId)
         } catch {
-            connection.close()
             return false
         }
     }
@@ -13710,13 +13745,10 @@ struct CMUXCLI {
     }
 
     private func codexTeamsSubagentLaunchPath(_ path: String?) -> String {
-        let whitespace = CharacterSet.whitespacesAndNewlines
         return path?
             .split(separator: ":")
             .map(String.init)
-            .filter { entry in
-                !entry.isEmpty && entry.rangeOfCharacter(from: whitespace) == nil
-            }
+            .filter { !$0.isEmpty }
             .joined(separator: ":") ?? ""
     }
 
@@ -13749,12 +13781,23 @@ struct CMUXCLI {
             return
         }
 
-        for versionURL in versionURLs.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
+        for versionURL in versionURLs.sorted(by: codexTeamsNodeVersionURLSortPrecedes) {
             let binURL = suffix.split(separator: "/").reduce(versionURL) { partial, component in
                 partial.appendingPathComponent(String(component), isDirectory: true)
             }
             codexTeamsAppendPathEntry(binURL.path, entries: &entries, seen: &seen)
         }
+    }
+
+    private func codexTeamsNodeVersionURLSortPrecedes(_ lhs: URL, _ rhs: URL) -> Bool {
+        let comparison = lhs.lastPathComponent.compare(
+            rhs.lastPathComponent,
+            options: [.caseInsensitive, .numeric]
+        )
+        if comparison != .orderedSame {
+            return comparison == .orderedDescending
+        }
+        return lhs.path > rhs.path
     }
 
     private func codexTeamsLoginShellPath(environment: [String: String]) -> String? {
@@ -13814,20 +13857,24 @@ struct CMUXCLI {
             throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
         }
         var lastError: Error?
-        for _ in 0..<50 {
+        let deadline = Date().addingTimeInterval(8)
+        let retryWaiter = DispatchSemaphore(value: 0)
+        while Date() < deadline {
             let connection = CodexTeamsAppServerConnection(url: url)
             connection.resume()
             do {
+                defer { connection.close() }
+                let responseTimeout = max(0.1, min(1, deadline.timeIntervalSinceNow))
                 try connection.initialize(
                     clientName: Self.codexTeamsProbeClientName,
-                    version: Self.codexTeamsClientVersion
+                    version: Self.codexTeamsClientVersion,
+                    responseTimeout: responseTimeout
                 )
-                connection.close()
                 return
             } catch {
-                connection.close()
                 lastError = error
-                Thread.sleep(forTimeInterval: 0.1)
+                let retryDelay = max(0.01, min(0.1, deadline.timeIntervalSinceNow))
+                _ = retryWaiter.wait(timeout: .now() + retryDelay)
             }
         }
         throw CLIError(message: "Codex app-server did not become ready: \(lastError.map { String(describing: $0) } ?? "unknown error")")
@@ -13856,21 +13903,17 @@ struct CMUXCLI {
 
         if let logURL {
             process.standardInput = standardInput ?? FileHandle(forReadingAtPath: "/dev/null")
-            try? Data().write(to: logURL)
-            let outputHandle = try FileHandle(forWritingTo: logURL)
-            let errorHandle = try FileHandle(forWritingTo: logURL)
-            do {
-                _ = try outputHandle.seekToEnd()
-            } catch {
-                // Fresh log files are still usable if seeking fails.
+            let descriptor = Darwin.open(
+                logURL.path,
+                O_WRONLY | O_CREAT | O_TRUNC | O_APPEND,
+                S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH
+            )
+            guard descriptor >= 0 else {
+                throw CLIError(message: "Failed to open Codex Teams log \(logURL.path): \(String(cString: strerror(errno)))")
             }
-            do {
-                _ = try errorHandle.seekToEnd()
-            } catch {
-                // Fresh log files are still usable if seeking fails.
-            }
-            process.standardOutput = outputHandle
-            process.standardError = errorHandle
+            let logHandle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            process.standardOutput = logHandle
+            process.standardError = logHandle
         } else {
             process.standardInput = standardInput
             process.standardOutput = standardOutput
