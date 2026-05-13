@@ -182,7 +182,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     private func optimizedResults(
         entries: [FixtureEntry],
-        query: String
+        query: String,
+        resultLimit: Int? = nil
     ) -> [FixtureResult] {
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -193,7 +194,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         }
 
-        return CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+        return CommandPaletteSearchEngine.search(entries: corpus, query: query, resultLimit: resultLimit) { _, _ in 0 }
             .map {
                 FixtureResult(
                     id: $0.payload,
@@ -237,6 +238,21 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    private func fastTypingPrefixes(_ text: String) -> [String] {
+        text.indices.map { index in
+            String(text[...index])
+        }
+    }
+
+    private func estimatedDroppedFrames(
+        for queryDurationsMs: [Double],
+        frameBudgetMs: Double = 1000.0 / 60.0
+    ) -> Int {
+        queryDurationsMs.reduce(0) { total, durationMs in
+            total + max(0, Int(ceil(durationMs / frameBudgetMs)) - 1)
         }
     }
 
@@ -295,6 +311,29 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 optimizedResults(entries: switcherEntries, query: query),
                 referenceResults(entries: switcherEntries, query: query),
                 "Switcher corpus mismatch for query \(query)"
+            )
+        }
+    }
+
+    func testLimitedSearchReturnsSameTopResultsAsFullSearch() {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
+        let queries = [
+            "workspace 799",
+            "palette latency",
+            "feature 401",
+            "cmd-p-search",
+            "project-642",
+            "Window 3",
+        ]
+
+        for query in queries {
+            let fullResults = optimizedResults(entries: entries, query: query)
+            let limitedResults = optimizedResults(entries: entries, query: query, resultLimit: 48)
+
+            XCTAssertEqual(
+                limitedResults,
+                Array(fullResults.prefix(48)),
+                "Limited search should preserve full-search ordering and highlight output for query \(query)"
             )
         }
     }
@@ -1000,6 +1039,77 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             optimizedMs,
             referenceMs * 0.80,
             "Large switcher search should reuse prepared corpus data: reference=\(referenceMs) optimized=\(optimizedMs)"
+        )
+    }
+
+    func testFastTypingPreviewSearchBenchmarkReportsEstimatedDroppedFrames() {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let visibleCandidateCorpus = Array(corpus.prefix(192))
+        let queries = repeatedQueries(
+            fastTypingPrefixes("cmd-p-search") + fastTypingPrefixes("palette latency"),
+            repetitions: 2
+        )
+
+        for query in queries.prefix(8) {
+            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine.search(entries: visibleCandidateCorpus, query: query, resultLimit: 48) { _, _ in 0 }
+        }
+
+        var fullDurationsMs: [Double] = []
+        var previewDurationsMs: [Double] = []
+        fullDurationsMs.reserveCapacity(queries.count)
+        previewDurationsMs.reserveCapacity(queries.count)
+
+        for query in queries {
+            fullDurationsMs.append(
+                benchmarkElapsedMs {
+                    _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+                }
+            )
+            previewDurationsMs.append(
+                benchmarkElapsedMs {
+                    _ = CommandPaletteSearchEngine.search(entries: visibleCandidateCorpus, query: query, resultLimit: 48) { _, _ in 0 }
+                }
+            )
+        }
+
+        let fullMs = fullDurationsMs.reduce(0, +)
+        let previewMs = previewDurationsMs.reduce(0, +)
+        let fullDroppedFrames = estimatedDroppedFrames(for: fullDurationsMs)
+        let previewDroppedFrames = estimatedDroppedFrames(for: previewDurationsMs)
+        let maxFullMs = fullDurationsMs.max() ?? 0
+        let maxPreviewMs = previewDurationsMs.max() ?? 0
+        let maxPreviewQuery = previewDurationsMs.enumerated().max(by: { $0.element < $1.element }).map {
+            queries[$0.offset]
+        } ?? ""
+
+        print(String(
+            format: "BENCH cmd+p fast-typing full=%.2fms visiblePreview=%.2fms maxFull=%.2fms maxVisiblePreview=%.2fms maxVisiblePreviewQuery=%@ fullDroppedFrames=%d visiblePreviewDroppedFrames=%d",
+            fullMs,
+            previewMs,
+            maxFullMs,
+            maxPreviewMs,
+            maxPreviewQuery,
+            fullDroppedFrames,
+            previewDroppedFrames
+        ))
+        XCTAssertLessThan(
+            previewMs,
+            fullMs,
+            "Visible-candidate preview search should avoid full-corpus work during fast typing: full=\(fullMs) preview=\(previewMs)"
+        )
+        XCTAssertLessThanOrEqual(
+            previewDroppedFrames,
+            fullDroppedFrames,
+            "Preview search should not increase estimated frame-budget misses: full=\(fullDroppedFrames) preview=\(previewDroppedFrames)"
         )
     }
 }
