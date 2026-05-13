@@ -151,6 +151,10 @@ enum AgentResumeCommandBuilder {
                 option: "--session",
                 sessionId: sessionId
             )
+        case .amp:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: original.tail) else { return nil }
+            return [original.executable, "threads", "continue"] + preserved + [sessionId]
         case .cursor:
             return resumeWithOption(
                 kind: "cursor",
@@ -464,6 +468,7 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var updatedAt: TimeInterval
 }
@@ -548,7 +553,13 @@ struct RestorableAgentSessionIndex: Sendable {
                 let normalizedSessionId = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: record.workspaceId),
-                      let panelId = UUID(uuidString: record.surfaceId) else {
+                      let panelId = UUID(uuidString: record.surfaceId),
+                      hookRecordStillBelongsToLiveAgent(
+                          record,
+                          kind: kind,
+                          workspaceId: workspaceId,
+                          panelId: panelId
+                      ) else {
                     continue
                 }
 
@@ -578,7 +589,53 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+        normalizedNonEmptyValue(rawValue)
+    }
+
+    private static func hookRecordStillBelongsToLiveAgent(
+        _ record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> Bool {
+        guard let pid = record.pid else {
+            return true
+        }
+        guard pid > 0,
+              let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid),
+              process.environmentUUID(forKey: "CMUX_WORKSPACE_ID") == workspaceId,
+              process.environmentUUID(forKey: "CMUX_SURFACE_ID") == panelId else {
+            return false
+        }
+
+        if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
+           liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
+            return false
+        }
+
+        guard let recordedExecutable = recordedExecutableBasename(record),
+              let liveExecutable = process.arguments.first.map(executableBasename) else {
+            return true
+        }
+        return liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame
+    }
+
+    private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
+        let executable = normalizedProcessValue(record.launchCommand?.executablePath)
+            ?? normalizedProcessValue(record.launchCommand?.arguments.first)
+        return executable.map(executableBasename)
+    }
+
+    private static func executableBasename(_ value: String) -> String {
+        (value as NSString).lastPathComponent
+    }
+
+    private static func normalizedProcessValue(_ value: String?) -> String? {
+        normalizedNonEmptyValue(value)
+    }
+
+    private static func normalizedNonEmptyValue(_ value: String?) -> String? {
+        guard let rawValue = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil
         }
@@ -587,5 +644,15 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
         self.snapshotsByPanel = snapshotsByPanel
+    }
+}
+
+private extension CmuxTopProcessArguments {
+    func environmentUUID(forKey key: String) -> UUID? {
+        guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return UUID(uuidString: rawValue)
     }
 }
