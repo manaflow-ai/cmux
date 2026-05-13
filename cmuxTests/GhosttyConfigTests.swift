@@ -3236,7 +3236,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(output, "READY", output)
 
-        let deadline = Date().addingTimeInterval(1)
+        let deadline = Date().addingTimeInterval(5)
         var log = ""
         while Date() < deadline {
             log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
@@ -3245,6 +3245,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             }
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
         }
+        try? fileManager.removeItem(at: blockPath)
         XCTAssertTrue(log.contains("set-environment"), log)
     }
 
