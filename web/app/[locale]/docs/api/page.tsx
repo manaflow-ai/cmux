@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
+import { DocsHeading } from "../../components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -42,10 +43,10 @@ export default function ApiPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("socket")}</h2>
+      <DocsHeading level={2} id="socket">{t("socket")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -84,7 +85,7 @@ export default function ApiPage() {
         })}
       </Callout>
 
-      <h2>{t("accessModes")}</h2>
+      <DocsHeading level={2} id="access-modes">{t("accessModes")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -121,7 +122,7 @@ export default function ApiPage() {
         {t("accessCallout")}
       </Callout>
 
-      <h2>{t("cliOptions")}</h2>
+      <DocsHeading level={2} id="cli-options">{t("cliOptions")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -169,7 +170,7 @@ export default function ApiPage() {
         </tbody>
       </table>
 
-      <h2>{t("workspaceCommands")}</h2>
+      <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
 
       <Cmd
         name="list-workspaces"
@@ -204,7 +205,7 @@ cmux current-workspace --json`}
         socket={`{"id":"ws-close","method":"workspace.close","params":{"workspace_id":"<id>"}}`}
       />
 
-      <h2>{t("splitCommands")}</h2>
+      <DocsHeading level={2} id="split-commands">{t("splitCommands")}</DocsHeading>
 
       <Cmd
         name="new-split"
@@ -227,7 +228,7 @@ cmux list-surfaces --json`}
         socket={`{"id":"surface-focus","method":"surface.focus","params":{"surface_id":"<id>"}}`}
       />
 
-      <h2>{t("inputCommands")}</h2>
+      <DocsHeading level={2} id="input-commands">{t("inputCommands")}</DocsHeading>
 
       <Cmd
         name="send"
@@ -255,7 +256,7 @@ cmux send "ls -la\\n"`}
         socket={`{"id":"send-key-surface","method":"surface.send_key","params":{"surface_id":"<id>","key":"enter"}}`}
       />
 
-      <h2>{t("notificationCommands")}</h2>
+      <DocsHeading level={2} id="notification-commands">{t("notificationCommands")}</DocsHeading>
 
       <Cmd
         name="notify"
@@ -278,7 +279,7 @@ cmux list-notifications --json`}
         socket={`{"id":"notif-clear","method":"notification.clear","params":{}}`}
       />
 
-      <h2>{t("sidebarMetadata")}</h2>
+      <DocsHeading level={2} id="sidebar-metadata">{t("sidebarMetadata")}</DocsHeading>
       <p>{t("sidebarMetadataDesc")}</p>
 
       <Cmd
@@ -342,7 +343,7 @@ cmux sidebar-state --workspace workspace:2`}
         socket={`sidebar_state --tab=<workspace-uuid>`}
       />
 
-      <h2>{t("utilityCommands")}</h2>
+      <DocsHeading level={2} id="utility-commands">{t("utilityCommands")}</DocsHeading>
 
       <Cmd
         name="ping"
@@ -366,7 +367,7 @@ cmux identify --json`}
         socket={`{"id":"identify","method":"system.identify","params":{}}`}
       />
 
-      <h2>{t("envVariables")}</h2>
+      <DocsHeading level={2} id="env-variables">{t("envVariables")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -423,7 +424,7 @@ cmux identify --json`}
         {t("envCallout")}
       </Callout>
 
-      <h2>{t("detectingCmux")}</h2>
+      <DocsHeading level={2} id="detecting-cmux">{t("detectingCmux")}</DocsHeading>
       <CodeBlock title="bash" lang="bash">{`# Prefer explicit socket path if set
 SOCK="\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
 [ -S "$SOCK" ] && echo "Socket available"
@@ -437,9 +438,9 @@ command -v cmux &>/dev/null && echo "cmux available"
 # Distinguish from regular Ghostty
 [ "$TERM_PROGRAM" = "ghostty" ] && [ -n "\${CMUX_WORKSPACE_ID:-}" ] && echo "In cmux"`}</CodeBlock>
 
-      <h2>{t("examples")}</h2>
+      <DocsHeading level={2} id="examples">{t("examples")}</DocsHeading>
 
-      <h3>{t("pythonClient")}</h3>
+      <DocsHeading level={3} id="python-client">{t("pythonClient")}</DocsHeading>
       <CodeBlock title="python" lang="python">{`import json
 import os
 import socket
@@ -463,7 +464,7 @@ print(rpc(
     req_id="notify"
 ))`}</CodeBlock>
 
-      <h3>{t("shellScript")}</h3>
+      <DocsHeading level={3} id="shell-script">{t("shellScript")}</DocsHeading>
       <CodeBlock title="bash" lang="bash">{`#!/bin/bash
 SOCK="\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
 
@@ -474,7 +475,7 @@ cmux_cmd() {
 cmux_cmd '{"id":"ws","method":"workspace.list","params":{}}'
 cmux_cmd '{"id":"notify","method":"notification.create","params":{"title":"Done","body":"Task complete"}}'`}</CodeBlock>
 
-      <h3>{t("buildScriptNotification")}</h3>
+      <DocsHeading level={3} id="build-script-notification">{t("buildScriptNotification")}</DocsHeading>
       <CodeBlock title="bash" lang="bash">{`#!/bin/bash
 npm run build
 if [ $? -eq 0 ]; then
