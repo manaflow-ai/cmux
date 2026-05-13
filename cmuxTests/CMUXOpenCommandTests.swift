@@ -120,6 +120,239 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open", "workspace.create"])
     }
 
+    func testMarkdownOpenCommandUsesMarkdownOpenEndpoint() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("markdown-open")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("README.md")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "# Smoke\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "markdown.open",
+                  params["path"] as? String == fileURL.path else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "path": fileURL.path]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["markdown", "open", fileURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK surface=surface-id pane=pane-id path=\(fileURL.path)\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["markdown.open"])
+    }
+
+    func testTopCommandSortsWorkspacesByCPUDescending() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-cpu")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "workspaces": [
+                        topNode(ref: "workspace:low", cpu: 1, rss: 1_000, processCount: 1),
+                        topNode(ref: "workspace:high", cpu: 10, rss: 10_000, processCount: 3),
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--sort", "cpu"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let lines = outputLines(result.stdout)
+        XCTAssertGreaterThanOrEqual(lines.count, 4, result.stdout)
+        XCTAssertTrue(lines[2].contains("workspace workspace:high"), result.stdout)
+        XCTAssertTrue(lines[3].contains("workspace workspace:low"), result.stdout)
+    }
+
+    func testTopCommandSortsMixedWorkspaceChildrenByMemoryAlias() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-mem")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "workspaces": [
+                        topNode(ref: "workspace:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                            "tags": [
+                                topTag(key: "codex", cpu: 1, rss: 10_000, processCount: 1),
+                            ],
+                            "panes": [
+                                topNode(ref: "pane:1", cpu: 2, rss: 50_000, processCount: 2),
+                            ],
+                        ]),
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--sort", "mem"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let lines = outputLines(result.stdout)
+        XCTAssertGreaterThanOrEqual(lines.count, 5, result.stdout)
+        XCTAssertTrue(lines[3].contains("pane pane:1"), result.stdout)
+        XCTAssertTrue(lines[4].contains("tag codex"), result.stdout)
+    }
+
+    func testTopCommandOutputsFlatTSVForShellSorting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-tsv")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "totals": topResources(cpu: 12, rss: 12_000, processCount: 4),
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "workspaces": [
+                        topNode(ref: "workspace:1", cpu: 10, rss: 10_000, processCount: 3, extra: [
+                            "title": "High\tCPU\nWorkspace",
+                        ]),
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--flat", "--format", "tsv"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "12.0\t12000\t4\ttotal\ttotal\t\t",
+            "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+            "10.0\t10000\t3\tworkspace\tworkspace:1\twindow:1\tHigh CPU Workspace",
+        ])
+    }
+
+    func testTopCommandFormatTSVImpliesFlatOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-fmt")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--format", "tsv"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+        ])
+    }
+
+    func testTopCommandSortsFlatTSVSiblingsByMemory() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-tsv-sort")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 2, extra: [
+                    "workspaces": [
+                        topNode(ref: "workspace:low", cpu: 1, rss: 1_000, processCount: 1),
+                        topNode(ref: "workspace:high", cpu: 3, rss: 10_000, processCount: 3),
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--format", "tsv", "--sort", "rss"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "2.0\t2000\t2\twindow\twindow:1\ttotal\t",
+            "3.0\t10000\t3\tworkspace\tworkspace:high\twindow:1\t",
+            "1.0\t1000\t1\tworkspace\tworkspace:low\twindow:1\t",
+        ])
+    }
+
     private func runCLI(cliPath: String, socketPath: String, arguments: [String]) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -273,6 +506,54 @@ final class CMUXOpenCommandTests: XCTestCase {
             }
         }
         return handled
+    }
+
+    private func startTopMockServer(listenerFD: Int32, payload: [String: Any]) -> XCTestExpectation {
+        startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
+            guard let request = Self.v2Payload(from: line),
+                  let id = request["id"] as? String,
+                  request["method"] as? String == "system.top" else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(id: id, ok: true, result: payload)
+        }
+    }
+
+    private func topNode(
+        ref: String,
+        cpu: Double,
+        rss: Int,
+        processCount: Int,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        var result = extra
+        result["ref"] = ref
+        result["resources"] = topResources(cpu: cpu, rss: rss, processCount: processCount)
+        return result
+    }
+
+    private func topTag(
+        key: String,
+        cpu: Double,
+        rss: Int,
+        processCount: Int
+    ) -> [String: Any] {
+        [
+            "key": key,
+            "resources": topResources(cpu: cpu, rss: rss, processCount: processCount),
+        ]
+    }
+
+    private func topResources(cpu: Double, rss: Int, processCount: Int) -> [String: Any] {
+        [
+            "cpu_percent": cpu,
+            "resident_bytes": rss,
+            "process_count": processCount,
+        ]
+    }
+
+    private func outputLines(_ output: String) -> [String] {
+        output.split(separator: "\n").map(String.init)
     }
 
     private static func v2Payload(from line: String) -> [String: Any]? {
