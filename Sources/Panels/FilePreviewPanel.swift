@@ -26,7 +26,7 @@ enum FilePreviewInteraction {
 
 }
 
-struct FileExternalOpenApplication: Identifiable, Equatable {
+struct FileExternalOpenApplication: Identifiable, Equatable, Sendable {
     let url: URL
     let displayName: String
     let isDefault: Bool
@@ -36,11 +36,11 @@ struct FileExternalOpenApplication: Identifiable, Equatable {
     }
 }
 
-struct FileExternalOpenApplicationResolver {
-    var defaultApplicationURL: (URL) -> URL?
-    var applicationURLs: (URL) -> [URL]
-    var displayName: (URL) -> String
-    var shouldIncludeApplication: (URL) -> Bool
+struct FileExternalOpenApplicationResolver: Sendable {
+    var defaultApplicationURL: @Sendable (URL) -> URL?
+    var applicationURLs: @Sendable (URL) -> [URL]
+    var displayName: @Sendable (URL) -> String
+    var shouldIncludeApplication: @Sendable (URL) -> Bool
 
     static let live = FileExternalOpenApplicationResolver(
         defaultApplicationURL: { NSWorkspace.shared.urlForApplication(toOpen: $0) },
@@ -141,20 +141,15 @@ struct FileExternalOpenMenu: View {
     var isDisabled = false
     var style: FileExternalOpenMenuStyle = .header
 
-    private var applications: [FileExternalOpenApplication] {
-        FileExternalOpenApplicationResolver.live.applications(for: fileURL)
-    }
-
-    private var primaryApplication: FileExternalOpenApplication? {
-        applications.first { $0.isDefault } ?? applications.first
-    }
+    @State private var resolvedApplications: [FileExternalOpenApplication] = []
 
     var body: some View {
-        let applications = applications
-        let primaryApplication = applications.first { $0.isDefault } ?? applications.first
+        let applications = resolvedApplications
+        let primaryApplication = primaryApplication(in: applications)
         let otherApplications = applications.filter { application in
             application.id != primaryApplication?.id
         }
+        let helpText = helpText(for: primaryApplication)
 
         Menu {
             if let primaryApplication {
@@ -183,6 +178,9 @@ struct FileExternalOpenMenu: View {
         .disabled(isDisabled)
         .help(helpText)
         .accessibilityLabel(helpText)
+        .task(id: fileURL) {
+            await refreshApplications()
+        }
     }
 
     @ViewBuilder
@@ -198,7 +196,11 @@ struct FileExternalOpenMenu: View {
         }
     }
 
-    private var helpText: String {
+    private func primaryApplication(in applications: [FileExternalOpenApplication]) -> FileExternalOpenApplication? {
+        applications.first { $0.isDefault } ?? applications.first
+    }
+
+    private func helpText(for primaryApplication: FileExternalOpenApplication?) -> String {
         if let primaryApplication {
             return openInTitle(primaryApplication.displayName)
         }
@@ -207,6 +209,17 @@ struct FileExternalOpenMenu: View {
 
     private func openInTitle(_ applicationName: String) -> String {
         FileExternalOpenText.openInApplication(applicationName)
+    }
+
+    @MainActor
+    private func refreshApplications() async {
+        resolvedApplications = []
+        let url = fileURL
+        let applications = await Task.detached(priority: .userInitiated) {
+            FileExternalOpenApplicationResolver.live.applications(for: url)
+        }.value
+        guard !Task.isCancelled else { return }
+        resolvedApplications = applications
     }
 }
 

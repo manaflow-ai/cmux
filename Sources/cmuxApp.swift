@@ -4724,21 +4724,14 @@ enum CmdClickMarkdownRouteSettings {
         return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
     }
 
-    static func shouldRoute(path: String) -> Bool {
-        guard CmdClickSupportedFileRouteSettings.isEnabled(),
-              isEnabled(),
+    static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
+        guard isEnabled(defaults: defaults),
               isMarkdownPath(path) else { return false }
         // Match the `markdown.open` socket path: only route real, readable
         // files. Rejects FIFOs, device nodes, sockets, symlinks to non-regular
         // targets, and permission-denied paths so the viewer never opens into
         // an unavailable state.
-        let resolved = (path as NSString).resolvingSymlinksInPath
-        guard FileManager.default.isReadableFile(atPath: resolved),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: resolved),
-              (attrs[.type] as? FileAttributeType) == .typeRegular else {
-            return false
-        }
-        return true
+        return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path)
     }
 }
 
@@ -4748,13 +4741,11 @@ enum CmdClickSupportedFileRouteSettings {
     static let defaultValue = true
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.synchronize()
         return defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
     }
 
     static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
         defaults.set(enabled, forKey: key)
-        defaults.synchronize()
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
@@ -5278,6 +5269,16 @@ struct SettingsView: View {
             set: { newValue in
                 BrowserAvailabilitySettings.setDisabled(!newValue)
                 browserDisabled = !newValue
+            }
+        )
+    }
+
+    private var supportedFileRoutingBinding: Binding<Bool> {
+        Binding(
+            get: { openSupportedFilesInCmux },
+            set: { newValue in
+                CmdClickSupportedFileRouteSettings.setEnabled(newValue)
+                openSupportedFilesInCmux = newValue
             }
         )
     }
@@ -5875,7 +5876,7 @@ struct SettingsView: View {
                             String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"),
                             subtitle: String(localized: "settings.app.openSupportedFilesInCmux.subtitle", defaultValue: "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux.")
                         ) {
-                            Toggle("", isOn: $openSupportedFilesInCmux)
+                            Toggle("", isOn: supportedFileRoutingBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityLabel(
@@ -7301,6 +7302,7 @@ struct SettingsView: View {
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
+        CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue

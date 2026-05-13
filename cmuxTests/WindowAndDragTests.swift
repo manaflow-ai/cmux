@@ -2495,6 +2495,21 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
     }
 
+    func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
+        let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        defaults.set(true, forKey: CmdClickMarkdownRouteSettings.key)
+        defaults.set(false, forKey: CmdClickSupportedFileRouteSettings.key)
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
         let sourceURL = try temporaryTextFile(contents: "source", encoding: .utf8)
         let firstURL = try temporaryTextFile(contents: "first", encoding: .utf8)
@@ -2506,6 +2521,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         }
 
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
         let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: sourcePane,
@@ -2542,6 +2559,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         }
 
         let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
         let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: sourcePane,

@@ -20,30 +20,6 @@ private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t
 @_silgen_name("ghostty_surface_select_cursor_cell")
 private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
 
-enum CommandClickFileOpenRouter {
-    static func shouldRouteInCmux(path: String) -> Bool {
-        CmdClickMarkdownRouteSettings.shouldRoute(path: path)
-            || CmdClickSupportedFileRouteSettings.shouldRoute(path: path)
-    }
-
-    @MainActor
-    static func openInCmux(
-        workspace: Workspace,
-        sourcePanelId: UUID,
-        filePath: String
-    ) -> Bool {
-        if CmdClickMarkdownRouteSettings.shouldRoute(path: filePath),
-           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
-            return true
-        }
-
-        guard CmdClickSupportedFileRouteSettings.shouldRoute(path: filePath) else {
-            return false
-        }
-        return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
-    }
-}
-
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
