@@ -3249,6 +3249,106 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(log.contains("set-environment"), log)
     }
 
+    func testShellIntegrationDoesNotFailWhenTmuxIsNotInstalled() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-no-tmux-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            command -v tmux >/dev/null && print -r -- HAS_TMUX || print -r -- NO_TMUX
+            _cmux_tmux_publish_cmux_environment async
+            print -r -- READY
+            """,
+            extraEnvironment: [
+                "PATH": binDir.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_TAG": "feat-tmux-notification-attention-state",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            [
+                "NO_TMUX",
+                "READY",
+            ].joined(separator: "\n"),
+            output
+        )
+    }
+
+    func testShellIntegrationRetriesAsyncTmuxEnvironmentPublishAfterFailure() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-tmux-async-retry-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        let failPath = root.appendingPathComponent("tmux-fail", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try Data().write(to: failPath)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            if [ -e "\(failPath.path)" ] && [ "$1" = "set-environment" ]; then
+              exit 1
+            fi
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_precmd
+            while _cmux_tmux_publish_job_is_running; do
+              /bin/sleep 0.02
+            done
+            /bin/rm -f "\(failPath.path)"
+            _cmux_precmd
+            while _cmux_tmux_publish_job_is_running; do
+              /bin/sleep 0.02
+            done
+            print -r -- READY
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_TAG": "feat-tmux-notification-attention-state",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertEqual(output, "READY", output)
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        let setEnvironmentCount = log
+            .split(separator: "\n")
+            .filter { $0.contains("set-environment") }
+            .count
+        XCTAssertGreaterThanOrEqual(setEnvironmentCount, 2, log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_TAG feat-tmux-notification-attention-state"), log)
+    }
+
     func testShellIntegrationDetectsTmuxInCompoundPreexecCommand() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
