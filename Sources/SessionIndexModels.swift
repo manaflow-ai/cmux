@@ -197,6 +197,23 @@ enum AgentSpecifics: Hashable {
     case registered(CmuxVaultAgentRegistration)
 }
 
+enum ClaudeConfigurationRoot {
+    nonisolated static func isLikelyConfigured(
+        _ configDir: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let configPath = ((configDir as NSString).expandingTildeInPath as NSString)
+            .appendingPathComponent(".claude.json")
+        guard let data = fileManager.contents(atPath: configPath),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return obj["oauthAccount"] != nil
+            || obj["primaryApiKey"] != nil
+            || obj["apiKey"] != nil
+    }
+}
+
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent
@@ -316,7 +333,10 @@ struct SessionEntry: Identifiable, Hashable {
         }
         let configComponents = Array(pathComponents[..<projectsIndex])
         let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : ClaudeConfigDirectoryPath.preferredPath(configDir)
+        guard !configDir.isEmpty else { return nil }
+        let preferredConfigDir = ClaudeConfigDirectoryPath.preferredPath(configDir)
+        guard ClaudeConfigurationRoot.isLikelyConfigured(preferredConfigDir) else { return nil }
+        return preferredConfigDir
     }
 
     private static func withShellEnvironment(

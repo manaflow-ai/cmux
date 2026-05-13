@@ -56,31 +56,63 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() {
+    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(fileURLWithPath: "/tmp/claude config/projects/-tmp/claude-session-123.jsonl")
+            fileURL: transcriptURL
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
-    func testClaudeResumeCommandUsesNearestProjectsDirectory() {
+    func testClaudeResumeCommandUsesNearestProjectsDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(
-                fileURLWithPath: "/tmp/projects/claude config/projects/-tmp/claude-session-123.jsonl"
-            )
+            fileURL: transcriptURL
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 

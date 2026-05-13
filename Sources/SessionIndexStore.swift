@@ -638,7 +638,7 @@ final class SessionIndexStore: ObservableObject {
                   isDirectory.boolValue else {
                 return
             }
-            if requireConfigured, !isLikelyConfiguredClaudeRoot(standardized) {
+            if requireConfigured, !ClaudeConfigurationRoot.isLikelyConfigured(standardized) {
                 return
             }
             guard seen.insert(standardized).inserted else { return }
@@ -664,17 +664,6 @@ final class SessionIndexStore: ObservableObject {
         )
 
         return roots.map(ClaudeSessionRoot.init(configDir:))
-    }
-
-    nonisolated private static func isLikelyConfiguredClaudeRoot(_ configDir: String) -> Bool {
-        let configPath = (configDir as NSString).appendingPathComponent(".claude.json")
-        guard let data = FileManager.default.contents(atPath: configPath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
-        }
-        return obj["oauthAccount"] != nil
-            || obj["primaryApiKey"] != nil
-            || obj["apiKey"] != nil
     }
 
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
