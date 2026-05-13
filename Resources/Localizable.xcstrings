@@ -9931,6 +9931,23 @@
         }
       }
     },
+    "command.rightSidebarSessions.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのセッションを表示"
+          }
+        }
+      }
+    },
     "command.openRightSidebarToolAsPane.subtitle": {
       "extractionState": "manual",
       "localizations": {

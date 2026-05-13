@@ -19,18 +19,9 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case rightSidebarFeed = "cmux.rightSidebar.feed"
     case rightSidebarDock = "cmux.rightSidebar.dock"
 
-    static let rightSidebarActions: [CmuxSurfaceTabBarBuiltInAction] = [
-        .rightSidebarToggle,
-        .rightSidebarShow,
-        .rightSidebarHide,
-        .rightSidebarFocus,
-        .rightSidebarFiles,
-        .rightSidebarFind,
-        .rightSidebarVault,
-        .rightSidebarSessions,
-        .rightSidebarFeed,
-        .rightSidebarDock
-    ]
+    static let rightSidebarActions: [CmuxSurfaceTabBarBuiltInAction] = allCases.filter {
+        $0.rightSidebarRemoteCommand != nil
+    }
 
     init?(configID: String) {
         switch configID {
@@ -134,8 +125,10 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
         case .rightSidebarFind:
             return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
-        case .rightSidebarVault, .rightSidebarSessions:
+        case .rightSidebarVault:
             return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
+        case .rightSidebarSessions:
+            return String(localized: "command.rightSidebarSessions.title", defaultValue: "Show Sidebar Sessions")
         case .rightSidebarFeed:
             return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
         case .rightSidebarDock:

@@ -363,6 +363,24 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testRightSidebarBuiltInActionMetadataStaysCompleteAndDistinct() {
+        let expectedActions = CmuxSurfaceTabBarBuiltInAction.allCases.filter {
+            $0.rightSidebarRemoteCommand != nil
+        }
+        let actions = CmuxSurfaceTabBarBuiltInAction.rightSidebarActions
+
+        XCTAssertEqual(actions, expectedActions)
+        XCTAssertEqual(Set(actions.map(\.configID)).count, actions.count)
+        XCTAssertEqual(Set(actions.map(\.defaultTitle)).count, actions.count)
+
+        for action in actions {
+            XCTAssertFalse(action.defaultIcon.isEmpty)
+            XCTAssertFalse(action.defaultKeywords.isEmpty)
+            XCTAssertNotNil(action.rightSidebarRemoteCommand)
+        }
+    }
+
+    @MainActor
     func testSurfaceTabBarCanResolveRightSidebarToggleBuiltInAction() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-config-right-sidebar-button-\(UUID().uuidString)", isDirectory: true)
