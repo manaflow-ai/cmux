@@ -228,6 +228,11 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "workspaceInheritWorkingDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,
@@ -304,7 +309,7 @@
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit."
+          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         }
       }
     },
@@ -380,6 +385,11 @@
           "type": "boolean",
           "default": false,
           "description": "Hide all per-workspace detail rows."
+        },
+        "showWorkspaceDescription": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom workspace descriptions in the sidebar."
         },
         "branchLayout": {
           "type": "string",
@@ -552,7 +562,7 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.03,
-          "description": "Sidebar tint opacity from 0 to 1."
+          "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
         }
       }
     },
@@ -715,6 +725,7 @@
               "openSettings",
               "reloadConfiguration",
               "showHideAllWindows",
+              "globalSearch",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",

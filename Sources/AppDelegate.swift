@@ -654,25 +654,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let display: SessionDisplaySnapshot?
     }
 
-    private nonisolated static let primaryMainWindowFrameAutosaveName: NSWindow.FrameAutosaveName =
-        "cmux.mainWindow.primary"
-    private nonisolated static let mainWindowFrameAutosaveNamePrefix = "cmux.mainWindow"
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
 #if DEBUG
-    nonisolated static var debugPrimaryMainWindowFrameAutosaveName: NSWindow.FrameAutosaveName {
-        primaryMainWindowFrameAutosaveName
-    }
     nonisolated static var debugPersistedWindowGeometryDefaultsKey: String { persistedWindowGeometryDefaultsKey }
-    nonisolated static func debugRemoveLegacyPersistedWindowGeometry(
-        defaults: UserDefaults = .standard
-    ) {
-        removeLegacyPersistedWindowGeometry(defaults: defaults)
-    }
 #endif
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
-        "cmux.session.lastWindowGeometry.v1",
-        persistedWindowGeometryDefaultsKey,
+        "cmux.session.lastWindowGeometry.v1"
     ]
 
     weak var tabManager: TabManager?
@@ -689,6 +677,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private var didScheduleGhosttyCrashBreadcrumbCheck = false
+    private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -714,6 +704,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
+    private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
+    private var lastMenuBarExtraShouldInstall: Bool?
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -1153,6 +1145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
+        if !isRunningUnderXCTest {
+            GlobalSearchCoordinator.shared.start()
+        }
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
@@ -1572,7 +1567,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
+        ghosttyCrashBreadcrumbTask?.cancel()
+        ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
+        GhosttyCrashBreadcrumb.markCleanExit()
         enableSuddenTerminationIfNeeded()
     }
 
@@ -1591,6 +1589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
+        scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -1609,6 +1608,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleUITestSocketSanityCheckIfNeeded()
         }
 #endif
+    }
+
+    private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
+        guard !didScheduleGhosttyCrashBreadcrumbCheck else { return }
+        didScheduleGhosttyCrashBreadcrumbCheck = true
+
+        ghosttyCrashBreadcrumbTask = Task { [weak self, weak notificationStore] in
+            defer { self?.ghosttyCrashBreadcrumbTask = nil }
+            guard let pendingCrash = await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage(),
+                  !Task.isCancelled,
+                  let notificationStore else { return }
+            notificationStore.addNotification(
+                tabId: GhosttyCrashBreadcrumb.notificationTabId,
+                surfaceId: nil,
+                title: String(
+                    localized: "crashBreadcrumb.title",
+                    defaultValue: "cmux crashed during your last session"
+                ),
+                subtitle: String(
+                    localized: "crashBreadcrumb.subtitle",
+                    defaultValue: "Diagnostic file saved"
+                ),
+                body: String(
+                    localized: "crashBreadcrumb.body",
+                    defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
+                )
+            )
+            GhosttyCrashBreadcrumb.markShown(pendingCrash)
+        }
     }
 
 #if DEBUG
@@ -2525,6 +2553,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
+    private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
+        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
+        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
+            return nil
+        }
+        guard let payload = Self.decodedPersistedWindowGeometryData(data) else {
+            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
+            return nil
+        }
+        return payload
+    }
+
+    private func persistWindowGeometry(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?,
+        defaults: UserDefaults = .standard
+    ) {
+        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
+        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
+            return
+        }
+        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+    }
+
+    private nonisolated static func encodedPersistedWindowGeometryData(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?
+    ) -> Data? {
+        guard let frame else { return nil }
+        let payload = PersistedWindowGeometry(
+            version: persistedWindowGeometrySchemaVersion,
+            frame: frame,
+            display: display
+        )
+        return try? JSONEncoder().encode(payload)
+    }
+
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
         guard let payload = try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data),
               payload.version == persistedWindowGeometrySchemaVersion else {
@@ -2537,6 +2602,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         defaults: UserDefaults = .standard
     ) {
         legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
+    }
+
+    private func persistWindowGeometry(from window: NSWindow?) {
+        guard let window else { return }
+        persistWindowGeometry(
+            frame: SessionRectSnapshot(window.frame),
+            display: displaySnapshot(for: window)
+        )
     }
 
     private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
@@ -2555,6 +2628,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
+    }
+
+    private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
+        let displays = currentDisplayGeometries()
+        let fallbackGeometry = persistedWindowGeometry()
+        return Self.resolvedWindowFrame(
+            from: fallbackGeometry?.frame,
+            display: fallbackGeometry?.display,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        )
     }
 
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
@@ -2579,6 +2663,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
+        } else {
+            let displays = currentDisplayGeometries()
+            let fallbackGeometry = persistedWindowGeometry()
+            if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
+                primarySnapshot: nil,
+                fallbackFrame: fallbackGeometry?.frame,
+                fallbackDisplaySnapshot: fallbackGeometry?.display,
+                availableDisplays: displays.available,
+                fallbackDisplay: displays.fallback
+            ) {
+                primaryWindow.setFrame(restoredFrame, display: true)
+            }
         }
 
         if let startupSnapshot {
@@ -3265,9 +3361,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
+                persistedGeometryData: nil,
                 synchronously: writeSynchronously
             )
             return false
+        }
+
+        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
+            Self.encodedPersistedWindowGeometryData(
+                frame: primaryWindow.frame,
+                display: primaryWindow.display
+            )
         }
 
 #if DEBUG
@@ -3276,6 +3380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,
+            persistedGeometryData: persistedGeometryData,
             synchronously: writeSynchronously
         )
         return true
@@ -3292,10 +3397,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             buildSnapshot: { [self] includeScrollback in
                 buildSessionSnapshot(includeScrollback: includeScrollback)
             },
-            persistSnapshot: { [self] snapshot in
+            persistedGeometryData: { snapshot in
+                snapshot?.windows.first.flatMap { primaryWindow in
+                    Self.encodedPersistedWindowGeometryData(
+                        frame: primaryWindow.frame,
+                        display: primaryWindow.display
+                    )
+                }
+            },
+            persistSnapshot: { [self] snapshot, persistedGeometryData in
                 persistSessionSnapshot(
                     snapshot,
                     removeWhenEmpty: false,
+                    persistedGeometryData: persistedGeometryData,
                     synchronously: true
                 )
             }
@@ -3497,12 +3611,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
+        persistedGeometryData: Data?,
         synchronously: Bool
     ) {
-        guard snapshot != nil || removeWhenEmpty else { return }
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
+            if let persistedGeometryData {
+                UserDefaults.standard.set(
+                    persistedGeometryData,
+                    forKey: Self.persistedWindowGeometryDefaultsKey
+                )
+            }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
             } else if removeWhenEmpty {
@@ -6862,61 +6983,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func mainWindowFrameAutosaveName(windowId: UUID) -> NSWindow.FrameAutosaveName {
-        if !hasLivePrimaryMainWindowFrameAutosaveOwner() {
-            return Self.primaryMainWindowFrameAutosaveName
-        }
-        return "\(Self.mainWindowFrameAutosaveNamePrefix).\(windowId.uuidString)"
-    }
-
-    private func hasLivePrimaryMainWindowFrameAutosaveOwner(excluding excludedWindow: NSWindow? = nil) -> Bool {
-        NSApp.windows.contains { window in
-            if let excludedWindow, window === excludedWindow {
-                return false
-            }
-            return window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName
-        }
-    }
-
-    private func promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding excludedWindow: NSWindow? = nil) {
-        guard !hasLivePrimaryMainWindowFrameAutosaveOwner(excluding: excludedWindow) else { return }
-        guard let survivor = sortedMainWindowContextsForSessionSnapshot()
-            .compactMap({ resolvedWindow(for: $0) })
-            .first(where: { window in
-                guard let excludedWindow else { return true }
-                return window !== excludedWindow
-            }) else {
-            return
-        }
-
-        let previousAutosaveName = survivor.frameAutosaveName
-        guard previousAutosaveName != Self.primaryMainWindowFrameAutosaveName else { return }
-        let survivorFrame = survivor.frame
-        // Registering an autosave name can reload its saved frame; seed it with the survivor first.
-        survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
-        guard survivor.setFrameAutosaveName(Self.primaryMainWindowFrameAutosaveName) else { return }
-        if survivor.frame != survivorFrame {
-            survivor.setFrame(survivorFrame, display: false)
-        }
-        survivor.saveFrame(usingName: Self.primaryMainWindowFrameAutosaveName)
-
-        if !previousAutosaveName.isEmpty,
-           previousAutosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") {
-            NSWindow.removeFrame(usingName: previousAutosaveName)
-        }
-    }
-
-    private func removeEphemeralMainWindowFrameAutosaveNameIfNeeded(_ window: NSWindow) {
-        let autosaveName = window.frameAutosaveName
-        guard !autosaveName.isEmpty,
-              autosaveName != Self.primaryMainWindowFrameAutosaveName,
-              autosaveName.hasPrefix("\(Self.mainWindowFrameAutosaveNamePrefix).") else {
-            return
-        }
-        _ = window.setFrameAutosaveName("")
-        NSWindow.removeFrame(usingName: autosaveName)
-    }
-
     @discardableResult
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
@@ -7003,17 +7069,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
+            ? resolvedPersistedWindowGeometryFrame()
+            : nil
         let initialRect: NSRect
         if restoredFrame == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
-        } else if let explicitInitialFrame = restoredFrame {
+        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
             initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
             initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
-        let frameAutosaveName = mainWindowFrameAutosaveName(windowId: windowId)
 
         let window = CmuxMainWindow(
             contentRect: initialRect,
@@ -7041,16 +7109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // a movable/resizable window. Empty titlebar drags are routed through
         // WindowDragHandleView instead of background dragging.
         window.isMovable = true
-        let didRegisterFrameAutosaveName = window.setFrameAutosaveName(frameAutosaveName)
-        let appKitSavedFrameApplied = didRegisterFrameAutosaveName
-            && restoredFrame == nil
-            && sourceWindow == nil
-            && window.setFrameUsingName(frameAutosaveName, force: true)
-        let explicitInitialFrame = restoredFrame
+        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
-        } else if appKitSavedFrameApplied {
-            lastCascadePoint = NSPoint(x: window.frame.minX, y: window.frame.maxY)
         } else if let sourceWindow {
             positionNewMainWindow(window, relativeTo: sourceWindow)
         } else {
@@ -7113,7 +7174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.setFrame(explicitInitialFrame, display: true)
 #if DEBUG
             cmuxDebugLog(
-                "mainWindow.initialFrameApplied source=sessionSnapshot window=\(windowId.uuidString.prefix(8)) " +
+                "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
                     "applied={\(debugNSRectDescription(window.frame))}"
             )
 #endif
@@ -7246,9 +7307,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func setupMenuBarExtra() {
         guard menuBarExtraController == nil else { return }
+        removeTransientGlobalSearchMenuBarExtraController()
+        menuBarExtraController = makeMenuBarExtraController()
+    }
+
+    private func makeMenuBarExtraController() -> MenuBarExtraController {
         let store = TerminalNotificationStore.shared
-        menuBarExtraController = MenuBarExtraController(
+        return MenuBarExtraController(
             notificationStore: store,
+            onShowGlobalSearch: { button, onDismiss in
+                GlobalSearchCoordinator.shared.togglePalette(anchor: button, onDismiss: onDismiss)
+            },
             onShowMainWindow: { [weak self] in
                 self?.showMainWindowFromMenuBar()
             },
@@ -7280,6 +7349,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func toggleGlobalSearchPaletteFromGlobalHotkey() {
+        if menuBarExtraController == nil,
+           MenuBarExtraSettings.shouldInstallMenuBarExtra() {
+            setupMenuBarExtra()
+        }
+
+        if let menuBarExtraController,
+           menuBarExtraController.toggleGlobalSearchPalette() {
+            return
+        }
+
+        if toggleGlobalSearchPaletteFromTransientMenuBarExtra() {
+            return
+        }
+
+        NSSound.beep()
+    }
+
+    private func toggleGlobalSearchPaletteFromTransientMenuBarExtra() -> Bool {
+        if let controller = transientGlobalSearchMenuBarExtraController {
+            if controller.toggleGlobalSearchPalette(
+                onDismiss: transientGlobalSearchDismissalHandler(for: controller)
+            ) {
+                return true
+            }
+            controller.removeFromMenuBar()
+            transientGlobalSearchMenuBarExtraController = nil
+        }
+
+        let controller = makeMenuBarExtraController()
+        transientGlobalSearchMenuBarExtraController = controller
+
+        let onDismiss = transientGlobalSearchDismissalHandler(for: controller)
+
+        guard controller.toggleGlobalSearchPalette(onDismiss: onDismiss) else {
+            controller.removeFromMenuBar()
+            transientGlobalSearchMenuBarExtraController = nil
+            return false
+        }
+
+        return true
+    }
+
+    private func removeTransientGlobalSearchMenuBarExtraController() {
+        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
+        transientGlobalSearchMenuBarExtraController = nil
+    }
+
+    private func transientGlobalSearchDismissalHandler(
+        for controller: MenuBarExtraController
+    ) -> () -> Void {
+        return { [weak self, weak controller] in
+            guard let self,
+                  let controller,
+                  self.transientGlobalSearchMenuBarExtraController === controller else {
+                return
+            }
+            controller.removeFromMenuBar()
+            self.transientGlobalSearchMenuBarExtraController = nil
+        }
+    }
+
     private func installMenuBarVisibilityObserver() {
         guard menuBarVisibilityObserver == nil else { return }
         menuBarVisibilityObserver = NotificationCenter.default.addObserver(
@@ -7303,13 +7434,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {
-        if MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults) {
+        let shouldInstall = MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults)
+        let previousShouldInstall = lastMenuBarExtraShouldInstall
+        lastMenuBarExtraShouldInstall = shouldInstall
+
+        if shouldInstall {
             setupMenuBarExtra()
             return
         }
 
+        let hadPersistentController = menuBarExtraController != nil
         menuBarExtraController?.removeFromMenuBar()
         menuBarExtraController = nil
+        if previousShouldInstall == true || hadPersistentController {
+            removeTransientGlobalSearchMenuBarExtraController()
+        }
     }
 
     @MainActor
@@ -10333,8 +10472,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
-    func jumpToLatestUnread() {
-        guard let notificationStore else { return }
+    @discardableResult
+    func jumpToLatestUnread() -> TerminalNotification? {
+        guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData([
@@ -10348,9 +10488,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications where !notification.isRead {
             if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
-                return
+                return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
+        return nil
     }
 
     static func installWindowResponderSwizzlesForTesting() {
@@ -10478,13 +10619,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func refreshConfiguredShortcutChordActions() {
         configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
-            // showHideAllWindows is dispatched via Carbon RegisterEventHotKey
-            // (SystemWideHotkeyController) and never routed through AppKit's
-            // local key handler. If a managed cmux.json entry happened to
-            // store it as a chord, arming the prefix here would swallow the
-            // first stroke and leave the second one orphaned, breaking that
-            // keystroke for the focused terminal/browser input.
-            guard action != .showHideAllWindows else { return false }
+            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
+            // and never routed through AppKit's local key handler. If a managed
+            // cmux.json entry somehow stores one as a chord, arming the prefix
+            // here would swallow the first stroke and leave the second one
+            // orphaned, breaking that keystroke for the focused terminal/browser
+            // input.
+            guard action != .showHideAllWindows && action != .globalSearch else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
@@ -12862,19 +13003,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function, .capsLock])
         guard flags.contains(.command) else { return false }
 
-        for action in KeyboardShortcutSettings.Action.allCases where action != .showHideAllWindows {
+        for action in KeyboardShortcutSettings.Action.allCases {
             let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
             if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
                 return false
             }
         }
 
-        for action in KeyboardShortcutSettings.Action.allCases where action != .showHideAllWindows {
+        for action in KeyboardShortcutSettings.Action.allCases where isMenuBackedShortcutAction(action) {
             if matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut) {
                 return true
             }
         }
         return false
+    }
+
+    private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
+        action != .showHideAllWindows && action != .globalSearch
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
@@ -13531,15 +13676,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
 
-        let shouldReleasePrimaryFrameAutosaveName =
-            window.frameAutosaveName == Self.primaryMainWindowFrameAutosaveName
-        removeEphemeralMainWindowFrameAutosaveNameIfNeeded(window)
+        // Keep geometry available as a fallback for the next window placement.
+        if !isTerminatingApp {
+            persistWindowGeometry(from: window)
+        }
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
-        if shouldReleasePrimaryFrameAutosaveName {
-            _ = window.setFrameAutosaveName("")
-        }
-        promotePrimaryMainWindowFrameAutosaveNameIfNeeded(excluding: window)
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
@@ -13687,13 +13829,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if let notificationId, let store = notificationStore {
-            markReadIfFocused(
-                notificationId: notificationId,
-                tabId: tabId,
-                surfaceId: surfaceId,
-                tabManager: context.tabManager,
-                notificationStore: store
-            )
+            store.markRead(id: notificationId)
         }
 
 #if DEBUG
@@ -13760,13 +13896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if let notificationId, let store = notificationStore {
-            markReadIfFocused(
-                notificationId: notificationId,
-                tabId: tabId,
-                surfaceId: surfaceId,
-                tabManager: tabManager,
-                notificationStore: store
-            )
+            store.markRead(id: notificationId)
         }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -13861,22 +13991,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = mainWindowVisibilityController.focus(window, reason: reason)
     }
 
-    private func markReadIfFocused(
-        notificationId: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        tabManager: TabManager,
-        notificationStore: TerminalNotificationStore
-    ) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard tabManager.selectedTabId == tabId else { return }
-            if let surfaceId {
-                guard tabManager.focusedSurfaceId(for: tabId) == surfaceId else { return }
-            }
-            notificationStore.markRead(id: notificationId)
-        }
-    }
-
 #if DEBUG
     private func recordMultiWindowNotificationOpenFailureIfNeeded(
         tabId: UUID,
@@ -13914,23 +14028,10 @@ private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
-private var cmuxBrowserForwardedReturnEvent: CmuxForwardedBrowserReturnEvent?
 private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
-
-private struct CmuxForwardedBrowserReturnEvent: Equatable {
-    let keyCode: UInt16
-    let timestamp: TimeInterval
-    let charactersIgnoringModifiers: String?
-
-    init(_ event: NSEvent) {
-        keyCode = event.keyCode
-        timestamp = event.timestamp
-        charactersIgnoringModifiers = event.charactersIgnoringModifiers
-    }
-}
 
 @discardableResult
 func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
@@ -14403,12 +14504,6 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
-        let firstResponderEmbeddedWebView = self.firstResponder.flatMap {
-            Self.cmuxOwningEmbeddedWebView(for: $0)
-        }
-        let browserKeyDownTarget: NSResponder? = firstResponderWebView
-            ?? firstResponderEmbeddedWebView
-            ?? self.firstResponder
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -14441,14 +14536,6 @@ private extension NSWindow {
         }
 
         if let ghosttyView = firstResponderGhosttyView {
-            if ghosttyView.shouldRouteTextInputKeyEquivalentToKeyDown(event) {
-                ghosttyView.keyDown(with: event)
-#if DEBUG
-                cmuxDebugLog("  → terminal text-input key equivalent routed to keyDown")
-#endif
-                return true
-            }
-
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
             // process it. Cmd-based shortcuts should still work during composition since
@@ -14500,41 +14587,29 @@ private extension NSWindow {
         }
 
         // Web forms rely on Return/Enter flowing through keyDown. If the original
-        // NSWindow.performKeyEquivalent handles Enter as an unclaimed key equivalent,
-        // AppKit can play the alert sound even though WebKit submits the form. Route
-        // Return/Enter directly to the current WebKit first responder and mark handled.
+        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
+        // WebKit. Route Return/Enter directly to the current first responder and
+        // mark handled to avoid the AppKit alert sound path.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // Consume only the exact forwarded Return/Enter event. A different nested
-            // Return should continue through normal dispatch so AppKit can keep its own
-            // invalid-input feedback.
-            let forwardedReturnEvent = CmuxForwardedBrowserReturnEvent(event)
+            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
             if cmuxBrowserReturnForwardingDepth > 0 {
-                guard cmuxBrowserForwardedReturnEvent == forwardedReturnEvent else {
-                    return false
-                }
 #if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry; consumed during forwarded keyDown")
+                cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
 #endif
-                return true
+                return cmux_performKeyEquivalent(with: event)
             }
             cmuxBrowserReturnForwardingDepth += 1
-            cmuxBrowserForwardedReturnEvent = forwardedReturnEvent
-            defer {
-                cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1)
-                if cmuxBrowserReturnForwardingDepth == 0 {
-                    cmuxBrowserForwardedReturnEvent = nil
-                }
-            }
+            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser Return/Enter routed to browser keyDown target")
+            cmuxDebugLog("  → browser Return/Enter routed to firstResponder.keyDown")
 #endif
-            browserKeyDownTarget?.keyDown(with: event)
+            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -14543,7 +14618,7 @@ private extension NSWindow {
         // keyDown. Route those arrows directly to the first responder instead.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil || firstResponderEmbeddedWebView != nil,
+            firstResponderIsBrowser: firstResponderWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
@@ -14553,14 +14628,14 @@ private extension NSWindow {
 #if DEBUG
                 cmuxDebugLog("  → browser arrow reentry; using normal dispatch")
 #endif
-                return false
+                return cmux_performKeyEquivalent(with: event)
             }
             cmuxBrowserArrowForwardingDepth += 1
             defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 #if DEBUG
-            cmuxDebugLog("  → browser arrow routed to browser keyDown target")
+            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
 #endif
-            browserKeyDownTarget?.keyDown(with: event)
+            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -14731,84 +14806,6 @@ private extension NSWindow {
                     return nil
                 }
                 return portalWebView
-            }
-            current = candidate.superview
-        }
-
-        return nil
-    }
-
-    private static func cmuxOwningEmbeddedWebView(for responder: NSResponder) -> WKWebView? {
-        if let webView = responder as? WKWebView {
-            return webView
-        }
-
-        if let webView = cmuxOwningEmbeddedWebViewFromFieldEditorOwner(responder) {
-            return webView
-        }
-
-        if let view = responder as? NSView,
-           let webView = cmuxOwningEmbeddedWebView(for: view) {
-            return webView
-        }
-
-        // WebKit's active text responder is often an internal descendant or next
-        // responder rather than the WKWebView itself. Walk the AppKit responder
-        // chain so ASWebAuthenticationSession-hosted forms get the same Return
-        // handling as cmux-owned browser panels.
-        var current = responder.nextResponder
-        while let next = current {
-            if let webView = next as? WKWebView {
-                return webView
-            }
-            if let view = next as? NSView,
-               let webView = cmuxOwningEmbeddedWebView(for: view) {
-                return webView
-            }
-            current = next.nextResponder
-        }
-
-        return nil
-    }
-
-    private static func cmuxOwningEmbeddedWebViewFromFieldEditorOwner(_ responder: NSResponder) -> WKWebView? {
-        guard let fieldEditor = responder as? NSTextView,
-              fieldEditor.isFieldEditor,
-              let ownerView = cmuxFieldEditorOwnerView(fieldEditor) else {
-            return nil
-        }
-
-        if let webView = cmuxOwningEmbeddedWebView(for: ownerView) {
-            return webView
-        }
-
-        var current = ownerView.nextResponder
-        while let next = current {
-            if next === ownerView {
-                break
-            }
-            if let webView = next as? WKWebView {
-                return webView
-            }
-            if let view = next as? NSView,
-               let webView = cmuxOwningEmbeddedWebView(for: view) {
-                return webView
-            }
-            current = next.nextResponder
-        }
-
-        return nil
-    }
-
-    private static func cmuxOwningEmbeddedWebView(for view: NSView) -> WKWebView? {
-        if let webView = view as? WKWebView {
-            return webView
-        }
-
-        var current: NSView? = view.superview
-        while let candidate = current {
-            if let webView = candidate as? WKWebView {
-                return webView
             }
             current = candidate.superview
         }

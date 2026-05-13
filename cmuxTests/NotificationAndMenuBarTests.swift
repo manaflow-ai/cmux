@@ -119,6 +119,83 @@ final class AppIconSettingsTests: XCTestCase {
     }
 }
 
+final class GhosttyCrashBreadcrumbTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+    private var crashDirectoryURL: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        suiteName = "GhosttyCrashBreadcrumbTests.\(UUID().uuidString)"
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        crashDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty-crash-breadcrumb-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: crashDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        if let crashDirectoryURL {
+            try? FileManager.default.removeItem(at: crashDirectoryURL)
+        }
+        if let suiteName {
+            UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        }
+        defaults = nil
+        suiteName = nil
+        crashDirectoryURL = nil
+        try super.tearDownWithError()
+    }
+
+    func testPendingCrashDetectedWhenNewerThanCleanExit() throws {
+        let cleanExit = Date(timeIntervalSince1970: 100)
+        let crashDate = Date(timeIntervalSince1970: 200)
+        defaults.set(cleanExit, forKey: GhosttyCrashBreadcrumb.lastCleanExitDefaultsKey)
+        let crashURL = try writeCrashFile(named: "newer.ghosttycrash", modifiedAt: crashDate)
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL, crashURL)
+        XCTAssertEqual(pending?.modifiedAt, crashDate)
+    }
+
+    func testDefaultCrashDirectoryUsesCmuxStatePath() throws {
+        XCTAssertTrue(
+            GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path.hasSuffix("/.local/state/cmux/crash"),
+            GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path
+        )
+    }
+
+    func testPendingCrashIsOneTimeAfterBeingShown() throws {
+        let crashDate = Date(timeIntervalSince1970: 300)
+        let crashURL = try writeCrashFile(named: "shown.ghosttycrash", modifiedAt: crashDate)
+        let pending = try XCTUnwrap(GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        ))
+        XCTAssertEqual(pending.fileURL, crashURL)
+
+        GhosttyCrashBreadcrumb.markShown(pending, defaults: defaults)
+
+        XCTAssertNil(GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        ))
+    }
+
+    private func writeCrashFile(named name: String, modifiedAt: Date) throws -> URL {
+        let url = crashDirectoryURL.appendingPathComponent(name)
+        try Data("MDMP".utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt],
+            ofItemAtPath: url.path
+        )
+        return url
+    }
+}
+
 @MainActor
 final class NotificationDockBadgeTests: XCTestCase {
     private final class NotificationSettingsAlertSpy: NSAlert {

@@ -240,7 +240,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
-        restoredAgentAutoResumePendingPanelIds.removeAll(keepingCapacity: false)
+        restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
@@ -381,9 +381,14 @@ extension Workspace {
         if let restorableAgent {
             let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restorableAgent)
             if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
-                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+                clearRestoredAgentSnapshot(panelId: panelId)
             } else {
                 restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
+                if restoredAgentResumeStatesByPanelId[panelId] == nil {
+                    restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
+                        panelId: panelId
+                    )
+                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
             }
         }
@@ -424,6 +429,7 @@ extension Workspace {
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
+        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -464,6 +470,7 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -479,18 +486,28 @@ extension Workspace {
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            rightSidebarToolSnapshot = nil
+        case .rightSidebarTool:
+            guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
         }
 
         return SessionPanelSnapshot(
@@ -507,7 +524,8 @@ extension Workspace {
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
-            filePreview: filePreviewSnapshot
+            filePreview: filePreviewSnapshot,
+            rightSidebarTool: rightSidebarToolSnapshot
         )
     }
 
@@ -793,14 +811,13 @@ extension Workspace {
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
                 if restoredAgentResumeInput != nil {
-                    restoredAgentAutoResumePendingPanelIds.insert(terminalPanel.id)
+                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
                 } else {
-                    restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
+                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             } else {
-                restoredAgentSnapshotsByPanelId.removeValue(forKey: terminalPanel.id)
-                restoredAgentAutoResumePendingPanelIds.remove(terminalPanel.id)
+                clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
@@ -839,6 +856,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
             return filePreviewPanel.id
+        case .rightSidebarTool:
+            guard let mode = snapshot.rightSidebarTool?.mode,
+                  mode.canOpenAsPane,
+                  let toolPanel = newRightSidebarToolSurface(
+                    inPane: paneId,
+                    mode: mode,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
+            return toolPanel.id
         }
     }
 
@@ -7258,7 +7287,13 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
-    var restoredAgentAutoResumePendingPanelIds: Set<UUID> = []
+    enum RestoredAgentResumeState: Equatable {
+        case manualResumeAvailable
+        case awaitingAutoResumeCommand
+        case autoResumeCommandRunning
+        case observedAgentCommandRunning
+    }
+    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
 
@@ -7359,6 +7394,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let browser = "browser"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
+        static let rightSidebarTool = "rightSidebarTool"
     }
 
     enum PanelShellActivityState: String {
@@ -8079,10 +8115,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
-        let subscription = markdownPanel.$displayTitle
-            .removeDuplicates()
+        let subscription = Publishers.CombineLatest(
+            markdownPanel.$displayTitle.removeDuplicates(),
+            markdownPanel.$isDirty.removeDuplicates()
+        )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak markdownPanel] newTitle in
+            .sink { [weak self, weak markdownPanel] newTitle, isDirty in
                 guard let self,
                       let markdownPanel,
                       let tabId = self.surfaceIdFromPanelId(markdownPanel.id) else { return }
@@ -8092,11 +8130,14 @@ final class Workspace: Identifiable, ObservableObject {
                     self.panelTitles[markdownPanel.id] = newTitle
                 }
                 let resolvedTitle = self.resolvedPanelTitle(panelId: markdownPanel.id, fallback: newTitle)
-                guard existing.title != resolvedTitle else { return }
+                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+                guard titleUpdate != nil || dirtyUpdate != nil else { return }
                 self.bonsplitController.updateTab(
                     tabId,
-                    title: resolvedTitle,
-                    hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil
+                    title: titleUpdate,
+                    hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil,
+                    isDirty: dirtyUpdate
                 )
             }
         panelSubscriptions[markdownPanel.id] = subscription
@@ -8189,6 +8230,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.markdown
         case .filePreview:
             return SurfaceKind.filePreview
+        case .rightSidebarTool:
+            return SurfaceKind.rightSidebarTool
         }
     }
 
@@ -8549,18 +8592,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
-        if state == .commandRunning, let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
-            if restoredAgentAutoResumePendingPanelIds.remove(panelId) == nil {
-                let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
-                invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
-                restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-#if DEBUG
-                cmuxDebugLog(
-                    "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
-                    "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
-                )
-#endif
-            }
+        if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
+            updateRestoredAgentResumeState(
+                panelId: panelId,
+                restoredAgent: restoredAgent,
+                shellState: state
+            )
         }
 #if DEBUG
         cmuxDebugLog(
@@ -8568,6 +8605,59 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+    }
+
+    private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
+        panelShellActivityStates[panelId] == .commandRunning
+            ? .observedAgentCommandRunning
+            : .manualResumeAvailable
+    }
+
+    private func updateRestoredAgentResumeState(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot,
+        shellState: PanelShellActivityState
+    ) {
+        switch shellState {
+        case .commandRunning:
+            switch restoredAgentResumeStatesByPanelId[panelId] {
+            case .some(.awaitingAutoResumeCommand):
+                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+                break
+            case .some(.manualResumeAvailable), nil:
+                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+            }
+        case .promptIdle:
+            switch restoredAgentResumeStatesByPanelId[panelId] {
+            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
+                break
+            }
+        case .unknown:
+            break
+        }
+    }
+
+    private func invalidateRestoredAgentSnapshot(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot
+    ) {
+        let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
+        invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
+        clearRestoredAgentSnapshot(panelId: panelId)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
+            "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
+        )
+#endif
+    }
+
+    private func clearRestoredAgentSnapshot(panelId: UUID) {
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -8804,8 +8894,8 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
-        restoredAgentAutoResumePendingPanelIds = restoredAgentAutoResumePendingPanelIds.filter {
-            validSurfaceIds.contains($0)
+        restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
         }
         invalidatedRestoredAgentFingerprintsByPanelId = invalidatedRestoredAgentFingerprintsByPanelId.filter {
             validSurfaceIds.contains($0.key)
@@ -10418,7 +10508,8 @@ final class Workspace: Identifiable, ObservableObject {
     func newMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -10443,6 +10534,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = markdownPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
         publishCmuxSurfaceCreated(markdownPanel.id, paneId: paneId, kind: "markdown", origin: "markdown_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
@@ -10456,6 +10550,47 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        installMarkdownPanelSubscription(markdownPanel)
+        return markdownPanel
+    }
+
+    @discardableResult
+    func splitPaneWithMarkdown(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String
+    ) -> MarkdownPanel? {
+        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        panels[markdownPanel.id] = markdownPanel
+        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: markdownPanel.displayTitle,
+            icon: markdownPanel.displayIcon,
+            kind: SurfaceKind.markdown,
+            isDirty: markdownPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(
+            paneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst
+        ) != nil else {
+            panels.removeValue(forKey: markdownPanel.id)
+            panelTitles.removeValue(forKey: markdownPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            return nil
+        }
+
+        bonsplitController.selectTab(newTab.id)
+        focusPanel(markdownPanel.id)
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
     }
@@ -10529,6 +10664,75 @@ final class Workspace: Identifiable, ObservableObject {
 
         installFilePreviewPanelSubscription(filePreviewPanel)
         return filePreviewPanel
+    }
+
+    @discardableResult
+    func openOrFocusRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool = true
+    ) -> RightSidebarToolPanel? {
+        guard mode.canOpenAsPane else { return nil }
+        for (existingId, panel) in panels {
+            guard let toolPanel = panel as? RightSidebarToolPanel,
+                  toolPanel.mode == mode else {
+                continue
+            }
+            if focus {
+                focusPanel(existingId)
+            }
+            return toolPanel
+        }
+        return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
+    }
+
+    @discardableResult
+    func newRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> RightSidebarToolPanel? {
+        guard mode.canOpenAsPane else { return nil }
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        panels[toolPanel.id] = toolPanel
+        panelTitles[toolPanel.id] = toolPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: toolPanel.displayTitle,
+            icon: toolPanel.displayIcon,
+            kind: SurfaceKind.rightSidebarTool,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: toolPanel.id)
+            panelTitles.removeValue(forKey: toolPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = toolPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(toolPanel.id, paneId: paneId, kind: "right_sidebar_tool", origin: "right_sidebar_tool_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(toolPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: toolPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return toolPanel
     }
 
     @discardableResult
@@ -11183,6 +11387,8 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
+            rightSidebarToolPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
@@ -11192,13 +11398,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let restorableAgent = detached.restorableAgent {
             restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
-            if detached.restorableAgentAutoResumePending {
-                restoredAgentAutoResumePendingPanelIds.insert(detached.panelId)
+            if let resumeState = detached.restorableAgentResumeState {
+                restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
             } else {
-                restoredAgentAutoResumePendingPanelIds.remove(detached.panelId)
+                restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
             }
         } else {
-            restoredAgentAutoResumePendingPanelIds.remove(detached.panelId)
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -12236,14 +12442,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func setRestoredAgentAutoResumePendingForTesting(_ isPending: Bool, panelId: UUID) {
         if isPending {
-            restoredAgentAutoResumePendingPanelIds.insert(panelId)
+            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
         } else {
-            restoredAgentAutoResumePendingPanelIds.remove(panelId)
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         }
     }
 
     func restoredAgentAutoResumePendingForTesting(panelId: UUID) -> Bool {
-        restoredAgentAutoResumePendingPanelIds.contains(panelId)
+        restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
     }
 #endif
 
@@ -12620,14 +12826,14 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         switch destination {
         case .insert(let paneId, let index):
-            return !openFilePreviewSurfaces(
+            return openDroppedFileSurfaces(
                 inPane: paneId,
                 filePaths: [entry.filePath],
                 focus: true,
                 targetIndex: index
-            ).isEmpty
+            )
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithFilePreview(
+            return splitPaneWithDroppedFile(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -12649,16 +12855,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         switch request.destination {
         case .insert(let paneId, let index):
-            return !openFilePreviewSurfaces(
+            return openDroppedFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
                 focus: true,
                 targetIndex: index
-            ).isEmpty
+            )
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
-                  let firstPanel = splitPaneWithFilePreview(
+                  let firstPanel = splitPaneWithDroppedFile(
                     targetPane: sourcePaneId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -12669,14 +12875,77 @@ final class Workspace: Identifiable, ObservableObject {
 
             let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
             var openedAny = true
-            let rest = openFilePreviewSurfaces(
+            let openedRest = openDroppedFileSurfaces(
                 inPane: targetPane,
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
-            openedAny = openedAny || !rest.isEmpty
+            openedAny = openedAny || openedRest
             return openedAny
         }
+    }
+
+    @discardableResult
+    private func openDroppedFileSurfaces(
+        inPane paneId: PaneID,
+        filePaths: [String],
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> Bool {
+        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
+        var nextIndex = targetIndex
+        var openedAny = false
+
+        for filePath in filePaths {
+            let opened: Bool
+            if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+                opened = newMarkdownSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: shouldFocusNewTabs,
+                    targetIndex: nextIndex
+                ) != nil
+            } else {
+                opened = newFilePreviewSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: shouldFocusNewTabs,
+                    targetIndex: nextIndex
+                ) != nil
+            }
+
+            if opened {
+                openedAny = true
+                if let index = nextIndex {
+                    nextIndex = index + 1
+                }
+            }
+        }
+
+        return openedAny
+    }
+
+    @discardableResult
+    private func splitPaneWithDroppedFile(
+        targetPane paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        filePath: String
+    ) -> (any Panel)? {
+        if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+            return splitPaneWithMarkdown(
+                targetPane: paneId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                filePath: filePath
+            )
+        }
+        return splitPaneWithFilePreview(
+            targetPane: paneId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            filePath: filePath
+        )
     }
 
     /// Split `paneId` and place a brand-new terminal in the resulting pane.
@@ -13385,7 +13654,7 @@ extension Workspace: BonsplitDelegate {
             let cachedTitle = panelTitles[panelId]
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
-            let restorableAgentAutoResumePending = restoredAgentAutoResumePendingPanelIds.contains(panelId)
+            let restorableAgentResumeState = restoredAgentResumeStatesByPanelId[panelId]
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
@@ -13403,7 +13672,7 @@ extension Workspace: BonsplitDelegate {
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restorableAgent: restorableAgent,
-                restorableAgentAutoResumePending: restorableAgentAutoResumePending,
+                restorableAgentResumeState: restorableAgentResumeState,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

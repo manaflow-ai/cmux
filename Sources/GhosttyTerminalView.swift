@@ -2110,9 +2110,8 @@ class GhosttyApp {
                 return
             }
 
-            let fallbackShouldUseHostLayerBackground = usesHostLayerBackground(for: fallbackConfig)
             loadInlineGhosttyConfig(
-                "macos-background-from-layer = \(fallbackShouldUseHostLayerBackground)",
+                "macos-background-from-layer = true",
                 into: fallbackConfig,
                 prefix: "cmux-renderer-bg",
                 logLabel: "renderer background (fallback)"
@@ -2125,7 +2124,7 @@ class GhosttyApp {
             )
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
-                fallbackShouldUseHostLayerBackground,
+                true,
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
@@ -2261,17 +2260,15 @@ class GhosttyApp {
         }
         #endif
         loadCJKFontFallbackIfNeeded(config)
-        let shouldUseHostLayerBackground = usesHostLayerBackground(for: config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            shouldUseHostLayerBackground,
+            true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let Ghostty paint solid opaque terminal backgrounds so default cells
-        // and explicit ANSI background cells share one renderer/compositor path.
-        // Host-layer ownership remains required for translucent and blurred
-        // terminal backgrounds.
+        // Let cmux own the window-level backdrop once, while Ghostty keeps
+        // rendering text, cell backgrounds, and background images. This avoids
+        // separate translucent fills for terminal and chrome surfaces.
         loadInlineGhosttyConfig(
-            "macos-background-from-layer = \(shouldUseHostLayerBackground)",
+            "macos-background-from-layer = true",
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
@@ -3229,7 +3226,10 @@ class GhosttyApp {
         let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
         let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
         let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
-        let opacity = defaultBackgroundOpacityValue(from: config)
+        var opacity = baseline.backgroundOpacity
+        let opacityKey = "background-opacity"
+        _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
+        opacity = min(1.0, max(0.0, opacity))
         let backgroundBlur = defaultBackgroundBlurValue(from: config)
         applyDefaultBackground(
             color: resolvedColor,
@@ -3243,20 +3243,6 @@ class GhosttyApp {
             source: source,
             scope: scope,
             forceNotify: forceNotify
-        )
-    }
-
-    private func defaultBackgroundOpacityValue(from config: ghostty_config_t) -> Double {
-        var opacity = Self.fallbackAppearanceConfig.backgroundOpacity
-        let key = "background-opacity"
-        _ = ghostty_config_get(config, &opacity, key, UInt(key.lengthOfBytes(using: .utf8)))
-        return Double(WindowAppearanceSnapshot.clampedOpacity(opacity))
-    }
-
-    private func usesHostLayerBackground(for config: ghostty_config_t) -> Bool {
-        WindowAppearanceSnapshot.usesHostLayerBackground(
-            backgroundOpacity: defaultBackgroundOpacityValue(from: config),
-            backgroundBlur: defaultBackgroundBlurValue(from: config)
         )
     }
 
@@ -6169,6 +6155,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
+    private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
@@ -6196,7 +6183,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
-    @MainActor static var debugTextInputEventHandler: ((GhosttyNSView, NSEvent) -> Bool)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -7201,7 +7187,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
-            imeSuppressedKeyUpKeyCodes.removeAll()
+            imeConsumedKeyUps.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -7289,9 +7275,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
+            imeConsumedKeyUps.removeAll()
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
-            imeSuppressedKeyUpKeyCodes.removeAll()
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -7304,7 +7290,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // For NSTextInputClient - accumulates text during key events
     private(set) var keyTextAccumulator: [String]? = nil
-    private var imeSuppressedKeyUpKeyCodes: Set<UInt16> = []
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
@@ -7323,12 +7308,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
-    }
-    func setIMETransientStateForTesting(suppressedKeyUpKeyCodes: Set<UInt16>) {
-        imeSuppressedKeyUpKeyCodes = suppressedKeyUpKeyCodes
-    }
-    var imeSuppressedKeyUpKeyCodesForTesting: Set<UInt16> {
-        imeSuppressedKeyUpKeyCodes
     }
     func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
         shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
@@ -7730,16 +7709,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
-        // Capture the keyboard layout ID before interpretation so the IME
-        // forwarding decision uses the source that saw this key.
-        let keyboardIdBefore = KeyboardLayout.id
+        // Capture the keyboard layout ID before interpretation so we can
+        // detect if an IME changed it (e.g. toggling input methods).
+        // We only check when not already in a preedit state.
+        let keyboardIdBefore: String? = if (!markedTextBefore) {
+            KeyboardLayout.id
+        } else {
+            nil
+        }
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let textInputHandledEvent = handleTextInputKeyEvent(translationEvent)
+        interpretKeyEvents([translationEvent])
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -7751,8 +7735,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, keyboardIdBefore != KeyboardLayout.id {
-            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
+        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            imeConsumedKeyUps.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -7774,20 +7758,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore,
-            after: (markedText.string, markedSelectedRange),
-            accumulatedText: accumulatedText,
-            event: translationEvent,
-            textInputHandledEvent: textInputHandledEvent,
-            inputSourceId: keyboardIdBefore
+            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
         ) {
-            imeSuppressedKeyUpKeyCodes.insert(event.keyCode)
+            imeConsumedKeyUps.insert(event.keyCode)
             return
         }
-
-        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
-        // entry left by an earlier suppressed repeat for the same physical key.
-        imeSuppressedKeyUpKeyCodes.remove(event.keyCode)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -7970,20 +7945,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    private func handleTextInputKeyEvent(_ event: NSEvent) -> Bool {
-#if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            return debugTextInputEventHandler(self, event)
-        }
-#endif
-        guard let inputContext else {
-            interpretKeyEvents([event])
-            return false
-        }
-        return inputContext.handleEvent(event)
-    }
-
-    @discardableResult
     private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
@@ -8015,10 +7976,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
-        if imeSuppressedKeyUpKeyCodes.remove(event.keyCode) != nil {
-            return
-        }
-
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -8035,6 +7992,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
+            return
+        }
+        if imeConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
 
@@ -13407,12 +13367,20 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
-    static func shouldSynchronizePortalGeometryImmediately(
-        hostInLiveResize: Bool,
-        windowInLiveResize: Bool,
-        interactiveGeometryResizeActive: Bool
-    ) -> Bool {
-        hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
+    enum HostCallbackPortalGeometrySynchronizationAction<Window> {
+        case skip
+        case scheduleExternal(Window)
+    }
+
+    static func hostCallbackPortalGeometrySynchronizationAction<Window>(
+        window: Window?
+    ) -> HostCallbackPortalGeometrySynchronizationAction<Window> {
+        // HostContainerView callbacks can fire while SwiftUI/AppKit is already
+        // rendering or laying out the representable. External AppKit resize
+        // observers own immediate live-resize flushing; host callbacks only
+        // schedule the portal owner.
+        guard let window else { return .skip }
+        return .scheduleExternal(window)
     }
 
     private static func synchronizePortalGeometry(
@@ -13422,19 +13390,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        let window = host.window
-        if shouldSynchronizePortalGeometryImmediately(
-            hostInLiveResize: host.inLiveResize,
-            windowInLiveResize: window?.inLiveResize == true,
-            interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        ) {
-            TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-            return
-        }
         // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can wedge window resize
-        // handling and leave the app spinning on the wait cursor.
-        guard let window else { return }
+        // the current layout turn. Re-entrant syncs here can escalate from
+        // SwiftUI warnings to AppKit exceptions during CATransaction display
+        // link flushes.
+        guard case let .scheduleExternal(window) = hostCallbackPortalGeometrySynchronizationAction(
+            window: host.window
+        ) else { return }
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
@@ -13571,7 +13533,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     visibleInUI: coordinator.desiredIsVisibleInUI,
                     zPriority: coordinator.desiredPortalZPriority,
                     expectedSurfaceId: portalExpectedSurfaceId,
-                    expectedGeneration: portalExpectedGeneration
+                    expectedGeneration: portalExpectedGeneration,
+                    deferLayoutSynchronization: true
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
@@ -13608,7 +13571,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         visibleInUI: coordinator.desiredIsVisibleInUI,
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
+                        expectedGeneration: portalExpectedGeneration,
+                        deferLayoutSynchronization: true
                     )
                     coordinator.lastBoundHostId = hostId
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -13651,7 +13615,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         visibleInUI: coordinator.desiredIsVisibleInUI,
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
+                        expectedGeneration: portalExpectedGeneration,
+                        deferLayoutSynchronization: true
                     )
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision

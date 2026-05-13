@@ -685,7 +685,7 @@ final class WindowTerminalPortal: NSObject {
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
-    init(window: NSWindow) {
+    init(window: NSWindow, syncLayout: Bool = true) {
         self.window = window
         super.init()
         hostView.wantsLayer = true
@@ -696,7 +696,7 @@ final class WindowTerminalPortal: NSObject {
         dividerOverlayView.translatesAutoresizingMaskIntoConstraints = true
         dividerOverlayView.autoresizingMask = [.width, .height]
         installGeometryObservers(for: window)
-        _ = ensureInstalled()
+        _ = ensureInstalled(syncLayout: syncLayout)
     }
 
     private func installGeometryObservers(for window: NSWindow) {
@@ -860,7 +860,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     @discardableResult
-    private func ensureInstalled() -> Bool {
+    private func ensureInstalled(syncLayout: Bool = true) -> Bool {
         guard let window else { return false }
         guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
         else { return false }
@@ -903,7 +903,9 @@ final class WindowTerminalPortal: NSObject {
             container.addSubview(overlay, positioned: .above, relativeTo: hostView)
         }
 
-        synchronizeLayoutHierarchy()
+        if syncLayout {
+            synchronizeLayoutHierarchy()
+        }
         _ = synchronizeHostFrameToReference()
         ensureDividerOverlayOnTop()
 
@@ -1115,8 +1117,14 @@ final class WindowTerminalPortal: NSObject {
         return boundAnchor === anchorView
     }
 
-    func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
-        guard ensureInstalled() else { return }
+    func bind(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0,
+        deferLayoutSynchronization: Bool = false
+    ) {
+        guard ensureInstalled(syncLayout: !deferLayoutSynchronization) else { return }
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -1191,7 +1199,9 @@ final class WindowTerminalPortal: NSObject {
         }
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
         // before the hosted view enters a window.
-        hostedView.reconcileGeometryNow()
+        if !deferLayoutSynchronization {
+            hostedView.reconcileGeometryNow()
+        }
 
         if hostedView.superview !== hostView {
 #if DEBUG
@@ -1217,8 +1227,15 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        synchronizeHostedView(withId: hostedId)
-        scheduleDeferredFullSynchronizeAll()
+        if deferLayoutSynchronization {
+            // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
+            // must not force layout synchronously. Record the binding now and let
+            // the portal owner reconcile geometry after the current render turn.
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+        } else {
+            synchronizeHostedView(withId: hostedId)
+            scheduleDeferredFullSynchronizeAll()
+        }
         pruneDeadEntries()
     }
 
@@ -1937,14 +1954,14 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
-    private static func portal(for window: NSWindow) -> WindowTerminalPortal {
+    private static func portal(for window: NSWindow, syncLayout: Bool = true) -> WindowTerminalPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
             installWindowCloseObserverIfNeeded(for: window)
             return existing
         }
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = WindowTerminalPortal(window: window, syncLayout: syncLayout)
         objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
         installWindowCloseObserverIfNeeded(for: window)
@@ -1966,7 +1983,8 @@ enum TerminalWindowPortalRegistry {
         visibleInUI: Bool,
         zPriority: Int = 0,
         expectedSurfaceId: UUID? = nil,
-        expectedGeneration: UInt64? = nil
+        expectedGeneration: UInt64? = nil,
+        deferLayoutSynchronization: Bool = false
     ) {
         guard let window = anchorView.window else { return }
 
@@ -2000,14 +2018,20 @@ enum TerminalWindowPortalRegistry {
             return
         }
 
-        let nextPortal = portal(for: window)
+        let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
             portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
         }
 
-        nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
+        nextPortal.bind(
+            hostedView: hostedView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            deferLayoutSynchronization: deferLayoutSynchronization
+        )
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
     }
