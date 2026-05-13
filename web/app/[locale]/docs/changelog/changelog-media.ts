@@ -26,6 +26,36 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.5": {
+    title: "Codex Teams, Menubar Global Search, Markdown Viewer, Feed by Default",
+    features: [
+      {
+        title: "Codex Teams Subagent Panes",
+        description:
+          "cmux codex-teams now maps Codex's subagent sessions into native cmux panes, the same way claude-teams does for Claude Code. Spawned subagents stack in a right column with sidebar metadata and notifications routed through cmux.",
+      },
+      {
+        title: "Menubar Global Search",
+        description:
+          "A new global search command surfaces windows, workspaces, panes, surfaces, and right-sidebar tools from the menu bar so you can jump anywhere without reaching for the sidebar.",
+      },
+      {
+        title: "Rewritten Markdown Viewer",
+        description:
+          "The Markdown viewer now uses a webview-based renderer with richer formatting, better selection, and faster scrolling. Thanks @tobi for the contribution.",
+      },
+      {
+        title: "Feed on by Default",
+        description:
+          "The Feed is now enabled by default for new and existing users, surfacing notifications, agent events, and workspace activity in one chronological stream.",
+      },
+      {
+        title: "Quality-of-life Polish",
+        description:
+          "Open right sidebar tools as panes, workspace cwd inheritance, an unread defer shortcut, iMessage workspace ordering and previews, and right-sidebar CLI parity. Bug fixes for Korean IME arrows, garbled Chinese paste, Metal renderer crashes, terminal portal resize lag, multi-monitor sleep/wake window position, and Cloud VM SSH attach.",
+      },
+    ],
+  },
   "0.64.4": {
     title: "SSH Files Polish, Vault Pi & Hermes, Browser Cookie Import",
     features: [
