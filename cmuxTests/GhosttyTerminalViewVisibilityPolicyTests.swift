@@ -47,14 +47,21 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testInteractiveGeometryResizeUsesImmediatePortalSyncDecision() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately(
-                hostInLiveResize: false,
-                windowInLiveResize: false,
-                interactiveGeometryResizeActive: true
-            ),
-            "Interactive resize should use the immediate portal sync path"
-        )
+    func testSwiftUIHostGeometryCallbackUsesImmediateSyncWithoutLayoutFlush() {
+        switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
+        case .synchronizeWithoutLayoutFlush(let window):
+            XCTAssertEqual(window, 3873)
+        case .skip:
+            XCTFail("Window-attached host callbacks should immediately reconcile portal geometry without layout flushes")
+        }
+    }
+
+    func testSwiftUIHostGeometryCallbackSkipsWithoutWindow() {
+        switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: Optional<Int>.none) {
+        case .synchronizeWithoutLayoutFlush:
+            XCTFail("Detached host callbacks must not synchronize terminal portal geometry")
+        case .skip:
+            break
+        }
     }
 }

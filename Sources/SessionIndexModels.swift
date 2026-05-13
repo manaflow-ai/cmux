@@ -222,6 +222,11 @@ struct SessionEntry: Identifiable, Hashable {
     /// Shell command that resumes this session in a new terminal, with the agent's
     /// known per-session settings injected as CLI flags.
     var resumeCommand: String? {
+        resumeCommandWithCwd
+    }
+
+    /// Shell command that resumes this session after guarding the launch directory.
+    var resumeCommandWithCwd: String? {
         guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command

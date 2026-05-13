@@ -3,6 +3,39 @@ import Testing
 
 @Suite("AgentLaunchSanitizer")
 struct AgentLaunchSanitizerTests {
+    @Test("Preserves Codex Teams launcher while dropping prompt")
+    func preservesCodexTeamsLauncher() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "--ask-for-approval",
+                    "never",
+                    "initial prompt should not replay",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+                "--ask-for-approval",
+                "never",
+            ]
+        )
+    }
+
     @Test("Consumes terminal optional values")
     func consumesTerminalOptionalValues() {
         #expect(
@@ -168,6 +201,48 @@ struct AgentLaunchSanitizerTests {
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
             ) == ["hermes", "--skills", "skill1"]
+        )
+    }
+
+    @Test("Drops Amp --label and its value while preserving later options")
+    func dropsAmpLabelValueAndPreservesLaterOptions() {
+        // --label takes a value. If --label isn't in valueOptions, the
+        // sanitizer drops only `--label` and `foo` slips through as a
+        // positional, breaking the resumed launch.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "--label", "foo", "--mode", "geppetto"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "geppetto"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "-l", "bar", "--effort", "high"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--effort", "high"]
+        )
+    }
+
+    @Test("Rejects non-restorable Amp launches and strips resume preamble")
+    func rejectsNonRestorableAmpLaunchesAndStripsResumePreamble() {
+        // --execute / --print / -x are non-interactive runs; not restorable.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "--execute", "do this", "--mode", "geppetto"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == nil
+        )
+        // A previously-resumed launch should have its `threads continue <id>`
+        // preamble stripped so a re-resume doesn't re-prepend it.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "threads", "continue", "T-old-id", "--mode", "geppetto"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "geppetto"]
         )
     }
 }
