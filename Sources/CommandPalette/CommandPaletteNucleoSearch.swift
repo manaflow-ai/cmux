@@ -177,7 +177,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         index: OpaquePointer,
         query: String,
         resultLimit: Int,
-        boosts: [Int32]
+        boosts: [Int32]?
     ) -> [CommandPaletteNucleoRawMatch]? {
         guard resultLimit > 0 else { return [] }
 
@@ -187,16 +187,31 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         )
         var count = 0
         let queryBytes = Array(query.utf8)
+        let boostsCount = boosts?.count ?? 0
         let status = queryBytes.withUnsafeBufferPointer { queryBuffer in
-            boosts.withUnsafeBufferPointer { boostsBuffer in
-                matches.withUnsafeMutableBufferPointer { matchesBuffer in
-                    searchIndexWithBoosts(
+            matches.withUnsafeMutableBufferPointer { matchesBuffer in
+                if let boosts {
+                    return boosts.withUnsafeBufferPointer { boostsBuffer in
+                        searchIndexWithBoosts(
+                            index,
+                            queryBuffer.baseAddress,
+                            queryBuffer.count,
+                            resultLimit,
+                            boostsBuffer.baseAddress,
+                            boostsCount,
+                            UnsafeMutableRawPointer(matchesBuffer.baseAddress),
+                            matchesBuffer.count,
+                            &count
+                        )
+                    }
+                } else {
+                    return searchIndexWithBoosts(
                         index,
                         queryBuffer.baseAddress,
                         queryBuffer.count,
                         resultLimit,
-                        boostsBuffer.baseAddress,
-                        boostsBuffer.count,
+                        nil,
+                        0,
                         UnsafeMutableRawPointer(matchesBuffer.baseAddress),
                         matchesBuffer.count,
                         &count
@@ -231,7 +246,7 @@ final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where 
     func search(
         query: String,
         resultLimit: Int,
-        historyBoost: (Payload, Bool) -> Int,
+        historyBoost: ((Payload, Bool) -> Int)? = nil,
         shouldCancel: () -> Bool = { false }
     ) -> [CommandPaletteNucleoSearchResult<Payload>]? {
         guard resultLimit > 0 else { return [] }
@@ -239,9 +254,17 @@ final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where 
 
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let queryIsEmpty = preparedQuery.isEmpty
-        let boosts = entries.map { entry in
-            Int32(clamping: historyBoost(entry.payload, queryIsEmpty))
-        }
+        let boosts: [Int32]? = historyBoost.map { historyBoost in
+            var values: [Int32] = []
+            values.reserveCapacity(entries.count)
+            var hasNonZeroBoost = false
+            for entry in entries {
+                let boost = Int32(clamping: historyBoost(entry.payload, queryIsEmpty))
+                hasNonZeroBoost = hasNonZeroBoost || boost != 0
+                values.append(boost)
+            }
+            return hasNonZeroBoost ? values : []
+        }.flatMap { $0.isEmpty ? nil : $0 }
         guard let rawMatches = library.search(
             index: pointer,
             query: query,

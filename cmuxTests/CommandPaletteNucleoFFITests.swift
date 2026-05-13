@@ -244,6 +244,16 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         )
     }
 
+    func testNucleoFFIPrefersTitleInitialismOverCompactInWordMatch() throws {
+        let library = try NucleoLibrary()
+        let entries = makeInitialismWorkspaceEntries()
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "ims", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.indigoMarkdownStudio")
+    }
+
     func testNucleoFFIHandlesEmptyQuery() throws {
         let library = try NucleoLibrary()
         let entries = makeOpenFolderEntries()
@@ -449,6 +459,68 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         )
     }
 
+    func testNucleoFFICallOverheadBenchmark() throws {
+        let library = try NucleoLibrary()
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
+        let corpus = searchCorpus(entries: entries)
+        let rawIndex = try NucleoIndex(library: library, entries: entries)
+        let productionIndex = try XCTUnwrap(CommandPaletteNucleoSearchIndex(entries: corpus))
+        let noopIterations = 50_000
+        let searchIterations = 200
+        let queryBytes = Array("cmd-p-search".utf8)
+        var ffiNoopFailures = 0
+
+        var outCount = 0
+        let ffiNoopMs = benchmarkElapsedMs {
+            for _ in 0..<noopIterations {
+                let status = queryBytes.withUnsafeBufferPointer { queryBuffer in
+                    library.searchIndex(
+                        rawIndex.pointer,
+                        queryBuffer.baseAddress,
+                        queryBuffer.count,
+                        0,
+                        nil,
+                        0,
+                        &outCount
+                    )
+                }
+                if status != 0 { ffiNoopFailures += 1 }
+            }
+        }
+
+        let rawSearchMs = benchmarkElapsedMs {
+            for _ in 0..<searchIterations {
+                _ = try? rawIndex.search(query: "cmd-p-search", limit: 100)
+            }
+        }
+        let productionNoHistoryMs = benchmarkElapsedMs {
+            for _ in 0..<searchIterations {
+                _ = productionIndex.search(query: "cmd-p-search", resultLimit: 100)
+            }
+        }
+        let productionZeroBoostClosureMs = benchmarkElapsedMs {
+            for _ in 0..<searchIterations {
+                _ = productionIndex.search(
+                    query: "cmd-p-search",
+                    resultLimit: 100,
+                    historyBoost: { _, _ in 0 }
+                )
+            }
+        }
+
+        print(String(
+            format: "BENCH cmd+p nucleo-ffi overhead noopCalls=%d noopTotal=%.2fms noopPerCall=%.3fus rawSearchPerCall=%.3fms prodNoHistoryPerCall=%.3fms prodZeroBoostClosurePerCall=%.3fms",
+            noopIterations,
+            ffiNoopMs,
+            (ffiNoopMs * 1_000.0) / Double(noopIterations),
+            rawSearchMs / Double(searchIterations),
+            productionNoHistoryMs / Double(searchIterations),
+            productionZeroBoostClosureMs / Double(searchIterations)
+        ))
+
+        XCTAssertEqual(ffiNoopFailures, 0)
+    }
+
     private func makeOpenFolderEntries() -> [FixtureEntry] {
         [
             FixtureEntry(
@@ -486,6 +558,41 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
                     "editor",
                     "browser",
                 ]
+            ),
+        ]
+    }
+
+    private func makeInitialismWorkspaceEntries() -> [FixtureEntry] {
+        [
+            FixtureEntry(
+                id: "workspace.yarrowImageSorter",
+                rank: 0,
+                title: "Yarrow Image Sorter",
+                searchableTexts: ["Yarrow Image Sorter", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.indigoMarkdownStudio",
+                rank: 1,
+                title: "Indigo Markdown Studio",
+                searchableTexts: ["Indigo Markdown Studio", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.ivoryMeetingNotes",
+                rank: 2,
+                title: "Ivory Meeting Notes",
+                searchableTexts: ["Ivory Meeting Notes", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.graniteMusicVault",
+                rank: 3,
+                title: "Granite Music Vault",
+                searchableTexts: ["Granite Music Vault", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.nimbusInvoiceDesk",
+                rank: 4,
+                title: "Nimbus Invoice Desk",
+                searchableTexts: ["Nimbus Invoice Desk", "Workspace", "workspace", "switch", "go"]
             ),
         ]
     }

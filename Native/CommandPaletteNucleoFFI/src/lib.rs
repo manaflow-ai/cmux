@@ -30,12 +30,18 @@ struct Candidate {
     rank: i32,
     ascii_mask_low: u64,
     ascii_mask_high: u64,
+    title_initials: Vec<char>,
+    title_char_count: usize,
 }
 
 struct ScoredCandidate {
     index: usize,
     score: f64,
     rank: i32,
+}
+
+struct InitialismQuery {
+    chars: Vec<char>,
 }
 
 struct WorstFirstScoredCandidate(ScoredCandidate);
@@ -106,12 +112,16 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
         };
         let (title_low, title_high) = ascii_mask(title);
         let (search_low, search_high) = ascii_mask(search_text);
+        let title_initials = title_word_initials(title);
+        let title_char_count = title.chars().count();
         candidates.push(Candidate {
             title: title.to_owned(),
             search_text: search_text.to_owned(),
             rank: span.rank,
             ascii_mask_low: title_low | search_low,
             ascii_mask_high: title_high | search_high,
+            title_initials,
+            title_char_count,
         });
     }
 
@@ -245,6 +255,7 @@ unsafe fn cmux_nucleo_index_search_impl(
             Normalization::Smart,
             AtomKind::Fuzzy,
         );
+        let initialism_query = initialism_query(&normalized_query);
         let mut state = index
             .state
             .lock()
@@ -262,7 +273,12 @@ unsafe fn cmux_nucleo_index_search_impl(
 
             let title_score = state.score_text(&pattern, &candidate.title);
             let search_score = state.score_text(&pattern, &candidate.search_text);
-            let Some(score) = weighted_score(title_score, search_score) else {
+            let Some(score) = weighted_score(
+                initialism_query.as_ref(),
+                candidate,
+                title_score,
+                search_score,
+            ) else {
                 continue;
             };
             append_scored_candidate(
@@ -336,13 +352,107 @@ fn text_from_blob(blob: &[u8], offset: usize, len: usize) -> Option<&str> {
     str::from_utf8(&blob[offset..end]).ok()
 }
 
-fn weighted_score(title_score: Option<u32>, search_score: Option<u32>) -> Option<f64> {
+fn weighted_score(
+    initialism_query: Option<&InitialismQuery>,
+    candidate: &Candidate,
+    title_score: Option<u32>,
+    search_score: Option<u32>,
+) -> Option<f64> {
+    let initialism_score =
+        initialism_query.and_then(|query| title_initialism_score(query, candidate));
     match (title_score, search_score) {
-        (Some(title), Some(search)) => Some(f64::from(search).max(f64::from(title) + 2_000.0)),
-        (Some(title), None) => Some(f64::from(title) + 2_000.0),
-        (None, Some(search)) => Some(f64::from(search)),
-        (None, None) => None,
+        (Some(title), Some(search)) => Some(
+            f64::from(search)
+                .max(f64::from(title) + 2_000.0)
+                .max(initialism_score.unwrap_or(f64::NEG_INFINITY)),
+        ),
+        (Some(title), None) => {
+            Some((f64::from(title) + 2_000.0).max(initialism_score.unwrap_or(f64::NEG_INFINITY)))
+        }
+        (None, Some(search)) => {
+            Some(f64::from(search).max(initialism_score.unwrap_or(f64::NEG_INFINITY)))
+        }
+        (None, None) => initialism_score,
     }
+}
+
+fn initialism_query(query: &str) -> Option<InitialismQuery> {
+    if query.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return None;
+    }
+
+    let query_chars: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
+    if !(2..=8).contains(&query_chars.len()) || query_chars.iter().any(|c| !c.is_alphanumeric()) {
+        return None;
+    }
+
+    Some(InitialismQuery { chars: query_chars })
+}
+
+fn title_initialism_score(query: &InitialismQuery, candidate: &Candidate) -> Option<f64> {
+    let title_initials = &candidate.title_initials;
+    if query.chars.len() > title_initials.len() {
+        return None;
+    }
+
+    let mut next_word_index = 0;
+    let mut first_word: Option<usize> = None;
+    let mut last_word = 0;
+    let mut matched_count = 0;
+
+    for query_char in &query.chars {
+        let mut found_word_index = None;
+        while next_word_index < title_initials.len() {
+            let word_index = next_word_index;
+            let word_char = title_initials[next_word_index];
+            next_word_index += 1;
+            if word_char == *query_char {
+                found_word_index = Some(word_index);
+                break;
+            }
+        }
+        let word_index = found_word_index?;
+        first_word = first_word.or(Some(word_index));
+        last_word = word_index;
+        matched_count += 1;
+    }
+
+    let first_word = first_word.unwrap_or(0);
+    let skipped_before = first_word;
+    let skipped_between = last_word + 1 - matched_count - first_word;
+    let skipped_after = title_initials.len().saturating_sub(last_word + 1);
+    let exact_word_count_bonus = if query.chars.len() == title_initials.len() {
+        1_200.0
+    } else {
+        0.0
+    };
+
+    Some(
+        14_000.0 + f64::from(query.chars.len() as u32) * 420.0 + exact_word_count_bonus
+            - f64::from(skipped_before as u32) * 260.0
+            - f64::from(skipped_between as u32) * 180.0
+            - f64::from(skipped_after as u32) * 80.0
+            - f64::from(candidate.title_char_count as u32) * 2.0,
+    )
+}
+
+fn title_word_initials(title: &str) -> Vec<char> {
+    let mut starts = Vec::new();
+    let mut previous_was_boundary = true;
+    for character in title.chars() {
+        let is_boundary = is_title_word_boundary(character);
+        if !is_boundary && previous_was_boundary {
+            if let Some(lowercase) = character.to_lowercase().next() {
+                starts.push(lowercase);
+            }
+        }
+        previous_was_boundary = is_boundary;
+    }
+    starts
+}
+
+fn is_title_word_boundary(character: char) -> bool {
+    matches!(character, ' ' | '-' | '_' | '/' | '\\' | '.' | ':')
 }
 
 fn scored_candidate_order(lhs: &ScoredCandidate, rhs: &ScoredCandidate) -> Ordering {

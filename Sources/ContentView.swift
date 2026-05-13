@@ -5188,7 +5188,7 @@ struct ContentView: View {
         shouldCancel: @escaping () -> Bool = { false }
     ) -> [CommandPaletteResolvedSearchMatch] {
         let limit = resultLimit ?? Self.commandPaletteResolvedResultLimit
-        let historyBoost: (String, Bool) -> Int = { commandId, queryIsEmpty in
+        let historyBoost: ((String, Bool) -> Int)? = usageHistory.isEmpty ? nil : { commandId, queryIsEmpty in
             Self.commandPaletteHistoryBoost(
                 for: commandId,
                 queryIsEmpty: queryIsEmpty,
@@ -5216,14 +5216,7 @@ struct ContentView: View {
             entries: searchCorpus,
             query: query,
             resultLimit: limit,
-            historyBoost: { commandId, queryIsEmpty in
-                Self.commandPaletteHistoryBoost(
-                    for: commandId,
-                    queryIsEmpty: queryIsEmpty,
-                    history: usageHistory,
-                    now: historyTimestamp
-                )
-            },
+            historyBoost: historyBoost ?? { _, _ in 0 },
             shouldCancel: shouldCancel
         )
 
