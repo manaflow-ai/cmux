@@ -1661,6 +1661,36 @@ final class SessionIndexStore: ObservableObject {
         return Array(matches.dropFirst(offset).prefix(limit))
     }
 
+    #if DEBUG
+    nonisolated static func loadCodexEntriesFromDiskForTesting(
+        codexHome: String,
+        sourceLabel: String? = nil,
+        isDefault: Bool = false,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) async -> SearchOutcome {
+        let bag = ErrorBag()
+        let standardizedHome = (codexHome as NSString).standardizingPath
+        let home = CodexSessionHome(
+            path: standardizedHome,
+            label: sourceLabel ?? (standardizedHome as NSString).abbreviatingWithTildeInPath,
+            isDefault: isDefault
+        )
+        let entries = await loadCodexEntriesFromDisk(
+            home: home,
+            sourceLabel: sourceLabel,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: bag
+        )
+        return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+    #endif
+
     /// Returns OpenCode session entries paginated by `time_updated` desc.
     /// Empty needle skips the `LIKE` clause entirely so it's just `ORDER BY … LIMIT/OFFSET`.
     /// Sync because the SQL pass is fast and SQLite's API is sync; the caller

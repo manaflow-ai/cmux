@@ -174,6 +174,24 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testCodexEmptyConfiguredHomeWithoutSessionsDirectoryIsEmptyWithoutWarning() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let codexHome = tempDir.appendingPathComponent("codex-empty-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+
+        let outcome = await SessionIndexStore.loadCodexEntriesFromDiskForTesting(
+            codexHome: codexHome.path,
+            sourceLabel: "Empty Home"
+        )
+
+        XCTAssertEqual(outcome.entries, [])
+        XCTAssertEqual(outcome.errors, [])
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
