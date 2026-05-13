@@ -383,40 +383,7 @@ extension KeyboardShortcutSettings.Action {
     }
 
     var terminalDirectoryOpenTarget: TerminalDirectoryOpenTarget? {
-        switch self {
-        case .terminalOpenDirectoryAndroidStudio:
-            return .androidStudio
-        case .terminalOpenDirectoryAntigravity:
-            return .antigravity
-        case .terminalOpenDirectoryCursor:
-            return .cursor
-        case .terminalOpenDirectoryFinder:
-            return .finder
-        case .terminalOpenDirectoryGhostty:
-            return .ghostty
-        case .terminalOpenDirectoryIntelliJ:
-            return .intellij
-        case .terminalOpenDirectoryITerm2:
-            return .iterm2
-        case .terminalOpenDirectoryTerminal:
-            return .terminal
-        case .terminalOpenDirectoryTower:
-            return .tower
-        case .terminalOpenDirectoryVSCode:
-            return .vscode
-        case .terminalOpenDirectoryVSCodeInline:
-            return .vscodeInline
-        case .terminalOpenDirectoryWarp:
-            return .warp
-        case .terminalOpenDirectoryWindsurf:
-            return .windsurf
-        case .terminalOpenDirectoryXcode:
-            return .xcode
-        case .terminalOpenDirectoryZed:
-            return .zed
-        default:
-            return nil
-        }
+        TerminalDirectoryOpenTarget(commandPaletteCommandId: rawValue)
     }
 }
 

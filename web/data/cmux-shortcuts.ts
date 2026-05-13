@@ -193,7 +193,7 @@ export const shortcutCategories: ShortcutCategory[] = [
   },
   {
     id: "open-with",
-    titleKey: "terminal",
+    titleKey: "openWith",
     shortcuts: [
       openWithShortcut("palette.terminalOpenDirectory.androidStudio", "Open current directory in Android Studio", "現在のディレクトリをAndroid Studioで開く"),
       openWithShortcut("palette.terminalOpenDirectory.antigravity", "Open current directory in Antigravity", "現在のディレクトリをAntigravityで開く"),
