@@ -8,12 +8,7 @@ import XCTest
 
 final class TaskManagerResourcesTests: XCTestCase {
     func testAttributedPayloadProratesSharedResourceMeasurements() {
-        var summary = CmuxTopResourceSummary()
-        summary.cpuPercent = 42
-        summary.residentBytes = 1001
-        summary.virtualBytes = 2001
-        summary.processCount = 1
-        summary.pids = [101]
+        let summary = resourceSummary()
 
         let payload = summary.attributedPayload(sharedAcross: 2)
 
@@ -22,6 +17,25 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(int64(payload["virtual_bytes"]), 1000)
         XCTAssertEqual(int(payload["process_count"]), 1)
         XCTAssertEqual(intArray(payload["pids"]), [101])
+        XCTAssertEqual(intArray(payload["missing_pids"]), [202])
+    }
+
+    func testAttributedPayloadReturnsUnmodifiedPayloadForSingleOccurrence() {
+        let payload = resourceSummary().attributedPayload(sharedAcross: 1)
+
+        assertUnmodifiedAttributedPayload(payload)
+    }
+
+    func testAttributedPayloadReturnsUnmodifiedPayloadForZeroOccurrences() {
+        let payload = resourceSummary().attributedPayload(sharedAcross: 0)
+
+        assertUnmodifiedAttributedPayload(payload)
+    }
+
+    func testAttributedPayloadReturnsUnmodifiedPayloadForNegativeOccurrences() {
+        let payload = resourceSummary().attributedPayload(sharedAcross: -1)
+
+        assertUnmodifiedAttributedPayload(payload)
     }
 
     func testParsesTypedIntPIDArrayFromSummaryPayload() {
@@ -48,6 +62,30 @@ final class TaskManagerResourcesTests: XCTestCase {
         let resources = CmuxTaskManagerResources(payload)
 
         XCTAssertEqual(resources.processIds, [101, 202])
+    }
+
+    private func resourceSummary() -> CmuxTopResourceSummary {
+        var summary = CmuxTopResourceSummary()
+        summary.cpuPercent = 42
+        summary.residentBytes = 1001
+        summary.virtualBytes = 2001
+        summary.processCount = 1
+        summary.pids = [101]
+        summary.missingPIDs = [202]
+        return summary
+    }
+
+    private func assertUnmodifiedAttributedPayload(
+        _ payload: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(double(payload["cpu_percent"]), 42, file: file, line: line)
+        XCTAssertEqual(int64(payload["resident_bytes"]), 1001, file: file, line: line)
+        XCTAssertEqual(int64(payload["virtual_bytes"]), 2001, file: file, line: line)
+        XCTAssertEqual(int(payload["process_count"]), 1, file: file, line: line)
+        XCTAssertEqual(intArray(payload["pids"]), [101], file: file, line: line)
+        XCTAssertEqual(intArray(payload["missing_pids"]), [202], file: file, line: line)
     }
 
     private func double(_ raw: Any?) -> Double {
