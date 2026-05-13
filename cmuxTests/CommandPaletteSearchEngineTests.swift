@@ -400,6 +400,52 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCommandIDs.first, "command.finder")
     }
 
+    func testCommandSearchPrefersOpenFolderForOpenFolderQuery() {
+        let entries = [
+            FixtureEntry(
+                id: "palette.newWorkspace",
+                rank: 0,
+                title: "New Workspace",
+                searchableTexts: ["New Workspace", "Workspace", "create", "new", "workspace"]
+            ),
+            FixtureEntry(
+                id: "palette.newWindow",
+                rank: 1,
+                title: "New Window",
+                searchableTexts: ["New Window", "Window", "create", "new", "window"]
+            ),
+            FixtureEntry(
+                id: "palette.openFolder",
+                rank: 2,
+                title: "Open Folder...",
+                searchableTexts: ["Open Folder...", "Workspace", "open", "folder", "repository", "project", "directory"]
+            ),
+            FixtureEntry(
+                id: "palette.openFolderInVSCodeInline",
+                rank: 3,
+                title: "Open Folder in VS Code (Inline)...",
+                searchableTexts: [
+                    "Open Folder in VS Code (Inline)...",
+                    "VS Code Inline",
+                    "open",
+                    "folder",
+                    "directory",
+                    "project",
+                    "vs",
+                    "code",
+                    "inline",
+                    "editor",
+                    "browser",
+                ]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "open folder").prefix(2).map(\.id),
+            ["palette.openFolder", "palette.openFolderInVSCodeInline"]
+        )
+    }
+
     func testSearchMatchesSingleOmittedCharacterInCommandWordPrefix() {
         let entries = makeFinderCommandEntries()
 

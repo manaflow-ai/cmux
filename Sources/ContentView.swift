@@ -613,6 +613,59 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     }
 }
 
+private enum CommandPaletteRenderTrailingLabelStyle: Equatable {
+    case shortcut
+    case kind
+}
+
+private struct CommandPaletteRenderTrailingLabel: Equatable {
+    let text: String
+    let style: CommandPaletteRenderTrailingLabelStyle
+}
+
+private struct CommandPaletteRenderResultRow: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let matchedIndices: Set<Int>
+    let trailingLabel: CommandPaletteRenderTrailingLabel?
+}
+
+private struct CommandPaletteCommandListRenderState: Equatable {
+    var emptyStateText: String = ""
+    var listIdentity: String = "switcher"
+    var rows: [CommandPaletteRenderResultRow] = []
+    var selectedIndex: Int = 0
+    var shouldShowEmptyState = false
+    var scrollTargetIndex: Int?
+    var scrollTargetAnchor: UnitPoint?
+
+    static let empty = CommandPaletteCommandListRenderState()
+}
+
+@MainActor
+private final class CommandPaletteOverlayRenderModel: ObservableObject {
+    @Published private(set) var commandList = CommandPaletteCommandListRenderState.empty
+    private var scheduledCommandListSequence: UInt64 = 0
+    private var appliedCommandListSequence: UInt64 = 0
+
+    func scheduleCommandListUpdate(_ state: CommandPaletteCommandListRenderState) {
+        scheduledCommandListSequence &+= 1
+        let sequence = scheduledCommandListSequence
+
+        Task { @MainActor in
+            await Task.yield()
+            guard sequence >= appliedCommandListSequence else { return }
+            appliedCommandListSequence = sequence
+            updateCommandList(state)
+        }
+    }
+
+    private func updateCommandList(_ state: CommandPaletteCommandListRenderState) {
+        guard commandList != state else { return }
+        commandList = state
+    }
+}
+
 @MainActor
 private func commandPaletteWindowOverlayController(for window: NSWindow) -> WindowCommandPaletteOverlayController {
     if let existing = objc_getAssociatedObject(window, &commandPaletteWindowOverlayKey) as? WindowCommandPaletteOverlayController {
@@ -1070,6 +1123,7 @@ struct ContentView: View {
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @StateObject private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
@@ -1094,7 +1148,6 @@ struct ContentView: View {
     @State private var commandPaletteWorkspaceDescriptionHeight: CGFloat = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
     @State private var commandPaletteSelectedResultIndex: Int = 0
     @State private var commandPaletteSelectionAnchorCommandID: String?
-    @State private var commandPaletteHoveredResultIndex: Int?
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
@@ -3734,16 +3787,7 @@ struct ContentView: View {
     }
 
     private var commandPaletteCommandListView: some View {
-        let visibleResults = commandPaletteVisibleResults
-        let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListIdentity = Self.commandPaletteListIdentity(for: commandPaletteQuery)
-        let shouldShowEmptyState = commandPaletteShouldShowEmptyState
-        let commandPaletteListMaxHeight: CGFloat = 450
-        let commandPaletteRowHeight: CGFloat = 24
-        let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty ? commandPaletteEmptyStateHeight : CGFloat(visibleResults.count) * commandPaletteRowHeight
-        let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             HStack(spacing: 8) {
                 CommandPaletteSearchFieldRepresentable(
                     placeholder: commandPaletteSearchPlaceholder,
@@ -3761,75 +3805,10 @@ struct ContentView: View {
 
             Divider()
 
-            ScrollView {
-                // Rebuild the full results container on scope transitions so
-                // stale switcher rows cannot linger above command-mode results.
-                LazyVStack(spacing: 0) {
-                    if visibleResults.isEmpty {
-                        if shouldShowEmptyState {
-                            Text(commandPaletteEmptyStateText)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                        } else {
-                            Color.clear
-                                .frame(maxWidth: .infinity)
-                                .frame(height: commandPaletteEmptyStateHeight)
-                        }
-                    } else {
-                        ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
-                            let isSelected = index == selectedIndex
-                            let isHovered = commandPaletteHoveredResultIndex == index
-                            let trailingLabel = commandPaletteTrailingLabel(for: result.command)
-                            let rowBackground: Color = isSelected
-                                ? cmuxAccentColor().opacity(0.12)
-                                : (isHovered ? Color.primary.opacity(0.08) : .clear)
-
-                            Button {
-                                runCommandPaletteResult(commandID: result.id)
-                            } label: {
-                                Self.commandPaletteResultLabelContent(
-                                    title: result.command.title,
-                                    matchedIndices: result.titleMatchIndices,
-                                    trailingLabel: trailingLabel
-                                )
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(rowBackground)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
-                            .accessibilityValue(result.id)
-                            .id(index)
-                            .onHover { hovering in
-                                if hovering {
-                                    commandPaletteHoveredResultIndex = index
-                                } else if commandPaletteHoveredResultIndex == index {
-                                    commandPaletteHoveredResultIndex = nil
-                                }
-                            }
-                        }
-                    }
-                }
-                .scrollTargetLayout()
-            }
-            .id(commandPaletteListIdentity)
-            .frame(height: commandPaletteListHeight)
-            .scrollPosition(
-                id: Binding(
-                    get: { commandPaletteScrollTargetIndex },
-                    // Ignore passive readback so manual scrolling doesn't mutate selection-follow state.
-                    set: { _ in }
-                ),
-                anchor: commandPaletteScrollTargetAnchor
+            CommandPaletteCommandListRowsView(
+                renderModel: commandPaletteOverlayRenderModel,
+                onRunResult: runCommandPaletteResult(commandID:)
             )
-            .onChange(of: commandPaletteSelectedResultIndex) { _ in
-                updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: true)
-            }
 
             // Keep Esc-to-close behavior without showing footer controls.
             Button(action: { dismissCommandPalette() }) {
@@ -3842,14 +3821,12 @@ struct ContentView: View {
             .accessibilityHidden(true)
         }
         .onAppear {
-            commandPaletteHoveredResultIndex = nil
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             resetCommandPaletteSearchFocus()
         }
         .onChange(of: commandPaletteQuery) { oldValue, newValue in
             commandPaletteSelectedResultIndex = 0
             commandPaletteSelectionAnchorCommandID = nil
-            commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
             if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
@@ -3861,6 +3838,7 @@ struct ContentView: View {
                 commandPaletteVisibleResults = []
                 commandPaletteVisibleResultsScope = nil
                 commandPaletteVisibleResultsFingerprint = nil
+                syncCommandPaletteOverlayCommandListState()
             }
             scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
@@ -3889,13 +3867,100 @@ struct ContentView: View {
             syncCommandPaletteSelectionAnchorFromCurrentResults()
             let visibleResultCount = commandPaletteVisibleResults.count
             updateCommandPaletteScrollTarget(resultCount: visibleResultCount, animated: false)
-            if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResultCount {
-                commandPaletteHoveredResultIndex = nil
-            }
+            syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteSelectedResultIndex) { _ in
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: true)
+            syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
+        }
+    }
+
+    private struct CommandPaletteCommandListRowsView: View {
+        @ObservedObject var renderModel: CommandPaletteOverlayRenderModel
+        let onRunResult: (String) -> Void
+        @State private var hoveredIndex: Int?
+
+        private static let listMaxHeight: CGFloat = 450
+        private static let rowHeight: CGFloat = 24
+        private static let emptyStateHeight: CGFloat = 44
+
+        var body: some View {
+            let state = renderModel.commandList
+            let contentHeight = state.rows.isEmpty
+                ? Self.emptyStateHeight
+                : CGFloat(state.rows.count) * Self.rowHeight
+            let listHeight = min(Self.listMaxHeight, contentHeight)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if state.rows.isEmpty {
+                        if state.shouldShowEmptyState {
+                            Text(state.emptyStateText)
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 12)
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity)
+                                .frame(height: Self.emptyStateHeight)
+                        }
+                    } else {
+                        ForEach(Array(state.rows.enumerated()), id: \.element.id) { index, row in
+                            let isSelected = index == state.selectedIndex
+                            let isHovered = hoveredIndex == index
+                            let rowBackground: Color = isSelected
+                                ? cmuxAccentColor().opacity(0.12)
+                                : (isHovered ? Color.primary.opacity(0.08) : .clear)
+
+                            Button {
+                                onRunResult(row.id)
+                            } label: {
+                                ContentView.commandPaletteRenderResultLabelContent(
+                                    title: row.title,
+                                    matchedIndices: row.matchedIndices,
+                                    trailingLabel: row.trailingLabel
+                                )
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(rowBackground)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
+                            .accessibilityValue(row.id)
+                            .id(index)
+                            .onHover { hovering in
+                                if hovering {
+                                    hoveredIndex = index
+                                } else if hoveredIndex == index {
+                                    hoveredIndex = nil
+                                }
+                            }
+                        }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .id(state.listIdentity)
+            .frame(height: listHeight)
+            .scrollPosition(
+                id: Binding(
+                    get: { state.scrollTargetIndex },
+                    // Ignore passive readback so manual scrolling doesn't mutate selection-follow state.
+                    set: { _ in }
+                ),
+                anchor: state.scrollTargetAnchor
+            )
+            .onChange(of: renderModel.commandList.rows.count) { _, count in
+                if let hoveredIndex, hoveredIndex >= count {
+                    self.hoveredIndex = nil
+                }
+            }
         }
     }
 
@@ -5159,6 +5224,44 @@ struct ContentView: View {
         commandPaletteVisibleResults = results
         commandPaletteVisibleResultsScope = scope
         commandPaletteVisibleResultsFingerprint = fingerprint
+        syncCommandPaletteOverlayCommandListState()
+    }
+
+    private func commandPaletteRenderTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteRenderTrailingLabel? {
+        guard let trailingLabel = commandPaletteTrailingLabel(for: command) else { return nil }
+        let style: CommandPaletteRenderTrailingLabelStyle
+        switch trailingLabel.style {
+        case .shortcut:
+            style = .shortcut
+        case .kind:
+            style = .kind
+        }
+        return CommandPaletteRenderTrailingLabel(text: trailingLabel.text, style: style)
+    }
+
+    private func commandPaletteOverlayCommandListStateSnapshot() -> CommandPaletteCommandListRenderState {
+        let rows = commandPaletteVisibleResults.map { result in
+            CommandPaletteRenderResultRow(
+                id: result.id,
+                title: result.command.title,
+                matchedIndices: result.titleMatchIndices,
+                trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)
+            )
+        }
+        let selectedIndex = commandPaletteSelectedIndex(resultCount: rows.count)
+        return CommandPaletteCommandListRenderState(
+            emptyStateText: commandPaletteEmptyStateText,
+            listIdentity: Self.commandPaletteListIdentity(for: commandPaletteQuery),
+            rows: rows,
+            selectedIndex: selectedIndex,
+            shouldShowEmptyState: commandPaletteShouldShowEmptyState,
+            scrollTargetIndex: commandPaletteScrollTargetIndex,
+            scrollTargetAnchor: commandPaletteScrollTargetAnchor
+        )
+    }
+
+    private func syncCommandPaletteOverlayCommandListState() {
+        commandPaletteOverlayRenderModel.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
     }
 
     nonisolated private static func commandPalettePreviewSearchMatches(
@@ -5297,6 +5400,7 @@ struct ContentView: View {
         let usageHistory = commandPaletteUsageHistoryByCommandId
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
+        let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
         if Self.commandPaletteShouldSynchronouslySeedResults(
@@ -5348,7 +5452,7 @@ struct ContentView: View {
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
-                resultLimit: Self.commandPaletteVisiblePreviewResultLimit
+                resultLimit: visiblePreviewResultLimit
             )
 
             guard !Task.isCancelled else { return }
@@ -5576,6 +5680,46 @@ struct ContentView: View {
                 .lineLimit(1)
             Spacer()
             commandPaletteTrailingLabelView(trailingLabel)
+        }
+    }
+
+    @ViewBuilder
+    private static func commandPaletteRenderTrailingLabelView(_ trailingLabel: CommandPaletteRenderTrailingLabel?) -> some View {
+        if let trailingLabel {
+            switch trailingLabel.style {
+            case .shortcut:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        Color.primary.opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+            case .kind:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private static func commandPaletteRenderResultLabelContent(
+        title: String,
+        matchedIndices: Set<Int>,
+        trailingLabel: CommandPaletteRenderTrailingLabel?
+    ) -> some View {
+        HStack(spacing: 8) {
+            commandPaletteHighlightedTitleText(
+                title,
+                matchedIndices: matchedIndices
+            )
+                .font(.system(size: 13, weight: .regular))
+                .lineLimit(1)
+            Spacer()
+            commandPaletteRenderTrailingLabelView(trailingLabel)
         }
     }
 
@@ -7780,6 +7924,8 @@ struct ContentView: View {
         } else {
             syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
+        updateCommandPaletteScrollTarget(resultCount: count, animated: true)
+        syncCommandPaletteOverlayCommandListState()
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
@@ -8101,10 +8247,10 @@ struct ContentView: View {
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
-        commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
+        syncCommandPaletteOverlayCommandListState()
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -8143,7 +8289,6 @@ struct ContentView: View {
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
-        commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
@@ -8167,6 +8312,7 @@ struct ContentView: View {
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
         commandPaletteResultsRevision &+= 1
+        syncCommandPaletteOverlayCommandListState()
         if let window = observedWindow {
             _ = window.makeFirstResponder(nil)
         }
