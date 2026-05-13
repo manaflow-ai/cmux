@@ -5487,7 +5487,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @discardableResult
     func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
-        guard let surface else { return false }
+        guard let surface else {
+            hostedView.setMobileViewportBorder(size: nil, isVisible: false)
+            return false
+        }
         let size = ghostty_surface_size(surface)
         let cellWidth = max(1, Int(size.cell_width_px))
         let cellHeight = max(1, Int(size.cell_height_px))
@@ -5511,6 +5514,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let appliedWidth = cappedSize.width
         let appliedHeight = cappedSize.height
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
+        let hostIsLimiting = targetWidth >= baseWidth || targetHeight >= baseHeight
+        let borderScale = hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        hostedView.setMobileViewportBorder(
+            size: CGSize(
+                width: CGFloat(appliedWidth) / max(1, borderScale),
+                height: CGFloat(appliedHeight) / max(1, borderScale)
+            ),
+            isVisible: !hostIsLimiting
+        )
 
         #if DEBUG
         Self.sizeLog(
@@ -9771,6 +9783,49 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private final class TerminalViewportBorderOverlayView: NSView {
+    var effectiveSize: CGSize? {
+        didSet { needsDisplay = true }
+    }
+
+    var drawsVisibleAreaBorder = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard drawsVisibleAreaBorder,
+              let effectiveSize,
+              effectiveSize.width > 1,
+              effectiveSize.height > 1 else {
+            return
+        }
+
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let lineWidth = 1 / max(1, scale)
+        let width = min(effectiveSize.width, bounds.width)
+        let height = min(effectiveSize.height, bounds.height)
+        guard width > lineWidth, height > lineWidth else { return }
+
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        let x = width - lineWidth / 2
+        let y = height - lineWidth / 2
+        path.move(to: NSPoint(x: x, y: 0))
+        path.line(to: NSPoint(x: x, y: y))
+        path.line(to: NSPoint(x: 0, y: y))
+        NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
+        path.stroke()
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -9805,6 +9860,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
@@ -10089,6 +10145,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        mobileViewportBorderOverlayView.isHidden = true
+        addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10494,6 +10552,7 @@ final class GhosttySurfaceScrollView: NSView {
             size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: bounds)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
@@ -10534,6 +10593,12 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+    }
+
+    func setMobileViewportBorder(size: CGSize?, isVisible: Bool) {
+        mobileViewportBorderOverlayView.effectiveSize = size
+        mobileViewportBorderOverlayView.drawsVisibleAreaBorder = isVisible
+        mobileViewportBorderOverlayView.isHidden = !isVisible
     }
 
     @discardableResult

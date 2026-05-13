@@ -818,6 +818,94 @@ import Testing
 }
 
 @MainActor
+@Test func terminalSnapshotStoresViewportFitForVisibleAreaBorder() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["ready"],
+            viewportFit: [
+                "effective": ["columns": 52, "rows": 24],
+                "client": ["columns": 120, "rows": 40],
+                "is_current_client_limiting": false,
+            ]
+        ),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let terminal = try #require(store.selectedWorkspace?.terminals.first { $0.id.rawValue == "live-terminal" })
+    #expect(terminal.viewportFit?.effective == MobileTerminalViewportSize(columns: 52, rows: 24))
+    #expect(terminal.viewportFit?.client == MobileTerminalViewportSize(columns: 120, rows: 40))
+    #expect(terminal.viewportFit?.shouldDrawVisibleAreaBorder == true)
+    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: terminal.viewportFit) == true)
+}
+
+@Test func terminalVisibleAreaBorderPolicyHidesOnLimitingDevices() {
+    let limitingFit = MobileTerminalViewportFit(
+        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
+        client: MobileTerminalViewportSize(columns: 52, rows: 40),
+        isCurrentClientLimiting: true
+    )
+    let nonLimitingFit = MobileTerminalViewportFit(
+        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
+        client: MobileTerminalViewportSize(columns: 120, rows: 40),
+        isCurrentClientLimiting: false
+    )
+
+    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: nil) == false)
+    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: limitingFit) == false)
+    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: nonLimitingFit) == true)
+}
+
+@Test func terminalInputAccessoryMatchesZigReferenceMetrics() {
+    #expect(TerminalInputAccessoryVisualMetrics.barHeight == 44)
+    #expect(TerminalInputAccessoryVisualMetrics.horizontalInset == 16)
+    #expect(TerminalInputAccessoryVisualMetrics.buttonHeight == 28)
+    #expect(TerminalInputAccessoryVisualMetrics.buttonMinWidth == 44)
+    #expect(TerminalInputAccessoryVisualMetrics.buttonCornerRadius == 6)
+    #expect(TerminalInputAccessoryVisualMetrics.nubSize == 34)
+    #expect(TerminalInputAccessoryVisualMetrics.nubInnerDotSize == 12)
+}
+
+@Test func terminalBottomActionSelectionDoesNotArmPlainActions() {
+    var state = MobileTerminalModifierState()
+
+    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .escape, modifierState: state) == false)
+    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .control, modifierState: state) == false)
+
+    state.tap(.control, now: Date(timeIntervalSince1970: 1))
+
+    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .control, modifierState: state) == true)
+    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .escape, modifierState: state) == false)
+    #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .zoomIn, modifierState: state) == false)
+}
+
+@MainActor
 @Test func previewHostIncludesAlternateScreenSnapshotTerminal() {
     let store = CMUXMobileShellStore.preview()
     let workspace = store.workspaces.first { $0.id.rawValue == "workspace-main" }
@@ -1104,18 +1192,21 @@ private func rpcErrorFrame(message: String) throws -> Data {
 private func rpcSnapshotResultFrame(
     workspaceID: String,
     terminalID: String,
-    visibleLines: [String]
+    visibleLines: [String],
+    viewportFit: [String: Any]? = nil
 ) throws -> Data {
     let snapshot = try MobileTerminalGhosttySnapshot.fixture(
         terminalID: terminalID,
         visibleLines: visibleLines
     )
     let snapshotObject = try JSONSerialization.jsonObject(with: snapshot.encodedValidatedJSON())
-    return try rpcResultFrame(
-        result: [
-            "workspace_id": workspaceID,
-            "surface_id": terminalID,
-            "snapshot": snapshotObject,
-        ]
-    )
+    var result: [String: Any] = [
+        "workspace_id": workspaceID,
+        "surface_id": terminalID,
+        "snapshot": snapshotObject,
+    ]
+    if let viewportFit {
+        result["viewport_fit"] = viewportFit
+    }
+    return try rpcResultFrame(result: result)
 }

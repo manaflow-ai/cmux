@@ -2065,6 +2065,51 @@ enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, 
 
 }
 
+enum TerminalInputAccessoryVisualMetrics {
+    static let barHeight: CGFloat = 44
+    static let horizontalInset: CGFloat = 16
+    static let buttonHeight: CGFloat = 28
+    static let buttonMinWidth: CGFloat = 44
+    static let buttonHorizontalPadding: CGFloat = 10
+    static let buttonCornerRadius: CGFloat = 6
+    static let buttonSpacing: CGFloat = 6
+    static let hideKeyboardWidth: CGFloat = 32
+    static let nubSize: CGFloat = 34
+    static let nubInnerDotSize: CGFloat = 12
+    static let nubMaxOffset: CGFloat = 9
+    static let nubDeadZone: CGFloat = 8
+    static let hideKeyboardForeground = Color(red: 0.7, green: 0.7, blue: 0.7)
+    static let buttonBackground = Color(red: 0.35, green: 0.35, blue: 0.35)
+    static let selectedButtonBackground = Color(red: 0.0, green: 0.478, blue: 1.0)
+    static let nubBackground = Color(red: 0.25, green: 0.25, blue: 0.25).opacity(0.85)
+    static let nubInnerDot = Color(red: 0.85, green: 0.85, blue: 0.85)
+}
+
+enum TerminalVisibleAreaBorderPolicy {
+    static func shouldDraw(viewportFit: MobileTerminalViewportFit?) -> Bool {
+        viewportFit?.shouldDrawVisibleAreaBorder == true
+    }
+}
+
+enum TerminalBottomActionSelectionPolicy {
+    static func isArmed(
+        action: MobileTerminalBottomAction,
+        modifierState: MobileTerminalModifierState
+    ) -> Bool {
+        guard let modifier = action.modifier else {
+            return false
+        }
+        return modifier == modifierState.activeModifier
+    }
+
+    static func isSticky(
+        action: MobileTerminalBottomAction,
+        modifierState: MobileTerminalModifierState
+    ) -> Bool {
+        isArmed(action: action, modifierState: modifierState) && modifierState.isSticky
+    }
+}
+
 private struct TerminalBottomActionBar: View {
     let modifierState: MobileTerminalModifierState
     let canDecreaseFont: Bool
@@ -2072,16 +2117,22 @@ private struct TerminalBottomActionBar: View {
     let performAction: (MobileTerminalBottomAction) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            TerminalBottomActionButton(
-                action: .hideKeyboard,
-                isArmed: false,
-                isSticky: false,
-                isEnabled: true
-            ) {
+        HStack(spacing: TerminalInputAccessoryVisualMetrics.buttonSpacing) {
+            Button {
                 performAction(.hideKeyboard)
+            } label: {
+                Image(systemName: MobileTerminalBottomAction.hideKeyboard.symbolName ?? "keyboard.chevron.compact.down")
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(
+                        width: TerminalInputAccessoryVisualMetrics.hideKeyboardWidth,
+                        height: TerminalInputAccessoryVisualMetrics.barHeight
+                    )
+                    .foregroundStyle(TerminalInputAccessoryVisualMetrics.hideKeyboardForeground)
             }
-            .padding(.leading, 12)
+            .buttonStyle(.plain)
+            .accessibilityLabel(MobileTerminalBottomAction.hideKeyboard.accessibilityLabel)
+            .accessibilityIdentifier(MobileTerminalBottomAction.hideKeyboard.accessibilityIdentifier)
+            .padding(.leading, TerminalInputAccessoryVisualMetrics.horizontalInset)
 
             TerminalArrowNubPad(
                 sendArrow: { action in
@@ -2089,35 +2140,25 @@ private struct TerminalBottomActionBar: View {
                 }
             )
 
-            Divider()
-                .frame(height: 30)
-                .overlay(TerminalPalette.dimForeground.opacity(0.28))
-
             ScrollView(.horizontal) {
-                HStack(spacing: 6) {
+                HStack(spacing: TerminalInputAccessoryVisualMetrics.buttonSpacing) {
                     ForEach(MobileTerminalBottomAction.scrollableActionBarCases) { action in
                         TerminalBottomActionButton(
                             action: action,
-                            isArmed: action.modifier == modifierState.activeModifier,
-                            isSticky: action.modifier == modifierState.activeModifier && modifierState.isSticky,
+                            isArmed: isArmed(action),
+                            isSticky: isSticky(action),
                             isEnabled: isEnabled(action)
                         ) {
                             performAction(action)
                         }
-
-                        if action.hasTrailingDivider {
-                            Divider()
-                                .frame(height: 26)
-                                .overlay(TerminalPalette.dimForeground.opacity(0.28))
-                                .padding(.horizontal, 2)
-                        }
                     }
                 }
-                .padding(.trailing, 12)
-                .padding(.vertical, 8)
+                .padding(.trailing, TerminalInputAccessoryVisualMetrics.horizontalInset)
+                .padding(.vertical, (TerminalInputAccessoryVisualMetrics.barHeight - TerminalInputAccessoryVisualMetrics.buttonHeight) / 2)
             }
             .scrollIndicators(.hidden)
         }
+        .frame(height: TerminalInputAccessoryVisualMetrics.barHeight)
         .background(TerminalPalette.background)
         .overlay(alignment: .top) {
             Rectangle()
@@ -2139,6 +2180,14 @@ private struct TerminalBottomActionBar: View {
             return true
         }
     }
+
+    private func isArmed(_ action: MobileTerminalBottomAction) -> Bool {
+        TerminalBottomActionSelectionPolicy.isArmed(action: action, modifierState: modifierState)
+    }
+
+    private func isSticky(_ action: MobileTerminalBottomAction) -> Bool {
+        TerminalBottomActionSelectionPolicy.isSticky(action: action, modifierState: modifierState)
+    }
 }
 
 private struct TerminalBottomActionButton: View {
@@ -2153,23 +2202,26 @@ private struct TerminalBottomActionButton: View {
             Group {
                 if let symbolName = action.symbolName {
                     Image(systemName: symbolName)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .medium))
                 } else {
                     Text(action.title)
-                        .font(.system(size: 14, weight: .semibold, design: .default))
+                        .font(.system(size: 14, weight: .medium, design: .default))
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
             }
-            .frame(minWidth: 36, minHeight: 30)
-            .padding(.horizontal, action.symbolName == nil ? 8 : 4)
+            .frame(
+                minWidth: TerminalInputAccessoryVisualMetrics.buttonMinWidth,
+                minHeight: TerminalInputAccessoryVisualMetrics.buttonHeight
+            )
+            .padding(.horizontal, TerminalInputAccessoryVisualMetrics.buttonHorizontalPadding)
             .foregroundStyle(isEnabled ? TerminalPalette.foreground : TerminalPalette.dimForeground.opacity(0.48))
             .background(buttonBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: TerminalInputAccessoryVisualMetrics.buttonCornerRadius, style: .continuous))
             .overlay {
-                if isArmed {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(TerminalPalette.foreground.opacity(0.85), lineWidth: isSticky ? 2.5 : 1.5)
+                if isSticky {
+                    RoundedRectangle(cornerRadius: TerminalInputAccessoryVisualMetrics.buttonCornerRadius, style: .continuous)
+                        .stroke(TerminalPalette.foreground.opacity(0.85), lineWidth: 2)
                 }
             }
         }
@@ -2184,13 +2236,10 @@ private struct TerminalBottomActionButton: View {
         if !isEnabled {
             return TerminalPalette.dimForeground.opacity(0.08)
         }
-        if isSticky {
-            return TerminalPalette.foreground.opacity(0.28)
+        if isSticky || isArmed {
+            return TerminalInputAccessoryVisualMetrics.selectedButtonBackground
         }
-        if isArmed {
-            return TerminalPalette.dimForeground.opacity(0.34)
-        }
-        return TerminalPalette.dimForeground.opacity(0.18)
+        return TerminalInputAccessoryVisualMetrics.buttonBackground
     }
 }
 
@@ -2219,54 +2268,29 @@ private struct TerminalArrowNubPad: View {
             }
         }
 
-        var symbol: String {
-            switch self {
-            case .up:
-                return "chevron.up"
-            case .down:
-                return "chevron.down"
-            case .left:
-                return "chevron.left"
-            case .right:
-                return "chevron.right"
-            }
-        }
     }
 
-    private static let size = CGSize(width: 74, height: 42)
-    private static let nubSize: CGFloat = 28
-    private static let maxOffset: CGFloat = 9
-    private static let deadZone: CGFloat = 8
+    private static let nubSize = TerminalInputAccessoryVisualMetrics.nubSize
+    private static let maxOffset = TerminalInputAccessoryVisualMetrics.nubMaxOffset
+    private static let deadZone = TerminalInputAccessoryVisualMetrics.nubDeadZone
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(TerminalPalette.dimForeground.opacity(0.12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(TerminalPalette.dimForeground.opacity(0.22), lineWidth: 1)
-                }
-
-            ForEach(Direction.allCases, id: \.self) { direction in
-                Image(systemName: direction.symbol)
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(TerminalPalette.dimForeground.opacity(0.7))
-                    .offset(labelOffset(for: direction))
-                    .accessibilityHidden(true)
-            }
-
             Circle()
-                .fill(TerminalPalette.dimForeground.opacity(0.34))
+                .fill(TerminalInputAccessoryVisualMetrics.nubBackground)
                 .overlay {
                     Circle()
-                        .fill(TerminalPalette.foreground.opacity(0.82))
-                        .frame(width: 8, height: 8)
+                        .fill(TerminalInputAccessoryVisualMetrics.nubInnerDot)
+                        .frame(
+                            width: TerminalInputAccessoryVisualMetrics.nubInnerDotSize,
+                            height: TerminalInputAccessoryVisualMetrics.nubInnerDotSize
+                        )
+                        .shadow(color: TerminalPalette.foreground.opacity(0.3), radius: 3, x: 0, y: 0)
                 }
                 .frame(width: Self.nubSize, height: Self.nubSize)
                 .offset(clampedOffset(dragOffset))
-                .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: Self.nubSize, height: Self.nubSize)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
@@ -2316,19 +2340,6 @@ private struct TerminalArrowNubPad: View {
             width: min(Self.maxOffset, max(-Self.maxOffset, offset.width)),
             height: min(Self.maxOffset, max(-Self.maxOffset, offset.height))
         )
-    }
-
-    private func labelOffset(for direction: Direction) -> CGSize {
-        switch direction {
-        case .up:
-            return CGSize(width: 0, height: -14)
-        case .down:
-            return CGSize(width: 0, height: 14)
-        case .left:
-            return CGSize(width: -24, height: 0)
-        case .right:
-            return CGSize(width: 24, height: 0)
-        }
     }
 
     private final class RepeatController {
@@ -2491,6 +2502,7 @@ struct TerminalPreviewSurface: View {
     var modifierState: Binding<MobileTerminalModifierState>?
     var sendTerminalInput: (String) -> Void = { _ in }
     var onViewportChange: (MobileTerminalViewportSize) -> Void = { _ in }
+    @Environment(\.displayScale) private var displayScale
 
     private var renderedRows: [MobileTerminalGhosttyRow] {
         guard let terminal else {
@@ -2508,6 +2520,12 @@ struct TerminalPreviewSurface: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let metrics = TerminalViewportMetrics(
+                size: proxy.size,
+                columns: columnCount,
+                rows: max(1, renderedRows.count),
+                fontScale: fontScale
+            )
             ZStack(alignment: .topLeading) {
                 TerminalPalette.background
 
@@ -2517,6 +2535,14 @@ struct TerminalPreviewSurface: View {
                     cursor: terminal?.snapshot.cursor,
                     fontScale: fontScale
                 )
+
+                if TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: terminal?.viewportFit) {
+                    TerminalVisibleAreaBorder(
+                        metrics: metrics,
+                        containerSize: proxy.size,
+                        displayScale: displayScale
+                    )
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .task(id: viewportReportKey(proxy: proxy)) {
@@ -2828,6 +2854,33 @@ private struct TerminalFittedViewportGrid: View {
             return nil
         }
         return cursor
+    }
+}
+
+private struct TerminalVisibleAreaBorder: View {
+    let metrics: TerminalViewportMetrics
+    let containerSize: CGSize
+    let displayScale: CGFloat
+
+    var body: some View {
+        let lineWidth = 1 / max(1, displayScale)
+        let width = min(metrics.gridWidth, containerSize.width)
+        let height = min(metrics.gridHeight, containerSize.height)
+
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(PlatformPalette.separator.opacity(0.7))
+                .frame(width: lineWidth, height: height)
+                .frame(width: width, height: height, alignment: .topTrailing)
+
+            Rectangle()
+                .fill(PlatformPalette.separator.opacity(0.7))
+                .frame(width: width, height: lineWidth)
+                .frame(width: width, height: height, alignment: .bottomLeading)
+        }
+        .frame(width: width, height: height, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

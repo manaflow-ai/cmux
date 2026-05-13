@@ -17812,6 +17812,7 @@ class TerminalController {
         applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         return mobileTerminalSnapshotPayload(
+            params: params,
             workspace: resolved.workspace,
             terminalPanel: terminalPanel,
             maxScrollbackRows: maxScrollbackRows
@@ -17872,6 +17873,7 @@ class TerminalController {
     }
 
     private func mobileTerminalSnapshotPayload(
+        params: [String: Any],
         workspace: Workspace,
         terminalPanel: TerminalPanel,
         maxScrollbackRows: Int?
@@ -17933,7 +17935,7 @@ class TerminalController {
                 generatedAt: Date()
             )
 
-            return .ok([
+            var payload: [String: Any] = [
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": terminalPanel.id.uuidString,
                 "snapshot": try mobileJSONObject(snapshot),
@@ -17943,12 +17945,60 @@ class TerminalController {
                     viewportFidelity: viewportText.fidelity,
                     scrollbackFidelity: scrollbackFidelity
                 )
-            ])
+            ]
+            if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
+                payload["viewport_fit"] = viewportFit
+            }
+            return .ok(payload)
         } catch {
             return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: [
                 "error": String(describing: error)
             ])
         }
+    }
+
+    private func mobileViewportFitPayload(
+        params: [String: Any],
+        terminalPanel: TerminalPanel
+    ) -> [String: Any]? {
+        let now = Date()
+        guard var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] else {
+            return nil
+        }
+        reports = reports.filter { _, report in
+            now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+        }
+        mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
+
+        guard let effectiveColumns = reports.values.map(\.columns).min(),
+              let effectiveRows = reports.values.map(\.rows).min() else {
+            return nil
+        }
+
+        let clientReport = v2String(params, "client_id").flatMap { reports[$0] }
+        let isCurrentClientLimiting: Bool
+        if let clientReport {
+            isCurrentClientLimiting = clientReport.columns == effectiveColumns || clientReport.rows == effectiveRows
+        } else {
+            isCurrentClientLimiting = true
+        }
+
+        var payload: [String: Any] = [
+            "effective": [
+                "columns": effectiveColumns,
+                "rows": effectiveRows,
+            ],
+            "is_current_client_limiting": isCurrentClientLimiting,
+        ]
+        if let clientReport {
+            payload["client"] = [
+                "columns": clientReport.columns,
+                "rows": clientReport.rows,
+            ]
+        } else {
+            payload["client"] = NSNull()
+        }
+        return payload
     }
 
     private func mobileTerminalSnapshotLimitations(

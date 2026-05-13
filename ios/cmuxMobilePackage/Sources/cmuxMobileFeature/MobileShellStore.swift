@@ -50,19 +50,22 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public var snapshot: MobileTerminalGhosttySnapshot
     public var isReady: Bool
     public var isFocused: Bool
+    public var viewportFit: MobileTerminalViewportFit?
 
     public init(
         id: ID,
         name: String,
         snapshot: MobileTerminalGhosttySnapshot,
         isReady: Bool = true,
-        isFocused: Bool = false
+        isFocused: Bool = false,
+        viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
         self.name = name
         self.snapshot = snapshot
         self.isReady = isReady
         self.isFocused = isFocused
+        self.viewportFit = viewportFit
     }
 
     public init(
@@ -70,7 +73,8 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
         name: String,
         lines: [String],
         isReady: Bool = true,
-        isFocused: Bool = false
+        isFocused: Bool = false,
+        viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
         self.name = name
@@ -80,6 +84,7 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
         )
         self.isReady = isReady
         self.isFocused = isFocused
+        self.viewportFit = viewportFit
     }
 
     public var lines: [String] {
@@ -87,13 +92,39 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     }
 }
 
-public struct MobileTerminalViewportSize: Equatable, Sendable {
+public struct MobileTerminalViewportSize: Codable, Equatable, Sendable {
     public var columns: Int
     public var rows: Int
 
     public init(columns: Int, rows: Int) {
         self.columns = max(1, columns)
         self.rows = max(1, rows)
+    }
+}
+
+public struct MobileTerminalViewportFit: Codable, Equatable, Sendable {
+    public var effective: MobileTerminalViewportSize
+    public var client: MobileTerminalViewportSize?
+    public var isCurrentClientLimiting: Bool
+
+    public init(
+        effective: MobileTerminalViewportSize,
+        client: MobileTerminalViewportSize?,
+        isCurrentClientLimiting: Bool
+    ) {
+        self.effective = effective
+        self.client = client
+        self.isCurrentClientLimiting = isCurrentClientLimiting
+    }
+
+    public var shouldDrawVisibleAreaBorder: Bool {
+        !isCurrentClientLimiting
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case effective
+        case client
+        case isCurrentClientLimiting = "is_current_client_limiting"
     }
 }
 
@@ -677,7 +708,8 @@ public final class CMUXMobileShellStore {
                 workspaceID: workspace.id,
                 terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID),
                 snapshot: response.snapshot,
-                isReady: true
+                isReady: true,
+                viewportFit: response.viewportFit
             )
         } catch {
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .public)")
@@ -730,7 +762,8 @@ public final class CMUXMobileShellStore {
                     workspaceID: candidate.workspaceID,
                     terminalID: resolvedTerminalID,
                     snapshot: response.snapshot,
-                    isReady: true
+                    isReady: true,
+                    viewportFit: response.viewportFit
                 )
                 setSelectedWorkspaceID(candidate.workspaceID, refreshSnapshot: false)
                 selectedTerminalID = resolvedTerminalID
@@ -847,7 +880,8 @@ public final class CMUXMobileShellStore {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
         snapshot: MobileTerminalGhosttySnapshot,
-        isReady: Bool? = nil
+        isReady: Bool? = nil,
+        viewportFit: MobileTerminalViewportFit? = nil
     ) {
         guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
               let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
@@ -858,6 +892,7 @@ public final class CMUXMobileShellStore {
         if let isReady {
             updatedWorkspaces[workspaceIndex].terminals[terminalIndex].isReady = isReady
         }
+        updatedWorkspaces[workspaceIndex].terminals[terminalIndex].viewportFit = viewportFit
         workspaces = updatedWorkspaces
         mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .public) terminal=\(terminalID.rawValue, privacy: .public) rows=\(snapshot.visibleRows.count, privacy: .public)")
     }
@@ -1410,10 +1445,12 @@ private struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
     let snapshot: MobileTerminalGhosttySnapshot
     let surfaceID: String?
+    let viewportFit: MobileTerminalViewportFit?
 
     private enum CodingKeys: String, CodingKey {
         case snapshot
         case surfaceID = "surface_id"
+        case viewportFit = "viewport_fit"
     }
 
     static func decode(_ data: Data) throws -> MobileSyncTerminalSnapshotResponse {
