@@ -93,6 +93,47 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
     }
 
+    private func makeLargeWorkspaceSwitcherEntries(count: Int) -> [FixtureEntry] {
+        (0..<count).map { index in
+            let projectSlug = "project-\(index)-cmd-p-search-performance"
+            let worktreeSlug = "feature-\(index)-palette-latency"
+            let title = "Workspace \(index) \(projectSlug)"
+            let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+                baseKeywords: [
+                    "workspace",
+                    "switch",
+                    "go",
+                    "open",
+                    title,
+                    "Window \((index % 4) + 1)",
+                ],
+                metadata: CommandPaletteSwitcherSearchMetadata(
+                    directories: [
+                        "/Users/example/dev/cmuxterm-hq/worktrees/\(worktreeSlug)",
+                        "/Users/example/dev/cmuxterm-hq/worktrees/\(worktreeSlug)/repo",
+                    ],
+                    branches: [
+                        "feature/palette-latency-\(index)",
+                        "task/cmd-p-search-\(index % 17)",
+                    ],
+                    ports: [
+                        3000 + (index % 50),
+                        4200 + (index % 25),
+                        9200 + (index % 10),
+                    ],
+                    description: "Palette performance fixture \(index) for \(projectSlug)"
+                ),
+                detail: .workspace
+            )
+            return FixtureEntry(
+                id: "workspace.large.\(index)",
+                rank: index,
+                title: title,
+                searchableTexts: [title, "Workspace"] + keywords
+            )
+        }
+    }
+
     private func makeFinderCommandEntries() -> [FixtureEntry] {
         [
             FixtureEntry(
@@ -911,6 +952,54 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             optimizedMs,
             referenceMs * 1.25,
             "Optimized switcher search regressed significantly: reference=\(referenceMs) optimized=\(optimizedMs)"
+        )
+    }
+
+    func testLargeWorkspaceSwitcherSearchBenchmarkAvoidsPerQueryPreparationCost() {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let queries = repeatedQueries(
+            [
+                "workspace 799",
+                "palette latency",
+                "feature 401",
+                "cmd-p-search",
+                "project-642",
+                "4207",
+                "9204",
+                "Window 3",
+            ],
+            repetitions: 3
+        )
+
+        for query in queries.prefix(8) {
+            _ = referenceResults(entries: entries, query: query)
+            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+        }
+
+        let referenceMs = benchmarkElapsedMs {
+            for query in queries {
+                _ = referenceResults(entries: entries, query: query)
+            }
+        }
+        let optimizedMs = benchmarkElapsedMs {
+            for query in queries {
+                _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            }
+        }
+
+        print(String(format: "BENCH cmd+p large-workspaces reference=%.2fms optimized=%.2fms", referenceMs, optimizedMs))
+        XCTAssertLessThan(
+            optimizedMs,
+            referenceMs * 0.80,
+            "Large switcher search should reuse prepared corpus data: reference=\(referenceMs) optimized=\(optimizedMs)"
         )
     }
 }
