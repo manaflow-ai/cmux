@@ -16,6 +16,7 @@ enum WindowChromeMetrics {
 
 enum TitlebarFolderIconMetrics {
     static let iconSize: CGFloat = 16
+    static let iconFrameSize = CGSize(width: iconSize, height: iconSize)
     static let iconTitleSpacing: CGFloat = 8
     static let iconLeadingPadding: CGFloat = -6
 }

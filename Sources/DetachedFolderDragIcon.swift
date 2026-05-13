@@ -21,13 +21,14 @@ final class DetachedFolderDragIconHostView: NSView {
     private var iconView: DraggableFolderNSView?
     private var observers: [NSObjectProtocol] = []
     private var ancestorViewObservers: [NSObjectProtocol] = []
+    private var ancestorViewNotificationStates: [AncestorViewNotificationState] = []
     private var observedAncestorViewIds: [ObjectIdentifier] = []
     private var hasScheduledFrameSync = false
     private weak var observedParentWindow: NSWindow?
 
     init(directory: String) {
         self.directory = directory
-        super.init(frame: NSRect(origin: .zero, size: Self.iconSize))
+        super.init(frame: NSRect(origin: .zero, size: TitlebarFolderIconMetrics.iconFrameSize))
     }
 
     required init?(coder: NSCoder) {
@@ -41,7 +42,7 @@ final class DetachedFolderDragIconHostView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        Self.iconSize
+        TitlebarFolderIconMetrics.iconFrameSize
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -109,7 +110,7 @@ final class DetachedFolderDragIconHostView: NSView {
 
     private func makeDetachedIconWindow(parentWindow: NSWindow) -> NSPanel {
         let iconView = DraggableFolderNSView(directory: directory)
-        iconView.frame = NSRect(origin: .zero, size: Self.iconSize)
+        iconView.frame = NSRect(origin: .zero, size: TitlebarFolderIconMetrics.iconFrameSize)
 
         let panel = NSPanel(
             contentRect: iconView.frame,
@@ -164,7 +165,7 @@ final class DetachedFolderDragIconHostView: NSView {
         guard let parentWindow = window,
               let childWindow else { return }
         let localRect = bounds.isEmpty
-            ? NSRect(origin: .zero, size: Self.iconSize)
+            ? NSRect(origin: .zero, size: TitlebarFolderIconMetrics.iconFrameSize)
             : bounds
         let rectInWindow = convert(localRect, to: nil)
         let rectOnScreen = parentWindow.convertToScreen(rectInWindow)
@@ -193,6 +194,11 @@ final class DetachedFolderDragIconHostView: NSView {
             // enclosing titlebar/content view, such as when the left sidebar
             // opens. Observe the ancestor chain so the detached panel follows
             // the host's converted window rect, not just its local frame.
+            ancestorViewNotificationStates.append(AncestorViewNotificationState(
+                view: ancestor,
+                postsFrameChangedNotifications: ancestor.postsFrameChangedNotifications,
+                postsBoundsChangedNotifications: ancestor.postsBoundsChangedNotifications
+            ))
             ancestor.postsFrameChangedNotifications = true
             ancestor.postsBoundsChangedNotifications = true
             ancestorViewObservers.append(center.addObserver(
@@ -233,7 +239,12 @@ final class DetachedFolderDragIconHostView: NSView {
         for observer in ancestorViewObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        for state in ancestorViewNotificationStates {
+            state.view?.postsFrameChangedNotifications = state.postsFrameChangedNotifications
+            state.view?.postsBoundsChangedNotifications = state.postsBoundsChangedNotifications
+        }
         ancestorViewObservers.removeAll()
+        ancestorViewNotificationStates.removeAll()
         observedAncestorViewIds.removeAll()
         hasScheduledFrameSync = false
     }
@@ -260,11 +271,10 @@ final class DetachedFolderDragIconHostView: NSView {
         iconView = nil
     }
 
-    private static var iconSize: NSSize {
-        NSSize(
-            width: TitlebarFolderIconMetrics.iconSize,
-            height: TitlebarFolderIconMetrics.iconSize
-        )
+    private struct AncestorViewNotificationState {
+        weak var view: NSView?
+        let postsFrameChangedNotifications: Bool
+        let postsBoundsChangedNotifications: Bool
     }
 }
 
@@ -295,7 +305,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override var intrinsicContentSize: NSSize {
-        Self.iconSize
+        TitlebarFolderIconMetrics.iconFrameSize
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -325,7 +335,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #endif
 
         let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = Self.iconSize
+        icon.size = TitlebarFolderIconMetrics.iconFrameSize
         imageView.image = icon
     }
 
@@ -444,7 +454,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
             let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = Self.iconSize
+            icon.size = TitlebarFolderIconMetrics.iconFrameSize
 
             let displayName: String
             if pathURL.path == "/" {
@@ -468,7 +478,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Add computer name at the bottom (like native proxy icon)
         let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
-        computerIcon.size = Self.iconSize
+        computerIcon.size = TitlebarFolderIconMetrics.iconFrameSize
 
         let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
         computerItem.target = self
@@ -488,10 +498,4 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
     }
 
-    private static var iconSize: NSSize {
-        NSSize(
-            width: TitlebarFolderIconMetrics.iconSize,
-            height: TitlebarFolderIconMetrics.iconSize
-        )
-    }
 }

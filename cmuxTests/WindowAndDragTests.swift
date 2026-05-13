@@ -167,7 +167,7 @@ final class CmuxMainWindowTitlebarProxyIconTests: XCTestCase {
 
 @MainActor
 final class MainWindowFocusRedrawTests: XCTestCase {
-    func testKeyRegainInvalidatesContentWhenPointerIsOverSidebarDivider() {
+    func testKeyRegainInvalidatesRootContentView() {
         _ = NSApplication.shared
 
         let appDelegate = AppDelegate()
@@ -202,21 +202,6 @@ final class MainWindowFocusRedrawTests: XCTestCase {
 
         contentView.layoutSubtreeIfNeeded()
         splitView.adjustSubviews()
-        let dividerPointInSplit = NSPoint(
-            x: sidebar.frame.maxX + splitView.dividerThickness / 2,
-            y: splitView.bounds.midY
-        )
-        let dividerRectInSplit = NSRect(
-            x: sidebar.frame.maxX,
-            y: 0,
-            width: max(splitView.dividerThickness, 1),
-            height: splitView.bounds.height
-        ).insetBy(dx: -5, dy: 0)
-
-        XCTAssertTrue(
-            dividerRectInSplit.contains(dividerPointInSplit),
-            "Test setup should place the pointer over the sidebar/main split divider without depending on screen coordinates."
-        )
 
         contentView.needsDisplay = false
 
@@ -229,7 +214,7 @@ final class MainWindowFocusRedrawTests: XCTestCase {
 
         XCTAssertTrue(
             contentView.needsDisplay,
-            "Regaining key focus must invalidate the root content view even when the pointer is over the resize divider."
+            "Regaining key focus must invalidate the root content view."
         )
     }
 }
