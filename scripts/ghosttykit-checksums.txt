@@ -1,4 +1,5 @@
 # Pinned GhosttyKit.xcframework.tar.gz checksums keyed by ghostty submodule SHA.
+# Release tags include the current build flavor: xcframework-<sha>-crashsubdir-cmux-crash-v1.
 # Update this file in a reviewed PR whenever the ghostty submodule SHA changes.
 # Format: <ghostty_sha> <sha256>
 7dd589824d4c9bda8265355718800cccaf7189a0 3915af4256850a0a7bee671c3ba0a47cbfee5dbfc6d71caf952acefdf2ee4207
@@ -28,3 +29,4 @@ d3117e03ea19665bc83a28f7e0428c63937e6140 dd33542f2cb0ea6bb9579067cda4faf60558666
 ee397e28dab4a125f038cde47d8eb9b102a8ae4c 3cea80fc4162557bcf7be1828441b16cddd5d13fd9a7d93e5a26118bf94eabf2
 fe972c09579a7943f6fe9607fdd24f0f7c999cb1 4dde2bc84b27de84b14a38618ade03b2167a03986f2c61322b4a79995e85b6ab
 ec097438eff7f11d5b6b6942a0e24bbef106d278 d598dafb37cd6acf7e8160737351588ab4ab9d8985fa0dd934924a8667d3ec01
+aef980e27b584a9d914f1ff0499b13c6ed1973e0 c6b8d560ad6b53d73396f80ba6995cb880ae9de9bfe8cae4dbd9ee72629798b5
