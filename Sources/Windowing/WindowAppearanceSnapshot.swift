@@ -143,6 +143,13 @@ nonisolated struct TerminalSurfaceBackgroundFillPlan {
         sharesWindowBackdrop: Bool,
         usesBonsplitPaneBackdrop: Bool
     ) -> Self {
+        // Fill ownership priority:
+        // .ghosttyNativeRenderer when the renderer owns its background, then
+        // .surfaceHostLayer for pane-local OSC 11 overrides when
+        // usesBonsplitPaneBackdrop is false, then .surfaceHostLayer for
+        // non-shared/non-bonsplit defaults, then .sharedWindowBackdrop, then
+        // .bonsplitPaneBackdrop. Bonsplit takes precedence over OSC 11 because
+        // this path has no pane-local cutout for that backdrop owner.
         let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
             .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
         let owner: TerminalSurfaceBackgroundFillOwner
