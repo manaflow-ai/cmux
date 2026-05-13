@@ -12509,6 +12509,13 @@ struct CMUXCLI {
     private static let codexTeamsProbeClientName = "codex_app_server_daemon"
     private static let codexTeamsWatcherClientName = "cmux-codex-teams"
     private static let codexTeamsClientVersion = "0.1.0"
+    private static let codexTeamsBackfillTriggerMethods: Set<String> = [
+        "thread/status/changed",
+        "turn/started",
+        "turn/completed",
+        "item/started",
+        "item/completed"
+    ]
 
     private struct CodexTeamsSpawn {
         let parentThreadId: String
@@ -12744,6 +12751,10 @@ struct CMUXCLI {
             while true {
                 let message = try connection.receiveObject()
                 try handleNotification(message)
+                if let method = message["method"] as? String,
+                   CMUXCLI.codexTeamsBackfillTriggerMethods.contains(method) {
+                    try backfillLoadedThreads(connection: connection)
+                }
             }
         }
 
