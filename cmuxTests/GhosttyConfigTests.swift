@@ -3625,7 +3625,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
     }
 
-    func testZshPromptResetsKittyKeyboardProtocolStack() throws {
+    func testZshPromptResetsTerminalKeyboardProtocols() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
@@ -3644,10 +3644,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(output, "\u{1B}[<8u")
+        XCTAssertEqual(output, "\u{1B}[>m\u{1B}[<8u")
     }
 
-    func testBashPromptResetsKittyKeyboardProtocolStack() throws {
+    func testBashPromptResetsTerminalKeyboardProtocols() throws {
         let result = try runInteractiveBash(
             cmuxLoadShellIntegration: true,
             command: """
@@ -3665,7 +3665,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(result.stdout, "\u{1B}[<8u")
+        XCTAssertEqual(result.stdout, "\u{1B}[>m\u{1B}[<8u")
     }
 
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {

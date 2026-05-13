@@ -412,10 +412,6 @@ _cmux_reset_terminal_keyboard_protocols() {
     printf '\033[>m\033[<8u'
 }
 
-_cmux_reset_kitty_keyboard_protocol() {
-    _cmux_reset_terminal_keyboard_protocols
-}
-
 _cmux_ports_kick() {
     local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
