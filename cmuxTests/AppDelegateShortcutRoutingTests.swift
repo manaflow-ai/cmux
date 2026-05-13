@@ -982,6 +982,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         BrowserAvailabilitySettings.setDisabled(false)
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertTrue(
             tabManager.selectedWorkspace?.focusedTerminalPanel?.sidekickState.isOpen == true,
             "Cmd+Option+B should toggle the focused terminal sidekick before falling back to the right sidebar"

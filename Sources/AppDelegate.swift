@@ -5572,21 +5572,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return preferredRegisteredMainWindowContext()
     }
 
-    @discardableResult
-    func toggleTerminalSidekickInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+    private func terminalSidekickShortcutTarget(
+        preferredWindow: NSWindow? = nil
+    ) -> (context: MainWindowContext, terminalPanel: TerminalPanel)? {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
               let terminalPanel = context.tabManager.selectedWorkspace?.focusedTerminalPanel else {
+            return nil
+        }
+
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+
+        return (context, terminalPanel)
+    }
+
+    func canToggleTerminalSidekickInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        terminalSidekickShortcutTarget(preferredWindow: preferredWindow) != nil
+    }
+
+    @discardableResult
+    func toggleTerminalSidekickInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let target = terminalSidekickShortcutTarget(preferredWindow: preferredWindow) else {
             return false
         }
 
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
-
-        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let window = target.context.window ?? windowForMainWindowId(target.context.windowId)
         if let window {
             setActiveMainWindow(window)
         }
 
-        return terminalPanel.toggleSidekick()
+        return target.terminalPanel.toggleSidekick()
     }
 
     @discardableResult
@@ -11263,7 +11277,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalSidekick) {
             let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            if toggleTerminalSidekickInActiveMainWindow(preferredWindow: preferredWindow) {
+            if canToggleTerminalSidekickInActiveMainWindow(preferredWindow: preferredWindow) {
+                // Escape AppKit's performKeyEquivalent animation context before resizing
+                // the terminal portal and sidekick WKWebView host.
+                Task { @MainActor [weak self, weak preferredWindow] in
+                    _ = self?.toggleTerminalSidekickInActiveMainWindow(preferredWindow: preferredWindow)
+                }
                 return true
             }
         }
