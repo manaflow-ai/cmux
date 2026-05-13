@@ -207,12 +207,25 @@ tend to conflict together during rebases.
   - The first commit intentionally preserves the panic so cmux can keep the
     required failing-test-then-fix history for issue #3369.
 
-The current cmux pin is `ec097438e`. It is reachable from the fork branch in
-https://github.com/manaflow-ai/ghostty/pull/54 and merges the branch
-`issue-3369-metal-renderer-crash`.
-Published `xcframework-ec097438eff7f11d5b6b6942a0e24bbef106d278` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
-checksum pin must be regenerated whenever this commit changes, even for
+### 13) Crash report subdirectory override
+
+- Commit: `aef980e27` (Allow crash report subdirectory override)
+- Files:
+  - `src/build/Config.zig`
+  - `src/build_config.zig`
+  - `src/crash/dir.zig`
+- Summary:
+  - Adds a build-time `crash-report-subdir` option so embedded cmux builds can
+    place Ghostty crash reports under `cmux/crash`.
+  - The current cmux GhosttyKit prebuilds use the `crashsubdir-cmux-crash-v1`
+    flavor in their release tag and checksum pin.
+
+The current cmux pin is `aee4cb8e8`. It is reachable from the fork branch in
+https://github.com/manaflow-ai/ghostty/pull/54 and merges the branches
+`issue-3369-metal-renderer-crash` and `cmux-crash-report-subdir`.
+Published `xcframework-aee4cb8e850c4f2055dbd7952959267525670680-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The release
+and checksum pin must be regenerated whenever this commit changes, even for
 comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
