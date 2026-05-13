@@ -33,21 +33,13 @@ enum WorkspaceCustomLayoutApplyResult {
     case failure(markdownPath: CmuxReadableFilePathResolutionFailure?)
 
     var isSuccess: Bool {
-        switch self {
-        case .success:
-            return true
-        case .failure:
-            return false
-        }
+        if case .success = self { return true }
+        return false
     }
 
     var markdownPathFailure: CmuxReadableFilePathResolutionFailure? {
-        switch self {
-        case .success:
-            return nil
-        case .failure(let markdownPath):
-            return markdownPath
-        }
+        if case .failure(let markdownPath) = self { return markdownPath }
+        return nil
     }
 }
 
@@ -308,7 +300,7 @@ extension Workspace {
 
     private func validatedMarkdownPath(for surface: CmuxSurfaceDefinition) -> String? {
         guard let filePath = surface.path,
-              !filePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !filePath.isEmpty else {
             workspaceCustomLayoutLogger.warning(
                 "Markdown surface missing validated path during layout application"
             )

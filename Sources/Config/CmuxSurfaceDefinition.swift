@@ -33,7 +33,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
     ) {
         if type == .markdown {
             precondition(
-                path?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                path?.isEmpty == false,
                 "Markdown surface requires a non-empty path"
             )
         }
@@ -69,7 +69,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
                 )
             )
         }
-        if path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if path.isEmpty {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath + [CodingKeys.path],

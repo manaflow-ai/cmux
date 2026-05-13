@@ -12,7 +12,7 @@ enum CmuxReadableFilePathResolver {
         _ rawPath: String,
         relativeTo basePath: String? = nil
     ) -> (path: String?, failure: CmuxReadableFilePathResolutionFailure?) {
-        guard !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !rawPath.isEmpty else {
             return (
                 nil,
                 CmuxReadableFilePathResolutionFailure(

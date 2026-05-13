@@ -28,12 +28,12 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
         }
     }
 
-    func testMarkdownSurfaceRejectsBlankPathWhenDecodingLayout() throws {
+    func testMarkdownSurfaceRejectsEmptyPathWhenDecodingLayout() throws {
         let json = """
         {
           "pane": {
             "surfaces": [
-              { "type": "markdown", "path": "   " }
+              { "type": "markdown", "path": "" }
             ]
           }
         }
@@ -46,6 +46,36 @@ final class WorkspaceCustomLayoutTests: XCTestCase {
             }
             XCTAssertTrue(context.debugDescription.contains("must not be empty"))
         }
+    }
+
+    func testMarkdownSurfacePreservesWhitespaceOnlyPathWhenResolvingLayout() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-layout-markdown-spaces-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("   ")
+        try "# Spaces\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let layoutJSON = """
+        {
+          "pane": {
+            "surfaces": [
+              { "type": "markdown", "path": "   " }
+            ]
+          }
+        }
+        """
+        let layoutData = try XCTUnwrap(layoutJSON.data(using: .utf8))
+        let layout = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+
+        let resolved = layout.resolvingMarkdownPaths(relativeTo: root.path)
+        XCTAssertNil(resolved.failure)
+
+        guard case .pane(let pane) = try XCTUnwrap(resolved.layout) else {
+            return XCTFail("Expected pane layout")
+        }
+        XCTAssertEqual(pane.surfaces.first?.path, fileURL.path)
     }
 
     @MainActor
