@@ -297,6 +297,7 @@ final class ConfiguredMenuBarController: NSObject {
     private var dynamicTimerKeys: [String: String] = [:]
     private var dynamicTasks: [String: Task<Void, Never>] = [:]
     private var refreshScheduled = false
+    private var isApplyingMenuChanges = false
 
     init(owner: AppDelegate, notificationCenter: NotificationCenter = .default) {
         self.owner = owner
@@ -331,6 +332,24 @@ final class ConfiguredMenuBarController: NSObject {
                 }
             }
         }
+        let menuMutationNames: [Notification.Name] = [
+            NSMenu.didAddItemNotification,
+            NSMenu.didRemoveItemNotification,
+            NSMenu.didChangeItemNotification,
+        ]
+        observerTokens.append(contentsOf: menuMutationNames.map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          !self.isApplyingMenuChanges,
+                          let menu = notification.object as? NSMenu,
+                          menu === NSApp.mainMenu else {
+                        return
+                    }
+                    self.scheduleRefresh()
+                }
+            }
+        })
         scheduleRefresh()
     }
 
@@ -390,6 +409,9 @@ final class ConfiguredMenuBarController: NSObject {
 
     private func refresh() {
         guard let mainMenu = NSApp.mainMenu else { return }
+
+        isApplyingMenuChanges = true
+        defer { isApplyingMenuChanges = false }
 
         removeConfiguredItems(from: mainMenu)
 
