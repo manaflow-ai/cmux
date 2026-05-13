@@ -420,6 +420,63 @@ def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root:
             raise AssertionError(f"monitor did not query owner surfaces: {fake.frames!r}")
 
 
+def test_codex_monitor_exits_when_owner_process_exits(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-pid.sock"
+    transcript_path = root / "codex-session-owner-pid.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-owner-pid-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"] = "30"
+
+    owner = subprocess.Popen(["/bin/sleep", "30"])
+    with FakeCmuxSocket(socket_path, None):
+        monitor = subprocess.Popen(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--session",
+                session_id,
+                "--surface",
+                FAKE_SURFACE_ID,
+                "--owner-pid",
+                str(owner.pid),
+                "--transcript",
+                str(transcript_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        try:
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+            owner.terminate()
+            owner.wait(timeout=5)
+            stdout, stderr = monitor.communicate(timeout=5)
+            if monitor.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex monitor failed exit={monitor.returncode}\n"
+                    f"stdout={stdout}\nstderr={stderr}"
+                )
+            wait_for_monitor_pids(session_id, present=False, timeout=1)
+        finally:
+            if owner.poll() is None:
+                owner.kill()
+            if monitor.poll() is None:
+                monitor.kill()
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
 def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-timeout.sock"
     transcript_path = root / "codex-session-timeout.jsonl"
@@ -1611,6 +1668,7 @@ def main() -> int:
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
+            test_codex_monitor_exits_when_owner_process_exits(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
