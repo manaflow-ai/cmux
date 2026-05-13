@@ -439,7 +439,7 @@ extension CMUXCLI {
         }
 
         private func stripTomlComment(_ rawLine: String) -> String {
-            var inString = false
+            var activeQuote: Character?
             var escaped = false
             for index in rawLine.indices {
                 let character = rawLine[index]
@@ -447,15 +447,19 @@ extension CMUXCLI {
                     escaped = false
                     continue
                 }
-                if character == "\\" && inString {
+                if character == "\\" && activeQuote == "\"" {
                     escaped = true
                     continue
                 }
-                if character == "\"" {
-                    inString.toggle()
+                if character == "\"", activeQuote != "'" {
+                    activeQuote = activeQuote == "\"" ? nil : "\""
                     continue
                 }
-                if character == "#", !inString {
+                if character == "'", activeQuote != "\"" {
+                    activeQuote = activeQuote == "'" ? nil : "'"
+                    continue
+                }
+                if character == "#", activeQuote == nil {
                     return String(rawLine[..<index])
                 }
             }
@@ -485,6 +489,19 @@ extension CMUXCLI {
             if raw.hasPrefix("\""), raw.hasSuffix("\"") {
                 let inner = raw.dropFirst().dropLast()
                 return try unescapeTomlString(String(inner))
+            }
+            if raw.hasPrefix("'") {
+                guard !raw.hasPrefix("'''") else {
+                    throw CLIError(message: "Unsupported TOML multi-line literal string: \(raw)")
+                }
+                guard raw.count >= 2, raw.hasSuffix("'") else {
+                    throw CLIError(message: "Invalid TOML literal string: \(raw)")
+                }
+                let inner = raw.dropFirst().dropLast()
+                guard !inner.contains("'") else {
+                    throw CLIError(message: "Invalid TOML literal string: \(raw)")
+                }
+                return String(inner)
             }
             return raw
         }
