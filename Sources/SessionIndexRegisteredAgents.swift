@@ -248,8 +248,8 @@ extension SessionIndexStore {
             return trimmedNonEmpty(string)
         }
         guard let block = value as? [String: Any] else { return nil }
-        if let type = firstString(in: block, keys: ["type"]),
-           type.caseInsensitiveCompare("text") != .orderedSame {
+        guard let type = firstString(in: block, keys: ["type"]),
+              type.caseInsensitiveCompare("text") == .orderedSame else {
             return nil
         }
         return firstString(in: block, keys: ["text"])
