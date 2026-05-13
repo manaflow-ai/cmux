@@ -12298,9 +12298,8 @@ private struct TabItemView: View, Equatable {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
-
-                Spacer(minLength: 0)
 
                 if trailingAccessoryWidth > 0 {
                     ZStack(alignment: .trailing) {
