@@ -212,6 +212,20 @@ await hooks.event({
 });
 await hooks.event({
   event: {
+    type: "session.updated",
+    properties: {
+      info: {
+        id: "opencode-session-test",
+        directory: "/tmp/opencode-project",
+        time: {
+          archived: Date.now()
+        }
+      }
+    }
+  }
+});
+await hooks.event({
+  event: {
     type: "session.status",
     properties: {
       sessionID: "opencode-session-test",
@@ -260,6 +274,9 @@ await hooks.event({
             return 1
         if args_log.count("hooks opencode stop") != 1:
             print(f"FAIL: plugin invoked duplicate stop hooks, got {args_log!r}")
+            return 1
+        if args_log.count("hooks opencode session-end") != 1:
+            print(f"FAIL: plugin did not preserve archived session.updated session-end, got {args_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")
