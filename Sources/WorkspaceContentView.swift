@@ -199,6 +199,11 @@ struct WorkspaceContentView: View {
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
+        let _ = {
+            for controller in workspace.dockLayout.allControllers {
+                controller.isInteractive = isWorkspaceInputActive
+            }
+        }()
 
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
@@ -322,15 +327,27 @@ struct WorkspaceContentView: View {
             )
         }
 
-        bonsplitView
+        WorkspaceMultiDockLayoutView(
+            workspace: workspace,
+            layout: workspace.dockLayout,
+            isWorkspaceVisible: isWorkspaceVisible,
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            isSplit: isSplit,
+            appearance: appearance,
+            usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+            portalPriority: workspacePortalPriority + 1
+        ) {
+            bonsplitView
+        }
             .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
 
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+        for controller in workspace.allBonsplitControllers {
+            for paneId in controller.allPaneIds {
+                for tab in controller.tabs(inPane: paneId) {
                 let panelId = workspace.panelIdFromSurfaceId(tab.id)
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
@@ -343,7 +360,7 @@ struct WorkspaceContentView: View {
                 if tab.showsNotificationBadge != shouldShow ||
                     tab.isPinned != expectedPinned ||
                     (expectedKind != nil && tab.kind != expectedKind) {
-                    workspace.bonsplitController.updateTab(
+                    controller.updateTab(
                         tab.id,
                         kind: kindUpdate,
                         showsNotificationBadge: shouldShow,
@@ -351,6 +368,7 @@ struct WorkspaceContentView: View {
                     )
                 }
             }
+        }
         }
     }
 
@@ -677,11 +695,225 @@ extension WorkspaceContentView {
     #endif
 }
 
+private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
+    @ObservedObject var workspace: Workspace
+    @ObservedObject var layout: WorkspaceDockLayout
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let isSplit: Bool
+    let appearance: PanelAppearance
+    let usesWorkspacePaneOverlay: Bool
+    let portalPriority: Int
+    @ViewBuilder let mainContent: () -> MainContent
+
+    private let sideDockWidth: CGFloat = 240
+    private let bottomDockHeight: CGFloat = 220
+    private let addRailWidth: CGFloat = 28
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                dockStrip(edge: .left, docks: layout.left)
+                mainContent()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                dockStrip(edge: .right, docks: layout.right)
+            }
+            Divider()
+            bottomDockStrip
+        }
+    }
+
+    private func dockStrip(edge: WorkspaceDockEdge, docks: [WorkspaceDock]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(docks) { dock in
+                WorkspaceDockPaneView(
+                    workspace: workspace,
+                    layout: layout,
+                    dock: dock,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    isSplit: isSplit,
+                    appearance: appearance,
+                    usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                    portalPriority: portalPriority
+                )
+                .frame(width: sideDockWidth)
+                Divider()
+            }
+            addDockButton(edge: edge)
+                .frame(width: addRailWidth)
+        }
+    }
+
+    private var bottomDockStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(layout.bottom) { dock in
+                WorkspaceDockPaneView(
+                    workspace: workspace,
+                    layout: layout,
+                    dock: dock,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    isSplit: isSplit,
+                    appearance: appearance,
+                    usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                    portalPriority: portalPriority
+                )
+                .frame(maxWidth: .infinity)
+                Divider()
+            }
+            addDockButton(edge: .bottom)
+                .frame(width: addRailWidth)
+        }
+        .frame(height: bottomDockHeight)
+    }
+
+    private func addDockButton(edge: WorkspaceDockEdge) -> some View {
+        Button {
+            layout.addDock(edge: edge)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .help(addDockTitle(edge: edge))
+        .accessibilityLabel(addDockTitle(edge: edge))
+    }
+
+    private func addDockTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
+        }
+    }
+}
+
+private struct WorkspaceDockPaneView: View {
+    @ObservedObject var workspace: Workspace
+    @ObservedObject var layout: WorkspaceDockLayout
+    @ObservedObject var dock: WorkspaceDock
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let isSplit: Bool
+    let appearance: PanelAppearance
+    let usesWorkspacePaneOverlay: Bool
+    let portalPriority: Int
+    @EnvironmentObject var notificationStore: TerminalNotificationStore
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            dockBonsplitView
+        }
+        .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: dock.edge.symbolName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(dock.title)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Button {
+                layout.removeDock(dock)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .disabled(!layout.canRemove(dock))
+            .help(String(localized: "workspaceDock.remove", defaultValue: "Remove Dock"))
+            .accessibilityLabel(String(localized: "workspaceDock.remove", defaultValue: "Remove Dock"))
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+    }
+
+    private var dockBonsplitView: some View {
+        BonsplitView(controller: dock.controller) { tab, paneId in
+            if let panel = workspace.panel(for: tab.id) {
+                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                let isSelectedInPane = dock.controller.selectedTab(inPane: paneId)?.id == tab.id
+                let isVisibleInUI = WorkspaceContentView.panelVisibleInUI(
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isSelectedInPane: isSelectedInPane,
+                    isFocused: isFocused
+                )
+                let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
+                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                        forTabId: workspace.id,
+                        surfaceId: panel.id
+                    ),
+                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
+                )
+                PanelContentView(
+                    panel: panel,
+                    workspaceId: workspace.id,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isSelectedInPane: isSelectedInPane,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    isSplit: isSplit,
+                    appearance: appearance,
+                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    onFocus: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                    },
+                    onRequestPanelFocus: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                            workspaceId: workspace.id,
+                            panelId: panel.id,
+                            in: NSApp.keyWindow ?? NSApp.mainWindow
+                        )
+                        workspace.focusPanel(panel.id)
+                    },
+                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+                )
+                .onTapGesture {
+                    dock.controller.focusPane(paneId)
+                }
+            } else {
+                EmptyPanelView(workspace: workspace, paneId: paneId, controller: dock.controller)
+            }
+        } emptyPane: { paneId in
+            EmptyPanelView(workspace: workspace, paneId: paneId, controller: dock.controller)
+                .onTapGesture {
+                    dock.controller.focusPane(paneId)
+                }
+        }
+        .internalOnlyTabDrag()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// View shown for empty panes
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
+    let controller: BonsplitController?
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+
+    init(workspace: Workspace, paneId: PaneID, controller: BonsplitController? = nil) {
+        self.workspace = workspace
+        self.paneId = paneId
+        self.controller = controller
+    }
 
     private struct ShortcutHint: View {
         let text: String
@@ -697,7 +929,7 @@ struct EmptyPanelView: View {
     }
 
     private func focusPane() {
-        workspace.bonsplitController.focusPane(paneId)
+        (controller ?? workspace.bonsplitController).focusPane(paneId)
     }
 
     private func createTerminal() {
@@ -705,7 +937,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
+        _ = workspace.newTerminalSurface(inPane: paneId, controller: controller)
     }
 
     private func createBrowser() {
@@ -713,7 +945,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newBrowserSurface(inPane: paneId)
+        _ = workspace.newBrowserSurface(inPane: paneId, controller: controller)
     }
 
     private var newSurfaceShortcut: StoredShortcut {
@@ -759,20 +991,20 @@ struct EmptyPanelView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
                 emptyPaneActionButton(
-                    title: "Browser",
+                    title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
                     action: createBrowser

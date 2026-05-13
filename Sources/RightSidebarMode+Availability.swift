@@ -35,7 +35,8 @@ extension RightSidebarMode {
         case .files, .find, .sessions, .feed:
             return true
         case .dock:
-            return dockEnabled
+            _ = dockEnabled
+            return false
         }
     }
 }

@@ -34,7 +34,7 @@ enum GlobalSearchDocuments {
             kind = .browser
         case .markdown:
             kind = .markdown
-        case .terminal, .filePreview:
+        case .terminal, .filePreview, .rightSidebarTool:
             kind = .title
         }
 
