@@ -3846,9 +3846,19 @@ class GhosttyApp {
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
                 // Prefer callbackContext ids (still valid during view churn /
-                // reparenting) and fall back to surfaceView lookup.
-                let bellTabId = callbackTabId ?? surfaceView.tabId
-                let bellSurfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                // reparenting) and fall back to surfaceView lookup. Keep the
+                // pair from the same lifetime — never mix a callback id with a
+                // surfaceView id, which would risk routing the bell to the
+                // wrong workspace/pane after reparenting.
+                let bellTabId: UUID?
+                let bellSurfaceId: UUID?
+                if let callbackTabId, let callbackSurfaceId {
+                    bellTabId = callbackTabId
+                    bellSurfaceId = callbackSurfaceId
+                } else {
+                    bellTabId = surfaceView.tabId
+                    bellSurfaceId = surfaceView.terminalSurface?.id
+                }
                 self.ringBell(tabId: bellTabId, surfaceId: bellSurfaceId)
             }
             return true
