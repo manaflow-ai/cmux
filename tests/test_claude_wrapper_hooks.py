@@ -843,13 +843,12 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
 
 
 def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> None:
-    subcommands = [
+    passthrough_subcommands = [
         "mcp",
         "config",
         "api-key",
         "rc",
         "remote-control",
-        "agents",
         "doctor",
         "update",
         "upgrade",
@@ -861,10 +860,9 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         "project",
         "setup-token",
         "install",
-        "daemon",
         "ultrareview",
     ]
-    for subcommand in subcommands:
+    for subcommand in passthrough_subcommands:
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
             socket_state="live",
             argv=[subcommand],
@@ -875,14 +873,45 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         expect("--session-id" not in real_argv, f"{subcommand} passthrough: expected no --session-id injection, got {real_argv}", failures)
         expect(node_options == "__UNSET__", f"{subcommand} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+    env_only_subcommands = ["agents", "daemon"]
+    for subcommand in env_only_subcommands:
+        code, real_argv, _, stderr, _, node_options, runtime_node_options, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=[subcommand],
+        )
+        expect(code == 0, f"{subcommand} env-only: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == [subcommand], f"{subcommand} env-only: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{subcommand} env-only: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{subcommand} env-only: expected no --session-id injection, got {real_argv}", failures)
+        expect(
+            "--require=" in node_options and "--max-old-space-size=4096" in node_options,
+            f"{subcommand} env-only: expected preload NODE_OPTIONS, got {node_options!r}",
+            failures,
+        )
+        expect(
+            runtime_node_options == "__UNSET__",
+            f"{subcommand} env-only: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}",
+            failures,
+        )
+
+    code, real_argv, _, stderr, _, node_options, runtime_node_options, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["--model", "sonnet", "agents"],
     )
-    expect(code == 0, f"agents after global option passthrough: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["--model", "sonnet", "agents"], f"agents after global option passthrough: expected raw argv, got {real_argv}", failures)
-    expect("--settings" not in real_argv, f"agents after global option passthrough: expected no --settings injection, got {real_argv}", failures)
-    expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
+    expect(code == 0, f"agents after global option env-only: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["--model", "sonnet", "agents"], f"agents after global option env-only: expected raw argv, got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"agents after global option env-only: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"agents after global option env-only: expected no --session-id injection, got {real_argv}", failures)
+    expect(
+        "--require=" in node_options and "--max-old-space-size=4096" in node_options,
+        f"agents after global option env-only: expected preload NODE_OPTIONS, got {node_options!r}",
+        failures,
+    )
+    expect(
+        runtime_node_options == "__UNSET__",
+        f"agents after global option env-only: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}",
+        failures,
+    )
 
     env_only_value_options = [
         ("development channel", ["--dangerously-load-development-channels", "beta", "agents"]),

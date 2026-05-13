@@ -181,7 +181,7 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
-exec_real_claude_passthrough() {
+clear_inherited_cmux_terminal_env() {
     if [[ "$IN_CMUX" == "1" ]]; then
         local cmux_key
         for cmux_key in "${!CMUX_@}"; do
@@ -189,6 +189,10 @@ exec_real_claude_passthrough() {
         done
         unset TERMINFO
     fi
+}
+
+exec_real_claude_passthrough() {
+    clear_inherited_cmux_terminal_env
     exec "$REAL_CLAUDE" "$@"
 }
 
@@ -1393,6 +1397,7 @@ if ! should_inject_claude_hooks "$@"; then
         agents|daemon)
             unset CLAUDECODE
             clear_inherited_claude_auth_selection_env
+            clear_inherited_cmux_terminal_env
             configure_claude_hook_environment "$@"
             exec "$REAL_CLAUDE" "$@"
             ;;
