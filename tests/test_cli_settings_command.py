@@ -25,12 +25,14 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "app.minimalMode": ("true", True),
     "app.newWorkspacePlacement": ("top", "top"),
     "app.openMarkdownInCmuxViewer": ("true", True),
+    "app.openSupportedFilesInCmux": ("false", False),
     "app.preferredEditor": ("zed", "zed"),
     "app.renameSelectsExistingName": ("false", False),
     "app.reorderOnNotification": ("false", False),
     "app.sendAnonymousTelemetry": ("false", False),
     "app.warnBeforeClosingTab": ("false", False),
     "app.warnBeforeQuit": ("false", False),
+    "app.workspaceInheritWorkingDirectory": ("false", False),
     "automation.claudeBinaryPath": ("/opt/cmux/bin/claude", "/opt/cmux/bin/claude"),
     "automation.claudeCodeIntegration": ("false", False),
     "automation.cursorIntegration": ("false", False),
@@ -57,6 +59,11 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "notifications.command": ("printf true", "printf true"),
     "notifications.customSoundFilePath": ("/tmp/cmux-sound.aiff", "/tmp/cmux-sound.aiff"),
     "notifications.dockBadge": ("false", False),
+    "notifications.hooks": (
+        '[{"id":"ci","command":"echo ok","timeoutSeconds":5,"enabled":true}]',
+        [{"id": "ci", "command": "echo ok", "timeoutSeconds": 5, "enabled": True}],
+    ),
+    "notifications.hooksMode": ("replace", "replace"),
     "notifications.paneFlash": ("false", False),
     "notifications.showInMenuBar": ("false", False),
     "notifications.sound": ("Ping", "Ping"),
@@ -75,6 +82,7 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "sidebar.showProgress": ("false", False),
     "sidebar.showPullRequests": ("false", False),
     "sidebar.showSSH": ("false", False),
+    "sidebar.showWorkspaceDescription": ("false", False),
     "sidebarAppearance.darkModeTintColor": ("#aabbcc", "#AABBCC"),
     "sidebarAppearance.lightModeTintColor": ("#778899", "#778899"),
     "sidebarAppearance.matchTerminalBackground": ("true", True),
@@ -544,11 +552,12 @@ def main() -> int:
         object_import = run_cli(cli_path, ["settings", "import", str(object_import_path)], home)
         assert_ok(failures, "settings import object setting", object_import)
         object_toml_export = run_cli(cli_path, ["settings", "export", "--format", "toml"], home)
-        assert_ok(failures, "settings export toml flattens object values", object_toml_export)
-        if 'workspaceColors.paletteOverrides."Work Project" = "#123456"' not in object_toml_export.stdout:
-            failures.append(f"settings export toml did not flatten object values: {object_toml_export.stdout!r}")
-        if 'workspaceColors.paletteOverrides."Ops.Team" = "#654321"' not in object_toml_export.stdout:
-            failures.append(f"settings export toml did not quote dotted object keys: {object_toml_export.stdout!r}")
+        assert_fails(
+            failures,
+            "settings export toml rejects object values",
+            object_toml_export,
+            "TOML format does not support object values",
+        )
         object_json_export = run_cli(cli_path, ["settings", "export", "--format", "json"], home)
         assert_ok(failures, "settings export json allows object values", object_json_export)
         object_json_payload = parse_json(failures, "settings export json allows object values", object_json_export)
@@ -563,7 +572,16 @@ def main() -> int:
         unset_object = run_cli(cli_path, ["settings", "unset", "workspaceColors.paletteOverrides"], home)
         assert_ok(failures, "settings unset object setting before TOML exports", unset_object)
         object_toml_roundtrip_path = home / "object-settings-roundtrip.toml"
-        object_toml_roundtrip_path.write_text(object_toml_export.stdout, encoding="utf-8")
+        object_toml_roundtrip_path.write_text(
+            '\n'.join(
+                [
+                    'workspaceColors.paletteOverrides."Work Project" = "#123456"',
+                    'workspaceColors.paletteOverrides."Ops.Team" = "#654321"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
         object_toml_roundtrip = run_cli(cli_path, ["settings", "import", str(object_toml_roundtrip_path)], home)
         assert_ok(failures, "settings import TOML quoted object keys", object_toml_roundtrip)
         object_toml_roundtrip_config = read_config(home)
