@@ -9108,7 +9108,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(_ notification: Notification) {
-        if let manager = notification.object as? TabManager, manager !== tabManager {
+        guard let manager = notification.object as? TabManager, manager === tabManager else {
             return
         }
         guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
