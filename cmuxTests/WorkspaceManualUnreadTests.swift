@@ -32,6 +32,12 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         store.markRead(forTabId: workspaceId, surfaceId: UUID())
 
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+        XCTAssertTrue(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
+        XCTAssertFalse(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
+
+        store.markRead(forTabId: workspaceId)
+
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0)
         XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspaceId]))
         XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
@@ -49,76 +55,259 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
     }
 
-    func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
-        let previousFocusedPanelId = UUID()
-        let nextFocusedPanelId = UUID()
+    func testSurfaceMarkReadDoesNotClearManualWorkspaceUnread() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
 
-        XCTAssertTrue(
-            Workspace.shouldClearManualUnread(
-                previousFocusedPanelId: previousFocusedPanelId,
-                nextFocusedPanelId: nextFocusedPanelId,
-                isManuallyUnread: true,
-                markedAt: Date()
-            )
-        )
+        store.replaceNotificationsForTesting([])
+        store.markUnread(forTabId: workspaceId)
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+
+        store.markRead(forTabId: workspaceId, surfaceId: UUID())
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
     }
 
-    func testShouldNotClearManualUnreadWhenFocusStaysOnSamePanelWithinGrace() {
-        let panelId = UUID()
+    func testManualWorkspaceUnreadClearsOnDirectTerminalInteraction() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        store.markUnread(forTabId: workspace.id)
+
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
+        XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
+    }
+
+    func testManualWorkspaceUnreadSurvivesNonTerminalDirectInteraction() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        store.markUnread(forTabId: workspace.id)
+
+        XCTAssertFalse(manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
+    }
+
+    func testMarkLatestNotificationAsOldestUnreadDefersCurrentNotificationBehindUnreadQueue() {
+        let store = TerminalNotificationStore.shared
+        let currentWorkspaceId = UUID()
+        let currentSurfaceId = UUID()
+        let nextWorkspaceId = UUID()
+        let oldestWorkspaceId = UUID()
+        let currentNotificationId = UUID()
+        let nextNotificationId = UUID()
+        let oldestNotificationId = UUID()
         let now = Date()
 
-        XCTAssertFalse(
-            Workspace.shouldClearManualUnread(
-                previousFocusedPanelId: panelId,
-                nextFocusedPanelId: panelId,
-                isManuallyUnread: true,
-                markedAt: now.addingTimeInterval(-0.05),
-                now: now,
-                sameTabGraceInterval: 0.2
-            )
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspaceId,
+                surfaceId: currentSurfaceId,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: true
+            ),
+            TerminalNotification(
+                id: nextNotificationId,
+                tabId: nextWorkspaceId,
+                surfaceId: nil,
+                title: "Next",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: false
+            ),
+            TerminalNotification(
+                id: oldestNotificationId,
+                tabId: oldestWorkspaceId,
+                surfaceId: nil,
+                title: "Oldest",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-2),
+                isRead: false
+            ),
+        ])
+
+        XCTAssertEqual(
+            store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: currentSurfaceId),
+            currentNotificationId
         )
+        XCTAssertEqual(
+            store.notifications.map(\.id),
+            [nextNotificationId, oldestNotificationId, currentNotificationId]
+        )
+        XCTAssertFalse(store.notifications.last?.isRead ?? true)
     }
 
-    func testShouldClearManualUnreadWhenFocusStaysOnSamePanelAfterGrace() {
-        let panelId = UUID()
+    func testMarkLatestNotificationAsOldestUnreadFallsBackToManualUnreadWhenNoNotificationExists() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+
+        XCTAssertNil(store.markLatestNotificationAsOldestUnread(forTabId: workspaceId, surfaceId: UUID()))
+        XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
+    }
+
+    func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
+        let store = TerminalNotificationStore.shared
+        let currentWorkspaceId = UUID()
+        let currentNotificationId = UUID()
+        let readWorkspaceId = UUID()
+        let readNotificationId = UUID()
         let now = Date()
 
-        XCTAssertTrue(
-            Workspace.shouldClearManualUnread(
-                previousFocusedPanelId: panelId,
-                nextFocusedPanelId: panelId,
-                isManuallyUnread: true,
-                markedAt: now.addingTimeInterval(-0.25),
-                now: now,
-                sameTabGraceInterval: 0.2
-            )
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspaceId,
+                surfaceId: nil,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: true
+            ),
+            TerminalNotification(
+                id: readNotificationId,
+                tabId: readWorkspaceId,
+                surfaceId: nil,
+                title: "Read",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: true
+            ),
+        ])
+
+        XCTAssertEqual(
+            store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: nil),
+            currentNotificationId
         )
+        XCTAssertEqual(store.notifications.map(\.id), [readNotificationId, currentNotificationId])
+        XCTAssertFalse(store.notifications.last?.isRead ?? true)
     }
 
-    func testShouldNotClearManualUnreadWhenNotManuallyUnread() {
-        XCTAssertFalse(
-            Workspace.shouldClearManualUnread(
-                previousFocusedPanelId: UUID(),
-                nextFocusedPanelId: UUID(),
-                isManuallyUnread: false,
-                markedAt: Date()
-            )
-        )
+    func testManualPanelUnreadClearsOnDirectTerminalInteraction() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.markPanelUnread(panelId)
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+        XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
     }
 
-    func testShouldNotClearManualUnreadWhenNoPreviousFocusAndWithinGrace() {
-        let now = Date()
+    func testManualPanelUnreadSurvivesNonTerminalDirectInteraction() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
 
-        XCTAssertFalse(
-            Workspace.shouldClearManualUnread(
-                previousFocusedPanelId: nil,
-                nextFocusedPanelId: UUID(),
-                isManuallyUnread: true,
-                markedAt: now.addingTimeInterval(-0.05),
-                now: now,
-                sameTabGraceInterval: 0.2
-            )
-        )
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.markPanelUnread(panelId)
+
+        XCTAssertFalse(manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: panelId))
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+    }
+
+    func testManualPanelUnreadSurvivesFocusNavigation() {
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId,
+              let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected workspace with a split panel")
+            return
+        }
+
+        workspace.focusPanel(initialPanelId)
+        workspace.markPanelUnread(splitPanel.id)
+        workspace.focusPanel(splitPanel.id)
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(splitPanel.id))
     }
 
     func testShouldShowUnreadIndicatorWhenNotificationIsUnread() {
@@ -139,6 +328,28 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
     }
 
+    func testShouldShowUnreadIndicatorWhenWorkspaceManualUnreadTargetsRepresentativePanel() {
+        XCTAssertTrue(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: false,
+                isManuallyUnread: false,
+                isWorkspaceManuallyUnread: true,
+                isWorkspaceManualUnreadRepresentative: true
+            )
+        )
+    }
+
+    func testShouldHideWorkspaceManualUnreadIndicatorOnNonRepresentativePanel() {
+        XCTAssertFalse(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: false,
+                isManuallyUnread: false,
+                isWorkspaceManuallyUnread: true,
+                isWorkspaceManualUnreadRepresentative: false
+            )
+        )
+    }
+
     func testShouldHideUnreadIndicatorWhenNeitherNotificationNorManualUnreadExists() {
         XCTAssertFalse(
             Workspace.shouldShowUnreadIndicator(
@@ -146,6 +357,55 @@ final class WorkspaceManualUnreadTests: XCTestCase {
                 isManuallyUnread: false
             )
         )
+    }
+
+    func testWorkspaceManualUnreadRepresentativeTracksFocusedPanel() {
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId,
+              let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected workspace with a split panel")
+            return
+        }
+
+        XCTAssertEqual(workspace.representativePanelIdForWorkspaceManualUnread(), initialPanelId)
+
+        workspace.focusPanel(splitPanel.id)
+
+        XCTAssertEqual(workspace.representativePanelIdForWorkspaceManualUnread(), splitPanel.id)
+    }
+
+    func testWorkspaceManualUnreadBadgeMovesWhenFocusChanges() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId,
+              let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal, focus: false),
+              let initialTabId = workspace.surfaceIdFromPanelId(initialPanelId),
+              let splitTabId = workspace.surfaceIdFromPanelId(splitPanel.id) else {
+            XCTFail("Expected workspace with a split panel")
+            return
+        }
+
+        store.markUnread(forTabId: workspace.id)
+        workspace.focusPanel(initialPanelId)
+
+        XCTAssertTrue(workspace.bonsplitController.tab(initialTabId)?.showsNotificationBadge ?? false)
+        XCTAssertFalse(workspace.bonsplitController.tab(splitTabId)?.showsNotificationBadge ?? true)
+
+        workspace.focusPanel(splitPanel.id)
+
+        XCTAssertFalse(workspace.bonsplitController.tab(initialTabId)?.showsNotificationBadge ?? true)
+        XCTAssertTrue(workspace.bonsplitController.tab(splitTabId)?.showsNotificationBadge ?? false)
     }
 }
 
