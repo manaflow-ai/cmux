@@ -390,6 +390,13 @@ private struct ClaudeHookSessionRecord: Codable {
     var updatedAt: TimeInterval
 }
 
+private struct ClaudeHookActiveSessionRecord: Codable {
+    var sessionId: String
+    var turnId: String?
+    var allowsNewSessionReplacement: Bool?
+    var updatedAt: TimeInterval
+}
+
 private struct AgentHookLaunchCommandRecord: Codable {
     var launcher: String?
     var executablePath: String?
@@ -413,6 +420,25 @@ private struct CodexMonitorLeaseRecord: Codable {
 private struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
+    var activeSessionsByWorkspace: [String: ClaudeHookActiveSessionRecord] = [:]
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case sessions
+        case activeSessionsByWorkspace
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
+        activeSessionsByWorkspace = try container.decodeIfPresent(
+            [String: ClaudeHookActiveSessionRecord].self,
+            forKey: .activeSessionsByWorkspace
+        ) ?? [:]
+    }
 }
 
 private final class ClaudeHookSessionStore {
@@ -459,7 +485,10 @@ private final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         lastSubtitle: String? = nil,
-        lastBody: String? = nil
+        lastBody: String? = nil,
+        markActive: Bool = false,
+        turnId: String? = nil,
+        allowsNewSessionReplacement: Bool = false
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -498,20 +527,76 @@ private final class ClaudeHookSessionStore {
             }
             record.updatedAt = now
             state.sessions[normalized] = record
+            if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
+                state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
+                    sessionId: normalized,
+                    turnId: normalizeOptional(turnId),
+                    allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
+                    updatedAt: now
+                )
+            }
+        }
+    }
+
+    /// Returns true when an event belongs to the workspace's active Claude session.
+    /// It fails open when the event cannot identify a session/workspace, when no
+    /// active session is registered yet, or when either side lacks a turnId so
+    /// multi-turn continuations can proceed after Stop clears the active turn.
+    func isCurrent(
+        sessionId: String?,
+        workspaceId: String,
+        turnId: String? = nil
+    ) throws -> Bool {
+        guard let normalizedSessionId = normalizeOptional(sessionId),
+              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            return true
+        }
+        return try withLockedState { state in
+            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace] else {
+                return true
+            }
+            guard active.sessionId == normalizedSessionId else {
+                return false
+            }
+            guard let activeTurnId = normalizeOptional(active.turnId),
+                  let normalizedTurnId = normalizeOptional(turnId) else {
+                return true
+            }
+            return activeTurnId == normalizedTurnId
+        }
+    }
+
+    func canReplaceActiveSession(sessionId: String?, workspaceId: String) throws -> Bool {
+        guard let normalizedSessionId = normalizeOptional(sessionId),
+              let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            return false
+        }
+        return try withLockedState { state in
+            guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
+                  active.sessionId != normalizedSessionId else {
+                return false
+            }
+            return active.allowsNewSessionReplacement == true
         }
     }
 
     func consume(
         sessionId: String?,
         workspaceId: String?,
-        surfaceId: String?
+        surfaceId: String?,
+        turnId: String? = nil
     ) throws -> ClaudeHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
         return try withLockedState { state in
             if let normalizedSessionId,
-               let removed = state.sessions.removeValue(forKey: normalizedSessionId) {
+               let existing = state.sessions[normalizedSessionId] {
+                guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
+                    return nil
+                }
+                let removed = state.sessions.removeValue(forKey: normalizedSessionId) ?? existing
+                clearActiveSessionIfMatching(&state, removed: removed, turnId: turnId)
                 return removed
             }
 
@@ -522,9 +607,46 @@ private final class ClaudeHookSessionStore {
             ) else {
                 return nil
             }
+            guard !hasActiveTurnMismatch(state, record: fallback, turnId: turnId) else {
+                return nil
+            }
             state.sessions.removeValue(forKey: fallback.sessionId)
+            clearActiveSessionIfMatching(&state, removed: fallback, turnId: turnId)
             return fallback
         }
+    }
+
+    private func hasActiveTurnMismatch(
+        _ state: ClaudeHookSessionStoreFile,
+        record: ClaudeHookSessionRecord,
+        turnId: String?
+    ) -> Bool {
+        guard let workspaceId = normalizeOptional(record.workspaceId),
+              let active = state.activeSessionsByWorkspace[workspaceId],
+              active.sessionId == record.sessionId,
+              let activeTurnId = normalizeOptional(active.turnId),
+              let incomingTurnId = normalizeOptional(turnId) else {
+            return false
+        }
+        return activeTurnId != incomingTurnId
+    }
+
+    private func clearActiveSessionIfMatching(
+        _ state: inout ClaudeHookSessionStoreFile,
+        removed: ClaudeHookSessionRecord,
+        turnId: String?
+    ) {
+        guard let workspaceId = normalizeOptional(removed.workspaceId),
+              let active = state.activeSessionsByWorkspace[workspaceId],
+              active.sessionId == removed.sessionId else {
+            return
+        }
+        if let activeTurnId = normalizeOptional(active.turnId),
+           let incomingTurnId = normalizeOptional(turnId),
+           activeTurnId != incomingTurnId {
+            return
+        }
+        state.activeSessionsByWorkspace.removeValue(forKey: workspaceId)
     }
 
     private func fallbackRecord(
@@ -589,6 +711,9 @@ private final class ClaudeHookSessionStore {
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
+        }
+        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { _, active in
+            active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
         }
     }
 
@@ -2872,11 +2997,13 @@ struct CMUXCLI {
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
             let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
             let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-            let (focusOpt, remaining) = parseOption(rem4, name: "--focus")
+            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+            let (focusOpt, remaining) = parseOption(rem5, name: "--focus")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --focus <true|false>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
             }
             var params: [String: Any] = [:]
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowId)
             if let cwdOpt {
                 let resolved = resolvePath(cwdOpt)
                 params["cwd"] = resolved
@@ -9465,9 +9592,9 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
 
-            Create a new workspace in the current window.
+            Create a new workspace in the caller's window.
 
             Flags:
               --name <title>       Set a custom name for the new workspace
@@ -9477,6 +9604,8 @@ struct CMUXCLI {
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    When provided, --command is ignored (layout surfaces define their own commands).
+              --window <id|ref|index>
+                                   Target window (default: caller's window from $CMUX_WORKSPACE_ID/$CMUX_SURFACE_ID)
               --focus <true|false> Focus the new workspace (default: false)
 
             Example:
@@ -10587,6 +10716,23 @@ struct CMUXCLI {
         // When --window is explicitly targeted, don't fall back to env workspace from a different window
         if windowOverride != nil { return nil }
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+    }
+
+    private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {
+        if let windowHandle = try normalizeWindowHandle(windowRaw, client: client) {
+            params["window_id"] = windowHandle
+            return
+        }
+
+        let env = ProcessInfo.processInfo.environment
+        let workspaceHandle = try normalizeWorkspaceHandle(env["CMUX_WORKSPACE_ID"], client: client)
+        if let workspaceHandle {
+            params["workspace_id"] = workspaceHandle
+        }
+        let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
+        if let surfaceHandle {
+            params["surface_id"] = surfaceHandle
+        }
     }
 
     private func forwardSidebarMetadataCommand(
@@ -14720,24 +14866,57 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
+            let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
+            let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
+                workspaceId: workspaceId,
+                telemetry: telemetry
+            )
+            let shouldPromoteActiveSession = isClearSessionStart || canReplaceStoppedSession
             if let sessionId = parsedInput.sessionId {
+                // Non-clear SessionStart can arrive late from startup/resume/compact
+                // after /clear, so only /clear or replacement of a stopped owner
+                // establishes a new active boundary.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     pid: claudePid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    markActive: shouldPromoteActiveSession,
+                    turnId: parsedInput.turnId
                 )
             }
-            // Register PID for stale-session detection and OSC suppression,
-            // but don't set a visible status. "Running" only appears when the
-            // user submits a prompt (UserPromptSubmit) or Claude starts working
-            // (PreToolUse).
-            if let claudePid {
+            // Register PID for stale-session detection and OSC suppression.
+            // Startup/resume SessionStart remains non-visible; /clear is a
+            // new active boundary and must keep the sidebar Running before
+            // any late pre-clear Stop can write Idle.
+            let shouldRegisterPID =
+                shouldPromoteActiveSession ||
+                shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                )
+            if shouldRegisterPID, let claudePid {
                 _ = try? sendV1Command(
                     "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
+                )
+            }
+            if isClearSessionStart {
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                try setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: "Running",
+                    icon: "bolt.fill",
+                    color: "#4C8DFF",
+                    pid: claudePid
                 )
             }
             print("OK")
@@ -14761,19 +14940,32 @@ struct CMUXCLI {
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
+                guard shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                ) else {
+                    telemetry.breadcrumb("claude-hook.stop.stale")
+                    print("OK")
+                    return
+                }
+
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
-                if let sessionId = parsedInput.sessionId, let completion {
+                if let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
-                        lastSubtitle: completion.subtitle,
-                        lastBody: completion.body
+                        lastSubtitle: completion?.subtitle,
+                        lastBody: completion?.body,
+                        markActive: true,
+                        allowsNewSessionReplacement: true
                     )
                 }
 
@@ -14818,6 +15010,34 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            let shouldApplyPromptSubmit =
+                shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                ) ||
+                shouldReplaceStoppedClaudeSession(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                )
+            guard shouldApplyPromptSubmit else {
+                telemetry.breadcrumb("claude-hook.prompt-submit.stale")
+                print("OK")
+                return
+            }
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    markActive: true,
+                    turnId: parsedInput.turnId
+                )
+            }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
@@ -14840,6 +15060,16 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            guard shouldApplyClaudeHookVisibleMutation(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
+                workspaceId: workspaceId,
+                telemetry: telemetry
+            ) else {
+                telemetry.breadcrumb("claude-hook.notification.stale")
+                print("OK")
+                return
+            }
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -14905,16 +15135,31 @@ struct CMUXCLI {
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
-                surfaceId: fallbackSurfaceId
+                surfaceId: fallbackSurfaceId,
+                turnId: parsedInput.turnId
             )
+            // consume() calls clearActiveSessionIfMatching before returning
+            // consumedSession, so isCurrent can treat consumedSession.sessionId
+            // as current only when the consumed session was the active one.
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
-                _ = try? sendV1Command(
-                    "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
-                    client: client
+                let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    sessionId: consumedSession.sessionId,
+                    turnId: parsedInput.turnId,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
                 )
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                if shouldClearVisibleState {
+                    _ = try? sendV1Command(
+                        "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
+                        client: client
+                    )
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                } else {
+                    telemetry.breadcrumb("claude-hook.session-end.stale")
+                }
             }
             print("OK")
 
@@ -14943,6 +15188,16 @@ struct CMUXCLI {
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let claudePid = mappedSession?.pid
+            guard shouldApplyClaudeHookVisibleMutation(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
+                workspaceId: workspaceId,
+                telemetry: telemetry
+            ) else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
+                print("OK")
+                return
+            }
 
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
@@ -15050,6 +15305,79 @@ struct CMUXCLI {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
+    }
+
+    private func shouldApplyClaudeHookVisibleMutation(
+        sessionStore: ClaudeHookSessionStore,
+        parsedInput: ClaudeHookParsedInput,
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        shouldApplyClaudeHookVisibleMutation(
+            sessionStore: sessionStore,
+            sessionId: parsedInput.sessionId,
+            turnId: parsedInput.turnId,
+            workspaceId: workspaceId,
+            telemetry: telemetry
+        )
+    }
+
+    private func shouldApplyClaudeHookVisibleMutation(
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        turnId: String?,
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        do {
+            return try sessionStore.isCurrent(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                turnId: turnId
+            )
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.is-current.error",
+                data: [
+                    "error": String(describing: error),
+                    "session_id": sessionId ?? "",
+                    "workspace_id": workspaceId,
+                    "turn_id": turnId ?? "",
+                ]
+            )
+            return true
+        }
+    }
+
+    private func shouldReplaceStoppedClaudeSession(
+        sessionStore: ClaudeHookSessionStore,
+        parsedInput: ClaudeHookParsedInput,
+        workspaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        do {
+            return try sessionStore.canReplaceActiveSession(
+                sessionId: parsedInput.sessionId,
+                workspaceId: workspaceId
+            )
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.can-replace-active.error",
+                data: [
+                    "error": String(describing: error),
+                    "session_id": parsedInput.sessionId ?? "",
+                    "workspace_id": workspaceId,
+                ]
+            )
+            return false
+        }
+    }
+
+    private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {
@@ -15342,7 +15670,15 @@ struct CMUXCLI {
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
             )
-            return ClaudeHookParsedInput(rawObject: nil, object: nil, rawFallback: fallback, sessionId: nil, turnId: nil, cwd: nil, transcriptPath: nil)
+            return ClaudeHookParsedInput(
+                rawObject: nil,
+                object: nil,
+                rawFallback: fallback,
+                sessionId: nil,
+                turnId: nil,
+                cwd: nil,
+                transcriptPath: nil
+            )
         }
 
         let sessionId = extractClaudeHookSessionId(from: object)
@@ -15367,7 +15703,7 @@ struct CMUXCLI {
         for key in [
             "tool_name", "turn_id", "turnId",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
-            "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason",
+            "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "source",
             "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
         ] {
@@ -15445,7 +15781,7 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
+        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "source":
             return 80
         case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
@@ -17649,7 +17985,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Enabled hooks in \(configPath)")
+                    print("Enabled codex_hooks in \(configPath)")
                 }
             }
         }
@@ -17733,15 +18069,232 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                guard fm.fileExists(atPath: configPath) else { return }
-                let content = try String(contentsOfFile: configPath, encoding: .utf8)
+                guard fm.fileExists(atPath: configPath),
+                      let content = try? String(contentsOfFile: configPath, encoding: .utf8) else { return }
                 let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Updated hooks in \(configPath)")
+                    print("Removed Codex hooks feature from \(configPath)")
                 }
             }
         }
+    }
+
+    private static let cmuxCodexHooksFeatureBegin =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df begin"
+    private static let cmuxCodexHooksFeatureEnd =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df end"
+    private static let cmuxCodexHooksFeaturePreviousLinePrefix =
+        "# cmux-codex-hooks-feature-78f1e4ba-66df-4d35-93c1-67fdf1cbb7df previous line: "
+    private static let legacyCmuxCodexHooksFeatureBegin = "# cmux hooks codex feature begin"
+    private static let legacyCmuxCodexHooksFeatureEnd = "# cmux hooks codex feature end"
+    private static let legacyCmuxCodexHooksFeaturePreviousLinePrefix =
+        "# cmux hooks codex feature previous line: "
+
+    private static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
+        var lines = tomlLines(from: existingContent)
+        removeLegacyCodexHooksFeatureBlock(from: &lines)
+        var currentTable: String?
+        for index in lines.indices {
+            let line = lines[index]
+            if let tableName = tomlTableName(in: line) {
+                currentTable = tableName
+                continue
+            }
+            if (currentTable == nil || currentTable == "features"),
+               tomlLineDefinesCodexHooksKey(line) {
+                lines[index] = "codex_hooks = true"
+                return tomlContent(from: lines)
+            }
+            if currentTable == nil, tomlLineDefinesDottedCodexHooksKey(line) {
+                lines[index] = "features.codex_hooks = true"
+                return tomlContent(from: lines)
+            }
+        }
+
+        if let featuresStart = lines.firstIndex(where: { tomlLineIsTable("features", line: $0) }) {
+            lines.insert("codex_hooks = true", at: featuresStart + 1)
+        } else {
+            if !lines.isEmpty, lines.last?.isEmpty == false {
+                lines.append("")
+            }
+            lines.append("[features]")
+            lines.append("codex_hooks = true")
+        }
+        return tomlContent(from: lines)
+    }
+
+    private static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
+        var lines = tomlLines(from: existingContent)
+        removeLegacyCodexHooksFeatureBlock(from: &lines)
+        var filteredLines: [String] = []
+        var currentTable: String?
+        for line in lines {
+            if let tableName = tomlTableName(in: line) {
+                currentTable = tableName
+                filteredLines.append(line)
+                continue
+            }
+            if (currentTable == nil || currentTable == "features"),
+               tomlLineDefinesCodexHooksKey(line) {
+                continue
+            }
+            if currentTable == nil, tomlLineDefinesDottedCodexHooksKey(line) {
+                continue
+            }
+            filteredLines.append(line)
+        }
+        removeEmptyFeaturesTable(from: &filteredLines)
+        return tomlContent(from: filteredLines)
+    }
+
+    private static func removeEmptyFeaturesTable(from lines: inout [String]) {
+        var index = 0
+        while index < lines.count {
+            guard tomlLineIsTable("features", line: lines[index]) else {
+                index += 1
+                continue
+            }
+
+            let bodyStart = index + 1
+            var bodyEnd = bodyStart
+            while bodyEnd < lines.count, tomlTableName(in: lines[bodyEnd]) == nil {
+                bodyEnd += 1
+            }
+
+            let bodyIsEmpty = lines[bodyStart..<bodyEnd].allSatisfy { line in
+                line.trimmingCharacters(in: .whitespaces).isEmpty
+            }
+            guard bodyIsEmpty else {
+                index = bodyEnd
+                continue
+            }
+
+            lines.removeSubrange(index..<bodyEnd)
+            if index == lines.count, index > 0,
+               lines[index - 1].trimmingCharacters(in: .whitespaces).isEmpty
+            {
+                lines.remove(at: index - 1)
+            } else if index > 0, index < lines.count,
+                      lines[index - 1].trimmingCharacters(in: .whitespaces).isEmpty,
+                      lines[index].trimmingCharacters(in: .whitespaces).isEmpty
+            {
+                lines.remove(at: index)
+            }
+        }
+    }
+
+    private static func removeLegacyCodexHooksFeatureBlock(from lines: inout [String]) {
+        var index = 0
+        while index < lines.count {
+            guard tomlLineIsLegacyCodexHooksFeatureBegin(lines[index]) else {
+                index += 1
+                continue
+            }
+
+            if let endIndex = lines[index...].firstIndex(where: {
+                tomlLineIsLegacyCodexHooksFeatureEnd($0)
+            }) {
+                let restoredLines = lines[index...endIndex].compactMap { line -> String? in
+                    tomlLegacyCodexHooksFeaturePreviousLine(from: line)
+                }
+                lines.replaceSubrange(index...endIndex, with: restoredLines)
+            } else {
+                var blockEnd = index + 1
+                var restoredLines: [String] = []
+                if blockEnd < lines.count,
+                   let previousLine = tomlLegacyCodexHooksFeaturePreviousLine(from: lines[blockEnd])
+                {
+                    restoredLines.append(previousLine)
+                    blockEnd += 1
+                }
+                if blockEnd < lines.count, tomlLineIsLegacyCodexHooksFeatureSetting(lines[blockEnd]) {
+                    blockEnd += 1
+                }
+                lines.replaceSubrange(index..<blockEnd, with: restoredLines)
+            }
+        }
+    }
+
+    private static func tomlLines(from content: String) -> [String] {
+        guard !content.isEmpty else { return [] }
+        var lines = content.components(separatedBy: "\n")
+        if content.hasSuffix("\n"), lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
+    }
+
+    private static func tomlContent(from lines: [String]) -> String {
+        guard !lines.isEmpty else { return "" }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func tomlLineDefinesCodexHooksKey(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*codex_hooks\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineDefinesDottedCodexHooksKey(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*features\s*\.\s*codex_hooks\s*="#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineIsLegacyCodexHooksFeatureBegin(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == cmuxCodexHooksFeatureBegin || trimmed == legacyCmuxCodexHooksFeatureBegin
+    }
+
+    private static func tomlLineIsLegacyCodexHooksFeatureEnd(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed == cmuxCodexHooksFeatureEnd || trimmed == legacyCmuxCodexHooksFeatureEnd
+    }
+
+    private static func tomlLegacyCodexHooksFeaturePreviousLine(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix(cmuxCodexHooksFeaturePreviousLinePrefix) {
+            return String(trimmed.dropFirst(cmuxCodexHooksFeaturePreviousLinePrefix.count))
+        }
+        if trimmed.hasPrefix(legacyCmuxCodexHooksFeaturePreviousLinePrefix) {
+            return String(trimmed.dropFirst(legacyCmuxCodexHooksFeaturePreviousLinePrefix.count))
+        }
+        return nil
+    }
+
+    private static func tomlLineIsLegacyCodexHooksFeatureSetting(_ line: String) -> Bool {
+        line.range(
+            of: #"^\s*hooks\s*=\s*true\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil || line.range(
+            of: #"^\s*features\s*\.\s*hooks\s*=\s*true\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlLineIsTable(_ name: String, line: String) -> Bool {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        return line.range(
+            of: #"^\s*\[\s*"# + escapedName + #"\s*\]\s*(#.*)?$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func tomlTableName(in line: String) -> String? {
+        let pattern = #"^\s*\[\s*([A-Za-z0-9_.-]+)\s*\]\s*(#.*)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(
+                  in: line,
+                  range: NSRange(line.startIndex..., in: line)
+              ),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: line) else {
+            return nil
+        }
+        return String(line[range])
     }
 
     // MARK: Generic hook handler
@@ -21157,7 +21710,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
