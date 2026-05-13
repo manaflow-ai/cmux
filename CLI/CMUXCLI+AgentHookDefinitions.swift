@@ -39,7 +39,7 @@ extension CMUXCLI {
         }
 
         enum PostInstallAction {
-            case codexConfigToml // write hooks = true to config.toml on install, remove on uninstall
+            case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
         }
 
         /// Resolves the config directory, respecting env override if set.
