@@ -735,7 +735,21 @@ extension Workspace {
                 ?? snapshot.directory
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
-            let restorableAgent = snapshot.terminal?.agent
+            // Drop a Claude agent embedded in the snapshot if its transcript is
+            // missing real conversation events (only metadata like `/rename`
+            // before any user prompt). Shares the same eligibility helper as
+            // the fresh-load path in `RestorableAgentSession.swift`.
+            let restorableAgent: SessionRestorableAgentSnapshot? = {
+                guard let candidate = snapshot.terminal?.agent else { return nil }
+                let cwd = candidate.workingDirectory
+                    ?? candidate.launchCommand?.workingDirectory
+                return RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                    kind: candidate.kind,
+                    sessionId: candidate.sessionId,
+                    cwd: cwd,
+                    environment: candidate.launchCommand?.environment
+                ) ? candidate : nil
+            }()
             let restorableTmuxStartCommand = restorableAgent == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
@@ -8542,6 +8556,31 @@ final class Workspace: Identifiable, ObservableObject {
                 currentDirectory = trimmed
             }
         }
+    }
+
+    /// Mark the restorable agent for `panelId` as ended, so the next snapshot
+    /// save does not embed it. Called when an agent's hook reports SessionEnd
+    /// (claude exits, codex resume completes, etc.). Without this, the agent
+    /// persists in `restoredAgentSnapshotsByPanelId` after the underlying
+    /// session has been consumed from disk, and the next cmux launch tries to
+    /// resume a session that no longer exists.
+    ///
+    /// `sessionId` scopes the clear: a late or duplicate SessionEnd event for
+    /// session A must not wipe a freshly-started session B that has reused
+    /// the same panel. We no-op unless the currently-restored snapshot's
+    /// sessionId matches the ended one.
+    func markRestorableAgentSessionEnded(panelId: UUID, sessionId: String) {
+        guard let restored = restoredAgentSnapshotsByPanelId[panelId],
+              restored.sessionId == sessionId else { return }
+        invalidatedRestoredAgentFingerprintsByPanelId[panelId] = TabManager.restorableAgentSnapshotFingerprint(restored)
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentAutoResumePendingPanelIds.remove(panelId)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.agent.session-ended panel=\(panelId.uuidString.prefix(5)) " +
+            "kind=\(restored.kind.rawValue) session=\(restored.sessionId.prefix(8))"
+        )
+#endif
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {

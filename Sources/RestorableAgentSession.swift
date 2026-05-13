@@ -50,6 +50,18 @@ enum AgentResumeCommandBuilder {
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
+            // Don't resume into a dead working directory or one that's not a
+            // directory at all. `fileExists(atPath:)` alone returns true for
+            // regular files too, so a path that points at a leftover file
+            // would let `cd <file>` fail at runtime — the exact failure mode
+            // the guard exists to prevent. Returning nil tells the caller
+            // (`resumeStartupInput`) to skip auto-resume entirely so the
+            // panel opens as a fresh shell instead.
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
@@ -478,7 +490,7 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:], snapshotsByPanelId: [:])
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -486,9 +498,18 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+    // Workspace UUIDs are regenerated on every cmux launch, so a hook record
+    // saved as (workspaceA, panelA) won't match a lookup with (workspaceB, panelA)
+    // after relaunch even though it's the same panel. Panel UUIDs (== surface IDs
+    // == CMUX_SURFACE_ID) are stable per snapshot save and unique enough across
+    // the hook records, so this fallback recovers the agent for that panel.
+    private let snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        if let exact = snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] {
+            return exact
+        }
+        return snapshotsByPanelId[panelId]
     }
 
     static func load(
@@ -556,6 +577,23 @@ struct RestorableAgentSessionIndex: Sendable {
                     continue
                 }
 
+                // Claude `--resume <id>` rejects sessions whose transcript only
+                // contains metadata events (e.g. `/rename` immediately after
+                // SessionStart, before the user typed anything) with
+                // "No conversation found with session ID …". Drop those hook
+                // records so cmux doesn't auto-resume them. Same helper is
+                // reused by `Workspace.createPanel` for snapshots already
+                // embedded in `SessionPanelSnapshot.terminal.agent`.
+                if !claudeAgentIsRestorable(
+                    kind: kind,
+                    sessionId: normalizedSessionId,
+                    cwd: record.cwd,
+                    environment: record.launchCommand?.environment,
+                    fileManager: fileManager
+                ) {
+                    continue
+                }
+
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
                     sessionId: normalizedSessionId,
@@ -578,7 +616,28 @@ struct RestorableAgentSessionIndex: Sendable {
             resolved[key] = detected
         }
 
-        return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
+        // Sort the resolved entries before folding by panelId so equal
+        // `updatedAt` ties resolve identically across launches. Without the
+        // sort, `Dictionary` iteration order is unspecified and a panel with
+        // two stale records sharing a timestamp would flap between the two
+        // sessions on different cmux launches. Primary key: newer
+        // `updatedAt` wins; secondary tie-break: lexicographically larger
+        // `sessionId` wins (arbitrary but stable).
+        let rankedResolved = resolved.sorted { lhs, rhs in
+            if lhs.value.updatedAt != rhs.value.updatedAt {
+                return lhs.value.updatedAt > rhs.value.updatedAt
+            }
+            return lhs.value.snapshot.sessionId > rhs.value.snapshot.sessionId
+        }
+        var byPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        for (key, value) in rankedResolved where byPanelId[key.panelId] == nil {
+            byPanelId[key.panelId] = value
+        }
+
+        return RestorableAgentSessionIndex(
+            snapshotsByPanel: resolved.mapValues(\.snapshot),
+            snapshotsByPanelId: byPanelId.mapValues(\.snapshot)
+        )
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -589,7 +648,144 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
+    /// Resolve the directory under which Claude stores its session
+    /// transcripts (defaults to `~/.claude`). If the launch environment
+    /// pinned a `CLAUDE_CONFIG_DIR`, use that — running it through the
+    /// subrouter→codex-accounts redirect that the Claude wrapper applies.
+    /// Exposed for callers that need to look up transcripts at restoration
+    /// time without re-importing `CMUXAgentLaunch`.
+    static func claudeConfigDir(in environment: [String: String]?) -> String {
+        if let raw = environment?["CLAUDE_CONFIG_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !raw.isEmpty {
+            return ClaudeConfigDirectoryPath.preferredPath(raw)
+        }
+        return (NSString(string: "~/.claude").expandingTildeInPath as String)
+    }
+
+    /// Returns true if Claude's session transcript at
+    /// `<claudeConfigDir>/projects/<encoded-cwd>/<sessionId>.jsonl` contains at
+    /// least one `user` or `assistant` event. Returns true (do not skip) when
+    /// the transcript is unreadable or absent — letting Claude itself produce
+    /// the canonical error if it's truly broken at resume time.
+    static func claudeTranscriptHasConversation(
+        cwd: String,
+        sessionId: String,
+        claudeConfigDir: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let trimmedCwd = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCwd.isEmpty else { return true }
+        // Claude encodes a project dir as `cwd.replacingOccurrences("/", with: "-")`
+        // on the raw cwd Claude saw at startup — no symlink resolution. The leading
+        // `/` in an absolute path becomes the leading `-`, so an absolute cwd
+        // `/private/tmp/aaa` maps to `-private-tmp-aaa`. Do NOT standardize the
+        // path: macOS's `NSString.standardizingPath` collapses `/private/tmp` →
+        // `/tmp`, which would point at the wrong project directory.
+        let encodedProject = trimmedCwd.replacingOccurrences(of: "/", with: "-")
+        let projectsRoot = (claudeConfigDir as NSString).appendingPathComponent("projects")
+        let projectDir = (projectsRoot as NSString).appendingPathComponent(encodedProject)
+        let transcript = (projectDir as NSString)
+            .appendingPathComponent("\(sessionId).jsonl")
+
+        guard fileManager.fileExists(atPath: transcript) else {
+            // Unknown — let Claude error if needed; do not pre-emptively drop.
+            return true
+        }
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: transcript)) else {
+            return true
+        }
+        defer { try? handle.close() }
+        // Scan the file in chunks; the "user" / "assistant" `type` field
+        // appears near the start of each line in Claude's JSONL.
+        var leftover = Data()
+        let chunkSize = 64 * 1024
+        var totalRead = 0
+        let maxScan = 1 * 1024 * 1024 // 1 MB cap; transcripts with content cross this trivially.
+        while totalRead < maxScan {
+            let chunk: Data
+            do {
+                chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            } catch {
+                return true
+            }
+            if chunk.isEmpty { break }
+            totalRead += chunk.count
+            leftover.append(chunk)
+            while let newlineIndex = leftover.firstIndex(of: 0x0A) {
+                let line = leftover.subdata(in: leftover.startIndex..<newlineIndex)
+                leftover.removeSubrange(leftover.startIndex...newlineIndex)
+                if lineDeclaresConversationEvent(line) {
+                    return true
+                }
+            }
+        }
+        if !leftover.isEmpty, lineDeclaresConversationEvent(leftover) {
+            return true
+        }
+        return false
+    }
+
+    /// Single eligibility check shared by the load loop and `Workspace.createPanel`
+    /// for whether a candidate Claude/agent session can be auto-resumed.
+    /// Non-Claude agents pass through (they don't share Claude's metadata-only
+    /// failure mode). Empty/missing cwd fails open — let Claude itself produce
+    /// the canonical error if it's truly broken at resume time. Centralising
+    /// here keeps both surfaces in sync if Claude's transcript rules change.
+    static func claudeAgentIsRestorable(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        cwd: String?,
+        environment: [String: String]?,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard kind == .claude else { return true }
+        guard let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return true
+        }
+        return claudeTranscriptHasConversation(
+            cwd: cwd,
+            sessionId: sessionId,
+            claudeConfigDir: claudeConfigDir(in: environment),
+            fileManager: fileManager
+        )
+    }
+
+    /// Cached regex for `lineDeclaresConversationEvent`. Compiled once so the
+    /// per-line scan stays cheap. Tolerates any whitespace around the colon
+    /// (valid JSON), which a fixed-substring check would miss for inputs like
+    /// `"type" : "assistant"`.
+    private static let conversationEventRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        try! NSRegularExpression(
+            pattern: #""type"\s*:\s*"(?:user|assistant)""#,
+            options: []
+        )
+    }()
+
+    private static func lineDeclaresConversationEvent(_ line: Data) -> Bool {
+        // A line carrying a top-level `"type": "user"` or `"type": "assistant"`
+        // is a real conversation event. Metadata-only lines (`custom-title`,
+        // `agent-name`, `permission-mode`, etc.) don't match. We avoid full
+        // JSON parsing per line for hot-path performance — the regex still
+        // costs <1 µs per line with a precompiled NSRegularExpression.
+        guard !line.isEmpty,
+              let text = String(data: line, encoding: .utf8) else {
+            return false
+        }
+        let nsLength = (text as NSString).length
+        return conversationEventRegex.firstMatch(
+            in: text,
+            options: [],
+            range: NSRange(location: 0, length: nsLength)
+        ) != nil
+    }
+
+    private init(
+        snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot],
+        snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
+    ) {
         self.snapshotsByPanel = snapshotsByPanel
+        self.snapshotsByPanelId = snapshotsByPanelId
     }
 }

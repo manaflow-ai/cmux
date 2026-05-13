@@ -661,6 +661,300 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(firstFingerprint, secondFingerprint)
     }
 
+    func testRestorableAgentIndexFallsBackToPanelIdAfterWorkspaceUUIDRegenerates() throws {
+        // Workspace UUIDs are regenerated on every cmux launch. The hook record
+        // captures (workspaceId, surfaceId) from CMUX_WORKSPACE_ID/CMUX_SURFACE_ID
+        // at SessionStart time, but on the next launch the live workspace.id is a
+        // different UUID. The strict (workspaceId, panelId) lookup misses, so the
+        // autosave drops the agent field and the next relaunch can't resume.
+        // The index should fall back to a panelId-only lookup so the agent stays
+        // attached to the panel across launches.
+        let recordedWorkspaceId = UUID()
+        let panelId = UUID()
+        let index = try makeRestorableAgentIndex(
+            kind: .claude,
+            workspaceId: recordedWorkspaceId,
+            panelId: panelId,
+            sessionId: "claude-session-restore",
+            arguments: [
+                "/usr/local/bin/claude",
+                "--model",
+                "sonnet",
+            ]
+        )
+
+        // Same lifetime: strict match still works.
+        let strict = try XCTUnwrap(index.snapshot(workspaceId: recordedWorkspaceId, panelId: panelId))
+        XCTAssertEqual(strict.sessionId, "claude-session-restore")
+
+        // Post-relaunch: workspace UUID is regenerated, panel UUID is the new one
+        // assigned to the restored panel. The index should still resolve via
+        // the panelId fallback.
+        let regeneratedWorkspaceId = UUID()
+        let resolved = try XCTUnwrap(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: panelId))
+        XCTAssertEqual(resolved.sessionId, "claude-session-restore")
+        XCTAssertEqual(resolved.kind, .claude)
+
+        // Unknown panelId still misses (no false positives).
+        XCTAssertNil(index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: UUID()))
+    }
+
+    func testRestorableAgentIndexFallbackPicksMostRecentRecordPerPanelId() throws {
+        // The panelId fallback may resolve from multiple hook records sharing
+        // a panelId — e.g. the user ended a session and started a new one in
+        // the same panel before relaunch. The fold must return the most-recent
+        // record per panelId so resume lands on the right session, not an
+        // arbitrary one.
+        let panelId = UUID()
+        let oldWorkspaceId = UUID()
+        let newWorkspaceId = UUID()
+        let now = Date().timeIntervalSince1970
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-recency-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        func record(sessionId: String, workspaceId: UUID, updatedAt: TimeInterval) -> [String: Any] {
+            return [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": "/tmp/repo",
+                "updatedAt": updatedAt,
+                "launchCommand": [
+                    "launcher": "claude",
+                    "executablePath": "/usr/local/bin/claude",
+                    "arguments": ["/usr/local/bin/claude"],
+                    "workingDirectory": "/tmp/repo",
+                    "environment": ["CLAUDE_CONFIG_DIR": "/tmp/claude"],
+                    "capturedAt": updatedAt,
+                    "source": "process",
+                ],
+            ]
+        }
+        let payload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "old-session": record(sessionId: "old-session", workspaceId: oldWorkspaceId, updatedAt: now - 100),
+                "new-session": record(sessionId: "new-session", workspaceId: newWorkspaceId, updatedAt: now),
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+
+        // Strict (workspaceId, panelId) lookups still return their own records.
+        XCTAssertEqual(index.snapshot(workspaceId: oldWorkspaceId, panelId: panelId)?.sessionId, "old-session")
+        XCTAssertEqual(index.snapshot(workspaceId: newWorkspaceId, panelId: panelId)?.sessionId, "new-session")
+
+        // Post-relaunch: a regenerated workspace UUID hits the panelId fallback,
+        // which must return the most-recent record (newer updatedAt wins).
+        let regeneratedWorkspaceId = UUID()
+        XCTAssertEqual(
+            index.snapshot(workspaceId: regeneratedWorkspaceId, panelId: panelId)?.sessionId,
+            "new-session",
+            "panelId fallback must return the most-recent record across the panel's history"
+        )
+    }
+
+    func testRestorableAgentIndexFallbackTieBreakIsDeterministic() throws {
+        // When two hook records share a panelId AND `updatedAt`, the panelId
+        // fallback must resolve identically across cmux launches. The fold
+        // sorts by `(updatedAt desc, sessionId desc)` so the lexicographically
+        // greater sessionId wins on tie, regardless of dictionary iteration
+        // order.
+        let panelId = UUID()
+        let timestamp = Date().timeIntervalSince1970
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tiebreak-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        func record(sessionId: String) -> [String: Any] {
+            return [
+                "sessionId": sessionId,
+                "workspaceId": UUID().uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": "/tmp/repo",
+                "updatedAt": timestamp,
+                "launchCommand": [
+                    "launcher": "claude",
+                    "executablePath": "/usr/local/bin/claude",
+                    "arguments": ["/usr/local/bin/claude"],
+                    "workingDirectory": "/tmp/repo",
+                    "environment": ["CLAUDE_CONFIG_DIR": "/tmp/claude"],
+                    "capturedAt": timestamp,
+                    "source": "process",
+                ],
+            ]
+        }
+        let payload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "aaa-session": record(sessionId: "aaa-session"),
+                "zzz-session": record(sessionId: "zzz-session"),
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        XCTAssertEqual(
+            index.snapshot(workspaceId: UUID(), panelId: panelId)?.sessionId,
+            "zzz-session",
+            "tie-break must be deterministic; lexicographically greater sessionId wins"
+        )
+    }
+
+    func testClaudeTranscriptHasConversationFiltersMetadataOnlyTranscripts() throws {
+        // Claude rejects `--resume <id>` for sessions whose .jsonl only
+        // contains metadata events (e.g. `custom-title`, `agent-name`,
+        // `permission-mode`) with "No conversation found with session ID".
+        // This happens when a user runs `/rename` immediately after Claude
+        // starts, before sending any user message — the SessionStart hook
+        // fires and cmux records the session, but the transcript never gets
+        // a real exchange. The index loader should drop those records so
+        // cmux doesn't auto-resume into that error.
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-conv-\(UUID().uuidString)", isDirectory: true)
+        let projects = tmp.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let cwd = "/private/tmp/aaa"
+        let encoded = "-private-tmp-aaa"
+        let projectDir = projects.appendingPathComponent(encoded, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let metadataOnlyId = "11111111-1111-1111-1111-111111111111"
+        let metadataOnly = projectDir.appendingPathComponent("\(metadataOnlyId).jsonl")
+        try """
+        {"type":"custom-title","customTitle":"renamed","sessionId":"\(metadataOnlyId)"}
+        {"type":"agent-name","agentName":"renamed","sessionId":"\(metadataOnlyId)"}
+        {"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"\(metadataOnlyId)"}
+        """.write(to: metadataOnly, atomically: true, encoding: .utf8)
+
+        let realSessionId = "22222222-2222-2222-2222-222222222222"
+        let realSession = projectDir.appendingPathComponent("\(realSessionId).jsonl")
+        try """
+        {"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"\(realSessionId)"}
+        {"type":"user","sessionId":"\(realSessionId)","message":{"role":"user","content":"hello"}}
+        {"type":"assistant","sessionId":"\(realSessionId)","message":{"role":"assistant","content":"hi"}}
+        """.write(to: realSession, atomically: true, encoding: .utf8)
+
+        // Whitespace variant: JSON permits arbitrary whitespace around `:`.
+        // Claude's writer is stable today, but the probe should still match
+        // valid JSON forms like `"type" : "user"` instead of dropping them.
+        let whitespaceId = "44444444-4444-4444-4444-444444444444"
+        let whitespaceSession = projectDir.appendingPathComponent("\(whitespaceId).jsonl")
+        try """
+        {"type" : "user","sessionId":"\(whitespaceId)","message":{"role":"user","content":"hi"}}
+        """.write(to: whitespaceSession, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: metadataOnlyId,
+                claudeConfigDir: tmp.path
+            ),
+            "metadata-only transcripts should be treated as having no conversation"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: realSessionId,
+                claudeConfigDir: tmp.path
+            ),
+            "transcripts with at least one user/assistant event should pass"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: "33333333-3333-3333-3333-333333333333",
+                claudeConfigDir: tmp.path
+            ),
+            "a missing transcript should NOT be filtered out — let Claude error if it's truly broken at resume"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeTranscriptHasConversation(
+                cwd: cwd,
+                sessionId: whitespaceId,
+                claudeConfigDir: tmp.path
+            ),
+            "JSON whitespace around the `:` should not cause valid conversation events to be dropped"
+        )
+
+        // Same setup verifies the higher-level `claudeAgentIsRestorable`
+        // helper that both the load loop and `Workspace.createPanel` route
+        // through. Non-Claude agents bypass the filter entirely.
+        let env: [String: String] = ["CLAUDE_CONFIG_DIR": tmp.path]
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                kind: .codex, sessionId: metadataOnlyId, cwd: cwd, environment: env),
+            "non-Claude agents bypass the Claude-specific filter"
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                kind: .claude, sessionId: metadataOnlyId, cwd: cwd, environment: env),
+            "metadata-only Claude transcripts must be filtered by the helper"
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.claudeAgentIsRestorable(
+                kind: .claude, sessionId: realSessionId, cwd: cwd, environment: env),
+            "Claude transcripts with conversation events should pass"
+        )
+    }
+
+    func testResumeCommandIsNilWhenWorkingDirectoryDoesNotExist() {
+        // If the user deletes the project dir between sessions, the captured
+        // `cd '<cwd>' && '<agent>' --resume <id>` would fail at `cd`, the `&&`
+        // would short-circuit, and the panel would sit at a dead "no such file
+        // or directory" prompt. Returning nil from `resumeCommand` skips
+        // auto-resume entirely so the panel opens to a fresh shell instead.
+        let missingCwd = "/this/path/definitely/does/not/exist/\(UUID().uuidString)"
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missingCwd))
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "abandoned-session",
+            workingDirectory: missingCwd,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: missingCwd,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        XCTAssertNil(
+            snapshot.resumeCommand,
+            "resumeCommand must be nil when the captured cwd no longer exists, " +
+            "so the caller skips auto-resume rather than typing a `cd` that fails"
+        )
+    }
+
+    @MainActor
+    func testMarkRestorableAgentSessionEndedNoopsWithoutEntry() {
+        // The CLI calls Workspace.markRestorableAgentSessionEnded for any panel
+        // whose agent SessionEnd hook fires, including panels that never had a
+        // restored snapshot (fresh sessions started in this lifetime). Make
+        // sure the call is safe — no crash, no spurious side effects.
+        let workspace = Workspace(title: "Tests")
+        workspace.markRestorableAgentSessionEnded(panelId: UUID(), sessionId: "any-session")
+        // No assertion needed beyond "did not crash"; the method is called
+        // from a sidebar mutation closure and must tolerate missing entries.
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(

@@ -14703,12 +14703,25 @@ struct CMUXCLI {
             )
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
+                let surfaceId = consumedSession.surfaceId
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
                 _ = try? sendV1Command(
                     "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                     client: client
                 )
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                // Tell the live app to drop the restored-agent snapshot for this
+                // panel so the next session save does not re-embed it. Without
+                // this, the next cmux launch tries to resume a session that
+                // was already ended in this lifetime. The sessionId scopes the
+                // clear so a late hook for session A can't wipe a freshly-
+                // started session B that has reused the same panel.
+                if !surfaceId.isEmpty, !consumedSession.sessionId.isEmpty {
+                    _ = try? sendV1Command(
+                        "agent_session_ended --tab=\(workspaceId) --surface=\(surfaceId) --session=\(consumedSession.sessionId)",
+                        client: client
+                    )
+                }
             }
             print("OK")
 
@@ -17800,6 +17813,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     "clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketPanelOption(mapped.surfaceId)) --clear-status",
                     client: client
                 )
+                // Drop the restored-agent snapshot for this panel so the next
+                // session save does not re-embed it. See the matching
+                // `agent_session_ended` block in `claude-hook session-end`
+                // for the sessionId-scoping rationale.
+                if !mapped.surfaceId.isEmpty, !mapped.sessionId.isEmpty {
+                    _ = try? sendV1Command(
+                        "agent_session_ended --tab=\(mapped.workspaceId) --surface=\(mapped.surfaceId) --session=\(mapped.sessionId)",
+                        client: client
+                    )
+                }
             }
 
         case .noop:
