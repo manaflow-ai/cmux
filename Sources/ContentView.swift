@@ -9765,32 +9765,12 @@ private struct CmuxExtensionTreeSectionHeader: View {
                         .foregroundColor(.secondary.opacity(0.82))
                         .frame(width: 14, height: 14)
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(section.title)
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        if let subtitle = section.subtitle, subtitle != section.title {
-                            Text(subtitle)
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundColor(.secondary.opacity(0.68))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
+                    Text(section.title)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
                     Spacer(minLength: 0)
-
-                    Text(String(section.workspaceIds.count))
-                        .font(.system(size: 9, weight: .semibold).monospacedDigit())
-                        .foregroundColor(.secondary.opacity(0.72))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(Color.secondary.opacity(0.12))
-                        )
                 }
                 .contentShape(Rectangle())
             }
@@ -9830,17 +9810,7 @@ private struct CmuxExtensionTreeSectionHeader: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("CmuxExtensionTreeSection.\(section.id)")
-        .accessibilityLabel(
-            String(
-                format: String(
-                    localized: "sidebar.tree.section.accessibilityLabel",
-                    defaultValue: "%@, %lld workspaces"
-                ),
-                locale: .current,
-                section.title,
-                Int64(section.workspaceIds.count)
-            )
-        )
+        .accessibilityLabel(Text(section.title))
     }
 
     private var sectionToggleSystemImageName: String {
