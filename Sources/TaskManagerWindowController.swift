@@ -66,8 +66,19 @@ final class CmuxTaskManagerModel: ObservableObject {
     private let refreshInterval: TimeInterval = 3.0
     private let terminationGraceInterval: TimeInterval = 2.0
 
+    private var hasLoadedSnapshot: Bool {
+        snapshot.sampledAt != nil
+            || !snapshot.rows.isEmpty
+            || !snapshot.agentRows.isEmpty
+            || !snapshot.aggregateRows.isEmpty
+    }
+
     var sortedRows: [CmuxTaskManagerRow] {
         sortOrder.sortedRows(snapshot.rows)
+    }
+
+    var sortedAgentRows: [CmuxTaskManagerRow] {
+        sortOrder.sortedRows(snapshot.agentRows)
     }
 
     var sortedAggregateRows: [CmuxTaskManagerRow] {
@@ -80,13 +91,13 @@ final class CmuxTaskManagerModel: ObservableObject {
 
     func start() {
         guard refreshTimer == nil else {
-            refresh(force: true)
+            refresh(force: true, showIndicator: false)
             return
         }
-        refresh(force: true)
+        refresh(force: true, showIndicator: !hasLoadedSnapshot)
         let timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.refresh()
+                self?.refresh(showIndicator: false)
             }
         }
         timer.tolerance = 0.75
@@ -101,15 +112,19 @@ final class CmuxTaskManagerModel: ObservableObject {
         isRefreshing = false
     }
 
-    func refresh(force: Bool = false) {
+    func refresh(force: Bool = false, showIndicator: Bool? = nil) {
         if refreshTask != nil {
             guard force else { return }
             refreshTask?.cancel()
             refreshTask = nil
+            isRefreshing = false
         }
 
         let includeProcesses = includesProcesses
-        isRefreshing = true
+        let shouldShowIndicator = showIndicator ?? (force || !hasLoadedSnapshot)
+        if shouldShowIndicator {
+            isRefreshing = true
+        }
         refreshTask = Task { [weak self] in
             do {
                 let payload = try await TerminalController.shared.taskManagerTopPayload(includeProcesses: includeProcesses)
@@ -121,7 +136,9 @@ final class CmuxTaskManagerModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self?.errorMessage = String(describing: error)
             }
-            self?.isRefreshing = false
+            if shouldShowIndicator {
+                self?.isRefreshing = false
+            }
             self?.refreshTask = nil
         }
     }

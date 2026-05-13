@@ -3,12 +3,14 @@ import Foundation
 struct CmuxTaskManagerSnapshot {
     static let empty = CmuxTaskManagerSnapshot(
         rows: [],
+        agentRows: [],
         aggregateRows: [],
         total: .zero,
         sampledAt: nil
     )
 
     let rows: [CmuxTaskManagerRow]
+    let agentRows: [CmuxTaskManagerRow]
     let aggregateRows: [CmuxTaskManagerRow]
     let total: CmuxTaskManagerResources
     let sampledAt: Date?
@@ -22,11 +24,13 @@ struct CmuxTaskManagerSnapshot {
 
     init(
         rows: [CmuxTaskManagerRow],
+        agentRows: [CmuxTaskManagerRow] = [],
         aggregateRows: [CmuxTaskManagerRow]? = nil,
         total: CmuxTaskManagerResources,
         sampledAt: Date?
     ) {
         self.rows = rows
+        self.agentRows = agentRows
         self.aggregateRows = aggregateRows ?? Self.programAggregateRows(from: rows)
         self.total = total
         self.sampledAt = sampledAt
@@ -43,7 +47,37 @@ struct CmuxTaskManagerSnapshot {
             Self.appendWindow(window, to: &rows)
         }
         self.rows = rows
+        self.agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
         self.aggregateRows = Self.programAggregateRows(from: rows)
+    }
+
+    private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
+        payloads.compactMap { payload in
+            guard let id = nonEmptyString(payload["id"]),
+                  let title = nonEmptyString(payload["display_name"]) else { return nil }
+            let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
+            guard resources.processCount > 0 else { return nil }
+            let detail = String(format: String(
+                localized: "taskManager.aggregate.processCount",
+                defaultValue: "%lld processes"
+            ), Int64(resources.processCount))
+            return CmuxTaskManagerRow(
+                id: "codingAgentAggregate:\(id)",
+                kind: .codingAgentAggregate,
+                level: 0,
+                title: title,
+                detail: detail,
+                resources: resources,
+                isDimmed: false,
+                workspaceId: nil,
+                surfaceId: nil,
+                terminalSurfaceId: nil,
+                processId: nil,
+                rootProcessIds: resources.processIds,
+                foregroundProcessGroupIds: [],
+                agentAssetName: nonEmptyString(payload["asset_name"])
+            )
+        }
     }
 
     private struct ProgramAggregate {

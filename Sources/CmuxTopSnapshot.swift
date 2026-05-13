@@ -205,6 +205,68 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         )
     }
 
+    func codingAgentSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        var aggregates: [String: CmuxCodingAgentProcessAggregate] = [:]
+
+        for pid in pids.sorted() {
+            guard let process = processesByPID[pid] else { continue }
+            let processArguments = Self.processArgumentsIfNeeded(for: process)
+            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments?.arguments ?? [],
+                environment: processArguments?.environment ?? [:]
+            ) else { continue }
+
+            if aggregates[definition.id] == nil {
+                aggregates[definition.id] = CmuxCodingAgentProcessAggregate(definition: definition)
+            }
+            aggregates[definition.id]?.append(process)
+        }
+
+        return CmuxTaskManagerCodingAgentDefinition.builtIns.compactMap { definition in
+            guard let aggregate = aggregates[definition.id] else { return nil }
+            return aggregate.payload()
+        }
+    }
+
+    private static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
+        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: process.name,
+            processPath: process.path
+        ) else { return nil }
+        return processArgumentsAndEnvironment(for: process.pid)
+    }
+
+    private struct CmuxCodingAgentProcessAggregate {
+        let definition: CmuxTaskManagerCodingAgentDefinition
+        var cpuPercent: Double = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+
+        mutating func append(_ process: CmuxTopProcessInfo) {
+            guard !processIds.contains(process.pid) else { return }
+            cpuPercent += process.cpuPercent
+            residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+            processIds.append(process.pid)
+        }
+
+        func payload() -> [String: Any] {
+            let sortedProcessIds = processIds.sorted()
+            return [
+                "id": definition.id,
+                "display_name": definition.displayName,
+                "asset_name": definition.assetName ?? NSNull(),
+                "resources": CmuxTopResourceSummary(
+                    cpuPercent: cpuPercent,
+                    residentBytes: residentBytes,
+                    processCount: sortedProcessIds.count,
+                    pids: sortedProcessIds
+                ).payload()
+            ]
+        }
+    }
+
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,

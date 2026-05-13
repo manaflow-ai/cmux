@@ -13,6 +13,7 @@ struct CmuxTaskManagerRow: Identifiable {
         case webview
         case process
         case programAggregate
+        case codingAgentAggregate
 
         var systemImage: String {
             switch self {
@@ -25,6 +26,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .webview: return "network"
             case .process: return "gearshape"
             case .programAggregate: return "gearshape.2"
+            case .codingAgentAggregate: return "sparkles"
             }
         }
 
@@ -39,6 +41,7 @@ struct CmuxTaskManagerRow: Identifiable {
             case .webview: return .purple
             case .process: return .secondary
             case .programAggregate: return .accentColor
+            case .codingAgentAggregate: return .accentColor
             }
         }
     }
@@ -322,5 +325,204 @@ enum CmuxTaskManagerFormat {
 
     static func time(_ date: Date) -> String {
         timeFormatter.string(from: date)
+    }
+}
+
+struct CmuxTaskManagerCodingAgentDefinition: Equatable {
+    let id: String
+    let displayName: String
+    let assetName: String?
+    let launchKinds: [String]
+    let directBasenames: [String]
+    let argumentNeedles: [String]
+
+    static var builtIns: [CmuxTaskManagerCodingAgentDefinition] {
+        [
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "claude",
+                displayName: String(localized: "taskManager.agent.claudeCode", defaultValue: "Claude Code"),
+                assetName: "AgentIcons/Claude",
+                launchKinds: ["claude", "claudeteams", "claude-teams", "omc", "omx"],
+                directBasenames: ["claude", "claude-code", "claude-teams", "omc"],
+                argumentNeedles: ["claude-code", "claude-teams", "@anthropic-ai/claude-code", "oh-my-claude", "omc"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "codex",
+                displayName: String(localized: "taskManager.agent.codex", defaultValue: "Codex"),
+                assetName: "AgentIcons/Codex",
+                launchKinds: ["codex"],
+                directBasenames: ["codex"],
+                argumentNeedles: ["codex", "@openai/codex"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "opencode",
+                displayName: String(localized: "taskManager.agent.opencode", defaultValue: "OpenCode"),
+                assetName: "AgentIcons/OpenCode",
+                launchKinds: ["opencode"],
+                directBasenames: ["opencode"],
+                argumentNeedles: ["opencode"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "pi",
+                displayName: String(localized: "taskManager.agent.pi", defaultValue: "Pi"),
+                assetName: "AgentIcons/Pi",
+                launchKinds: ["pi"],
+                directBasenames: ["pi"],
+                argumentNeedles: []
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "amp",
+                displayName: String(localized: "taskManager.agent.amp", defaultValue: "Amp"),
+                assetName: nil,
+                launchKinds: ["amp"],
+                directBasenames: ["amp"],
+                argumentNeedles: ["@ampcode"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "cursor",
+                displayName: String(localized: "taskManager.agent.cursor", defaultValue: "Cursor"),
+                assetName: nil,
+                launchKinds: ["cursor"],
+                directBasenames: ["cursor-agent"],
+                argumentNeedles: ["cursor-agent"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "gemini",
+                displayName: String(localized: "taskManager.agent.gemini", defaultValue: "Gemini"),
+                assetName: nil,
+                launchKinds: ["gemini"],
+                directBasenames: ["gemini"],
+                argumentNeedles: ["gemini"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "rovodev",
+                displayName: String(localized: "taskManager.agent.rovodev", defaultValue: "Rovo Dev"),
+                assetName: "AgentIcons/RovoDev",
+                launchKinds: ["rovodev", "rovo"],
+                directBasenames: ["rovodev"],
+                argumentNeedles: ["rovodev"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "hermes-agent",
+                displayName: String(localized: "taskManager.agent.hermesAgent", defaultValue: "Hermes Agent"),
+                assetName: "AgentIcons/HermesAgent",
+                launchKinds: ["hermes-agent"],
+                directBasenames: ["hermes", "hermes-agent"],
+                argumentNeedles: ["hermes-agent"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "copilot",
+                displayName: String(localized: "taskManager.agent.copilot", defaultValue: "Copilot"),
+                assetName: nil,
+                launchKinds: ["copilot"],
+                directBasenames: ["copilot"],
+                argumentNeedles: ["copilot"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "codebuddy",
+                displayName: String(localized: "taskManager.agent.codebuddy", defaultValue: "CodeBuddy"),
+                assetName: nil,
+                launchKinds: ["codebuddy"],
+                directBasenames: ["codebuddy"],
+                argumentNeedles: ["codebuddy"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "factory",
+                displayName: String(localized: "taskManager.agent.factory", defaultValue: "Factory"),
+                assetName: nil,
+                launchKinds: ["factory"],
+                directBasenames: ["droid"],
+                argumentNeedles: ["factory"]
+            ),
+            CmuxTaskManagerCodingAgentDefinition(
+                id: "qoder",
+                displayName: String(localized: "taskManager.agent.qoder", defaultValue: "Qoder"),
+                assetName: nil,
+                launchKinds: ["qoder"],
+                directBasenames: ["qoder", "qodercli"],
+                argumentNeedles: ["qoder", "qodercli"]
+            ),
+        ]
+    }
+
+    static func shouldReadArguments(processName: String, processPath: String?) -> Bool {
+        let basenames = candidateBasenames(
+            processName: processName,
+            processPath: processPath,
+            arguments: []
+        )
+        return basenames.contains { candidate in
+            argumentHostBasenames.contains(candidate) || ambiguousDirectBasenames.contains(candidate)
+        }
+    }
+
+    static func matchingDefinition(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> CmuxTaskManagerCodingAgentDefinition? {
+        let definitions = builtIns
+        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+        if let launchKind,
+           let definition = definitions.first(where: { $0.launchKinds.contains(launchKind) }) {
+            return definition
+        }
+
+        let basenames = candidateBasenames(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments
+        )
+        if let definition = definitions.first(where: { definition in
+            basenames.contains { definition.directBasenames.contains($0) }
+        }) {
+            return definition
+        }
+
+        guard !arguments.isEmpty else { return nil }
+        let joinedArguments = arguments
+            .map { $0.lowercased() }
+            .joined(separator: "\u{0}")
+        return definitions.first { definition in
+            definition.argumentNeedles.contains { needle in
+                joinedArguments.contains(needle)
+            }
+        }
+    }
+
+    private static let argumentHostBasenames: Set<String> = [
+        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
+    ]
+
+    private static let ambiguousDirectBasenames: Set<String> = [
+        "acli"
+    ]
+
+    private static func candidateBasenames(
+        processName: String,
+        processPath: String?,
+        arguments: [String]
+    ) -> Set<String> {
+        var values = Set<String>()
+        appendBasename(processName, to: &values)
+        if let processPath {
+            appendBasename(processPath, to: &values)
+        }
+        if let executable = arguments.first {
+            appendBasename(executable, to: &values)
+        }
+        return values
+    }
+
+    private static func appendBasename(_ value: String, to values: inout Set<String>) {
+        guard let normalized = normalized((value as NSString).lastPathComponent) else { return }
+        values.insert(normalized)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }

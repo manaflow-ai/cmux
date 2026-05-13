@@ -185,6 +185,81 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(aggregateRow.resources.processIds, [101, 202])
     }
 
+    func testSnapshotParsesCodingAgentRowsFromTopPayload() throws {
+        let snapshot = CmuxTaskManagerSnapshot(payload: [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "totals": [:],
+            "coding_agents": [
+                [
+                    "id": "codex",
+                    "display_name": "Codex",
+                    "asset_name": "AgentIcons/Codex",
+                    "resources": [
+                        "cpu_percent": 12.5,
+                        "resident_bytes": 4096,
+                        "process_count": 2,
+                        "pids": [101, 202],
+                    ],
+                ],
+            ],
+            "windows": [],
+        ])
+
+        XCTAssertEqual(snapshot.agentRows.count, 1)
+        let agentRow = try XCTUnwrap(snapshot.agentRows.first)
+        XCTAssertEqual(agentRow.id, "codingAgentAggregate:codex")
+        XCTAssertEqual(agentRow.kind, .codingAgentAggregate)
+        XCTAssertEqual(agentRow.title, "Codex")
+        XCTAssertEqual(agentRow.agentAssetName, "AgentIcons/Codex")
+        XCTAssertEqual(agentRow.resources.cpuPercent, 12.5)
+        XCTAssertEqual(agentRow.resources.processIds, [101, 202])
+    }
+
+    func testCodingAgentMatcherUsesSupportedAgentNamesAndLaunchMetadata() {
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js"],
+                environment: [:]
+            )?.id,
+            "claude"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "acli",
+                processPath: nil,
+                arguments: ["acli", "rovodev", "run"],
+                environment: [:]
+            )?.id,
+            "rovodev"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "agent.js"],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "claudeTeams"]
+            )?.id,
+            "claude"
+        )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "agent.js"],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
+            )?.id,
+            "codex"
+        )
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "node",
+            processPath: nil,
+            arguments: ["node", "api/server.js"],
+            environment: [:]
+        ))
+    }
+
     private func resourceSummary() -> CmuxTopResourceSummary {
         var summary = CmuxTopResourceSummary()
         summary.cpuPercent = 42

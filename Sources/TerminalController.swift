@@ -3391,12 +3391,16 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let codingAgents = await Task.detached(priority: .utility) {
+            processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        }.value
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "coding_agents": codingAgents,
             "windows": annotatedWindows
         ]
     }
