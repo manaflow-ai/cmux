@@ -16619,6 +16619,7 @@ struct CMUXCLI {
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
     private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
+    private static let codexMonitorUnresolvedTranscriptTimeoutSeconds: TimeInterval = 5 * 60
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
         let statePath = NSString(
@@ -16767,6 +16768,23 @@ struct CMUXCLI {
         return ownerFound ? .alive : .gone
     }
 
+    private func codexMonitorOwnerProcessIsGone(_ ownerPID: Int?) -> Bool {
+        guard let ownerPID, ownerPID > 1 else { return false }
+        if kill(pid_t(ownerPID), 0) == 0 {
+            return false
+        }
+        return errno == ESRCH
+    }
+
+    private func codexMonitorUnresolvedTranscriptTimeout(env: [String: String]) -> TimeInterval {
+        guard let rawValue = env["CMUX_CODEX_MONITOR_UNRESOLVED_TRANSCRIPT_TIMEOUT_SECONDS"],
+              let parsed = TimeInterval(rawValue),
+              parsed > 0 else {
+            return Self.codexMonitorUnresolvedTranscriptTimeoutSeconds
+        }
+        return min(max(parsed, 0.05), Self.codexMonitorUnresolvedTranscriptTimeoutSeconds)
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -16774,6 +16792,7 @@ struct CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String?,
+        ownerPID: Int?,
         leasePath: String?,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
@@ -16788,6 +16807,7 @@ struct CMUXCLI {
             "has_turn_id": normalizedHookValue(turnId) != nil,
             "has_transcript": normalizedHookValue(transcriptPath) != nil,
             "has_surface_id": normalizedHookValue(surfaceId) != nil,
+            "has_owner_pid": ownerPID != nil,
         ]
         telemetry.breadcrumb("codex-hook.monitor.start", data: monitorTelemetry)
 
@@ -16813,6 +16833,9 @@ struct CMUXCLI {
         }
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
+        }
+        if let ownerPID, ownerPID > 1 {
+            monitorArgs += ["--owner-pid", String(ownerPID)]
         }
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
@@ -16842,6 +16865,7 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let ownerPID = optionValue(commandArgs, name: "--owner-pid").flatMap(Int.init)
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -16850,9 +16874,14 @@ struct CMUXCLI {
 
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        let unresolvedTranscriptTimeout = codexMonitorUnresolvedTranscriptTimeout(env: env)
+        var transcriptMissingSince: Date?
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
+            if codexMonitorOwnerProcessIsGone(ownerPID) {
+                return
+            }
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
             }
@@ -16866,6 +16895,15 @@ struct CMUXCLI {
 
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
+            }
+            if transcriptPath == nil {
+                let missingSince = transcriptMissingSince ?? now
+                transcriptMissingSince = missingSince
+                if now.timeIntervalSince(missingSince) >= unresolvedTranscriptTimeout {
+                    return
+                }
+            } else {
+                transcriptMissingSince = nil
             }
 
             if let currentTranscriptPath = transcriptPath {
@@ -16914,7 +16952,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            var waitTimeout = min(30, remaining)
+            if let transcriptMissingSince {
+                let unresolvedRemaining = unresolvedTranscriptTimeout - Date().timeIntervalSince(transcriptMissingSince)
+                waitTimeout = min(waitTimeout, max(0.05, unresolvedRemaining))
+            }
+            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: waitTimeout)
         }
     }
 
@@ -19050,6 +19093,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    ownerPID: pid,
                     leasePath: leasePath,
                     env: env,
                     telemetry: telemetry

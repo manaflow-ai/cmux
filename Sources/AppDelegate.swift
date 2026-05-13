@@ -3982,6 +3982,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var id: UUID { windowId }
     }
 
+    struct WindowMoveTargetSnapshot: Identifiable, Equatable {
+        let windowId: UUID
+        let label: String
+        let isCurrentWindow: Bool
+
+        var id: UUID { windowId }
+    }
+
     struct WorkspaceMoveTarget: Identifiable {
         let windowId: UUID
         let workspaceId: UUID
@@ -3993,6 +4001,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var id: String { "\(windowId.uuidString):\(workspaceId.uuidString)" }
         var label: String {
             isCurrentWindow ? workspaceTitle : "\(workspaceTitle) (\(windowLabel))"
+        }
+    }
+
+    func windowMoveTargetSnapshots(referenceWindowId: UUID?) -> [WindowMoveTargetSnapshot] {
+        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
+        return orderedSummaries.map { summary in
+            WindowMoveTargetSnapshot(
+                windowId: summary.windowId,
+                label: labels[summary.windowId] ?? "Window",
+                isCurrentWindow: summary.windowId == referenceWindowId
+            )
         }
     }
 

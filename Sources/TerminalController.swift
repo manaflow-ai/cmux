@@ -438,6 +438,22 @@ class TerminalController {
         return current.value != value || current.label != label
     }
 
+    nonisolated static func shouldAppendLogEntry(
+        after last: SidebarLogEntry?,
+        message: String,
+        level: SidebarLogLevel,
+        source: String?,
+        now: Date
+    ) -> Bool {
+        guard let last else { return true }
+        guard last.message == message,
+              last.level == level,
+              last.source == source else {
+            return true
+        }
+        return now.timeIntervalSince(last.timestamp) >= 5
+    }
+
     nonisolated static func shouldReplaceGitBranch(
         current: SidebarGitBranchState?,
         branch: String,
@@ -16868,20 +16884,30 @@ class TerminalController {
         }
         let source = parsed.options["source"]
 
-        var result = "OK"
-        v2MainSync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+
+        scheduleSidebarMutation(target: target) { _, tab in
+            let now = Date()
+            guard Self.shouldAppendLogEntry(
+                after: tab.logEntries.last,
+                message: message,
+                level: level,
+                source: source,
+                now: now
+            ) else {
                 return
             }
-            tab.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: Date()))
+            tab.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: now))
             let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
             let limit = max(1, min(500, configuredLimit))
             if tab.logEntries.count > limit {
                 tab.logEntries.removeFirst(tab.logEntries.count - limit)
             }
         }
-        return result
+        return "OK"
     }
 
     private func clearLog(_ args: String) -> String {
@@ -16947,27 +16973,34 @@ class TerminalController {
         let clamped = min(1.0, max(0.0, value))
         let label = parsed.options["label"]
 
-        var result = "OK"
-        v2MainSync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+
+        scheduleSidebarMutation(target: target) { _, tab in
+            guard Self.shouldReplaceProgress(current: tab.progress, value: clamped, label: label) else {
                 return
             }
             tab.progress = SidebarProgressState(value: clamped, label: label)
         }
-        return result
+        return "OK"
     }
 
     private func clearProgress(_ args: String) -> String {
-        var result = "OK"
-        v2MainSync {
-            guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
+        let parsed = parseOptions(args)
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+
+        scheduleSidebarMutation(target: target) { _, tab in
+            guard tab.progress != nil else {
                 return
             }
             tab.progress = nil
         }
-        return result
+        return "OK"
     }
 
     private func reportGitBranch(_ args: String) -> String {

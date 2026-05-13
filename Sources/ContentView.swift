@@ -9107,6 +9107,7 @@ struct VerticalTabsSidebar: View {
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
+    @State private var workspaceWindowMoveTargets: [AppDelegate.WindowMoveTargetSnapshot] = []
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
@@ -9184,6 +9185,7 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let windowMoveTargets: [AppDelegate.WindowMoveTargetSnapshot]
 
         var workspaceIds: [UUID] {
             tabs.map(\.id)
@@ -9224,7 +9226,8 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            windowMoveTargets: workspaceWindowMoveTargets
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -9243,6 +9246,15 @@ struct VerticalTabsSidebar: View {
             }
             .frame(width: 0, height: 0)
         )
+        .onAppear {
+            refreshWorkspaceWindowMoveTargets()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .mainWindowContextsDidChange)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            refreshWorkspaceWindowMoveTargets()
+        }
         .onAppear {
             modifierKeyMonitor.start()
             draggedTabId = nil
@@ -9591,6 +9603,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
+            workspaceWindowMoveTargets: renderContext.windowMoveTargets,
             settings: renderContext.tabItemSettings,
             livePresentation: livePresentation,
             frozenPresentation: $frozenTabItemPresentation
@@ -9607,6 +9620,20 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+
+    private func refreshWorkspaceWindowMoveTargets() {
+        guard let app = AppDelegate.shared else {
+            if !workspaceWindowMoveTargets.isEmpty {
+                workspaceWindowMoveTargets = []
+            }
+            return
+        }
+        let referenceWindowId = app.windowId(for: tabManager)
+        let targets = app.windowMoveTargetSnapshots(referenceWindowId: referenceWindowId)
+        if workspaceWindowMoveTargets != targets {
+            workspaceWindowMoveTargets = targets
+        }
     }
 }
 
@@ -12013,6 +12040,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.workspaceWindowMoveTargets == rhs.workspaceWindowMoveTargets &&
         lhs.settings == rhs.settings
     }
 
@@ -12045,6 +12073,7 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let workspaceWindowMoveTargets: [AppDelegate.WindowMoveTargetSnapshot]
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
@@ -12944,8 +12973,6 @@ private struct TabItemView: View, Equatable {
         }
         .disabled(targetIds.isEmpty)
 
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
         let moveMenuTitle = targetIds.count > 1
             ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
             : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
@@ -12955,11 +12982,11 @@ private struct TabItemView: View, Equatable {
             }
             .disabled(targetIds.isEmpty)
 
-            if !windowMoveTargets.isEmpty {
+            if !workspaceWindowMoveTargets.isEmpty {
                 Divider()
             }
 
-            ForEach(windowMoveTargets) { target in
+            ForEach(workspaceWindowMoveTargets) { target in
                 Button(target.label) {
                     moveWorkspaces(targetIds, toWindow: target.windowId)
                 }
