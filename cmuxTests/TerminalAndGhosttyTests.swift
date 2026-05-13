@@ -1589,6 +1589,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
@@ -1602,6 +1603,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertFalse(appearance.usesClearContentBackground)
         XCTAssertTrue(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
     }
 
@@ -1614,6 +1616,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
@@ -1626,6 +1629,7 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 }
