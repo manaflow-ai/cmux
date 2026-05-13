@@ -196,7 +196,8 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                     childSource: childSource,
                     childWorkspaceId: nil
                 )
-            } else if let spawn = SpawnRecord(item: item, metadata: metadata) {
+            } else if let spawn = SpawnRecord(item: item, metadata: metadata),
+                      !hasResolvedChild(parentWorkstreamId: item.workstreamId, spawn: spawn) {
                 pendingSpawnsByParent[item.workstreamId, default: []].append(spawn)
             }
         }
@@ -268,6 +269,28 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                 }
             }
             return hasBestScoreTie ? nil : bestIndex
+        }
+
+        func hasResolvedChild(
+            parentWorkstreamId: String,
+            spawn: SpawnRecord
+        ) -> Bool {
+            var bestWorkstreamId: String?
+            var bestScore = 0
+            var hasBestScoreTie = false
+            for record in records.values where record.parentWorkstreamId == parentWorkstreamId {
+                guard !shouldCancel() else { return false }
+                let score = spawn.resolutionScore(matching: record)
+                guard score > 0 else { continue }
+                if score > bestScore {
+                    bestWorkstreamId = record.workstreamId
+                    bestScore = score
+                    hasBestScoreTie = false
+                } else if score == bestScore {
+                    hasBestScoreTie = true
+                }
+            }
+            return bestWorkstreamId != nil && !hasBestScoreTie
         }
 
         var childrenByParent: [String: [String]] = [:]
@@ -499,6 +522,38 @@ private struct SpawnRecord {
             childCount: 0,
             children: []
         )
+    }
+
+    func resolutionScore(matching record: SessionRecord) -> Int {
+        var score = 0
+        var hasMetadataMatch = false
+        if source == record.source {
+            score += 1
+        }
+        if let workspaceId,
+           let recordWorkspaceId = record.workspaceId,
+           workspaceId == recordWorkspaceId {
+            score += 1
+        }
+        if let subagentType,
+           let recordSubagentType = record.subagentType,
+           subagentType == recordSubagentType {
+            score += 4
+            hasMetadataMatch = true
+        }
+        if let model,
+           let recordModel = record.model,
+           model == recordModel {
+            score += 3
+            hasMetadataMatch = true
+        }
+        if let taskDescription,
+           let recordTaskDescription = record.taskDescription,
+           taskDescription == recordTaskDescription {
+            score += 5
+            hasMetadataMatch = true
+        }
+        return hasMetadataMatch ? score : 0
     }
 }
 

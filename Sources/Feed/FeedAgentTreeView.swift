@@ -5,10 +5,11 @@ struct FeedAgentTreeView: View {
     let graph: WorkstreamAgentGraphSnapshot
     let rows: [FeedAgentTreeRow]
     let actions: FeedRowActions
-    @Binding var collapsedNodeIds: Set<String>
+    let collapsedNodeIds: Set<String>
     let selectedNodeId: String?
     let isKeyboardActive: Bool
     let scrollRequest: FeedAgentTreeScrollRequest?
+    let onToggle: (String) -> Void
     let onSelect: (WorkstreamAgentTreeNode) -> Void
 
     var body: some View {
@@ -50,7 +51,7 @@ struct FeedAgentTreeView: View {
             isSelected: rowIsSelected,
             isFocusActive: isKeyboardActive && rowIsSelected,
             onToggle: {
-                toggle(nodeId)
+                onToggle(nodeId)
             },
             onFocus: {
                 onSelect(row.node)
@@ -113,13 +114,6 @@ struct FeedAgentTreeView: View {
         )
     }
 
-    private func toggle(_ id: String) {
-        if collapsedNodeIds.contains(id) {
-            collapsedNodeIds.remove(id)
-        } else {
-            collapsedNodeIds.insert(id)
-        }
-    }
 }
 
 struct FeedAgentTreeRow: Identifiable, Equatable {

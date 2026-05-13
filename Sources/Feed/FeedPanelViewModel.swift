@@ -3,22 +3,25 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Bridges the `@Observable` WorkstreamStore to a panel-owned
+/// observation snapshot so SwiftUI re-renders the Feed panel on every
+/// relevant mutation.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var agentGraphSnapshot: WorkstreamAgentGraphSnapshot = .empty
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
-    private var storeInstalledObserver: NSObjectProtocol?
-    private let graphBuildWorker = FeedAgentGraphBuildWorker()
-    private var graphBuildTask: Task<Void, Never>?
-    private var graphBuildSequence = 0
-    private var pendingGraphBuildRequest: AgentGraphBuildRequest?
-    private var activeGraphBuildSequence: Int?
-    private var isAgentTreeActive = false
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var agentGraphSnapshot: WorkstreamAgentGraphSnapshot = .empty
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
+    @ObservationIgnored private var storeInstalledObserver: NSObjectProtocol?
+    @ObservationIgnored private var graphBuildWorker = FeedAgentGraphBuildWorker()
+    @ObservationIgnored private var graphBuildTask: Task<Void, Never>?
+    @ObservationIgnored private var graphBuildSequence = 0
+    @ObservationIgnored private var pendingGraphBuildRequest: AgentGraphBuildRequest?
+    @ObservationIgnored private var activeGraphBuildSequence: Int?
+    @ObservationIgnored private var isAgentTreeActive = false
+    @ObservationIgnored private var loadOlderItemsTask: Task<Void, Never>?
+    @ObservationIgnored private var loadOlderItemsSequence = 0
 
     init() {
         storeInstalledObserver = NotificationCenter.default.addObserver(
@@ -35,6 +38,7 @@ final class FeedPanelViewModel: ObservableObject {
 
     deinit {
         graphBuildTask?.cancel()
+        loadOlderItemsTask?.cancel()
         if let storeInstalledObserver {
             NotificationCenter.default.removeObserver(storeInstalledObserver)
         }
@@ -58,10 +62,16 @@ final class FeedPanelViewModel: ObservableObject {
         }
     }
 
-    nonisolated func loadOlderItems() {
-        Task { @MainActor [weak self] in
-            guard let self, !self.isLoadingOlderItems, self.hasMorePersistedItems else { return }
+    func loadOlderItems() {
+        guard !isLoadingOlderItems, hasMorePersistedItems else { return }
+        loadOlderItemsSequence &+= 1
+        let sequence = loadOlderItemsSequence
+        loadOlderItemsTask?.cancel()
+        loadOlderItemsTask = Task { @MainActor [weak self, sequence] in
+            guard let self, !Task.isCancelled else { return }
             await FeedCoordinator.shared.store?.loadOlderItems()
+            guard self.loadOlderItemsSequence == sequence else { return }
+            self.loadOlderItemsTask = nil
         }
     }
 
