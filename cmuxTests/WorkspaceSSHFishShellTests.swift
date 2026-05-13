@@ -252,9 +252,30 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
         )
         XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -c"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
-        XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
         XCTAssertFalse(remoteCommandArgs.contains("sh"))
         XCTAssertFalse(remoteCommandArgs.contains("-c"))
+        let remoteInstallerFishCommandCheck = runProcess(
+            executablePath: fishExecutable,
+            arguments: ["-n", "-c", remoteCommandArgs[0]],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertEqual(
+            remoteInstallerFishCommandCheck.status,
+            0,
+            "Expected staged installer wrapper to parse cleanly when the remote login shell is fish, stderr: \(remoteInstallerFishCommandCheck.stderr)"
+        )
+        let remoteInstallerCShellCommandCheck = runProcess(
+            executablePath: "/bin/csh",
+            arguments: ["-n", "-c", remoteCommandArgs[0]],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertEqual(
+            remoteInstallerCShellCommandCheck.status,
+            0,
+            "Expected staged installer wrapper to parse cleanly when the remote login shell is csh, stderr: \(remoteInstallerCShellCommandCheck.stderr)"
+        )
         let secondInvocationData = try XCTUnwrap(logLines.dropFirst().first?.data(using: .utf8))
         let secondInvocation = try XCTUnwrap(
             JSONSerialization.jsonObject(with: secondInvocationData, options: []) as? [String]
@@ -271,10 +292,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             secondRemoteCommand.contains("/bin/sh -c"),
             "Expected the interactive remote command to force a POSIX shell so fish login shells can execute it, saw \(secondInvocation)"
         )
-        XCTAssertTrue(
-            secondRemoteCommand.contains("cmux_bootstrap_tty=") || secondRemoteCommand.contains("cmux_bootstrap_tty\\\""),
-            "Expected staged remote bootstrap command body in \(secondRemoteCommand)"
-        )
         let remoteFishCommandCheck = runProcess(
             executablePath: fishExecutable,
             arguments: ["-n", "-c", secondRemoteCommand],
@@ -285,6 +302,17 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             remoteFishCommandCheck.status,
             0,
             "Expected staged remote command wrapper to parse cleanly when the remote login shell is fish, stderr: \(remoteFishCommandCheck.stderr)"
+        )
+        let remoteCShellCommandCheck = runProcess(
+            executablePath: "/bin/csh",
+            arguments: ["-n", "-c", secondRemoteCommand],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertEqual(
+            remoteCShellCommandCheck.status,
+            0,
+            "Expected staged remote command wrapper to parse cleanly when the remote login shell is csh, stderr: \(remoteCShellCommandCheck.stderr)"
         )
 
         XCTAssertEqual(foregroundAuthState.commands.count, 1)

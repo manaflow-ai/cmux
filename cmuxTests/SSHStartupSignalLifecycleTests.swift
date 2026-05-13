@@ -469,6 +469,167 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
     }
 
+    func testSSHRemoteBootstrapFallbackShellDoesNotAssumeDashI() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-fallback-shell-\(UUID().uuidString)", isDirectory: true)
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeLoginShell = root.appendingPathComponent("cmux-fallback-shell")
+        let sshLog = root.appendingPathComponent("ssh.log")
+        let fallbackShellArgs = root.appendingPathComponent("fallback-shell-args.txt")
+
+        try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeLoginShell, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" > \"${CMUX_TEST_FALLBACK_SHELL_ARGS}\"",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = '-i' ]; then",
+            "    printf 'unsupported -i\\n' >&2",
+            "    exit 64",
+            "  fi",
+            "done",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SSH_LOG}\"",
+            "remote_command=",
+            "last_arg=",
+            "previous_arg=",
+            "for arg in \"$@\"; do",
+            "  if [ \"$previous_arg\" = '-o' ]; then",
+            "    case \"$arg\" in",
+            "      RemoteCommand=*) remote_command=\"${arg#RemoteCommand=}\" ;;",
+            "    esac",
+            "  fi",
+            "  previous_arg=\"$arg\"",
+            "  last_arg=\"$arg\"",
+            "done",
+            "if [ -z \"$remote_command\" ]; then remote_command=\"$last_arg\"; fi",
+            "remote_command=$(printf '%s' \"$remote_command\" | sed 's/%%/%/g')",
+            "HOME=\"${CMUX_TEST_REMOTE_HOME}\" SHELL=\"${CMUX_TEST_REMOTE_LOGIN_SHELL}\" /bin/sh -c \"$remote_command\"",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeLoginShell.path)
+
+        let startupCommand = try generatedSSHStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SSH_LOG"] = sshLog.path
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_REMOTE_LOGIN_SHELL"] = fakeLoginShell.path
+        environment["CMUX_TEST_FALLBACK_SHELL_ARGS"] = fallbackShellArgs.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let recordedArgs = (try? String(contentsOf: fallbackShellArgs, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(recordedArgs, "")
+        XCTAssertGreaterThanOrEqual(
+            (try? String(contentsOf: sshLog, encoding: .utf8).split(separator: "\n").count) ?? 0,
+            2
+        )
+    }
+
+    func testSSHRemoteBootstrapKeepsDashIForCShellFallback() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-cshell-\(UUID().uuidString)", isDirectory: true)
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeLoginShell = root.appendingPathComponent("tcsh")
+        let cShellArgs = root.appendingPathComponent("cshell-args.txt")
+
+        try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeLoginShell, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" > \"${CMUX_TEST_CSHELL_ARGS}\"",
+            "saw_interactive=0",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = '-i' ]; then saw_interactive=1; fi",
+            "done",
+            "if [ \"$saw_interactive\" != 1 ]; then",
+            "  printf 'missing -i\\n' >&2",
+            "  exit 65",
+            "fi",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "remote_command=",
+            "last_arg=",
+            "previous_arg=",
+            "for arg in \"$@\"; do",
+            "  if [ \"$previous_arg\" = '-o' ]; then",
+            "    case \"$arg\" in",
+            "      RemoteCommand=*) remote_command=\"${arg#RemoteCommand=}\" ;;",
+            "    esac",
+            "  fi",
+            "  previous_arg=\"$arg\"",
+            "  last_arg=\"$arg\"",
+            "done",
+            "if [ -z \"$remote_command\" ]; then remote_command=\"$last_arg\"; fi",
+            "remote_command=$(printf '%s' \"$remote_command\" | sed 's/%%/%/g')",
+            "HOME=\"${CMUX_TEST_REMOTE_HOME}\" SHELL=\"${CMUX_TEST_REMOTE_LOGIN_SHELL}\" /bin/csh -c \"$remote_command\"",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeLoginShell.path)
+
+        let startupCommand = try generatedSSHStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_REMOTE_LOGIN_SHELL"] = fakeLoginShell.path
+        environment["CMUX_TEST_CSHELL_ARGS"] = cShellArgs.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let recordedArgs = (try? String(contentsOf: cShellArgs, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(recordedArgs, "-i")
+    }
+
     private func generatedSSHStartupCommand(
         sshOptions: [String] = [
             "ControlMaster no",
