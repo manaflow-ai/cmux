@@ -14,8 +14,9 @@ written around user-visible behavior so the implementation can change behind it.
   connecting to the cmux socket.
 - Keep documented `cmux <command> --help` probes working without a socket where
   they already do.
-- Keep `--socket`, `--password`, `--json`, `--id-format`, and `--window` as
-  global options before the command.
+- Keep `--socket`, `--password`, and `--window` as global options before the
+  command. Keep presentation options `--json` and `--id-format` accepted either
+  before or after the command.
 - Keep UUIDs, refs such as `workspace:2`, and indexes accepted wherever the
   command accepts a window, workspace, pane, surface, or tab handle.
 - Keep text output stable for scripting commands unless a command already
@@ -27,7 +28,7 @@ written around user-visible behavior so the implementation can change behind it.
 | Form | Contract |
 | --- | --- |
 | `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
-| `cmux [global-options] <command> [options]` | Run a named command. |
+| `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
 | `cmux help` | Print top-level usage without a socket. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
@@ -139,7 +140,11 @@ model, and event-subscription envelope are documented in `docs/json-rpc-api.md`.
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface. |
-| `list-notifications` | List queued notifications. |
+| `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
+| `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
+| `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
+| `open-notification` | Focus the notification's workspace/surface and mark it read. |
+| `jump-to-unread` | Focus the latest unread notification. |
 | `clear-notifications` | Clear queued notifications. |
 | `right-sidebar` | Control right sidebar visibility, mode, focus, and state reads. |
 | `set-status` | Set a sidebar status pill. |
@@ -288,7 +293,7 @@ Hook subcommands:
 | `hooks claude <event>` | Handle Claude Code hook events. `claude-hook <event>` remains as the main-compatibility alias. |
 | `hooks codex <event>` | Handle Codex hook events. `codex install-hooks` remains as the main-compatibility installer alias. |
 | `hooks feed --source <agent>` | Convert agent hook events into Feed context. |
-| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
+| `hooks <agent> <event>` | Generic hook surface for `opencode`, `pi`, `amp`, `cursor`, `gemini`, `rovodev`, `copilot`, `codebuddy`, `factory`, and `qoder`. |
 
 Right sidebar commands:
 
@@ -474,6 +479,10 @@ the expected text without connecting to a cmux socket.
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
 - `cmux notify --help` -> `Usage: cmux notify`
 - `cmux list-notifications --help` -> `Usage: cmux list-notifications`
+- `cmux dismiss-notification --help` -> `Usage: cmux dismiss-notification`
+- `cmux mark-notification-read --help` -> `Usage: cmux mark-notification-read`
+- `cmux open-notification --help` -> `Usage: cmux open-notification`
+- `cmux jump-to-unread --help` -> `Usage: cmux jump-to-unread`
 - `cmux clear-notifications --help` -> `Usage: cmux clear-notifications`
 - `cmux right-sidebar --help` -> `Usage: cmux right-sidebar <command> [flags]`
 - `cmux set-status --help` -> `Usage: cmux set-status`
