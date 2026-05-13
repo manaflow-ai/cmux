@@ -4429,7 +4429,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private enum PendingSocketInputDrain {
         case empty
         case blocked(blockReason: String, discarded: PendingSocketInputDiscard?)
-        case flushed(PendingSocketInputQueueSnapshot)
+        case ready(items: [PendingSocketInput], bytes: Int)
     }
 
     private enum TerminalInputLifecycleState {
@@ -4781,10 +4781,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     }
 
-    private func performTerminalInputIfAllowed(reason: String, operation: () -> Void) -> Bool {
+    private func consumeTerminalInputIfAllowed(reason: String) -> Bool {
         let result = withInputLifecycleLock { () -> (allowed: Bool, blockReason: String?, discarded: PendingSocketInputDiscard?) in
             guard let blockReason = terminalInputBlockReasonLocked() else {
-                operation()
                 return (true, nil, nil)
             }
             return (false, blockReason, clearPendingSocketInputLocked())
@@ -5727,18 +5726,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
             requestBackgroundSurfaceStartIfNeeded()
             return
         }
-        _ = performTerminalInputIfAllowed(reason: "sendText") {
-            writeTextData(data, to: surface)
-        }
+        guard consumeTerminalInputIfAllowed(reason: "sendText") else { return }
+        writeTextData(data, to: surface)
     }
 
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         guard let event = pendingKeyEvent(for: keyName) else { return false }
         if let surface = surface {
-            _ = performTerminalInputIfAllowed(reason: "sendNamedKey.\(event.label)") {
-                sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
-            }
+            guard consumeTerminalInputIfAllowed(reason: "sendNamedKey.\(event.label)") else { return true }
+            sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
             guard enqueuePendingSocketInputIfAllowed(.key(event), reason: "sendNamedKey.\(event.label).queue") else { return true }
             requestBackgroundSurfaceStartIfNeeded()
@@ -5751,40 +5748,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
         guard let surface = surface else { return }
-        _ = performTerminalInputIfAllowed(reason: "sendInput") {
-            var bufferedText = ""
-            var previousWasCR = false
-            for scalar in text.unicodeScalars {
-                switch scalar.value {
-                case 0x0A: // \n — skip if preceded by \r (already sent Return)
-                    if !previousWasCR {
-                        flushText(&bufferedText, surface: surface)
-                        sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
-                    }
-                    previousWasCR = false
-                case 0x0D:
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
-                    previousWasCR = true
-                case 0x09:
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
-                    previousWasCR = false
-                case 0x1B:
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
-                    previousWasCR = false
-                case 0x7F:
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x33) // kVK_Delete
-                    previousWasCR = false
-                default:
-                    bufferedText.unicodeScalars.append(scalar)
-                    previousWasCR = false
-                }
+        guard consumeTerminalInputIfAllowed(reason: "sendInput") else { return }
+        var bufferedText = ""
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0A, 0x0D:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+            case 0x09:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
+            case 0x1B:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
+            case 0x7F:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x33) // kVK_Delete
+            default:
+                bufferedText.unicodeScalars.append(scalar)
             }
-            flushText(&bufferedText, surface: surface)
         }
+        flushText(&bufferedText, surface: surface)
     }
 
     private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
@@ -6011,8 +5995,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         pendingSocketInputQueue.append(input)
         pendingSocketInputBytes += incomingBytes
+        var pendingKeys = 0
 #if DEBUG
-        let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
+        pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
                 count += 1
             }
@@ -6020,11 +6005,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
         return PendingSocketInputQueueSnapshot(
             items: pendingSocketInputQueue.count,
-#if DEBUG
             keys: pendingKeys,
-#else
-            keys: 0,
-#endif
             bytes: pendingSocketInputBytes
         )
     }
@@ -6071,27 +6052,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             let queuedBytes = pendingSocketInputBytes
             pendingSocketInputQueue.removeAll(keepingCapacity: false)
             pendingSocketInputBytes = 0
-#if DEBUG
-            var queuedKeys = 0
-#endif
-            for item in queued {
-                switch item {
-                case .text(let chunk):
-                    writeTextData(chunk, to: surface)
-                case .key(let event):
-#if DEBUG
-                    queuedKeys += 1
-#endif
-                    sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
-                }
-            }
-#if DEBUG
-            return .flushed(PendingSocketInputQueueSnapshot(items: queued.count, keys: queuedKeys, bytes: queuedBytes))
-#else
-            return .flushed(PendingSocketInputQueueSnapshot(items: queued.count, keys: 0, bytes: queuedBytes))
-#endif
+            return .ready(items: queued, bytes: queuedBytes)
         }
 
+        let queued: [PendingSocketInput]
+        let queuedBytes: Int
         switch drain {
         case .empty:
             return
@@ -6104,15 +6069,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             return
-        case .flushed(let summary):
-#if DEBUG
-            cmuxDebugLog(
-                "surface.socket_input.flush surface=\(id.uuidString.prefix(8)) items=\(summary.items) " +
-                "keys=\(summary.keys) bytes=\(summary.bytes)"
-            )
-#endif
-            return
+        case .ready(let items, let bytes):
+            queued = items
+            queuedBytes = bytes
         }
+
+        var queuedKeys = 0
+        for item in queued {
+            switch item {
+            case .text(let chunk):
+                writeTextData(chunk, to: surface)
+            case .key(let event):
+                queuedKeys += 1
+                sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+            }
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "surface.socket_input.flush surface=\(id.uuidString.prefix(8)) items=\(queued.count) " +
+            "keys=\(queuedKeys) bytes=\(queuedBytes)"
+        )
+#endif
     }
 
     func performBindingAction(_ action: String) -> Bool {
@@ -7612,7 +7589,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .ready(let readySurface):
             surface = readySurface
         case .blocked:
-            return true
+            return false
         case .unavailable:
             return false
         }
@@ -8239,10 +8216,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func keyUp(with event: NSEvent) {
-        if imeSuppressedKeyUpKeyCodes.remove(event.keyCode) != nil {
-            return
-        }
-
         let surface: ghostty_surface_t
         switch ensureSurfaceReadyForInput() {
         case .ready(let readySurface):
