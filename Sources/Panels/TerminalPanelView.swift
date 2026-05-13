@@ -98,17 +98,16 @@ struct TerminalPanelView: View {
     }
 
     private func resizedSidekickSplitRatio(translationWidth: CGFloat) -> Double? {
-        let availableWidth = max(0, containerSize.width - TerminalSidekickLayout.dividerWidth)
-        guard availableWidth > 0 else { return nil }
-
         let startRatio = sidekickResizeStartRatio ?? panel.sidekickState.splitRatio
         if sidekickResizeStartRatio == nil {
             sidekickResizeStartRatio = startRatio
         }
 
-        let startWidth = availableWidth * CGFloat(startRatio)
-        let resizedWidth = startWidth - translationWidth
-        return TerminalSidekickState.clampedSplitRatio(Double(resizedWidth / availableWidth))
+        return TerminalSidekickLayout.splitRatio(
+            totalWidth: containerSize.width,
+            startRatio: startRatio,
+            translationWidth: translationWidth
+        )
     }
 
     private var terminalSurface: some View {
@@ -137,12 +136,12 @@ struct TerminalPanelView: View {
 }
 
 private enum TerminalSidekickDividerMetrics {
-    static let hitWidth: CGFloat = 8
+    static let hitWidth = TerminalSidekickLayout.dividerWidth
     static let hairlineWidth: CGFloat = 1
 }
 
-private enum TerminalSidekickLayout {
-    static let dividerWidth = TerminalSidekickDividerMetrics.hitWidth
+enum TerminalSidekickLayout {
+    static let dividerWidth: CGFloat = 8
     private static let minimumTerminalWidth: CGFloat = 280
     private static let minimumSidekickWidth: CGFloat = 260
 
@@ -150,6 +149,31 @@ private enum TerminalSidekickLayout {
         guard totalWidth > dividerWidth else { return 0 }
         let availableWidth = max(0, totalWidth - dividerWidth)
         let targetWidth = availableWidth * CGFloat(TerminalSidekickState.clampedSplitRatio(splitRatio))
+        return constrainedSidekickWidth(availableWidth: availableWidth, targetWidth: targetWidth)
+    }
+
+    static func splitRatio(
+        totalWidth: CGFloat,
+        startRatio: Double,
+        translationWidth: CGFloat
+    ) -> Double? {
+        guard totalWidth > dividerWidth else { return nil }
+        let availableWidth = max(0, totalWidth - dividerWidth)
+        guard availableWidth > 0 else { return nil }
+
+        let startWidth = sidekickWidth(totalWidth: totalWidth, splitRatio: startRatio)
+        let resizedWidth = startWidth - translationWidth
+        let boundedWidth = constrainedSidekickWidth(
+            availableWidth: availableWidth,
+            targetWidth: resizedWidth
+        )
+        return TerminalSidekickState.clampedSplitRatio(Double(boundedWidth / availableWidth))
+    }
+
+    private static func constrainedSidekickWidth(
+        availableWidth: CGFloat,
+        targetWidth: CGFloat
+    ) -> CGFloat {
         guard availableWidth >= minimumTerminalWidth + minimumSidekickWidth else {
             return max(0, min(availableWidth, targetWidth))
         }

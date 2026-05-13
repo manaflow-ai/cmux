@@ -1,3 +1,4 @@
+import CoreGraphics
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -82,6 +83,50 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(terminalPanel.sidekickState.splitRatio, 0.7, accuracy: 0.001)
+    }
+
+    func testTerminalSidekickResizeRatioMatchesDisplayedMinimumSidekickWidth() throws {
+        let totalWidth: CGFloat = 1000
+        let ratio = try XCTUnwrap(
+            TerminalSidekickLayout.splitRatio(
+                totalWidth: totalWidth,
+                startRatio: 0.25,
+                translationWidth: 0
+            )
+        )
+
+        let renderedSidekickWidth = TerminalSidekickLayout.sidekickWidth(
+            totalWidth: totalWidth,
+            splitRatio: ratio
+        )
+        let availableWidth = totalWidth - TerminalSidekickLayout.dividerWidth
+
+        XCTAssertEqual(renderedSidekickWidth, 260, accuracy: 0.001)
+        XCTAssertEqual(ratio, Double(renderedSidekickWidth / availableWidth), accuracy: 0.001)
+    }
+
+    func testTerminalSidekickResizeRatioPreservesMinimumTerminalWidth() throws {
+        let totalWidth: CGFloat = 720
+        let ratio = try XCTUnwrap(
+            TerminalSidekickLayout.splitRatio(
+                totalWidth: totalWidth,
+                startRatio: 0.7,
+                translationWidth: -400
+            )
+        )
+
+        let renderedSidekickWidth = TerminalSidekickLayout.sidekickWidth(
+            totalWidth: totalWidth,
+            splitRatio: ratio
+        )
+        let renderedTerminalWidth = totalWidth - TerminalSidekickLayout.dividerWidth - renderedSidekickWidth
+
+        XCTAssertEqual(renderedTerminalWidth, 280, accuracy: 0.001)
+        XCTAssertEqual(
+            ratio,
+            Double(renderedSidekickWidth / (totalWidth - TerminalSidekickLayout.dividerWidth)),
+            accuracy: 0.001
+        )
     }
 
     func testTerminalSidekickRestoreStaysClosedWhenBrowserIsDisabled() throws {

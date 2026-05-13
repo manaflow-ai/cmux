@@ -157,7 +157,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ ⇧ R | Rename workspace |
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
-| ⌥ ⌘ B | Toggle right sidebar |
+| ⌥ ⌘ B | Toggle right sidebar outside focused terminals |
 | ⌘ ⇧ E | Toggle right sidebar focus |
 
 ### Surfaces
@@ -172,6 +172,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌃ 1–8 | Jump to surface 1–8 |
 | ⌃ 9 | Jump to last surface |
 | ⌘ W | Close surface |
+| ⌥ ⌘ B | Toggle terminal sidekick in a focused terminal |
 
 ### Split Panes
 
