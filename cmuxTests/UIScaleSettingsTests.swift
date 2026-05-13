@@ -159,6 +159,38 @@ final class UIScaleSettingsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
     }
 
+    func testWritingAppUIScaleMatchesExistingRootIndent() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-four-space-\(UUID().uuidString).json", isDirectory: false)
+        try """
+        {
+            "schemaVersion": 1,
+            "terminal": {}
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        try store.writeAppUIScale(1.4)
+
+        let updated = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertTrue(updated.contains(#"""
+            "app": {
+                "uiScale": 1.4
+            },
+        """#))
+        let data = Data(updated.utf8)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: data)) as? [String: Any]
+        )
+        let appSection = try XCTUnwrap(json["app"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
+    }
+
     func testWritingAppUIScaleDoesNotReplaceUnreadableConfig() throws {
         let settingsFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-scale-unreadable-\(UUID().uuidString).json", isDirectory: false)
