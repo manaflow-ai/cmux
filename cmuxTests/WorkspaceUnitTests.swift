@@ -2464,6 +2464,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            terminalLocation: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
