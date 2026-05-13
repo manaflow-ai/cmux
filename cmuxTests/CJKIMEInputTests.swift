@@ -1532,14 +1532,15 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
-    private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
+    private func makeHostedTerminalWindow(initialCommand: String? = nil) throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            initialCommand: initialCommand
         )
         let hostedView = surface.hostedView
 
@@ -1569,6 +1570,118 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             hostedView: hostedView,
             surfaceView: surfaceView
         )
+    }
+
+    private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
+        let runtimeSurface = try XCTUnwrap(terminal.surface.surface)
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_SURFACE,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_SURFACE,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(runtimeSurface, selection, &text) else {
+            return ""
+        }
+        defer { ghostty_surface_free_text(runtimeSurface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return "" }
+        let data = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func waitForTerminalText(
+        from terminal: HostedTerminalWindow,
+        timeout: TimeInterval = 5,
+        matching predicate: (String) -> Bool
+    ) throws -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = try readTerminalText(from: terminal)
+        while Date() < deadline {
+            if predicate(latest) { return latest }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            latest = try readTerminalText(from: terminal)
+        }
+        return latest
+    }
+
+    private func shellSingleQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    private func cmuxZshTerminalKeyboardResetSequence() throws -> Data {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let integrationPath = repoRoot
+            .appendingPathComponent("Resources/shell-integration/cmux-zsh-integration.zsh")
+            .path
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-f",
+            "-c",
+            """
+            source \(shellSingleQuoted(integrationPath)) >/dev/null 2>&1 || true
+            if (( $+functions[_cmux_reset_terminal_keyboard_protocols] )); then
+              _cmux_reset_terminal_keyboard_protocols
+            fi
+            """
+        ]
+        process.environment = [
+            "CMUX_TEST_FORCE_KEYBOARD_RESET": "1"
+        ]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        try process.run()
+        process.waitUntilExit()
+        return output.fileHandleForReading.readDataToEndOfFile()
+    }
+
+    private func processTerminalOutput(_ data: Data, in terminal: HostedTerminalWindow) throws {
+        guard !data.isEmpty else { return }
+        let runtimeSurface = try XCTUnwrap(terminal.surface.surface)
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(runtimeSurface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
+    private func sendSyntheticText(_ text: String, in terminal: HostedTerminalWindow) -> Bool {
+        let keyCodes: [Character: UInt16] = [
+            "a": 0,
+            "c": 8,
+            "h": 4,
+            "r": 15,
+            "t": 17
+        ]
+
+        for character in text {
+            guard let keyCode = keyCodes[character] else { return false }
+            let string = String(character)
+            let sent = terminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+                characters: string,
+                charactersIgnoringModifiers: string,
+                keyCode: keyCode
+            )
+            guard sent else { return false }
+        }
+        return true
     }
 
     private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
@@ -1677,6 +1790,97 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
                 "Printable Shift+? should continue through keyDown instead of being consumed as a key equivalent"
             )
         }
+    }
+
+    func testStaleKittyKeyboardAfterClearHistoryDoesNotEncodeTypedTextAsCSIU() throws {
+        let captureReadyMarker = "CMUX_KBD_READY_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let captureMarker = "CMUX_KBD_HEX_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-kbd-capture-\(UUID().uuidString).py")
+        let script = """
+        import os
+        import select
+        import sys
+        import termios
+        import time
+        import tty
+
+        fd = 0
+        sys.stdout.write("\\x1b[>3u\(captureReadyMarker)\\n")
+        sys.stdout.flush()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            data = bytearray()
+            deadline = time.monotonic() + 3.0
+            idle_deadline = None
+            while time.monotonic() < deadline:
+                timeout = 0.05
+                if idle_deadline is not None:
+                    timeout = max(0.0, min(timeout, idle_deadline - time.monotonic()))
+                if select.select([sys.stdin], [], [], timeout)[0]:
+                    data.extend(os.read(fd, 64))
+                    idle_deadline = time.monotonic() + 0.35
+                    if data == b"chart":
+                        break
+                elif idle_deadline is not None and time.monotonic() >= idle_deadline:
+                    break
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        print("\\r\\n\(captureMarker)=" + data.hex(), flush=True)
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+        let hostedTerminal = try makeHostedTerminalWindow(
+            initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
+        )
+        let window = hostedTerminal.window
+        defer { window.orderOut(nil) }
+
+        let readyText = try waitForTerminalText(from: hostedTerminal) {
+            $0.contains(captureReadyMarker)
+        }
+        XCTAssertTrue(readyText.contains(captureReadyMarker), "Expected Kitty enable marker before clear-history")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        try processTerminalOutput(cmuxZshTerminalKeyboardResetSequence(), in: hostedTerminal)
+
+        // Mirrors the surface.clear_history socket handler path: clear_screen binding, then refresh.
+        XCTAssertTrue(hostedTerminal.surface.performBindingAction("clear_screen"))
+        hostedTerminal.surface.forceRefresh(reason: "unit.clearHistory")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertTrue(
+            sendSyntheticText("chart", in: hostedTerminal),
+            "Expected ordinary chart keyDown events to be dispatched through ghostty_surface_key"
+        )
+
+        let captureText = try waitForTerminalText(from: hostedTerminal, timeout: 5) {
+            $0.contains(captureMarker)
+        }
+        guard let markerRange = captureText.range(of: "\(captureMarker)=") else {
+            XCTFail("Expected raw PTY byte capture marker in terminal output: \(captureText)")
+            return
+        }
+        let hexCharacters = Set("0123456789abcdefABCDEF")
+        let capturedHex = captureText[markerRange.upperBound...]
+            .prefix { hexCharacters.contains($0) }
+
+        XCTAssertEqual(
+            String(capturedHex),
+            "6368617274",
+            "Typing chart at a recovered shell prompt must write plain bytes, not Kitty CSI-u sequences"
+        )
+        XCTAssertFalse(
+            captureText.contains("c9;1:3u")
+                || captureText.contains("h04;1:3u")
+                || captureText.contains("a7;1:3u")
+                || captureText.contains("r14;1:3u")
+                || captureText.contains("t16;1:3u"),
+            "CSI-u response bodies must not land in terminal output as printable text"
+        )
     }
 
     // MARK: - Terminal Paste Fallback
