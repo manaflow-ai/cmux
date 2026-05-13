@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
   "title": "cmux.json",
-  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, and UI action wiring.",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, workspace layouts, and custom menu bar menus. Project-local .cmux/cmux.json supports actions, commands, and UI action wiring.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -20,15 +20,45 @@
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, plus-button menu, and custom menu bar menus.",
       "type": "object",
       "additionalProperties": true
     },
     "ui": {
       "title": "ui",
-      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior.",
+      "description": "UI action wiring, including surface tab bar buttons, plus-button behavior, and custom menu bar menus.",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "menuBar": {
+          "title": "ui.menuBar",
+          "description": "Custom top-level macOS menu bar menus. Menus can reference actions, define inline shell commands, include separators, and nest submenus.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/menuBarMenus"
+            },
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "menus": {
+                  "$ref": "#/$defs/menuBarMenus"
+                }
+              }
+            }
+          ]
+        },
+        "newWorkspace": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Action and context menu wiring for the new-workspace button."
+        },
+        "surfaceTabBar": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Action button wiring for surface tab bars."
+        }
+      }
     },
     "commands": {
       "title": "commands",
@@ -803,6 +833,105 @@
         },
         {
           "type": "null"
+        }
+      ]
+    },
+    "menuBarMenus": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/menuBarMenu"
+      },
+      "description": "Top-level custom macOS menu bar menus."
+    },
+    "menuBarMenu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Optional stable identifier for this menu."
+        },
+        "title": {
+          "type": "string",
+          "description": "Menu title shown in the macOS menu bar."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/menuBarItem"
+          },
+          "default": [],
+          "description": "Menu items. Strings reference actions. Use \"-\" or { \"type\": \"separator\" } for dividers."
+        }
+      }
+    },
+    "menuBarItem": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Action id, \"separator\", or \"-\"."
+        },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["separator", "menu", "submenu", "command", "agent", "builtin", "workspaceCommand"],
+              "description": "separator creates a divider, menu/submenu creates a nested menu, and action types define inline actions."
+            },
+            "title": {
+              "type": "string",
+              "description": "Menu item or submenu title."
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/menuBarItem"
+              },
+              "description": "Nested submenu items."
+            },
+            "action": {
+              "type": "string",
+              "description": "Action id from actions, built-in cmux action id, or generated command id."
+            },
+            "command": {
+              "type": "string",
+              "description": "Inline shell command. cmux inserts it into the selected terminal or a new terminal tab based on target."
+            },
+            "target": {
+              "type": "string",
+              "enum": ["currentTerminal", "newTabInCurrentPane"],
+              "default": "newTabInCurrentPane",
+              "description": "Where an inline shell command runs."
+            },
+            "agent": {
+              "type": "string",
+              "enum": ["codex", "claude", "claudeCode", "claude-code"],
+              "description": "Inline agent action shorthand."
+            },
+            "args": {
+              "type": "string",
+              "description": "Arguments for an inline agent action."
+            },
+            "builtin": {
+              "type": "string",
+              "description": "Built-in cmux action id such as cmux.newTerminal."
+            },
+            "commandName": {
+              "type": "string",
+              "description": "Workspace command name for inline workspaceCommand actions."
+            },
+            "confirm": {
+              "type": "boolean",
+              "description": "Ask before running this inline action."
+            },
+            "tooltip": {
+              "type": "string",
+              "description": "Optional tooltip metadata."
+            }
+          }
         }
       ]
     },

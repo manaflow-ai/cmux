@@ -583,6 +583,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @MainActor
+    private final class ConfiguredMenuBarActionBox: NSObject {
+        let action: CmuxResolvedConfigAction
+
+        init(action: CmuxResolvedConfigAction) {
+            self.action = action
+        }
+    }
+
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
@@ -688,6 +697,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var configuredMenuBarObserverTokens: [NSObjectProtocol] = []
+    private var configuredMenuBarTopLevelItems: [NSMenuItem] = []
+    private var configuredMenuBarActionBoxes: [ConfiguredMenuBarActionBox] = []
+    private var configuredMenuBarRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -1595,6 +1608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        installConfiguredMenuBarObserversIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
@@ -6234,6 +6248,153 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSSound.beep()
             return
         }
+    }
+
+    func configuredMenuBarMenusForCommands(preferredWindow: NSWindow? = nil) -> [CmuxResolvedMenuBarMenu] {
+        guard let store = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)?.cmuxConfigStore else {
+            return []
+        }
+        return store.menuBarMenus
+    }
+
+    @discardableResult
+    func performConfiguredMenuBarAction(
+        _ action: CmuxResolvedConfigAction,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+            ?? createMainWindowContextForConfiguredMenuBarAction()
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        let preferredWindow = resolvedWindow(for: context) ?? preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard executeConfiguredCmuxAction(action, context: context, preferredWindow: preferredWindow) else {
+            NSSound.beep()
+            return false
+        }
+        return true
+    }
+
+    private func createMainWindowContextForConfiguredMenuBarAction() -> MainWindowContext? {
+        guard mainWindowContexts.isEmpty else {
+            return preferredMainWindowContextForWorkspaceCreation(debugSource: "menuBar.configured")
+        }
+        let windowId = createMainWindow()
+        return mainWindowContexts.values.first { $0.windowId == windowId }
+    }
+
+    private func installConfiguredMenuBarObserversIfNeeded() {
+        guard configuredMenuBarObserverTokens.isEmpty else { return }
+        let names: [Notification.Name] = [
+            .cmuxConfigStoreDidChange,
+            .mainWindowContextsDidChange,
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didBecomeMainNotification,
+        ]
+        configuredMenuBarObserverTokens = names.map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.scheduleConfiguredMenuBarRefresh()
+                }
+            }
+        }
+        scheduleConfiguredMenuBarRefresh()
+    }
+
+    private func scheduleConfiguredMenuBarRefresh() {
+        guard !configuredMenuBarRefreshScheduled else { return }
+        configuredMenuBarRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.configuredMenuBarRefreshScheduled = false
+            self.refreshConfiguredMenuBar()
+        }
+    }
+
+    private func refreshConfiguredMenuBar() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        for item in configuredMenuBarTopLevelItems {
+            let index = mainMenu.index(of: item)
+            if index >= 0 {
+                mainMenu.removeItem(at: index)
+            }
+        }
+        configuredMenuBarTopLevelItems.removeAll()
+        configuredMenuBarActionBoxes.removeAll()
+
+        let menus = configuredMenuBarMenusForCommands(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        guard !menus.isEmpty else { return }
+
+        var insertionIndex = configuredMenuBarInsertionIndex(in: mainMenu)
+        for menu in menus {
+            let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
+            item.submenu = configuredMenuBarMenu(from: menu)
+            mainMenu.insertItem(item, at: insertionIndex)
+            configuredMenuBarTopLevelItems.append(item)
+            insertionIndex += 1
+        }
+    }
+
+    private func configuredMenuBarInsertionIndex(in mainMenu: NSMenu) -> Int {
+        let notificationsTitle = String(localized: "menu.notifications.title", defaultValue: "Notifications")
+        if let notificationsIndex = mainMenu.items.lastIndex(where: { $0.title == notificationsTitle }) {
+            return notificationsIndex + 1
+        }
+#if DEBUG
+        if let debugIndex = mainMenu.items.lastIndex(where: { $0.title == "Debug" }) {
+            return debugIndex
+        }
+#endif
+        return min(mainMenu.items.count, max(1, mainMenu.items.count - 1))
+    }
+
+    private func configuredMenuBarMenu(from menu: CmuxResolvedMenuBarMenu) -> NSMenu {
+        let nsMenu = NSMenu(title: menu.title)
+        for item in menu.items {
+            switch item {
+            case .separator:
+                if !nsMenu.items.isEmpty, nsMenu.items.last?.isSeparatorItem == false {
+                    nsMenu.addItem(.separator())
+                }
+            case .submenu(let submenu):
+                let item = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
+                item.submenu = configuredMenuBarMenu(from: submenu)
+                nsMenu.addItem(item)
+            case .action(let menuAction):
+                let item = NSMenuItem(
+                    title: menuAction.title,
+                    action: #selector(performConfiguredMenuBarMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                let box = ConfiguredMenuBarActionBox(action: menuAction.action)
+                configuredMenuBarActionBoxes.append(box)
+                item.representedObject = box
+                item.toolTip = menuAction.tooltip
+                item.image = configuredMenuBarImage(for: menuAction.icon ?? menuAction.action.icon)
+                nsMenu.addItem(item)
+            }
+        }
+
+        while nsMenu.items.last?.isSeparatorItem == true {
+            nsMenu.removeItem(at: nsMenu.items.count - 1)
+        }
+        return nsMenu
+    }
+
+    private func configuredMenuBarImage(for icon: CmuxButtonIcon?) -> NSImage? {
+        guard case .some(.symbol(let symbolName)) = icon else { return nil }
+        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+    }
+
+    @objc private func performConfiguredMenuBarMenuItem(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? ConfiguredMenuBarActionBox else {
+            NSSound.beep()
+            return
+        }
+        performConfiguredMenuBarAction(box.action, preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.

@@ -69,6 +69,34 @@ const settingsFileExample = `{
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 
+  // "actions": {
+  //   "run-tests": {
+  //     "type": "command",
+  //     "title": "Run Tests",
+  //     "command": "npm test",
+  //     "target": "newTabInCurrentPane"
+  //   }
+  // },
+  //
+  // "ui": {
+  //   "menuBar": [
+  //     {
+  //       "title": "Project",
+  //       "items": [
+  //         "run-tests",
+  //         { "type": "separator" },
+  //         { "title": "Lint", "command": "npm run lint", "target": "currentTerminal" },
+  //         {
+  //           "title": "Deploy",
+  //           "items": [
+  //             { "title": "Staging", "command": "./scripts/deploy staging", "confirm": true }
+  //           ]
+  //         }
+  //       ]
+  //     }
+  //   ]
+  // },
+
   // "workspaceColors": {
   //   "colors": {
   //     "Red": "#C0392B",
@@ -345,6 +373,38 @@ working-directory = ~/code`}</CodeBlock>
       "Blue": "#1565C0",
       "Neon Mint": "#00F5D4"
     }
+  }
+}`}</CodeBlock>
+              </>
+            )}
+            {sectionName === "ui" && (
+              <>
+                <p>
+                  <code>ui.menuBar</code> adds custom top-level macOS menus. Menu items can
+                  reference entries from <code>actions</code>, define inline shell commands, use{" "}
+                  <code>{`{ "type": "separator" }`}</code>, or nest submenus with{" "}
+                  <code>items</code>. Commands use the same trust prompt as other project-local
+                  actions.
+                </p>
+                <CodeBlock lang="json">{`{
+  "actions": {
+    "run-tests": {
+      "type": "command",
+      "title": "Run Tests",
+      "command": "npm test"
+    }
+  },
+  "ui": {
+    "menuBar": [
+      {
+        "title": "Project",
+        "items": [
+          "run-tests",
+          { "type": "separator" },
+          { "title": "Lint", "command": "npm run lint", "target": "currentTerminal" }
+        ]
+      }
+    ]
   }
 }`}</CodeBlock>
               </>
