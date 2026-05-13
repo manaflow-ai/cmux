@@ -60,6 +60,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
+    private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
@@ -81,6 +82,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func focus() {
         guard displayMode == .text else { return }
         _ = textView?.window?.makeFirstResponder(textView)
+        applyPendingSearchNeedleIfPossible()
     }
 
     func unfocus() {
@@ -114,6 +116,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func retryPendingFocus() {
         focus()
+    }
+
+    func applySearchNeedle(_ needle: String) {
+        let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingSearchNeedle = trimmed
+        setDisplayMode(.text)
+        applyPendingSearchNeedleIfPossible()
     }
 
     func updateTextContent(_ nextContent: String) {
@@ -228,6 +238,27 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             return .loaded(content: decoded, encoding: .isoLatin1)
         }
         return .unavailable
+    }
+
+    private func applyPendingSearchNeedleIfPossible() {
+        guard let needle = pendingSearchNeedle,
+              let textView else {
+            return
+        }
+
+        let range = (textView.string as NSString).range(
+            of: needle,
+            options: [.caseInsensitive, .diacriticInsensitive]
+        )
+        guard range.location != NSNotFound else {
+            pendingSearchNeedle = nil
+            return
+        }
+
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        pendingSearchNeedle = nil
     }
 
     // MARK: - File watcher via DispatchSource

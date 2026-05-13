@@ -146,14 +146,18 @@ final class GlobalSearchCoordinator {
         case .ready(let index):
             return index
         case .failed:
-            return nil
+            return await openIndex()
         case .opening(let task):
             return await resolveIndexOpeningTask(task)
         case .idle:
-            let task = Task { try await SearchIndex.open() }
-            indexState = .opening(task)
-            return await resolveIndexOpeningTask(task)
+            return await openIndex()
         }
+    }
+
+    private func openIndex() async -> SearchIndex? {
+        let task = Task { try await SearchIndex.open() }
+        indexState = .opening(task)
+        return await resolveIndexOpeningTask(task)
     }
 
     private func resolveIndexOpeningTask(_ task: Task<SearchIndex, Error>) async -> SearchIndex? {

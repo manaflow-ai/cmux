@@ -7,8 +7,10 @@ final class GlobalSearchPanelCaptureManager {
     private let indexProvider: () async -> SearchIndex?
     private let cancelPanelPurge: (UUID) -> Void
 
+    private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var browserCaptureTaskIDs: [UUID: UUID] = [:]
+    private var markdownCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
 
@@ -43,33 +45,40 @@ final class GlobalSearchPanelCaptureManager {
         let panelID = panel.id
         let taskID = UUID()
         cancelPanelPurge(panelID)
-        browserCaptureTasks[panelID]?.cancel()
+        cancelBrowserCapture(forPanelID: panelID)
         browserCaptureTaskIDs[panelID] = taskID
 
-        let task = Task { @MainActor [weak self, weak panel] in
-            guard let self else { return }
-            defer {
-                if self.browserCaptureTaskIDs[panelID] == taskID {
-                    self.browserCaptureTasks[panelID] = nil
-                    self.browserCaptureTaskIDs[panelID] = nil
+        let timer = makeDebounceTimer(milliseconds: browserCaptureDebounceMilliseconds) { [weak self, weak panel] in
+            Task { @MainActor [weak self, weak panel] in
+                guard let self,
+                      self.browserCaptureTaskIDs[panelID] == taskID else {
+                    return
                 }
-            }
+                self.browserCaptureTimers[panelID]?.cancel()
+                self.browserCaptureTimers[panelID] = nil
 
-            do {
-                try await Task.sleep(for: .milliseconds(browserCaptureDebounceMilliseconds))
-            } catch {
-                return
-            }
+                let task = Task { @MainActor [weak self, weak panel] in
+                    guard let self else { return }
+                    defer {
+                        if self.browserCaptureTaskIDs[panelID] == taskID {
+                            self.browserCaptureTasks[panelID] = nil
+                            self.browserCaptureTaskIDs[panelID] = nil
+                        }
+                    }
 
-            guard !Task.isCancelled,
-                  self.browserCaptureTaskIDs[panelID] == taskID,
-                  let panel else {
-                return
-            }
+                    guard !Task.isCancelled,
+                          self.browserCaptureTaskIDs[panelID] == taskID,
+                          let panel else {
+                        return
+                    }
 
-            await self.indexBrowserPanel(panel)
+                    await self.indexBrowserPanel(panel)
+                }
+                self.browserCaptureTasks[panelID] = task
+            }
         }
-        browserCaptureTasks[panelID] = task
+        browserCaptureTimers[panelID] = timer
+        timer.resume()
     }
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
@@ -100,61 +109,85 @@ final class GlobalSearchPanelCaptureManager {
         }
 
         cancelPanelPurge(panelID)
-        guard let context = AppDelegate.shared?.globalSearchContext(
-            forPanelID: panel.id,
-            preferredWorkspaceID: panel.workspaceId
-        ),
-            let document = GlobalSearchDocuments.markdownDocument(for: panel, context: context) else {
-            return
-        }
-
         let taskID = UUID()
-        markdownCaptureTasks[panelID]?.cancel()
+        cancelMarkdownCapture(forPanelID: panelID)
         markdownCaptureTaskIDs[panelID] = taskID
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.markdownCaptureTaskIDs[panelID] == taskID {
-                    self.markdownCaptureTasks[panelID] = nil
-                    self.markdownCaptureTaskIDs[panelID] = nil
+
+        let timer = makeDebounceTimer(milliseconds: markdownCaptureDebounceMilliseconds) { [weak self, weak panel] in
+            Task { @MainActor [weak self, weak panel] in
+                guard let self,
+                      self.markdownCaptureTaskIDs[panelID] == taskID else {
+                    return
                 }
-            }
+                self.markdownCaptureTimers[panelID]?.cancel()
+                self.markdownCaptureTimers[panelID] = nil
 
-            do {
-                try await Task.sleep(for: .milliseconds(markdownCaptureDebounceMilliseconds))
-            } catch {
-                return
-            }
+                let task = Task { @MainActor [weak self, weak panel] in
+                    guard let self else { return }
+                    defer {
+                        if self.markdownCaptureTaskIDs[panelID] == taskID {
+                            self.markdownCaptureTasks[panelID] = nil
+                            self.markdownCaptureTaskIDs[panelID] = nil
+                        }
+                    }
 
-            guard !Task.isCancelled,
-                  self.markdownCaptureTaskIDs[panelID] == taskID,
-                  let index = await self.indexProvider() else {
-                return
-            }
+                    guard !Task.isCancelled,
+                          self.markdownCaptureTaskIDs[panelID] == taskID,
+                          let panel,
+                          let context = AppDelegate.shared?.globalSearchContext(
+                              forPanelID: panel.id,
+                              preferredWorkspaceID: panel.workspaceId
+                          ),
+                          let document = GlobalSearchDocuments.markdownDocument(for: panel, context: context),
+                          let index = await self.indexProvider() else {
+                        return
+                    }
 
-            do {
-                try await index.upsert(document)
-            } catch {
-                guard !Task.isCancelled else { return }
+                    do {
+                        try await index.upsert(document)
+                    } catch {
+                        guard !Task.isCancelled else { return }
 #if DEBUG
-                cmuxDebugLog("globalSearch.markdown.capture failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+                        cmuxDebugLog("globalSearch.markdown.capture failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
+                    }
+                }
+                self.markdownCaptureTasks[panelID] = task
             }
         }
-        markdownCaptureTasks[panelID] = task
+        markdownCaptureTimers[panelID] = timer
+        timer.resume()
     }
 
     func cancelCaptures(forPanelID panelID: UUID) {
-        browserCaptureTasks[panelID]?.cancel()
-        browserCaptureTasks[panelID] = nil
-        browserCaptureTaskIDs[panelID] = nil
+        cancelBrowserCapture(forPanelID: panelID)
         cancelMarkdownCapture(forPanelID: panelID)
     }
 
+    private func cancelBrowserCapture(forPanelID panelID: UUID) {
+        browserCaptureTimers[panelID]?.cancel()
+        browserCaptureTimers[panelID] = nil
+        browserCaptureTasks[panelID]?.cancel()
+        browserCaptureTasks[panelID] = nil
+        browserCaptureTaskIDs[panelID] = nil
+    }
+
     private func cancelMarkdownCapture(forPanelID panelID: UUID) {
+        markdownCaptureTimers[panelID]?.cancel()
+        markdownCaptureTimers[panelID] = nil
         markdownCaptureTasks[panelID]?.cancel()
         markdownCaptureTasks[panelID] = nil
         markdownCaptureTaskIDs[panelID] = nil
+    }
+
+    private func makeDebounceTimer(
+        milliseconds: Int,
+        handler: @escaping () -> Void
+    ) -> DispatchSourceTimer {
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(milliseconds), leeway: .milliseconds(25))
+        timer.setEventHandler(handler: handler)
+        return timer
     }
 
     private func purgeMarkdownDocument(forPanelID panelID: UUID, index: SearchIndex) async {

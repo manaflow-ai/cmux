@@ -59,6 +59,7 @@ private struct GlobalSearchPaletteView: View {
     @State private var selectedIndex = 0
     @State private var isSearching = false
     @State private var searchGeneration = 0
+    @State private var searchDebounceTimer: DispatchSourceTimer?
     @State private var searchTask: Task<Void, Never>?
     @State private var refreshTask: Task<Void, Never>?
     @State private var keyMonitor: Any?
@@ -156,31 +157,39 @@ private struct GlobalSearchPaletteView: View {
 
         isSearching = true
 
-        searchTask = Task { @MainActor in
-            defer {
-                if searchGeneration == generation {
-                    searchTask = nil
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(searchDebounceMilliseconds), leeway: .milliseconds(15))
+        timer.setEventHandler {
+            Task { @MainActor in
+                guard searchGeneration == generation else { return }
+                searchDebounceTimer?.cancel()
+                searchDebounceTimer = nil
+
+                searchTask = Task { @MainActor in
+                    defer {
+                        if searchGeneration == generation {
+                            searchTask = nil
+                        }
+                    }
+
+                    guard searchGeneration == generation, !Task.isCancelled else { return }
+                    let hits = await coordinator.search(query: trimmed)
+                    guard searchGeneration == generation, !Task.isCancelled else { return }
+                    results = hits.enumerated().map { offset, hit in
+                        GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
+                    }
+                    selectedIndex = min(selectedIndex, max(results.count - 1, 0))
+                    isSearching = false
                 }
             }
-
-            do {
-                try await Task.sleep(for: .milliseconds(searchDebounceMilliseconds))
-            } catch {
-                return
-            }
-
-            guard searchGeneration == generation, !Task.isCancelled else { return }
-            let hits = await coordinator.search(query: trimmed)
-            guard searchGeneration == generation, !Task.isCancelled else { return }
-            results = hits.enumerated().map { offset, hit in
-                GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
-            }
-            selectedIndex = min(selectedIndex, max(results.count - 1, 0))
-            isSearching = false
         }
+        searchDebounceTimer = timer
+        timer.resume()
     }
 
     private func cancelSearchWork() {
+        searchDebounceTimer?.cancel()
+        searchDebounceTimer = nil
         searchTask?.cancel()
         searchTask = nil
     }
@@ -246,7 +255,7 @@ private struct GlobalSearchPaletteView: View {
             if flags.contains(.command),
                !flags.contains(.option),
                !flags.contains(.control) {
-                return !isTextEditingCommand(event)
+                return !isTextEditingCommand(event) && !isSystemCommand(event)
             }
             return false
         }
@@ -264,6 +273,11 @@ private struct GlobalSearchPaletteView: View {
         default:
             return false
         }
+    }
+
+    private func isSystemCommand(_ event: GlobalSearchKeyEvent) -> Bool {
+        guard let characters = event.charactersIgnoringModifiers?.lowercased() else { return false }
+        return ["h", "m", "q", "w", ","].contains(characters)
     }
 
     private func openSelectedResult() {
