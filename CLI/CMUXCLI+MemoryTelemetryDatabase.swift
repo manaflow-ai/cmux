@@ -262,26 +262,4 @@ extension CMUXCLI {
         }
     }
 
-    func memoryTelemetryDatabaseURL() -> URL {
-        let env = ProcessInfo.processInfo.environment
-        if let override = env["CMUX_MEMORY_TELEMETRY_DB_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
-        }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
-        return base
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("telemetry.db", isDirectory: false)
-    }
-
-    func memoryTelemetryRetention() -> TimeInterval {
-        let raw = ProcessInfo.processInfo.environment["CMUX_MEMORY_TELEMETRY_RETENTION_SECONDS"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let raw, let value = Double(raw), value > 0 else {
-            return 24 * 60 * 60
-        }
-        return value
-    }
 }

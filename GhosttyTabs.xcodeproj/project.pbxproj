@@ -338,6 +338,7 @@
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
+		C40590030000000000000002 /* CMUXCLI+MemoryTelemetryConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590030000000000000001 /* CMUXCLI+MemoryTelemetryConfig.swift */; };
 		C40590010000000000000002 /* CMUXCLI+MemoryTelemetryDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590010000000000000001 /* CMUXCLI+MemoryTelemetryDatabase.swift */; };
 		C40590020000000000000002 /* CMUXCLI+MemoryTrimmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590020000000000000001 /* CMUXCLI+MemoryTrimmer.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
@@ -850,6 +851,7 @@
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
+		C40590030000000000000001 /* CMUXCLI+MemoryTelemetryConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetryConfig.swift"; sourceTree = "<group>"; };
 		C40590010000000000000001 /* CMUXCLI+MemoryTelemetryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetryDatabase.swift"; sourceTree = "<group>"; };
 		C40590020000000000000001 /* CMUXCLI+MemoryTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTrimmer.swift"; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
@@ -1394,6 +1396,7 @@
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				C40590030000000000000001 /* CMUXCLI+MemoryTelemetryConfig.swift */,
 				C40590010000000000000001 /* CMUXCLI+MemoryTelemetryDatabase.swift */,
 				C40590020000000000000001 /* CMUXCLI+MemoryTrimmer.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
@@ -2073,6 +2076,7 @@
 			buildActionMask = 2147483647;
 			files = (
 					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				C40590030000000000000002 /* CMUXCLI+MemoryTelemetryConfig.swift in Sources */,
 				C40590010000000000000002 /* CMUXCLI+MemoryTelemetryDatabase.swift in Sources */,
 				C40590020000000000000002 /* CMUXCLI+MemoryTrimmer.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,

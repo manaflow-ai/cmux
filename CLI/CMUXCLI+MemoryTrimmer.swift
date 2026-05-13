@@ -1,6 +1,40 @@
 import Darwin
 import Foundation
 
+private func memoryTelemetryInt(_ raw: Any?) -> Int? {
+    if let value = raw as? Int { return value }
+    if let value = raw as? Int64 { return Int(exactly: value) }
+    if let value = raw as? Double {
+        guard value.isFinite,
+              value >= Double(Int.min),
+              value <= Double(Int.max) else {
+            return nil
+        }
+        return Int(value)
+    }
+    if let value = raw as? NSNumber { return value.intValue }
+    if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    return nil
+}
+
+private func memoryTelemetryInt64(_ raw: Any?) -> Int64 {
+    if let value = raw as? Int64 { return value }
+    if let value = raw as? Int { return Int64(value) }
+    if let value = raw as? Double {
+        guard value.isFinite,
+              value >= Double(Int64.min),
+              value <= Double(Int64.max) else {
+            return 0
+        }
+        return Int64(value)
+    }
+    if let value = raw as? NSNumber { return value.int64Value }
+    if let value = raw as? String {
+        return Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+    return 0
+}
+
 extension CMUXCLI {
     struct MemoryProcessIdentity: Equatable {
         let pid: Int
@@ -16,30 +50,14 @@ extension CMUXCLI {
         }
 
         init?(process: [String: Any]) {
-            guard let pid = Self.int(process["pid"]),
-                  let startSeconds = Self.int(process["start_seconds"]),
-                  let startMicroseconds = Self.int(process["start_microseconds"]) else {
+            guard let pid = memoryTelemetryInt(process["pid"]),
+                  let startSeconds = memoryTelemetryInt(process["start_seconds"]),
+                  let startMicroseconds = memoryTelemetryInt(process["start_microseconds"]) else {
                 return nil
             }
             self.pid = pid
             self.startSeconds = startSeconds
             self.startMicroseconds = startMicroseconds
-        }
-
-        private static func int(_ raw: Any?) -> Int? {
-            if let value = raw as? Int { return value }
-            if let value = raw as? Int64 { return Int(exactly: value) }
-            if let value = raw as? Double {
-                guard value.isFinite,
-                      value >= Double(Int.min),
-                      value <= Double(Int.max) else {
-                    return nil
-                }
-                return Int(value)
-            }
-            if let value = raw as? NSNumber { return value.intValue }
-            if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            return nil
         }
     }
 
@@ -132,6 +150,7 @@ extension CMUXCLI {
             var gracefulAction: String?
             var terminated = false
             var killed = false
+            var attemptedShutdown = false
 
             if !options.dryRun {
                 if let graceful,
@@ -141,9 +160,14 @@ extension CMUXCLI {
                         "surface_id": surfaceHandle,
                         "text": graceful.text
                     ]
-                    _ = try client.sendV2(method: "surface.send_text", params: params)
-                    gracefulAction = graceful.label
-                    _ = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
+                    do {
+                        _ = try client.sendV2(method: "surface.send_text", params: params)
+                        gracefulAction = graceful.label
+                        attemptedShutdown = true
+                        _ = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
+                    } catch {
+                        gracefulAction = nil
+                    }
                 }
 
                 if let liveCandidate = try revalidatedSignalCandidate(
@@ -152,6 +176,7 @@ extension CMUXCLI {
                 ) {
                     if Darwin.kill(pid_t(liveCandidate.pid), SIGTERM) == 0 {
                         terminated = true
+                        attemptedShutdown = true
                     }
                     _ = waitForProcessExit(pid: liveCandidate.pid, timeout: options.graceSeconds)
                 }
@@ -162,6 +187,7 @@ extension CMUXCLI {
                 ) {
                     if Darwin.kill(pid_t(liveCandidate.pid), SIGKILL) == 0 {
                         killed = true
+                        attemptedShutdown = true
                     }
                     _ = waitForProcessExit(pid: liveCandidate.pid, timeout: 1)
                 }
@@ -171,7 +197,11 @@ extension CMUXCLI {
 
             let stillRunning = options.dryRun
                 ? isProcessRunning(pid: candidate.pid)
-                : (try revalidatedSignalCandidate(matching: candidate, workspaceHandle: workspaceHandle)) != nil
+                : try isOriginalProcessStillRunning(
+                    matching: candidate,
+                    workspaceHandle: workspaceHandle,
+                    tolerateMissingRevalidation: attemptedShutdown
+                )
 
             return MemoryTrimResult(
                 workspaceId: workspaceId,
@@ -201,6 +231,22 @@ extension CMUXCLI {
                 throw CLIError(message: "memory trim refused to signal PID \(original.pid) because system.top could not revalidate the process identity")
             }
             return candidate
+        }
+
+        private func isOriginalProcessStillRunning(
+            matching original: MemoryAgentCandidate,
+            workspaceHandle: String,
+            tolerateMissingRevalidation: Bool
+        ) throws -> Bool {
+            guard isProcessRunning(pid: original.pid) else { return false }
+            do {
+                return try revalidatedSignalCandidate(matching: original, workspaceHandle: workspaceHandle) != nil
+            } catch {
+                if tolerateMissingRevalidation {
+                    return false
+                }
+                throw error
+            }
         }
 
         private func matchesOriginal(_ candidate: MemoryAgentCandidate, original: MemoryAgentCandidate) -> Bool {
@@ -247,7 +293,7 @@ extension CMUXCLI {
             let processIndex = memoryProcessIndex(in: workspace)
 
             for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-                guard let pid = Self.int(tag["pid"]),
+                guard let pid = memoryTelemetryInt(tag["pid"]),
                       let rawKey = tag["key"] as? String,
                       let key = memoryAgentKey(for: rawKey) else {
                     continue
@@ -261,7 +307,7 @@ extension CMUXCLI {
                     surfaceId: tag["surface_id"] as? String,
                     surfaceRef: tag["surface_ref"] as? String,
                     processName: processName.isEmpty ? nil : processName,
-                    residentBytes: Self.int64(resources["resident_bytes"]),
+                    residentBytes: memoryTelemetryInt64(resources["resident_bytes"]),
                     source: .tag,
                     identity: process.flatMap { MemoryProcessIdentity(process: $0) }
                 )
@@ -311,7 +357,7 @@ extension CMUXCLI {
         }
 
         private func indexMemoryProcess(_ process: [String: Any], into result: inout [Int: [String: Any]]) {
-            if let pid = Self.int(process["pid"]) {
+            if let pid = memoryTelemetryInt(process["pid"]) {
                 result[pid] = process
             }
             for child in process["children"] as? [[String: Any]] ?? [] {
@@ -341,7 +387,7 @@ extension CMUXCLI {
             surfaceRef: String?,
             into byPID: inout [Int: MemoryAgentCandidate]
         ) {
-            if let pid = Self.int(process["pid"]) {
+            if let pid = memoryTelemetryInt(process["pid"]) {
                 let name = cli.topLabelText(process["name"] as? String)
                 if let key = memoryAgentKey(for: name) {
                     let resources = process["resources"] as? [String: Any] ?? [:]
@@ -351,7 +397,7 @@ extension CMUXCLI {
                         surfaceId: surfaceId,
                         surfaceRef: surfaceRef,
                         processName: name,
-                        residentBytes: Self.int64(resources["resident_bytes"]),
+                        residentBytes: memoryTelemetryInt64(resources["resident_bytes"]),
                         source: .process,
                         identity: MemoryProcessIdentity(process: process)
                     )
@@ -498,38 +544,5 @@ extension CMUXCLI {
             return errno == EPERM
         }
 
-        private static func int(_ raw: Any?) -> Int? {
-            if let value = raw as? Int { return value }
-            if let value = raw as? Int64 { return Int(exactly: value) }
-            if let value = raw as? Double {
-                guard value.isFinite,
-                      value >= Double(Int.min),
-                      value <= Double(Int.max) else {
-                    return nil
-                }
-                return Int(value)
-            }
-            if let value = raw as? NSNumber { return value.intValue }
-            if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            return nil
-        }
-
-        private static func int64(_ raw: Any?) -> Int64 {
-            if let value = raw as? Int64 { return value }
-            if let value = raw as? Int { return Int64(value) }
-            if let value = raw as? Double {
-                guard value.isFinite,
-                      value >= Double(Int64.min),
-                      value <= Double(Int64.max) else {
-                    return 0
-                }
-                return Int64(value)
-            }
-            if let value = raw as? NSNumber { return value.int64Value }
-            if let value = raw as? String {
-                return Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-            }
-            return 0
-        }
     }
 }

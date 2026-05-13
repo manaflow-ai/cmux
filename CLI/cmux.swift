@@ -11241,12 +11241,14 @@ struct CMUXCLI {
         switch subcommand {
         case .snapshot:
             let options = try parseMemoryCurrentOptions(args, commandName: "memory snapshot")
-            let samples = try buildMemorySamples(options: options, client: client)
-            let database = MemoryTelemetryDatabase(url: memoryTelemetryDatabaseURL())
-            let retention = memoryTelemetryRetention()
-            try database.insert(samples: samples, retention: retention)
+            let allSamples = try buildMemorySamples(options: options, client: client)
+            let samples = limitedMemorySamples(allSamples, limit: options.limit)
+            let database = MemoryTelemetryDatabase(url: try memoryTelemetryDatabaseURL())
+            let retention = try memoryTelemetryRetention()
+            try database.insert(samples: allSamples, retention: retention)
             let payload: [String: Any] = [
-                "sample_count": samples.count,
+                "sample_count": allSamples.count,
+                "display_sample_count": samples.count,
                 "database_path": database.path,
                 "retention_seconds": retention,
                 "samples": samples.map(\.payload)
@@ -11254,7 +11256,7 @@ struct CMUXCLI {
             if jsonOutput || options.jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
-                print("Recorded \(samples.count) workspace memory sample\(samples.count == 1 ? "" : "s") in \(database.path)")
+                print("Recorded \(allSamples.count) workspace memory sample\(allSamples.count == 1 ? "" : "s") in \(database.path)")
                 if !samples.isEmpty {
                     print(renderMemorySamples(samples, idFormat: idFormat))
                 }
@@ -11262,7 +11264,10 @@ struct CMUXCLI {
 
         case .list:
             let options = try parseMemoryCurrentOptions(args, commandName: "memory list")
-            let samples = try buildMemorySamples(options: options, client: client)
+            let samples = limitedMemorySamples(
+                try buildMemorySamples(options: options, client: client),
+                limit: options.limit
+            )
             let payload: [String: Any] = [
                 "sample_count": samples.count,
                 "samples": samples.map(\.payload)
@@ -11275,8 +11280,8 @@ struct CMUXCLI {
 
         case .top:
             let options = try parseMemoryTopOptions(args, jsonOutput: jsonOutput)
-            let retention = memoryTelemetryRetention()
-            let rows = try MemoryTelemetryDatabase(url: memoryTelemetryDatabaseURL())
+            let retention = try memoryTelemetryRetention()
+            let rows = try MemoryTelemetryDatabase(url: try memoryTelemetryDatabaseURL())
                 .topRows(since: options.since, limit: options.limit, retention: retention, sort: options.sort)
             let payload: [String: Any] = [
                 "since_seconds": options.since,
@@ -11477,10 +11482,12 @@ struct CMUXCLI {
             }
             return ($0.workspaceRef ?? $0.workspaceId) < ($1.workspaceRef ?? $1.workspaceId)
         }
-        if let limit = options.limit {
-            samples = Array(samples.prefix(max(1, limit)))
-        }
         return samples
+    }
+
+    private func limitedMemorySamples(_ samples: [MemoryWorkspaceSample], limit: Int?) -> [MemoryWorkspaceSample] {
+        guard let limit else { return samples }
+        return Array(samples.prefix(max(1, limit)))
     }
 
     func buildMemoryTopPayload(

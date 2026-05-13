@@ -394,6 +394,91 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemorySnapshotLimitOnlyFiltersOutputNotPersistence() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-snapshot-limit")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let primaryWorkspaceId = "11111111-2222-3333-4444-555555555555"
+        let secondaryWorkspaceId = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+        let surfaceId = "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "snapshot-limit")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            var topPayload = self.memorySystemTopFixture(
+                workspaceId: primaryWorkspaceId,
+                workspaceRef: "workspace:1",
+                surfaceId: surfaceId,
+                agentKey: "codex",
+                agentPID: 111_111,
+                secretCommandLine: "/usr/local/bin/codex"
+            )
+            var windows = topPayload["windows"] as? [[String: Any]] ?? []
+            var window = windows[0]
+            var workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            var secondary = workspaces[0]
+            secondary["id"] = secondaryWorkspaceId
+            secondary["ref"] = "workspace:2"
+            secondary["title"] = "Second Memory Workspace"
+            secondary["resources"] = [
+                "cpu_percent": 2.5,
+                "memory_percent": 0.9,
+                "resident_bytes": 157_286_400,
+                "virtual_bytes": 314_572_800,
+                "process_count": 1,
+            ]
+            secondary["tags"] = []
+            secondary["panes"] = []
+            workspaces.append(secondary)
+            window["workspaces"] = workspaces
+            windows[0] = window
+            topPayload["windows"] = windows
+            return self.v2Response(id: id, ok: true, result: topPayload)
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--limit", "1", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["sample_count"] as? Int, 2)
+        XCTAssertEqual(payload["display_sample_count"] as? Int, 1)
+        let samples = try XCTUnwrap(payload["samples"] as? [[String: Any]])
+        XCTAssertEqual(samples.count, 1)
+        XCTAssertEqual(try memoryTelemetrySampleCount(in: dbURL), 2)
+    }
+
     func testMemoryTopReadsPersistedWorkspaceSamples() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-top")
@@ -2066,6 +2151,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             JSONSerialization.jsonObject(with: Data(text.utf8), options: []) as? [String],
             "Expected process-name JSON array, got: \(text)"
         )
+    }
+
+    private func memoryTelemetrySampleCount(in dbURL: URL) throws -> Int {
+        var db: OpaquePointer?
+        let openResult = sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil)
+        XCTAssertEqual(openResult, SQLITE_OK)
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM workspace_memory_samples", -1, &stmt, nil)
+        XCTAssertEqual(prepareResult, SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+        return Int(sqlite3_column_int64(stmt, 0))
     }
 
     private func insertMemoryTelemetrySample(
