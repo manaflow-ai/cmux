@@ -151,35 +151,59 @@ struct FileExternalOpenMenu: View {
         }
         let helpText = helpText(for: primaryApplication)
 
-        Menu {
-            if let primaryApplication {
-                Button(openInTitle(primaryApplication.displayName)) {
-                    FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
+        Group {
+            switch style {
+            case .header:
+                FileExternalOpenHeaderMenuButton(
+                    fileURL: fileURL,
+                    primaryApplication: primaryApplication,
+                    otherApplications: otherApplications,
+                    helpText: helpText,
+                    isDisabled: isDisabled
+                )
+            case .chrome:
+                Menu {
+                    menuContent(primaryApplication: primaryApplication, otherApplications: otherApplications)
+                } label: {
+                    label
                 }
-                if !otherApplications.isEmpty {
-                    Divider()
-                    Menu(FileExternalOpenText.openWithMenu) {
-                        ForEach(otherApplications) { application in
-                            Button(application.displayName) {
-                                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
-                            }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .disabled(isDisabled)
+                .help(helpText)
+                .accessibilityLabel(helpText)
+            }
+        }
+        .task(id: fileURL) {
+            await refreshApplications()
+        }
+    }
+
+    @ViewBuilder
+    private func menuContent(
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> some View {
+        if let primaryApplication {
+            Button(openInTitle(primaryApplication.displayName)) {
+                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
+            }
+            if !otherApplications.isEmpty {
+                Divider()
+                Menu(FileExternalOpenText.openWithMenu) {
+                    ForEach(otherApplications) { application in
+                        Button(application.displayName) {
+                            FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
                         }
                     }
                 }
-            } else {
-                Button(FileExternalOpenText.openExternally) {
-                    FileExternalOpenAction.openDefault(fileURL: fileURL)
-                }
             }
-        } label: {
-            label
-        }
-        .menuStyle(.borderlessButton)
-        .disabled(isDisabled)
-        .help(helpText)
-        .accessibilityLabel(helpText)
-        .task(id: fileURL) {
-            await refreshApplications()
+        } else {
+            Button(FileExternalOpenText.openExternally) {
+                FileExternalOpenAction.openDefault(fileURL: fileURL)
+            }
         }
     }
 
@@ -187,8 +211,7 @@ struct FileExternalOpenMenu: View {
     private var label: some View {
         switch style {
         case .header:
-            Image(systemName: "square.and.arrow.up")
-                .frame(width: 18, height: 18)
+            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
         case .chrome:
             Image(systemName: "square.and.arrow.up")
                 .font(.system(size: 16, weight: .semibold))
@@ -220,6 +243,115 @@ struct FileExternalOpenMenu: View {
         }.value
         guard !Task.isCancelled else { return }
         resolvedApplications = applications
+    }
+}
+
+private struct FileExternalOpenHeaderMenuButton: View {
+    let fileURL: URL
+    let primaryApplication: FileExternalOpenApplication?
+    let otherApplications: [FileExternalOpenApplication]
+    let helpText: String
+    let isDisabled: Bool
+
+    var body: some View {
+        Button(action: presentMenu) {
+            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(helpText)
+        .accessibilityLabel(helpText)
+    }
+
+    private func presentMenu() {
+        let menu = makeMenu()
+        if let event = NSApp.currentEvent,
+           let contentView = event.window?.contentView {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil, at: point, in: contentView)
+            return
+        }
+
+        guard let contentView = NSApp.keyWindow?.contentView else { return }
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: contentView.bounds.maxX - 24, y: contentView.bounds.maxY - 32),
+            in: contentView
+        )
+    }
+
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        if let primaryApplication {
+            menu.addItem(menuItem(for: primaryApplication))
+            if !otherApplications.isEmpty {
+                menu.addItem(.separator())
+                let submenuItem = NSMenuItem(
+                    title: FileExternalOpenText.openWithMenu,
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                let submenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+                otherApplications.forEach { application in
+                    submenu.addItem(menuItem(for: application))
+                }
+                submenuItem.submenu = submenu
+                menu.addItem(submenuItem)
+            }
+        } else {
+            let item = NSMenuItem(
+                title: FileExternalOpenText.openExternally,
+                action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+                keyEquivalent: ""
+            )
+            item.target = FileExternalOpenMenuActionTarget.shared
+            item.representedObject = FileExternalOpenMenuActionPayload(
+                fileURL: fileURL,
+                applicationURL: nil
+            )
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func menuItem(for application: FileExternalOpenApplication) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: FileExternalOpenText.openInApplication(application.displayName),
+            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+            keyEquivalent: ""
+        )
+        item.target = FileExternalOpenMenuActionTarget.shared
+        item.representedObject = FileExternalOpenMenuActionPayload(
+            fileURL: fileURL,
+            applicationURL: application.url
+        )
+        return item
+    }
+}
+
+private final class FileExternalOpenMenuActionPayload: NSObject {
+    let fileURL: URL
+    let applicationURL: URL?
+
+    init(fileURL: URL, applicationURL: URL?) {
+        self.fileURL = fileURL
+        self.applicationURL = applicationURL
+    }
+}
+
+private final class FileExternalOpenMenuActionTarget: NSObject {
+    static let shared = FileExternalOpenMenuActionTarget()
+
+    @objc func open(_ item: NSMenuItem) {
+        guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
+            return
+        }
+        if let applicationURL = payload.applicationURL {
+            FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
+        } else {
+            FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
+        }
     }
 }
 
@@ -1010,7 +1142,7 @@ struct FilePreviewPanelView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: themeBackgroundColor))
+        .background(Color.clear)
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -1032,12 +1164,8 @@ struct FilePreviewPanelView: View {
         PanelFilePathHeader(
             iconSystemName: panel.displayIcon ?? "doc.viewfinder",
             filePath: panel.filePath,
-            backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor
         ) {
-            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
-                .foregroundStyle(.secondary)
-
             if panel.previewMode == .text {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
@@ -1053,6 +1181,8 @@ struct FilePreviewPanelView: View {
                     action: { panel.saveTextContent() }
                 )
             }
+
+            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
         }
     }
 
@@ -1066,7 +1196,7 @@ struct FilePreviewPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: themeBackgroundColor,
+                    themeBackgroundColor: .clear,
                     themeForegroundColor: themeForegroundColor
                 )
             case .pdf:

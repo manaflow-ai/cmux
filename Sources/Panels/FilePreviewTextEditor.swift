@@ -29,7 +29,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
+        scrollView.drawsBackground = false
 
         let textView = SavingTextView()
         textView.panel = panel
@@ -42,7 +42,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.usesFindPanel = true
         textView.usesFontPanel = false
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.drawsBackground = true
+        textView.drawsBackground = false
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -76,18 +76,27 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         context.coordinator.isApplyingPanelUpdate = false
     }
 
-    private static func applyTheme(
+    static func applyTheme(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
         foregroundColor: NSColor
     ) {
-        scrollView.backgroundColor = backgroundColor
-        scrollView.contentView.backgroundColor = backgroundColor
+        let drawsBackground = shouldDrawBackground(for: backgroundColor)
+        let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
+        scrollView.drawsBackground = drawsBackground
+        scrollView.backgroundColor = resolvedBackgroundColor
+        scrollView.contentView.drawsBackground = drawsBackground
+        scrollView.contentView.backgroundColor = resolvedBackgroundColor
         if let textView = scrollView.documentView as? NSTextView {
-            textView.backgroundColor = backgroundColor
+            textView.drawsBackground = drawsBackground
+            textView.backgroundColor = resolvedBackgroundColor
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
         }
+    }
+
+    static func shouldDrawBackground(for backgroundColor: NSColor) -> Bool {
+        backgroundColor.alphaComponent > 0.001
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
