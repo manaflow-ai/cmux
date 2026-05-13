@@ -328,9 +328,15 @@ jobs:
             echo "No recording file"
             cat /tmp/screencapture.log 2>/dev/null || true
             cat /tmp/ffmpeg.log 2>/dev/null || true
-            BEFORE_SCREENSHOT=/tmp/cmux-configured-menubar-demo-before.png
-            OPEN_SCREENSHOT=/tmp/cmux-configured-menubar-demo-open.png
-            ls -lh /tmp/cmux-configured-menubar-demo-*.png 2>/dev/null || true
+            BEFORE_SCREENSHOT=$(find "$HOME" /var/folders /tmp -type f -name 'cmux-configured-menubar-demo-before.png' -print 2>/dev/null | head -1 || true)
+            OPEN_SCREENSHOT=$(find "$HOME" /var/folders /tmp -type f -name 'cmux-configured-menubar-demo-open.png' -print 2>/dev/null | head -1 || true)
+            find "$HOME" /var/folders /tmp -type f -name 'cmux-configured-menubar-demo-*.png' -print 2>/dev/null || true
+            if [ -n "$BEFORE_SCREENSHOT" ]; then
+              ls -lh "$BEFORE_SCREENSHOT"
+            fi
+            if [ -n "$OPEN_SCREENSHOT" ]; then
+              ls -lh "$OPEN_SCREENSHOT"
+            fi
             if [ -f "$BEFORE_SCREENSHOT" ] && [ -f "$OPEN_SCREENSHOT" ]; then
               echo "Creating fallback recording from UI test screenshots"
               ffmpeg -y \

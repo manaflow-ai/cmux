@@ -37,12 +37,15 @@ private let configuredMenuBarLaunchArguments = [
     "-menuBarOnly", "false",
 ]
 
-private let configuredMenuBarDemoBeforeScreenshotPath = "/tmp/cmux-configured-menubar-demo-before.png"
-private let configuredMenuBarDemoOpenScreenshotPath = "/tmp/cmux-configured-menubar-demo-open.png"
+private let configuredMenuBarDemoDirectoryName = "cmux-configured-menubar-demo"
+private let configuredMenuBarDemoBeforeScreenshotName = "cmux-configured-menubar-demo-before.png"
+private let configuredMenuBarDemoOpenScreenshotName = "cmux-configured-menubar-demo-open.png"
 
 final class ConfiguredMenuBarDemoUITests: XCTestCase {
     private var app: XCUIApplication?
     private var configURL: URL?
+    private var beforeScreenshotURL: URL?
+    private var openScreenshotURL: URL?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -72,7 +75,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
             },
             "Expected a cmux window before opening the configured menu"
         )
-        saveDemoScreenshot(path: configuredMenuBarDemoBeforeScreenshotPath)
+        try saveDemoScreenshot(url: XCTUnwrap(beforeScreenshotURL))
 
         XCTAssertTrue(
             openConfiguredToolsMenu(in: app, timeout: 12.0),
@@ -82,7 +85,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.menuItems["Nested Commands"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.menuItems["Live Bash Items"].waitForExistence(timeout: 3.0))
-        saveDemoScreenshot(path: configuredMenuBarDemoOpenScreenshotPath)
+        try saveDemoScreenshot(url: XCTUnwrap(openScreenshotURL))
 
         RunLoop.current.run(until: Date().addingTimeInterval(3.0))
     }
@@ -90,11 +93,13 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
     private func writeConfiguredMenuBarDemoConfig() throws {
         let fileManager = FileManager.default
         let configDirectory = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-configured-menubar-demo-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("\(configuredMenuBarDemoDirectoryName)-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
 
         let configURL = configDirectory.appendingPathComponent("cmux.json", isDirectory: false)
         self.configURL = configURL
+        beforeScreenshotURL = configDirectory.appendingPathComponent(configuredMenuBarDemoBeforeScreenshotName, isDirectory: false)
+        openScreenshotURL = configDirectory.appendingPathComponent(configuredMenuBarDemoOpenScreenshotName, isDirectory: false)
 
         let config = #"""
         {
@@ -179,25 +184,22 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         return "Expected configured Tools menu to open. Visible menu count: \(items.count). Titles: \(titles). Frames: \(frames)"
     }
 
-    private func saveDemoScreenshot(path: String) {
-        let url = URL(fileURLWithPath: path)
+    private func saveDemoScreenshot(url: URL) throws {
         do {
             try XCUIScreen.main.screenshot().pngRepresentation.write(to: url, options: .atomic)
             XCTAssertTrue(
-                FileManager.default.fileExists(atPath: path),
-                "Expected demo screenshot to exist at \(path)"
+                FileManager.default.fileExists(atPath: url.path),
+                "Expected demo screenshot to exist at \(url.path)"
             )
-            print("Saved configured menu bar demo screenshot: \(path)")
+            print("Saved configured menu bar demo screenshot: \(url.path)")
         } catch {
-            XCTFail("Failed to save configured menu bar demo screenshot at \(path): \(error)")
+            XCTFail("Failed to save configured menu bar demo screenshot at \(url.path): \(error)")
+            throw error
         }
     }
 
     private func restoreOriginalConfig() {
-        guard let configURL else {
-            return
-        }
-        try? FileManager.default.removeItem(at: configURL.deletingLastPathComponent())
+        print("Preserving configured menu bar demo artifacts at \(configURL?.deletingLastPathComponent().path ?? "<missing>")")
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
