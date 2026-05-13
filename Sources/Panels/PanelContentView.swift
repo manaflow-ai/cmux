@@ -82,7 +82,6 @@ struct PanelContentView: View {
             if let rightSidebarToolPanel = panel as? RightSidebarToolPanel {
                 RightSidebarToolPanelView(
                     panel: rightSidebarToolPanel,
-                    workspace: workspace,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     appearance: appearance,

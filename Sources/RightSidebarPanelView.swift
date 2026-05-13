@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CMUXWorkstream
-import Observation
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -77,179 +76,6 @@ extension RightSidebarMode {
             return .dock
         }
         return nil
-    }
-}
-
-@MainActor
-final class RightSidebarToolPanel: Panel, ObservableObject {
-    let id: UUID
-    let panelType: PanelType = .rightSidebarTool
-    let mode: RightSidebarMode
-    let fileExplorerStore = FileExplorerStore()
-    let fileExplorerState = FileExplorerState()
-    let sessionIndexStore = SessionIndexStore()
-
-    @Published private(set) var focusFlashToken: Int = 0
-    private weak var workspace: Workspace?
-    private weak var fileExplorerContainerView: FileExplorerContainerView?
-
-    init(workspace: Workspace, mode: RightSidebarMode) {
-        self.id = UUID()
-        self.mode = mode
-        self.workspace = workspace
-        syncWorkspaceRoot(from: workspace)
-    }
-
-    var displayTitle: String { mode.label }
-    var displayIcon: String? { mode.symbolName }
-
-    func reattach(to workspace: Workspace) {
-        self.workspace = workspace
-        syncWorkspaceRoot(from: workspace)
-    }
-
-    func attachFileExplorerContainer(_ container: FileExplorerContainerView?) {
-        fileExplorerContainerView = container
-    }
-
-    func syncWorkspaceRoot(from workspace: Workspace) {
-        self.workspace = workspace
-        fileExplorerStore.showHiddenFiles = true
-
-        if workspace.isRemoteWorkspace {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            guard let configuration = workspace.remoteConfiguration,
-                  configuration.transport == .ssh else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
-            fileExplorerStore.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: workspace.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: configuration.destination,
-                        port: configuration.port,
-                        identityFile: configuration.identityFile,
-                        sshOptions: configuration.sshOptions
-                    ),
-                    displayTarget: configuration.displayTarget,
-                    isAvailable: workspace.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
-        }
-
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directory.isEmpty else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-
-        sessionIndexStore.setCurrentDirectoryIfChanged(directory)
-        fileExplorerStore.applyWorkspaceRoot(.local(path: directory))
-    }
-
-    func close() {
-        fileExplorerContainerView = nil
-        fileExplorerStore.applyWorkspaceRoot(.none)
-    }
-
-    func focus() {
-        switch mode {
-        case .files:
-            _ = fileExplorerContainerView?.focusOutline()
-        case .find:
-            _ = fileExplorerContainerView?.focusSearchField()
-        case .sessions, .feed, .dock:
-            break
-        }
-    }
-
-    func unfocus() {}
-
-    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
-        _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
-        focusFlashToken += 1
-    }
-
-    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
-        _ = window
-        guard fileExplorerContainerView?.ownsKeyboardFocus(responder) == true else { return nil }
-        return .panel
-    }
-}
-
-struct RightSidebarToolPanelView: View {
-    @ObservedObject var panel: RightSidebarToolPanel
-    @ObservedObject var workspace: Workspace
-    @EnvironmentObject private var tabManager: TabManager
-    let isFocused: Bool
-    let isVisibleInUI: Bool
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
-
-    var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.backgroundColor))
-            .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
-            .onAppear { panel.syncWorkspaceRoot(from: workspace) }
-            .onChange(of: workspace.currentDirectory) { _, _ in panel.syncWorkspaceRoot(from: workspace) }
-            .onChange(of: workspace.remoteConfiguration) { _, _ in panel.syncWorkspaceRoot(from: workspace) }
-            .onChange(of: workspace.remoteConnectionState) { _, _ in panel.syncWorkspaceRoot(from: workspace) }
-            .onChange(of: workspace.remoteConnectionDetail) { _, _ in panel.syncWorkspaceRoot(from: workspace) }
-            .onChange(of: workspace.remoteDaemonStatus) { _, _ in panel.syncWorkspaceRoot(from: workspace) }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch panel.mode {
-        case .files:
-            FileExplorerPanelView(
-                store: panel.fileExplorerStore,
-                state: panel.fileExplorerState,
-                onOpenFilePreview: openFilePreview,
-                presentation: .files,
-                placement: .pane,
-                onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
-            )
-        case .find:
-            FileExplorerPanelView(
-                store: panel.fileExplorerStore,
-                state: panel.fileExplorerState,
-                onOpenFilePreview: openFilePreview,
-                presentation: .find,
-                placement: .pane,
-                onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
-            )
-        case .sessions:
-            SessionIndexView(
-                store: panel.sessionIndexStore,
-                onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
-                }
-            )
-        case .feed, .dock:
-            EmptyView()
-        }
-    }
-
-    private func openFilePreview(_ filePath: String) {
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
-    }
-
-    private func requestPanelFocusIfNeeded() {
-        guard workspace.focusedPanelId != panel.id else { return }
-        onRequestPanelFocus()
     }
 }
 
@@ -457,8 +283,8 @@ struct RightSidebarPanelView: View {
         .foregroundColor(.secondary)
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
-            String(
-                format: String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
+            String.localizedStringWithFormat(
+                String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
                 mode.label
             )
         )

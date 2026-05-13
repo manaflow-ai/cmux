@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 @MainActor
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let resumeCommand = entry.resumeCommand else { return }
+        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
         let inputWithReturn = resumeCommand + "\n"
         let targetCwd = entry.resumeWorkingDirectory
 
