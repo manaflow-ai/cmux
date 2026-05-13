@@ -459,38 +459,34 @@ private func postFeedNotification(event: WorkstreamEvent, requestId: String) {
             return
         }
 
-        NotificationPolicyHookAuthorizer.authorize(
+        let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
             policyContext.hooks,
             globalConfigPath: policyContext.globalConfigPath
-        ) { authorizedHooks in
-            guard !authorizedHooks.isEmpty else {
-                deliverDefault()
-                return
-            }
+        )
+        guard !authorizedHooks.isEmpty else {
+            deliverDefault()
+            return
+        }
 
-            TerminalNotificationPolicyEngine.evaluate(
-                envelope: policyContext.envelope,
-                hooks: authorizedHooks
-            ) { result in
-                Task { @MainActor in
-                    switch result {
-                    case .success(let envelope):
-                        let payload = envelope.notification
-                        deliverFeedNotification(
-                            requestId: requestId,
-                            event: event,
-                            categoryId: categoryId,
-                            title: payload.title,
-                            subtitle: payload.subtitle,
-                            body: payload.body,
-                            effects: envelope.effects
-                        )
-                    case .failure(let failure):
-                        deliverDefault()
-                        TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
-                    }
-                }
-            }
+        let result = await TerminalNotificationPolicyEngine.evaluate(
+            envelope: policyContext.envelope,
+            hooks: authorizedHooks
+        )
+        switch result {
+        case .success(let envelope):
+            let payload = envelope.notification
+            deliverFeedNotification(
+                requestId: requestId,
+                event: event,
+                categoryId: categoryId,
+                title: payload.title,
+                subtitle: payload.subtitle,
+                body: payload.body,
+                effects: envelope.effects
+            )
+        case .failure(let failure):
+            deliverDefault()
+            TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
         }
     }
 }
@@ -581,54 +577,54 @@ private func deliverFeedNotification(
         return
     }
 
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.subtitle = subtitle
-        content.body = body
-        content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
-        content.categoryIdentifier = categoryId
-        content.userInfo = [
-            "requestId": requestId,
-            "workstreamId": event.sessionId,
-        ]
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.subtitle = subtitle
+    content.body = body
+    content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
+    content.categoryIdentifier = categoryId
+    content.userInfo = [
+        "requestId": requestId,
+        "workstreamId": event.sessionId,
+    ]
 
-        let request = UNNotificationRequest(
-            identifier: "feed.\(requestId)",
-            content: content,
-            trigger: nil
-        )
+    let request = UNNotificationRequest(
+        identifier: "feed.\(requestId)",
+        content: content,
+        trigger: nil
+    )
 
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized, .provisional:
-                center.add(request) { _ in
-                    if effects.command {
-                        NotificationSoundSettings.runCustomCommand(
-                            title: content.title,
-                            subtitle: content.subtitle,
-                            body: content.body
-                        )
-                    }
+    let center = UNUserNotificationCenter.current()
+    center.getNotificationSettings { settings in
+        switch settings.authorizationStatus {
+        case .authorized, .provisional:
+            center.add(request) { _ in
+                if effects.command {
+                    NotificationSoundSettings.runCustomCommand(
+                        title: content.title,
+                        subtitle: content.subtitle,
+                        body: content.body
+                    )
                 }
-            case .notDetermined:
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    if granted {
-                        center.add(request) { _ in
-                            if effects.command {
-                                NotificationSoundSettings.runCustomCommand(
-                                    title: content.title,
-                                    subtitle: content.subtitle,
-                                    body: content.body
-                                )
-                            }
+            }
+        case .notDetermined:
+            center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                if granted {
+                    center.add(request) { _ in
+                        if effects.command {
+                            NotificationSoundSettings.runCustomCommand(
+                                title: content.title,
+                                subtitle: content.subtitle,
+                                body: content.body
+                            )
                         }
                     }
                 }
-            default:
-                break
             }
+        default:
+            break
         }
+    }
 }
 
 /// JSON-shape helpers used by the V2 `feed.*` socket handlers.

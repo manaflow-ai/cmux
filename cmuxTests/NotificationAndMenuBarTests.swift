@@ -18,14 +18,10 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         request: TerminalNotificationPolicyRequest,
         hooks: [CmuxResolvedNotificationHook]
     ) async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
-        await withCheckedContinuation { continuation in
-            TerminalNotificationPolicyEngine.evaluate(
-                request: request,
-                hooks: hooks
-            ) { result in
-                continuation.resume(returning: result)
-            }
-        }
+        await TerminalNotificationPolicyEngine.evaluate(
+            request: request,
+            hooks: hooks
+        )
     }
 
     func testHookCanDisableDesktopAndTransformBody() async throws {
@@ -86,11 +82,7 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
             cwd: FileManager.default.temporaryDirectory.path
         )
 
-        let result = await withCheckedContinuation { continuation in
-            TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook]) { result in
-                continuation.resume(returning: result)
-            }
-        }
+        let result = await TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook])
         let filtered = try result.get()
         XCTAssertFalse(filtered.effects.desktop)
         XCTAssertEqual(filtered.notification.title, "Filtered")
