@@ -20116,9 +20116,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 requestCodexTranscriptMonitorStart(
                     sessionId: sessionId,
                     turnId: input.turnId,
+                    transcriptPath: normalizedHookValue(input.transcriptPath),
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath),
                     env: env,
                     client: client,
                     telemetry: telemetry
