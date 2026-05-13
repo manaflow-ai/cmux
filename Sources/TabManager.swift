@@ -5086,6 +5086,12 @@ class TabManager: ObservableObject {
     private func dismissPanelNotificationOnFocus(tabId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
+        if !explicitFocusIntent {
+            guard WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForFocusEvent(
+                currentEvent: NSApp.currentEvent,
+                pressedMouseButtons: NSEvent.pressedMouseButtons
+            ) else { return }
+        }
         _ = dismissNotification(
             tabId: tabId,
             surfaceId: panelId,

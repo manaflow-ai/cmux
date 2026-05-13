@@ -8363,7 +8363,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
-        if let terminalSurface {
+        if let terminalSurface,
+           WorkspaceUnreadDismissalPolicy.shouldDismissUnreadNotificationForPointerEvent(event) {
             AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
