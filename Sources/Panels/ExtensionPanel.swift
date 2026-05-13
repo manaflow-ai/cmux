@@ -430,7 +430,6 @@ extension ExtensionPanel: WKNavigationDelegate {
         }
 
         guard isAllowedMainFrameNavigationURL(navigationAction.request.url) else {
-            closeEventSubscriptions()
             decisionHandler(.cancel)
             return
         }

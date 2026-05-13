@@ -1558,8 +1558,10 @@ class TerminalController {
         method: String,
         params: [String: Any]
     ) -> Bool {
+        if params[v2ResolvedExtensionBundleParamKey] is ExtensionBundleDescriptor {
+            return false
+        }
         guard socketWorkerV2ExtensionCreationMethods.contains(method),
-              params[v2ResolvedExtensionBundleParamKey] == nil,
               let rawType = params["type"] as? String else {
             return false
         }

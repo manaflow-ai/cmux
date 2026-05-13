@@ -840,11 +840,15 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .extensionPane:
+            let bundlePath = Self.normalizedExtensionBundlePath(snapshot.extensionPanel?.bundlePath)
             guard let blockedPanel = newRestoringExtensionSurface(
                 inPane: paneId,
-                bundlePath: Self.normalizedExtensionBundlePath(snapshot.extensionPanel?.bundlePath),
+                bundlePath: bundlePath,
                 focus: false,
-                allowedRoots: extensionBundleAllowedRoots(baseCwd: currentDirectory)
+                allowedRoots: extensionBundleAllowedRootsForPersistedBundle(
+                    baseCwd: currentDirectory,
+                    bundlePath: bundlePath
+                )
             ) else {
                 return nil
             }
@@ -1253,9 +1257,9 @@ extension Workspace {
         if expanded.hasPrefix("/") {
             resolvedPath = expanded
         } else {
-            let base = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? currentDirectory
-                : baseCwd
+            guard let base = normalizedExtensionBaseCwd(baseCwd) else {
+                return nil
+            }
             resolvedPath = URL(fileURLWithPath: base)
                 .appendingPathComponent(expanded, isDirectory: false)
                 .path
@@ -1265,13 +1269,45 @@ extension Workspace {
 
     private func extensionBundleAllowedRoots(baseCwd: String) -> [String] {
         var allowedRoots = ExtensionBundleDescriptor.defaultAllowedRootPaths()
-        let base = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? currentDirectory
-            : baseCwd
-        if !base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let base = normalizedExtensionBaseCwd(baseCwd) {
             allowedRoots.append(base)
         }
         return allowedRoots
+    }
+
+    private func extensionBundleAllowedRootsForPersistedBundle(
+        baseCwd: String,
+        bundlePath: String?
+    ) -> [String] {
+        var allowedRoots = extensionBundleAllowedRoots(baseCwd: baseCwd)
+        if let bundlePath,
+           let containingDirectory = normalizedExtensionBundleContainingDirectory(bundlePath) {
+            allowedRoots.append(containingDirectory)
+        }
+        return allowedRoots
+    }
+
+    private func normalizedExtensionBaseCwd(_ baseCwd: String) -> String? {
+        let rawBase = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? currentDirectory
+            : baseCwd
+        let trimmedBase = rawBase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBase.isEmpty else { return nil }
+        return URL(fileURLWithPath: (trimmedBase as NSString).expandingTildeInPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+    }
+
+    private func normalizedExtensionBundleContainingDirectory(_ bundlePath: String) -> String? {
+        guard let normalizedBundlePath = Self.normalizedExtensionBundlePath(bundlePath) else {
+            return nil
+        }
+        return URL(fileURLWithPath: (normalizedBundlePath as NSString).expandingTildeInPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()
+            .path
     }
 
     private func applyCustomDividerPositions(
@@ -10630,6 +10666,7 @@ final class Workspace: Identifiable, ObservableObject {
         if trustBundle {
             ExtensionBundleTrustStore.shared.trust(bundle)
         }
+        installExtensionPanelSubscription(extensionPanel)
         if bundleIsLoadable {
             extensionPanel.loadBundleIfNeeded()
         }
@@ -10647,7 +10684,6 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        installExtensionPanelSubscription(extensionPanel)
         return extensionPanel
     }
 
@@ -10696,6 +10732,7 @@ final class Workspace: Identifiable, ObservableObject {
         if trustBundle {
             ExtensionBundleTrustStore.shared.trust(bundle)
         }
+        installExtensionPanelSubscription(extensionPanel)
         if bundleIsLoadable {
             extensionPanel.loadBundleIfNeeded()
         }
@@ -10716,7 +10753,6 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        installExtensionPanelSubscription(extensionPanel)
         return extensionPanel
     }
 

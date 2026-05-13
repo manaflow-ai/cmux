@@ -251,8 +251,16 @@ struct ExtensionBridgeRPCDispatcher {
             return trimmed.isEmpty ? nil : trimmed
         }
 
+        func scopeValueMatches(_ existing: String, expected: String) -> Bool {
+            if let existingUUID = UUID(uuidString: existing),
+               let expectedUUID = UUID(uuidString: expected) {
+                return existingUUID == expectedUUID
+            }
+            return existing == expected
+        }
+
         func enforceScope(_ key: String, expected: String) -> V2CallResult? {
-            if let existing = stringValue(workingParams[key]), existing != expected {
+            if let existing = stringValue(workingParams[key]), !scopeValueMatches(existing, expected: expected) {
                 return .err(
                     code: "forbidden_scope",
                     message: "Extension bridge method \(method) cannot target a different \(key)",
