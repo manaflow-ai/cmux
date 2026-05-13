@@ -78,6 +78,23 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
 
+Vault always scans the default Codex home at `~/.codex`. To include additional
+isolated Codex environments in the right sidebar, add them to `cmux.json`:
+
+```json
+{
+  "codex": {
+    "additionalHomes": [
+      "~/.codex-testA",
+      { "path": "~/.codex-testB", "displayName": "codex-testB" }
+    ]
+  }
+}
+```
+
+Sessions from configured homes show their source label in Vault, and resuming
+one sets `CODEX_HOME` to the matching directory.
+
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
 ## Troubleshooting

@@ -133,6 +133,47 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
     }
 
+    func testCodexSQLHomeLabelAndResumeCommandUseConfiguredHome() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let codexHome = tempDir.appendingPathComponent("codex home", isDirectory: true)
+        let sessionsRoot = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+
+        let rolloutURL = sessionsRoot.appendingPathComponent("rollout-custom-home.jsonl")
+        try """
+        {"timestamp":"2026-05-01T09:00:00.000Z","type":"session_meta","payload":{"id":"custom-home-session","cwd":"/tmp/project"}}
+        """.write(to: rolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = codexHome.appendingPathComponent("state_5.sqlite")
+        try makeCodexStateDatabase(
+            at: stateDB,
+            rolloutURL: rolloutURL,
+            sessionId: "custom-home-session"
+        )
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: stateDB.path,
+            needle: "",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: sessionsRoot.path,
+            codexHome: codexHome.path,
+            sourceLabel: "Test A"
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.count, 1)
+        XCTAssertEqual(outcome.entries.first?.sourceLabel, "Test A")
+        XCTAssertEqual(
+            outcome.entries.first?.resumeCommand,
+            "cd /tmp/project && env CODEX_HOME='\(codexHome.path)' codex resume custom-home-session -m gpt-5.5 -a never -s danger-full-access -c model_reasoning_effort=medium"
+        )
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -333,7 +374,7 @@ private extension SessionAgent {
         case .claude:
             return .claude(model: nil, permissionMode: nil)
         case .codex:
-            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil, codexHome: nil)
         case .opencode:
             return .opencode(providerModel: nil, agentName: nil)
         case .rovodev:

@@ -179,6 +179,85 @@ enum OpenCodeDatabaseSnapshot {
     }
 }
 
+// MARK: - Codex homes
+
+struct CodexSessionHomeSetting: Codable, Equatable, Sendable {
+    let path: String
+    let displayName: String?
+
+    init(path: String, displayName: String? = nil) {
+        self.path = path
+        self.displayName = Self.normalizedOptional(displayName)
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+}
+
+enum CodexSessionHomeSettings {
+    static let additionalHomesKey = "codexSessionAdditionalHomes"
+    static let didChangeNotification = Notification.Name("CodexSessionHomeSettings.didChange")
+
+    static func additionalHomes(defaults: UserDefaults = .standard) -> [CodexSessionHomeSetting] {
+        guard let raw = defaults.string(forKey: additionalHomesKey),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([CodexSessionHomeSetting].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
+    static func encodedAdditionalHomes(_ homes: [CodexSessionHomeSetting]) -> String {
+        guard let data = try? JSONEncoder().encode(homes),
+              let raw = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return raw
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+struct CodexSessionHome: Hashable, Sendable {
+    let path: String
+    let label: String
+    let isDefault: Bool
+
+    var stateDatabasePath: String {
+        (path as NSString).appendingPathComponent("state_5.sqlite")
+    }
+
+    var sessionsRoot: String {
+        (path as NSString).appendingPathComponent("sessions")
+    }
+
+    var resumeCodexHome: String? {
+        isDefault ? nil : path
+    }
+
+    static func defaultHome() -> CodexSessionHome {
+        let path = ("~/.codex" as NSString).expandingTildeInPath
+        return CodexSessionHome(
+            path: (path as NSString).standardizingPath,
+            label: String(localized: "sessionIndex.codexHome.defaultLabel", defaultValue: "Default Codex"),
+            isDefault: true
+        )
+    }
+
+    static func additionalHome(from setting: CodexSessionHomeSetting) -> CodexSessionHome? {
+        let trimmed = setting.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        let standardized = (expanded as NSString).standardizingPath
+        let label = setting.displayName ?? (standardized as NSString).abbreviatingWithTildeInPath
+        return CodexSessionHome(path: standardized, label: label, isDefault: false)
+    }
+}
+
 // MARK: - Session entry
 
 struct PullRequestLink: Hashable {
@@ -190,7 +269,7 @@ struct PullRequestLink: Hashable {
 /// Agent-specific fields used to build the resume command with appropriate flags.
 enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?)
-    case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?, codexHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
@@ -209,6 +288,7 @@ struct SessionEntry: Identifiable, Hashable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
+    var sourceLabel: String? = nil
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
@@ -243,7 +323,7 @@ struct SessionEntry: Identifiable, Hashable {
                 ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
             } ?? [:]
             return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
-        case let .codex(model, approval, sandbox, effort):
+        case let .codex(model, approval, sandbox, effort, codexHome):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
@@ -257,7 +337,8 @@ struct SessionEntry: Identifiable, Hashable {
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
-            return parts.joined(separator: " ")
+            let environment = codexHome.map { ["CODEX_HOME": $0] } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
@@ -436,5 +517,13 @@ struct SessionEntry: Identifiable, Hashable {
     var cwdBasename: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
         return (cwd as NSString).lastPathComponent
+    }
+
+    var sourceAndCwdLabel: String? {
+        let parts = [sourceLabel, cwdLabel].compactMap { value -> String? in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " - ")
     }
 }

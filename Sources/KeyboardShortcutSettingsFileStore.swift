@@ -311,6 +311,9 @@ final class CmuxSettingsFileStore {
         if let terminalSection = root["terminal"] as? [String: Any] {
             parseTerminalSection(terminalSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let codexSection = root["codex"] as? [String: Any] {
+            parseCodexSection(codexSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -467,6 +470,20 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
+    }
+
+    private func parseCodexSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard section.keys.contains("additionalHomes") else { return }
+        guard let homes = parseCodexAdditionalHomes(section["additionalHomes"], sourcePath: sourcePath) else {
+            return
+        }
+        snapshot.managedUserDefaults[CodexSessionHomeSettings.additionalHomesKey] = .string(
+            CodexSessionHomeSettings.encodedAdditionalHomes(homes)
+        )
     }
 
     private func parseSidebarSection(
@@ -1201,6 +1218,8 @@ final class CmuxSettingsFileStore {
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        sideEffects.codexSessionHomesDidChange =
+            defaultsKey == CodexSessionHomeSettings.additionalHomesKey
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
@@ -1228,10 +1247,15 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard sideEffects.hasChanges else { return }
         let notificationCenter = notificationCenter
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            if sideEffects.agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if sideEffects.codexSessionHomesDidChange {
+                CodexSessionHomeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1328,6 +1352,43 @@ final class CmuxSettingsFileStore {
         return strings
     }
 
+    private func parseCodexAdditionalHomes(
+        _ rawValue: Any?,
+        sourcePath: String
+    ) -> [CodexSessionHomeSetting]? {
+        guard let values = rawValue as? [Any] else {
+            logInvalid("codex.additionalHomes", sourcePath: sourcePath)
+            return nil
+        }
+
+        var homes: [CodexSessionHomeSetting] = []
+        var seen: Set<String> = []
+        for (index, value) in values.enumerated() {
+            let parsed: CodexSessionHomeSetting?
+            if let path = jsonString(value) {
+                parsed = CodexSessionHomeSetting(path: path)
+            } else if let object = value as? [String: Any],
+                      let path = jsonString(object["path"]) {
+                let displayName = jsonString(object["displayName"]) ?? jsonString(object["name"])
+                parsed = CodexSessionHomeSetting(path: path, displayName: displayName)
+            } else {
+                logInvalid("codex.additionalHomes[\(index)]", sourcePath: sourcePath)
+                continue
+            }
+
+            guard let parsed else { continue }
+            let trimmedPath = parsed.path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPath.isEmpty else {
+                logInvalid("codex.additionalHomes[\(index)].path", sourcePath: sourcePath)
+                continue
+            }
+            let normalized = ((trimmedPath as NSString).expandingTildeInPath as NSString).standardizingPath
+            guard seen.insert(normalized).inserted else { continue }
+            homes.append(parsed)
+        }
+        return homes
+    }
+
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
@@ -1356,10 +1417,17 @@ private struct ResolvedSettingsSnapshot {
 
 private struct ManagedDefaultBatchSideEffects {
     var agentSessionAutoResumeDidChange = false
+    var codexSessionHomesDidChange = false
+
+    var hasChanges: Bool {
+        agentSessionAutoResumeDidChange || codexSessionHomesDidChange
+    }
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
         agentSessionAutoResumeDidChange =
             agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+        codexSessionHomesDidChange =
+            codexSessionHomesDidChange || other.codexSessionHomesDidChange
     }
 }
 

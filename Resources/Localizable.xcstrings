@@ -106095,6 +106095,74 @@
         }
       }
     },
+    "sessionIndex.codexHome.defaultLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定の Codex"
+          }
+        }
+      }
+    },
+    "sessionIndex.codexHome.error.openDatabase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: cannot open state_5.sqlite (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: state_5.sqlite を開けません (%@)"
+          }
+        }
+      }
+    },
+    "sessionIndex.codexHome.error.unsupportedSchema": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: state_5.sqlite schema unsupported - %@. Falling back to file scan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: state_5.sqlite のスキーマに対応していません - %@。ファイルスキャンにフォールバックします。"
+          }
+        }
+      }
+    },
+    "sessionIndex.codexHome.warning.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" は利用できないためスキップしました。"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.opencode": {
       "extractionState": "manual",
       "localizations": {

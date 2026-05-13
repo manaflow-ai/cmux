@@ -313,6 +313,46 @@
         }
       }
     },
+    "codex": {
+      "title": "codex",
+      "description": "Codex session discovery settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "additionalHomes": {
+          "type": "array",
+          "default": [],
+          "description": "Additional CODEX_HOME directories to scan alongside ~/.codex for Vault session discovery.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Path to an additional CODEX_HOME directory, for example ~/.codex-testA."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Path to an additional CODEX_HOME directory."
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "description": "Optional label shown next to sessions from this CODEX_HOME."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Alias for displayName."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "notifications": {
       "title": "notifications",
       "description": "Notification behavior from Settings > Notifications.",

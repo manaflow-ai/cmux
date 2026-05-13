@@ -27,9 +27,13 @@ extension SessionIndexStore {
     nonisolated static func loadCodexEntriesViaSQL(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag,
-        dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath,
-        sessionsRoot: String = defaultCodexSessionsRoot()
+        dbPath: String? = nil,
+        sessionsRoot: String? = nil,
+        home: CodexSessionHome = .defaultHome(),
+        sourceLabel: String? = nil
     ) async -> [SessionEntry]? {
+        let dbPath = dbPath ?? home.stateDatabasePath
+        let sessionsRoot = sessionsRoot ?? home.sessionsRoot
         let fm = FileManager.default
         guard fm.fileExists(atPath: dbPath) else { return nil }
 
@@ -48,7 +52,11 @@ extension SessionIndexStore {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
+            let format = String(
+                localized: "sessionIndex.codexHome.error.openDatabase",
+                defaultValue: "%@: cannot open state_5.sqlite (%@)"
+            )
+            errorBag.add(String(format: format, home.label, sqliteMessage(db) ?? "unknown error"))
             sqlite3_close(db)
             return nil
         }
@@ -76,7 +84,11 @@ extension SessionIndexStore {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
+            let format = String(
+                localized: "sessionIndex.codexHome.error.unsupportedSchema",
+                defaultValue: "%@: state_5.sqlite schema unsupported - %@. Falling back to file scan."
+            )
+            errorBag.add(String(format: format, home.label, sqliteMessage(db) ?? "prepare failed"))
             sqlite3_finalize(stmt)
             return nil
         }
@@ -104,7 +116,7 @@ extension SessionIndexStore {
             ))
         }
         guard !needle.isEmpty else {
-            return records.map(codexEntry(from:))
+            return records.map { codexEntry(from: $0, home: home, sourceLabel: sourceLabel) }
         }
 
         guard limit > 0 else { return [] }
@@ -124,7 +136,7 @@ extension SessionIndexStore {
                 )
             guard matches else { continue }
             if matchedCount >= offset {
-                entries.append(codexEntry(from: record))
+                entries.append(codexEntry(from: record, home: home, sourceLabel: sourceLabel))
                 if entries.count >= limit { break }
             }
             matchedCount += 1
@@ -139,9 +151,17 @@ extension SessionIndexStore {
         cwdFilter: String? = nil,
         offset: Int = 0,
         limit: Int = 100,
-        sessionsRoot: String = defaultCodexSessionsRoot()
+        sessionsRoot: String = defaultCodexSessionsRoot(),
+        codexHome: String? = nil,
+        sourceLabel: String? = nil
     ) async -> SearchOutcome {
         let bag = ErrorBag()
+        let homePath = codexHome ?? URL(fileURLWithPath: stateDBPath).deletingLastPathComponent().path
+        let home = CodexSessionHome(
+            path: (homePath as NSString).standardizingPath,
+            label: sourceLabel ?? String(localized: "sessionIndex.codexHome.defaultLabel", defaultValue: "Default Codex"),
+            isDefault: codexHome == nil
+        )
         let entries = await loadCodexEntriesViaSQL(
             needle: needle.lowercased(),
             cwdFilter: cwdFilter,
@@ -149,13 +169,19 @@ extension SessionIndexStore {
             limit: limit,
             errorBag: bag,
             dbPath: stateDBPath,
-            sessionsRoot: sessionsRoot
+            sessionsRoot: sessionsRoot,
+            home: home,
+            sourceLabel: sourceLabel
         ) ?? []
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
     #endif
 
-    nonisolated private static func codexEntry(from record: CodexThreadRecord) -> SessionEntry {
+    nonisolated private static func codexEntry(
+        from record: CodexThreadRecord,
+        home: CodexSessionHome,
+        sourceLabel: String?
+    ) -> SessionEntry {
         let sandboxMode = record.sandboxJSON
             .flatMap { $0.data(using: .utf8) }
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -172,7 +198,7 @@ extension SessionIndexStore {
 
         let fileURL = record.normalizedRolloutPath.map { URL(fileURLWithPath: $0) }
         return SessionEntry(
-            id: "codex:" + (fileURL?.path ?? record.sessionId),
+            id: "codex:" + (fileURL?.path ?? "\(home.path):\(record.sessionId)"),
             agent: .codex,
             sessionId: record.sessionId,
             title: displayTitle,
@@ -185,8 +211,10 @@ extension SessionIndexStore {
                 model: record.model?.isEmpty == false ? record.model : nil,
                 approvalPolicy: record.approvalMode?.isEmpty == false ? record.approvalMode : nil,
                 sandboxMode: sandboxMode,
-                effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil
-            )
+                effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil,
+                codexHome: home.resumeCodexHome
+            ),
+            sourceLabel: sourceLabel
         )
     }
 

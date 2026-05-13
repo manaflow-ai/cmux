@@ -520,6 +520,15 @@ private struct SessionRow: View, Equatable {
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .layoutPriority(1)
+            if let sourceLabel = entry.sourceLabel {
+                Text(sourceLabel)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 110, alignment: .trailing)
+            }
             Spacer(minLength: 8)
             Text(relativeTime(entry.modified))
                 .font(.system(size: 12).monospacedDigit())
@@ -588,6 +597,9 @@ private struct SessionRow: View, Equatable {
 
     private var helpText: String {
         var lines: [String] = [entry.displayTitle]
+        if let sourceLabel = entry.sourceLabel {
+            lines.append(sourceLabel)
+        }
         if let cwd = entry.cwdLabel {
             lines.append(cwd)
         }
@@ -706,8 +718,8 @@ private struct SessionTranscriptPreviewView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let cwd = entry.cwdLabel {
-                    Text(cwd)
+                if let detail = entry.sourceAndCwdLabel {
+                    Text(detail)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -2221,6 +2233,15 @@ private struct PopoverRow: View, Equatable {
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .layoutPriority(1)
+            if let sourceLabel = entry.sourceLabel {
+                Text(sourceLabel)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 100, alignment: .trailing)
+            }
             Spacer(minLength: 8)
             modifiedText
         }
@@ -2234,7 +2255,7 @@ private struct PopoverRow: View, Equatable {
         .onDrag {
             sessionDragItemProvider(for: entry)
         }
-        .help(entry.cwdLabel ?? entry.displayTitle)
+        .help(entry.sourceAndCwdLabel ?? entry.displayTitle)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
         }
