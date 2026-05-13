@@ -5528,7 +5528,7 @@ struct CMUXCLI {
                 remoteRelayPort: options.remoteRelayPort
             )
         )
-        let remoteBootstrapInstallCommand = posixShellCommand(
+        let remoteBootstrapInstallCommand = remoteLoginShellSafePOSIXCommand(
             remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
         )
         var lines: [String] = [
@@ -5783,12 +5783,19 @@ struct CMUXCLI {
         outerLines += [
             "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
             "    ;;",
-            "  *)",
+            "  csh|tcsh)",
         ]
         outerLines.append(contentsOf: commonShellExportLines)
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
             "exec \"$CMUX_LOGIN_SHELL\" -i",
+            ";;",
+            "  *)",
+        ]
+        outerLines.append(contentsOf: commonShellExportLines)
+        outerLines.append(contentsOf: relayWarmupLines)
+        outerLines += [
+            "exec \"$CMUX_LOGIN_SHELL\"",
             ";;",
             "esac",
         ]
