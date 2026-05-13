@@ -26,7 +26,7 @@ extension CMUXCLI {
 
     Flags:
       --command <cmd>  Run this command instead of the detected command
-      --no-run         Only clone/update and open the workspace
+      --no-run         Skip install.command and launch commands
 
     Examples:
       cmux use stoneHee99/cmux-spotify

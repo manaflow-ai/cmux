@@ -2,10 +2,24 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    private struct CmuxUseOptions {
+    private nonisolated struct CmuxUseOptions {
         let repositoryArg: String
-        let commandOverride: String?
-        let shouldRunDetectedCommand: Bool
+        let commandMode: CmuxUseCommandMode
+    }
+
+    private nonisolated enum CmuxUseCommandMode {
+        case automatic
+        case override(String)
+        case none
+
+        var shouldRunCommands: Bool {
+            switch self {
+            case .automatic, .override:
+                return true
+            case .none:
+                return false
+            }
+        }
     }
 
     private struct CmuxUseCheckoutResult {
@@ -21,8 +35,7 @@ extension CMUXCLI {
 
     private func parseUseOptions(_ commandArgs: [String]) throws -> CmuxUseOptions {
         var repositoryArg: String?
-        var commandOverride: String?
-        var shouldRunDetectedCommand = true
+        var commandMode = CmuxUseCommandMode.automatic
         var index = 0
 
         while index < commandArgs.count {
@@ -36,10 +49,16 @@ extension CMUXCLI {
                 guard !command.isEmpty else {
                     throw CLIError(message: "cmux use: --command requires a non-empty value")
                 }
-                commandOverride = command
+                if case .none = commandMode {
+                    throw CLIError(message: "cmux use: --command cannot be used with --no-run")
+                }
+                commandMode = .override(command)
                 index += 2
             case "--no-run":
-                shouldRunDetectedCommand = false
+                if case .override = commandMode {
+                    throw CLIError(message: "cmux use: --command cannot be used with --no-run")
+                }
+                commandMode = .none
                 index += 1
             default:
                 if arg.hasPrefix("--") {
@@ -61,8 +80,7 @@ extension CMUXCLI {
 
         return CmuxUseOptions(
             repositoryArg: repositoryArg,
-            commandOverride: commandOverride,
-            shouldRunDetectedCommand: shouldRunDetectedCommand
+            commandMode: commandMode
         )
     }
 
@@ -109,18 +127,17 @@ extension CMUXCLI {
         } else {
             generatedManifestURL = nil
         }
-        if options.shouldRunDetectedCommand, let installCommand = manifest.installCommand {
+        if options.commandMode.shouldRunCommands, let installCommand = manifest.installCommand {
             try runUseInstallCommand(installCommand, cwd: install.url, jsonOutput: jsonOutput)
         }
 
         let detectedCommand: CmuxUseLaunchCommand?
-        if options.shouldRunDetectedCommand {
-            if let commandOverride = options.commandOverride {
-                detectedCommand = CmuxUseLaunchCommand(command: commandOverride, source: "--command")
-            } else {
-                detectedCommand = try CmuxUseSupport.detectLaunchCommand(in: install.url, manifest: manifest)
-            }
-        } else {
+        switch options.commandMode {
+        case .automatic:
+            detectedCommand = try CmuxUseSupport.detectLaunchCommand(in: install.url, manifest: manifest)
+        case .override(let commandOverride):
+            detectedCommand = CmuxUseLaunchCommand(command: commandOverride, source: "--command")
+        case .none:
             detectedCommand = nil
         }
         let initialCommand = try detectedCommand.map { try writeUseLaunchCommandScript($0.command) }
