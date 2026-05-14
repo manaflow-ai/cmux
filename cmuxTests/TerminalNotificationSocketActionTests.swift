@@ -207,6 +207,33 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), focusedBeforeNoop)
     }
 
+    func testNotificationJumpToUnreadOpensManualWorkspaceUnread() async throws {
+        let fixture = try makeSocketFixture(name: "notif-jump-manual", includeWindow: true)
+        defer { fixture.cleanup() }
+
+        let targetWorkspace = fixture.manager.addWorkspace(title: "Manual Unread Target", select: false)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        fixture.store.markUnread(forTabId: targetWorkspace.id)
+        fixture.manager.selectTab(fixture.workspace)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.jump_to_unread",
+            params: [:],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["opened"] as? Bool, true)
+        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
+        XCTAssertEqual(result["is_read"] as? Bool, true)
+        XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
+        XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
+        XCTAssertFalse(fixture.store.hasManualUnread(forTabId: targetWorkspace.id))
+        XCTAssertEqual(fixture.store.unreadCount, 0)
+    }
+
     func testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification() async throws {
         let fixture = try makeSocketFixture(name: "notif-jump-skip", includeWindow: true)
         defer { fixture.cleanup() }

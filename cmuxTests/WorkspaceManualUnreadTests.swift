@@ -55,6 +55,29 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.canMarkWorkspaceRead(forTabIds: [workspaceId]))
     }
 
+    func testManualWorkspaceUnreadUpdatesGlobalBellState() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+
+        XCTAssertEqual(store.unreadCount, 0)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 0)
+        XCTAssertFalse(store.notificationMenuSnapshot.hasUnreadNotifications)
+
+        store.markUnread(forTabId: workspaceId)
+
+        XCTAssertEqual(store.unreadCount, 1)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 1)
+        XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
+
+        store.markRead(forTabId: workspaceId)
+
+        XCTAssertEqual(store.unreadCount, 0)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 0)
+        XCTAssertFalse(store.notificationMenuSnapshot.hasUnreadNotifications)
+    }
+
     func testSurfaceMarkReadDoesNotClearManualWorkspaceUnread() {
         let store = TerminalNotificationStore.shared
         let workspaceId = UUID()
