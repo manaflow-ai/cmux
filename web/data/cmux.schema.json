@@ -878,6 +878,9 @@
         { "required": ["title"] },
         { "required": ["extends"] }
       ],
+      "not": {
+        "required": ["before", "after"]
+      },
       "properties": {
         "id": {
           "type": "string",
@@ -890,6 +893,14 @@
         "extends": {
           "type": "string",
           "description": "Optional built-in menu id (file, edit, view, notifications, window, help, app) or custom menu id to append items to. Duplicate titles do not merge automatically."
+        },
+        "before": {
+          "type": "string",
+          "description": "Optional top-level placement anchor. Creates this custom menu before a built-in menu id (file, edit, view, updatePill, notifications, debug, window, help, app) or a custom menu id. Only top-level menus use placement anchors."
+        },
+        "after": {
+          "type": "string",
+          "description": "Optional top-level placement anchor. Creates this custom menu after a built-in menu id (file, edit, view, updatePill, notifications, debug, window, help, app) or a custom menu id. Only top-level menus use placement anchors."
         },
         "items": {
           "type": "array",

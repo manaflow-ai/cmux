@@ -281,6 +281,11 @@ final class ConfiguredMenuBarController: NSObject {
         case interval
     }
 
+    private enum TopLevelMenuPlacement {
+        case before
+        case after
+    }
+
     private weak var owner: AppDelegate?
     private let notificationCenter: NotificationCenter
     private var observerTokens: [NSObjectProtocol] = []
@@ -424,8 +429,9 @@ final class ConfiguredMenuBarController: NSObject {
             return
         }
 
-        var insertionIndex = insertionIndex(in: mainMenu)
         var customMenusByConfigID: [String: NSMenu] = [:]
+        var customMenuItemsByConfigID: [String: NSMenuItem] = [:]
+        var insertionIndex = defaultInsertionIndex(in: mainMenu)
         for menu in menus {
             let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
             let submenu = configuredMenu(from: menu, preferredWindow: preferredWindow)
@@ -433,8 +439,14 @@ final class ConfiguredMenuBarController: NSObject {
             mainMenu.insertItem(item, at: insertionIndex)
             topLevelItems.append(item)
             customMenusByConfigID[menu.configID] = submenu
+            customMenuItemsByConfigID[menu.configID] = item
             insertionIndex += 1
         }
+        applyMenuPlacements(
+            menus,
+            in: mainMenu,
+            customMenuItemsByConfigID: customMenuItemsByConfigID
+        )
 
         for menuExtension in extensions {
             guard let targetMenu = targetMenu(
@@ -501,7 +513,7 @@ final class ConfiguredMenuBarController: NSObject {
         }
     }
 
-    private func insertionIndex(in mainMenu: NSMenu) -> Int {
+    private func defaultInsertionIndex(in mainMenu: NSMenu) -> Int {
         let notificationsTitle = String(localized: "menu.notifications.title", defaultValue: "Notifications")
         if let notificationsIndex = mainMenu.items.lastIndex(where: { $0.title == notificationsTitle }) {
             return notificationsIndex + 1
@@ -512,6 +524,108 @@ final class ConfiguredMenuBarController: NSObject {
         }
 #endif
         return min(mainMenu.items.count, max(1, mainMenu.items.count - 1))
+    }
+
+    private func applyMenuPlacements(
+        _ menus: [CmuxResolvedMenuBarMenu],
+        in mainMenu: NSMenu,
+        customMenuItemsByConfigID: [String: NSMenuItem]
+    ) {
+        for menu in menus {
+            guard let item = customMenuItemsByConfigID[menu.configID] else { continue }
+            if let before = menu.before {
+                moveTopLevelMenuItem(
+                    item,
+                    placement: .before,
+                    targetID: before,
+                    in: mainMenu,
+                    customMenuItemsByConfigID: customMenuItemsByConfigID
+                )
+            } else if let after = menu.after {
+                moveTopLevelMenuItem(
+                    item,
+                    placement: .after,
+                    targetID: after,
+                    in: mainMenu,
+                    customMenuItemsByConfigID: customMenuItemsByConfigID
+                )
+            }
+        }
+    }
+
+    private func moveTopLevelMenuItem(
+        _ item: NSMenuItem,
+        placement: TopLevelMenuPlacement,
+        targetID: String,
+        in mainMenu: NSMenu,
+        customMenuItemsByConfigID: [String: NSMenuItem]
+    ) {
+        guard mainMenu.index(of: item) >= 0,
+              let targetItem = topLevelMenuItem(
+                for: targetID,
+                in: mainMenu,
+                customMenuItemsByConfigID: customMenuItemsByConfigID
+              ),
+              targetItem !== item else {
+            return
+        }
+
+        let currentIndex = mainMenu.index(of: item)
+        guard currentIndex >= 0 else { return }
+        mainMenu.removeItem(at: currentIndex)
+        let targetIndex = mainMenu.index(of: targetItem)
+        guard targetIndex >= 0 else {
+            mainMenu.insertItem(item, at: min(currentIndex, mainMenu.items.count))
+            return
+        }
+
+        let rawInsertionIndex: Int
+        switch placement {
+        case .before:
+            rawInsertionIndex = targetIndex
+        case .after:
+            rawInsertionIndex = targetIndex + 1
+        }
+        let insertionIndex = min(max(1, rawInsertionIndex), mainMenu.items.count)
+        mainMenu.insertItem(item, at: insertionIndex)
+    }
+
+    private func topLevelMenuItem(
+        for targetID: String,
+        in mainMenu: NSMenu,
+        customMenuItemsByConfigID: [String: NSMenuItem]
+    ) -> NSMenuItem? {
+        if let customItem = customMenuItemsByConfigID[targetID] {
+            return customItem
+        }
+        let normalized = normalizedTargetID(targetID)
+        if let customItem = customMenuItemsByConfigID.first(where: {
+            normalizedTargetID($0.key) == normalized
+        })?.value {
+            return customItem
+        }
+
+        if ["application", "app", "cmux"].contains(normalized) {
+            return mainMenu.items.first
+        }
+
+        let builtinTitles: [String: String] = [
+            "file": String(localized: "menu.file.title", defaultValue: "File"),
+            "edit": String(localized: "menu.edit.title", defaultValue: "Edit"),
+            "view": String(localized: "menu.view.title", defaultValue: "View"),
+            "update": "Update Pill",
+            "updatepill": "Update Pill",
+            "notifications": String(localized: "menu.notifications.title", defaultValue: "Notifications"),
+            "debug": "Debug",
+            "window": String(localized: "menu.window.title", defaultValue: "Window"),
+            "help": String(localized: "menu.help.title", defaultValue: "Help"),
+        ]
+        if let title = builtinTitles[normalized],
+           let item = mainMenu.items.first(where: { $0.title == title }) {
+            return item
+        }
+
+        return mainMenu.items.first(where: { normalizedTargetID($0.title) == normalized })
     }
 
     private func configuredMenu(

@@ -2579,6 +2579,14 @@ final class CmuxConfigStore: ObservableObject {
                 guard !resolvedItems.items.isEmpty else { continue }
 
                 if let targetID = menu.extends {
+                    if menu.before != nil || menu.after != nil {
+                        issues.append(CmuxConfigIssue(
+                            kind: .menuBarInvalidMenu,
+                            settingName: menuSettingName,
+                            sourcePath: group.sourcePath,
+                            message: "menuBar extensions cannot define before or after"
+                        ))
+                    }
                     let sanitizedTargetID = sanitizeConfigText(targetID, fallback: targetID)
                     extensions.append(
                         CmuxResolvedMenuBarExtension(
@@ -2588,6 +2596,24 @@ final class CmuxConfigStore: ObservableObject {
                         )
                     )
                     continue
+                }
+
+                let before = menu.before.map { sanitizeConfigText($0, fallback: $0) }
+                let after = menu.after.map { sanitizeConfigText($0, fallback: $0) }
+                let resolvedBefore: String?
+                let resolvedAfter: String?
+                if before != nil, after != nil {
+                    issues.append(CmuxConfigIssue(
+                        kind: .menuBarInvalidMenu,
+                        settingName: menuSettingName,
+                        sourcePath: group.sourcePath,
+                        message: "menuBar menu must define at most one of before or after"
+                    ))
+                    resolvedBefore = nil
+                    resolvedAfter = nil
+                } else {
+                    resolvedBefore = before
+                    resolvedAfter = after
                 }
 
                 guard let title = menu.title else {
@@ -2607,6 +2633,8 @@ final class CmuxConfigStore: ObservableObject {
                         id: "\(menuIdentityName).\(configID)",
                         configID: configID,
                         title: sanitizeConfigText(title, fallback: fallbackID),
+                        before: resolvedBefore,
+                        after: resolvedAfter,
                         items: resolvedItems.items
                     )
                 )
@@ -2642,12 +2670,15 @@ final class CmuxConfigStore: ObservableObject {
             case .separator:
                 appendMenuBarSeparatorIfNeeded(to: &resolvedItems, id: "\(itemIdentityName).separator")
             case .submenu(let submenu):
-                guard let submenuTitle = submenu.title, submenu.extends == nil else {
+                guard let submenuTitle = submenu.title,
+                      submenu.extends == nil,
+                      submenu.before == nil,
+                      submenu.after == nil else {
                     issues.append(CmuxConfigIssue(
                         kind: .menuBarInvalidMenu,
                         settingName: itemSettingName,
                         sourcePath: settingSourcePath,
-                        message: "nested menuBar menus must define title and cannot define extends"
+                        message: "nested menuBar menus must define title and cannot define extends, before, or after"
                     ))
                     continue
                 }
@@ -2671,6 +2702,8 @@ final class CmuxConfigStore: ObservableObject {
                             id: "\(itemIdentityName).\(configID)",
                             configID: configID,
                             title: sanitizeConfigText(submenuTitle, fallback: fallbackID),
+                            before: nil,
+                            after: nil,
                             items: nested.items
                         )
                     )

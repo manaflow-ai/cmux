@@ -41,19 +41,31 @@ struct CmuxConfigMenuDefinition: Codable, Sendable, Hashable {
     var id: String?
     var title: String?
     var extends: String?
+    var before: String?
+    var after: String?
     var items: [CmuxConfigMenuBarItem]
 
     private enum CodingKeys: String, CodingKey {
         case id
         case title
         case extends
+        case before
+        case after
         case items
     }
 
-    init(id: String? = nil, title: String, items: [CmuxConfigMenuBarItem] = []) {
+    init(
+        id: String? = nil,
+        title: String,
+        before: String? = nil,
+        after: String? = nil,
+        items: [CmuxConfigMenuBarItem] = []
+    ) {
         self.id = id
         self.title = title
         self.extends = nil
+        self.before = before
+        self.after = after
         self.items = items
     }
 
@@ -61,6 +73,8 @@ struct CmuxConfigMenuDefinition: Codable, Sendable, Hashable {
         self.id = id
         self.title = nil
         self.extends = extends
+        self.before = nil
+        self.after = nil
         self.items = items
     }
 
@@ -69,6 +83,8 @@ struct CmuxConfigMenuDefinition: Codable, Sendable, Hashable {
         id = try Self.trimmedString(forKey: .id, in: container, allowBlankAsNil: true)
         title = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
         extends = try Self.trimmedString(forKey: .extends, in: container, allowBlankAsNil: true)
+        before = try Self.trimmedString(forKey: .before, in: container, allowBlankAsNil: true)
+        after = try Self.trimmedString(forKey: .after, in: container, allowBlankAsNil: true)
         guard title != nil || extends != nil else {
             throw DecodingError.keyNotFound(
                 CodingKeys.title,
@@ -86,6 +102,8 @@ struct CmuxConfigMenuDefinition: Codable, Sendable, Hashable {
         try container.encodeIfPresent(id, forKey: .id)
         try container.encodeIfPresent(title, forKey: .title)
         try container.encodeIfPresent(extends, forKey: .extends)
+        try container.encodeIfPresent(before, forKey: .before)
+        try container.encodeIfPresent(after, forKey: .after)
         try container.encode(items, forKey: .items)
     }
 
@@ -739,6 +757,8 @@ struct CmuxResolvedMenuBarMenu: Identifiable, Sendable, Hashable {
     var id: String
     var configID: String
     var title: String
+    var before: String?
+    var after: String?
     var items: [CmuxResolvedMenuBarItem]
 }
 

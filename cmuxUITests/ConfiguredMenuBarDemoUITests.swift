@@ -108,6 +108,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
               {
                 "id": "tools",
                 "title": "Tools",
+                "before": "notifications",
                 "items": [
                   {
                     "title": "Run Static Demo Command",

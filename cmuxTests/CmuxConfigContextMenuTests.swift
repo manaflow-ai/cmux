@@ -187,6 +187,40 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertEqual(config.ui?.menuBar?.menus.first?.title, "Project")
     }
 
+    func testDecodeMenuBarSupportsTopLevelPlacementAnchors() throws {
+        let json = """
+        {
+          "ui": {
+            "menuBar": [
+              {
+                "id": "tools",
+                "title": "Tools",
+                "before": "notifications",
+                "items": [
+                  { "title": "Format", "command": "npm run format" }
+                ]
+              },
+              {
+                "id": "deploy",
+                "title": "Deploy",
+                "after": "tools",
+                "items": [
+                  { "title": "Ship", "command": "npm run deploy" }
+                ]
+              }
+            ]
+          }
+        }
+        """
+        let config = try decode(json)
+        let menus = try XCTUnwrap(config.ui?.menuBar?.menus)
+        XCTAssertEqual(menus.map(\.title), ["Tools", "Deploy"])
+        XCTAssertEqual(menus[0].before, "notifications")
+        XCTAssertNil(menus[0].after)
+        XCTAssertEqual(menus[1].after, "tools")
+        XCTAssertNil(menus[1].before)
+    }
+
     func testDecodeMenuBarSupportsExtendsAndDynamicSource() throws {
         let json = """
         {
@@ -660,6 +694,73 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertEqual(store.menuBarExtensions.count, 1)
         XCTAssertEqual(store.menuBarExtensions.first?.targetID, "notifications")
         XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedMenuBarCarriesTopLevelPlacementAnchors() throws {
+        let store = try loadStore(localJSON: """
+        {
+          "ui": {
+            "menuBar": [
+              {
+                "id": "tools",
+                "title": "Tools",
+                "before": "notifications",
+                "items": [{ "title": "Local", "command": "echo local" }]
+              },
+              {
+                "id": "deploy",
+                "title": "Deploy",
+                "after": "tools",
+                "items": [{ "title": "Deploy", "command": "echo deploy" }]
+              }
+            ]
+          }
+        }
+        """)
+
+        XCTAssertEqual(store.menuBarMenus.map(\.configID), ["tools", "deploy"])
+        XCTAssertEqual(store.menuBarMenus[0].before, "notifications")
+        XCTAssertNil(store.menuBarMenus[0].after)
+        XCTAssertEqual(store.menuBarMenus[1].after, "tools")
+        XCTAssertNil(store.menuBarMenus[1].before)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedMenuBarIgnoresInvalidPlacementAnchorsWithIssue() throws {
+        let store = try loadStore(localJSON: """
+        {
+          "ui": {
+            "menuBar": [
+              {
+                "id": "tools",
+                "title": "Tools",
+                "before": "view",
+                "after": "notifications",
+                "items": [{ "title": "Local", "command": "echo local" }]
+              },
+              {
+                "extends": "notifications",
+                "before": "help",
+                "items": [{ "title": "Open Logs", "command": "echo logs" }]
+              }
+            ]
+          }
+        }
+        """)
+
+        let menu = try XCTUnwrap(store.menuBarMenus.first)
+        XCTAssertNil(menu.before)
+        XCTAssertNil(menu.after)
+        XCTAssertEqual(store.menuBarExtensions.count, 1)
+        XCTAssertEqual(
+            store.configurationIssues.map(\.message),
+            [
+                "menuBar menu must define at most one of before or after",
+                "menuBar extensions cannot define before or after"
+            ]
+        )
     }
 
     @MainActor

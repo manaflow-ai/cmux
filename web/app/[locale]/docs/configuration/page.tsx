@@ -384,7 +384,10 @@ working-directory = ~/code`}</CodeBlock>
                   reference entries from <code>actions</code>, define inline shell commands, use{" "}
                   <code>{`{ "type": "separator" }`}</code>, or nest submenus with{" "}
                   <code>items</code>. Duplicate top-level titles stay separate. Use{" "}
-                  <code>extends</code> when you want to append to an existing menu.
+                  <code>extends</code> when you want to append to an existing menu. Custom menus
+                  appear in array order by default, and top-level menus can use <code>before</code>{" "}
+                  or <code>after</code> to place themselves around built-in menus or another custom
+                  menu <code>id</code>.
                 </p>
                 <p>
                   Dynamic menu sources run Bash and read a JSON array from stdout. They run on
@@ -405,6 +408,7 @@ working-directory = ~/code`}</CodeBlock>
       {
         "id": "project",
         "title": "Project",
+        "before": "notifications",
         "items": [
           "run-tests",
           { "type": "separator" },
@@ -432,12 +436,13 @@ working-directory = ~/code`}</CodeBlock>
 }`}</CodeBlock>
                 <p>
                   Built-in extension targets are <code>app</code>, <code>file</code>,{" "}
-                  <code>edit</code>, <code>view</code>, <code>notifications</code>,{" "}
-                  <code>window</code>, and <code>help</code>. A custom menu can be targeted by its{" "}
-                  <code>id</code>. Generated dynamic output can include actions, separators,
-                  submenus, and inline commands, but not another dynamic source. Interval sources
-                  from project configs start running automatically only after the source command is
-                  trusted.
+                  <code>edit</code>, <code>view</code>, <code>updatePill</code>,{" "}
+                  <code>notifications</code>, <code>debug</code>, <code>window</code>, and{" "}
+                  <code>help</code>. A custom menu can be targeted by its <code>id</code>. Use ids
+                  for placement when duplicate custom menu titles exist. Generated dynamic output
+                  can include actions, separators, submenus, and inline commands, but not another
+                  dynamic source. Interval sources from project configs start running automatically
+                  only after the source command is trusted.
                 </p>
               </>
             )}
