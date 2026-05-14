@@ -137,6 +137,28 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async getStatus(vmId: string): Promise<VMStatus> {
+    return withVmSpan(
+      "cmux.vm.provider.get_status",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "get_status",
+        "cmux.vm.id": vmId,
+        "cmux.timeout_ms": DEFAULT_TIMEOUT_MS,
+      },
+      async (span) => {
+        try {
+          const info = await client().vms.ref({ vmId }).getInfo();
+          const status = mapStatus(info.state);
+          setSpanAttributes(span, { "cmux.vm.provider_state": info.state, "cmux.vm.status": status });
+          return status;
+        } catch (err) {
+          throw new ProviderError("freestyle", `getStatus(${vmId})`, err);
+        }
+      },
+    );
+  }
+
   async pause(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.pause",

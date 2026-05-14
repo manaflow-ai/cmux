@@ -15,7 +15,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: false,
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
-            latestSubmittedMessage: "old message",
+            latestConversationMessage: "old message",
             listeningPorts: [3000]
         )
         let next = Self.snapshot(
@@ -23,7 +23,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: true,
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
-            latestSubmittedMessage: "new message",
+            latestConversationMessage: "new message",
             listeningPorts: [3000, 4000]
         )
 
@@ -31,7 +31,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             current: current,
             next: next,
             force: false,
-            freezesSidebarWorkspaceDetails: true
+            contextMenuVisible: true
         )
 
         var expectedDisplayed = current
@@ -39,7 +39,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(decision.workspaceSnapshotStorage, expectedDisplayed)
         XCTAssertTrue(decision.workspaceSnapshotStorage?.isPinned == true)
         XCTAssertEqual(decision.workspaceSnapshotStorage?.remoteConnectionStatusText, "Connected")
-        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestSubmittedMessage, "old message")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
         XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
         XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
         XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
@@ -63,7 +63,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             current: current,
             next: next,
             force: false,
-            freezesSidebarWorkspaceDetails: true
+            contextMenuVisible: true
         )
 
         XCTAssertEqual(decision.workspaceSnapshotStorage, next)
@@ -79,7 +79,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             current: current,
             next: next,
             force: false,
-            freezesSidebarWorkspaceDetails: false
+            contextMenuVisible: false
         )
 
         XCTAssertEqual(decision.workspaceSnapshotStorage, next)
@@ -87,64 +87,18 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    func testMenuTrackingEndRestoresLiveDetailsAfterColorAction() {
-        var interactionState = SidebarWorkspaceRowInteractionState()
-        let initial = Self.snapshot(
-            customColorHex: nil,
-            compactGitBranchSummaryText: "main",
-            compactBranchDirectoryRow: "main - ~/repo"
-        )
-        let colorAssigned = Self.snapshot(
-            customColorHex: "#C0392B",
-            compactGitBranchSummaryText: "main",
-            compactBranchDirectoryRow: "main - ~/repo"
-        )
-        let branchChanged = Self.snapshot(
-            customColorHex: "#C0392B",
-            compactGitBranchSummaryText: "feature/live",
-            compactBranchDirectoryRow: "feature/live - ~/repo"
-        )
-
-        interactionState.contextMenuTrackingDidBegin()
-        interactionState.contextMenuDidAppear()
-        let colorDecision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
-            current: initial,
-            next: colorAssigned,
-            force: false,
-            freezesSidebarWorkspaceDetails: interactionState.freezesSidebarWorkspaceDetails
-        )
-        XCTAssertEqual(colorDecision.workspaceSnapshotStorage?.customColorHex, "#C0392B")
-
-        interactionState.contextMenuTrackingDidEnd()
-        let branchDecision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
-            current: colorDecision.workspaceSnapshotStorage,
-            next: branchChanged,
-            force: false,
-            freezesSidebarWorkspaceDetails: interactionState.freezesSidebarWorkspaceDetails
-        )
-
-        XCTAssertEqual(
-            branchDecision.workspaceSnapshotStorage?.compactGitBranchSummaryText,
-            "feature/live",
-            "Once AppKit menu tracking ends after assigning a workspace color, live sidebar details such as git branch must update even if SwiftUI does not deliver context-menu disappearance."
-        )
-        XCTAssertEqual(branchDecision.workspaceSnapshotStorage?.compactBranchDirectoryRow, "feature/live - ~/repo")
-        XCTAssertNil(branchDecision.pendingWorkspaceSnapshot)
-        XCTAssertFalse(branchDecision.hasDeferredWorkspaceObservationInvalidation)
-    }
-
     private static func snapshot(
+        presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
-        latestSubmittedMessage: String? = nil,
-        compactGitBranchSummaryText: String? = nil,
-        compactBranchDirectoryRow: String? = nil,
+        latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
@@ -153,41 +107,175 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
             copyableSidebarSSHError: nil,
-            latestSubmittedMessage: latestSubmittedMessage,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
-            compactGitBranchSummaryText: compactGitBranchSummaryText,
-            compactBranchDirectoryRow: compactBranchDirectoryRow,
+            compactGitBranchSummaryText: nil,
+            compactBranchDirectoryRow: nil,
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts
         )
     }
+
+    private static func presentationKey(
+        showsWorkspaceDescription: Bool = true,
+        usesVerticalBranchLayout: Bool = true,
+        showsGitBranch: Bool = true,
+        visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
+            showsMetadata: true,
+            showsLog: true,
+            showsProgress: true,
+            showsBranchDirectory: true,
+            showsPullRequests: true,
+            showsPorts: true
+        )
+    ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
+        SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            showsWorkspaceDescription: showsWorkspaceDescription,
+            usesVerticalBranchLayout: usesVerticalBranchLayout,
+            showsGitBranch: showsGitBranch,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+        )
+    }
 }
 
-final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
-    func testMenuTrackingEndEndsSidebarDetailsFreezeEvenIfSwiftUIDisappearIsStale() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.contextMenuTrackingDidBegin()
-        state.contextMenuDidAppear()
-        XCTAssertTrue(state.freezesSidebarWorkspaceDetails)
-
-        state.contextMenuTrackingDidEnd()
-
+final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
+    func testSkipsScrollWhenSelectedWorkspaceIdIsNil() {
         XCTAssertFalse(
-            state.freezesSidebarWorkspaceDetails,
-            "AppKit menu tracking end is the authoritative lifetime boundary for deferred sidebar detail snapshots."
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: nil as String?,
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a"]
+            )
         )
     }
 
+    func testRequestsScrollWhenSelectedWorkspaceFirstAppears() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenSelectedWorkspaceMovesToTop() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "c",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "a",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["a", "c", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenSelectedWorkspaceIsMissing() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b"],
+                newWorkspaceIds: ["a", "c"]
+            )
+        )
+    }
+}
+
+final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
+    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertTrue(resolved.showsModifierShortcutHints)
+    }
+
+    func testNoFrozenPresentationUsesLiveSnapshot() {
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 2,
+            latestNotificationText: "live",
+            showsModifierShortcutHints: true
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: nil
+        )
+
+        XCTAssertEqual(resolved, live)
+    }
+
+    func testNonMatchingTabIdUsesLiveShortcutHints() {
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(resolved.showsModifierShortcutHints)
+    }
+}
+
+final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
 
-        state.contextMenuTrackingDidBegin()
         state.contextMenuDidAppear()
         state.contextMenuTrackingDidEnd()
         state.setPointerHovering(true)
@@ -209,23 +297,6 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
             ),
             "The stale SwiftUI menu flag must not make the close affordance visible when the pointer is no longer hovering."
         )
-    }
-
-    func testSwiftUIDisappearDoesNotEndAppKitTrackingFreezeBeforeTrackingEnds() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        state.contextMenuTrackingDidBegin()
-        state.contextMenuDidAppear()
-        state.contextMenuDidDisappear()
-
-        XCTAssertTrue(
-            state.freezesSidebarWorkspaceDetails,
-            "SwiftUI disappearance is only a fallback cleanup path; AppKit tracking remains the authoritative lifetime while it is active."
-        )
-
-        state.contextMenuTrackingDidEnd()
-
-        XCTAssertFalse(state.freezesSidebarWorkspaceDetails)
     }
 
     func testContextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
@@ -253,7 +324,6 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverDuringContextMenuTrackingStaysHiddenUntilTrackingEnds() {
         var state = SidebarWorkspaceRowInteractionState()
 
-        state.contextMenuTrackingDidBegin()
         state.contextMenuDidAppear()
         state.setPointerHovering(true)
 
@@ -282,10 +352,8 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
             get: { state },
             set: { state = $0 }
         )
-        var menuTrackingEndCount = 0
         let coordinator = SidebarWorkspaceRowHoverTracker.Coordinator(
-            rowInteractionState: binding,
-            onMenuTrackingEnded: { menuTrackingEndCount += 1 }
+            rowInteractionState: binding
         )
 
         coordinator.menuTrackingChanged(true)
@@ -300,7 +368,6 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
             ),
             "A pointer exit observed during menu tracking must overwrite any earlier deferred hover enter before the menu dismisses."
         )
-        XCTAssertEqual(menuTrackingEndCount, 1)
     }
 
     func testMenuTrackingSuppressionOnlyAppliesToPointerMenusInsideRow() {
