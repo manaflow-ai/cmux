@@ -32,20 +32,26 @@ Until the fork repo exists, the workflow is:
   file-level suppression of the same diagnostic in
   `ax_platform_node_cocoa.mm`, where ~6 spread-out usages would
   require many per-function pragma pairs.
+- `0005-ax-cocoa-rename-private-symbol-backports.patch` — renames
+  anonymous-namespace `NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute`
+  and `NSAccessibilityScrollToVisibleAction` in
+  `browser_accessibility_cocoa.mm` to `CmuxNS…` prefixes. The macOS
+  26.2 SDK now publishes the same identifiers (@available(macos 26.0)),
+  causing a hard *ambiguous reference* compile error that a diagnostic
+  pragma cannot silence. Rename preserves the string-literal values
+  and behavior; older deployment targets still work.
 
-## Strategic note for next session
+## Note on Chromium base
 
-These availability-suppression patches (0003, 0004) and the SDK
-forward-compat patches (0001 metal, 0002 webnn) are accumulating
-because the current checkout is at Chromium **main HEAD** (commit
-`72a51d14d794ce9211145ecc9b7464e222d40153`, a ChromeOS LKGM from
-2026-04-16) rather than the **M148 stable branch** the build host
-script targets (`refs/branch-heads/7204`).
-
-The handoff plan was to repoint to `7204` once the fork repo lands.
-Doing it sooner — even before the fork repo exists — would likely
-eliminate most of the SDK-forward-compat noise because M148 stable
-was tested against earlier SDKs. The cost is one git checkout + a
-`gclient sync` (hours, but cached). The benefit is fewer patches to
-maintain. Worth investigating at the start of session 3 as an
-alternative to chasing every new failure.
+The earlier README revision claimed the checkout was at Chromium main
+HEAD rather than M148 stable, and that switching to `refs/branch-heads/7204`
+would likely eliminate the SDK forward-compat noise. **That claim was
+wrong**: `git ls-remote origin refs/branch-heads/7204` resolves to the
+same commit (`72a51d14d794ce9211145ecc9b7464e222d40153`) that the
+checkout is already on. The HEAD-shaped output of
+`git log --oneline -1` shows `LKGM 16295.95.0 for chromeos.` because
+that LKGM happens to be the tip of `branch-heads/7204` at the time it
+was cut. So M148-stable and "the LKGM the checkout is on" are
+literally the same commit, and there is no cheaper base to switch to.
+The five patches in this directory are needed against M148 stable as
+shipped today.
