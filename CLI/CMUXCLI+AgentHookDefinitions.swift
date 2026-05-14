@@ -126,6 +126,13 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "amp", displayName: "Amp", statusKey: "amp",
+            configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
+            sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks amp", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "cursor", displayName: "Cursor", statusKey: "cursor",
             configDir: ".cursor", configFile: "hooks.json", binaryName: "cursor-agent",
             sessionStoreSuffix: "cursor", disableEnvVar: "CMUX_CURSOR_HOOKS_DISABLED",
@@ -236,6 +243,63 @@ extension CMUXCLI {
     static func agentDef(named name: String) -> AgentHookDef? {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
+    }
+
+    static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
+    }
+
+    static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
+    }
+
+    static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
+        if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
+            || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
+        {
+            return true
+        }
+        return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+    }
+
+    private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
+        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
+        guard def.name == "codex" else {
+            return false
+        }
+        let tokens = legacyCmuxCommandTokens(from: command, for: def)
+        guard !tokens.isEmpty,
+              URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
+        else {
+            return false
+        }
+
+        if tokens.count >= 2, tokens[1] == "codex-hook" {
+            return true
+        }
+        if tokens.count >= 4, tokens[1] == "feed-hook", tokens[2] == "--source", tokens[3] == def.name {
+            return true
+        }
+        if tokens.count >= 5, tokens[1] == "hooks", tokens[2] == "feed", tokens[3] == "--source", tokens[4] == def.name {
+            return true
+        }
+        return false
+    }
+
+    private static func legacyCmuxCommandTokens(from command: String, for def: AgentHookDef) -> [Substring] {
+        let guardedPrefix = "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && "
+        let fallbackSuffix = " || echo '{}'"
+        var body = command
+        if body.hasPrefix(guardedPrefix) {
+            body.removeFirst(guardedPrefix.count)
+        }
+        if body.hasSuffix(fallbackSuffix) {
+            body.removeLast(fallbackSuffix.count)
+        }
+        guard !body.contains(";"), !body.contains("|"), !body.contains("&"), !body.contains("`") else {
+            return []
+        }
+        return body.split(whereSeparator: { $0 == " " || $0 == "\t" })
     }
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {

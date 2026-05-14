@@ -26,6 +26,335 @@ enum FilePreviewInteraction {
 
 }
 
+struct FileExternalOpenApplication: Identifiable, Equatable, Sendable {
+    let url: URL
+    let displayName: String
+    let isDefault: Bool
+
+    var id: String {
+        FileExternalOpenApplicationResolver.applicationIdentity(for: url)
+    }
+}
+
+struct FileExternalOpenApplicationResolver: Sendable {
+    var defaultApplicationURL: @Sendable (URL) -> URL?
+    var applicationURLs: @Sendable (URL) -> [URL]
+    var displayName: @Sendable (URL) -> String
+    var shouldIncludeApplication: @Sendable (URL) -> Bool
+
+    static let live = FileExternalOpenApplicationResolver(
+        defaultApplicationURL: { NSWorkspace.shared.urlForApplication(toOpen: $0) },
+        applicationURLs: { NSWorkspace.shared.urlsForApplications(toOpen: $0) },
+        displayName: { Self.liveDisplayName(for: $0) },
+        shouldIncludeApplication: { Self.shouldIncludeLiveApplication($0) }
+    )
+
+    func applications(for fileURL: URL) -> [FileExternalOpenApplication] {
+        let defaultURL = defaultApplicationURL(fileURL).flatMap { url in
+            shouldIncludeApplication(url) ? url : nil
+        }
+        let defaultIdentity = defaultURL.map(Self.applicationIdentity(for:))
+        var orderedURLs = defaultURL.map { [$0] } ?? []
+        orderedURLs.append(contentsOf: applicationURLs(fileURL).filter(shouldIncludeApplication))
+
+        var seenIdentities: Set<String> = []
+        return orderedURLs.compactMap { applicationURL in
+            let identity = Self.applicationIdentity(for: applicationURL)
+            guard seenIdentities.insert(identity).inserted else { return nil }
+            return FileExternalOpenApplication(
+                url: applicationURL,
+                displayName: displayName(applicationURL),
+                isDefault: identity == defaultIdentity
+            )
+        }
+    }
+
+    static func applicationIdentity(for url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func liveDisplayName(for applicationURL: URL) -> String {
+        let bundle = Bundle(url: applicationURL)
+        let bundleName = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
+        var name = bundleName ?? FileManager.default.displayName(atPath: applicationURL.path)
+        if name.lowercased().hasSuffix(".app") {
+            name = String(name.dropLast(4))
+        }
+        return name.isEmpty ? applicationURL.deletingPathExtension().lastPathComponent : name
+    }
+
+    private static func shouldIncludeLiveApplication(_ applicationURL: URL) -> Bool {
+        guard let bundleIdentifier = Bundle(url: applicationURL)?.bundleIdentifier?.lowercased() else {
+            return true
+        }
+        if Bundle.main.bundleIdentifier?.lowercased() == bundleIdentifier {
+            return false
+        }
+        return !bundleIdentifier.hasPrefix("dev.cmux.")
+            && !bundleIdentifier.hasPrefix("com.cmuxterm.")
+    }
+}
+
+enum FileExternalOpenAction {
+    @discardableResult
+    static func openDefault(fileURL: URL) -> Bool {
+        let resolver = FileExternalOpenApplicationResolver.live
+        let primaryApplication = resolver.applications(for: fileURL).first
+        return open(fileURL: fileURL, applicationURL: primaryApplication?.url)
+    }
+
+    @discardableResult
+    static func open(fileURL: URL, applicationURL: URL?) -> Bool {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = false
+        if let applicationURL {
+            NSWorkspace.shared.open([fileURL], withApplicationAt: applicationURL, configuration: configuration)
+            return true
+        }
+        return NSWorkspace.shared.open(fileURL)
+    }
+}
+
+enum FileExternalOpenText {
+    static var openWithMenu: String {
+        String(localized: "filePreview.openWith.menu", defaultValue: "Open With")
+    }
+
+    static var openExternally: String {
+        String(localized: "filePreview.openExternally", defaultValue: "Open Externally")
+    }
+
+    static func openInApplication(_ applicationName: String) -> String {
+        let format = String(localized: "filePreview.openInApplication", defaultValue: "Open in %@")
+        return String(format: format, applicationName)
+    }
+}
+
+enum FileExternalOpenMenuStyle {
+    case header
+    case chrome
+}
+
+struct FileExternalOpenMenu: View {
+    let fileURL: URL
+    var isDisabled = false
+    var style: FileExternalOpenMenuStyle = .header
+
+    @State private var resolvedApplications: [FileExternalOpenApplication] = []
+
+    var body: some View {
+        let applications = resolvedApplications
+        let primaryApplication = primaryApplication(in: applications)
+        let otherApplications = applications.filter { application in
+            application.id != primaryApplication?.id
+        }
+        let helpText = helpText(for: primaryApplication)
+
+        Group {
+            switch style {
+            case .header:
+                FileExternalOpenHeaderMenuButton(
+                    fileURL: fileURL,
+                    primaryApplication: primaryApplication,
+                    otherApplications: otherApplications,
+                    helpText: helpText,
+                    isDisabled: isDisabled
+                )
+            case .chrome:
+                Menu {
+                    menuContent(primaryApplication: primaryApplication, otherApplications: otherApplications)
+                } label: {
+                    label
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+                .disabled(isDisabled)
+                .help(helpText)
+                .accessibilityLabel(helpText)
+            }
+        }
+        .task(id: fileURL) {
+            await refreshApplications()
+        }
+    }
+
+    @ViewBuilder
+    private func menuContent(
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> some View {
+        if let primaryApplication {
+            Button(openInTitle(primaryApplication.displayName)) {
+                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
+            }
+            if !otherApplications.isEmpty {
+                Divider()
+                Menu(FileExternalOpenText.openWithMenu) {
+                    ForEach(otherApplications) { application in
+                        Button(application.displayName) {
+                            FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
+                        }
+                    }
+                }
+            }
+        } else {
+            Button(FileExternalOpenText.openExternally) {
+                FileExternalOpenAction.openDefault(fileURL: fileURL)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        switch style {
+        case .header:
+            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
+        case .chrome:
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 42, height: 40)
+        }
+    }
+
+    private func primaryApplication(in applications: [FileExternalOpenApplication]) -> FileExternalOpenApplication? {
+        applications.first { $0.isDefault } ?? applications.first
+    }
+
+    private func helpText(for primaryApplication: FileExternalOpenApplication?) -> String {
+        if let primaryApplication {
+            return openInTitle(primaryApplication.displayName)
+        }
+        return FileExternalOpenText.openExternally
+    }
+
+    private func openInTitle(_ applicationName: String) -> String {
+        FileExternalOpenText.openInApplication(applicationName)
+    }
+
+    @MainActor
+    private func refreshApplications() async {
+        resolvedApplications = []
+        let url = fileURL
+        let applications = await Task.detached(priority: .userInitiated) {
+            FileExternalOpenApplicationResolver.live.applications(for: url)
+        }.value
+        guard !Task.isCancelled else { return }
+        resolvedApplications = applications
+    }
+}
+
+private struct FileExternalOpenHeaderMenuButton: View {
+    let fileURL: URL
+    let primaryApplication: FileExternalOpenApplication?
+    let otherApplications: [FileExternalOpenApplication]
+    let helpText: String
+    let isDisabled: Bool
+
+    var body: some View {
+        Button(action: presentMenu) {
+            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(helpText)
+        .accessibilityLabel(helpText)
+    }
+
+    private func presentMenu() {
+        let menu = makeMenu()
+        if let event = NSApp.currentEvent,
+           let contentView = event.window?.contentView {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil, at: point, in: contentView)
+            return
+        }
+
+        guard let contentView = NSApp.keyWindow?.contentView else { return }
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: contentView.bounds.maxX - 24, y: contentView.bounds.maxY - 32),
+            in: contentView
+        )
+    }
+
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        if let primaryApplication {
+            menu.addItem(menuItem(for: primaryApplication))
+            if !otherApplications.isEmpty {
+                menu.addItem(.separator())
+                let submenuItem = NSMenuItem(
+                    title: FileExternalOpenText.openWithMenu,
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                let submenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+                otherApplications.forEach { application in
+                    submenu.addItem(menuItem(for: application))
+                }
+                submenuItem.submenu = submenu
+                menu.addItem(submenuItem)
+            }
+        } else {
+            let item = NSMenuItem(
+                title: FileExternalOpenText.openExternally,
+                action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+                keyEquivalent: ""
+            )
+            item.target = FileExternalOpenMenuActionTarget.shared
+            item.representedObject = FileExternalOpenMenuActionPayload(
+                fileURL: fileURL,
+                applicationURL: nil
+            )
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func menuItem(for application: FileExternalOpenApplication) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: FileExternalOpenText.openInApplication(application.displayName),
+            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+            keyEquivalent: ""
+        )
+        item.target = FileExternalOpenMenuActionTarget.shared
+        item.representedObject = FileExternalOpenMenuActionPayload(
+            fileURL: fileURL,
+            applicationURL: application.url
+        )
+        return item
+    }
+}
+
+private final class FileExternalOpenMenuActionPayload: NSObject {
+    let fileURL: URL
+    let applicationURL: URL?
+
+    init(fileURL: URL, applicationURL: URL?) {
+        self.fileURL = fileURL
+        self.applicationURL = applicationURL
+    }
+}
+
+private final class FileExternalOpenMenuActionTarget: NSObject {
+    static let shared = FileExternalOpenMenuActionTarget()
+
+    @objc func open(_ item: NSMenuItem) {
+        guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
+            return
+        }
+        if let applicationURL = payload.applicationURL {
+            FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
+        } else {
+            FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
+        }
+    }
+}
+
 struct FilePreviewDragEntry {
     let filePath: String
     let displayTitle: String
@@ -501,7 +830,7 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject {
+final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
@@ -813,7 +1142,7 @@ struct FilePreviewPanelView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: themeBackgroundColor))
+        .background(Color.clear)
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -832,42 +1161,29 @@ struct FilePreviewPanelView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: panel.displayIcon ?? "doc.viewfinder")
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Color(nsColor: themeForegroundColor).opacity(0.68))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            Spacer(minLength: 8)
+        PanelFilePathHeader(
+            iconSystemName: panel.displayIcon ?? "doc.viewfinder",
+            filePath: panel.filePath,
+            foregroundColor: themeForegroundColor
+        ) {
             if panel.previewMode == .text {
-                Button {
-                    panel.loadTextContent()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(!panel.isDirty)
-                .help(String(localized: "filePreview.revert", defaultValue: "Revert"))
-                .accessibilityLabel(String(localized: "filePreview.revert", defaultValue: "Revert"))
+                PanelHeaderIconButton(
+                    systemName: "arrow.counterclockwise",
+                    label: String(localized: "filePreview.revert", defaultValue: "Revert"),
+                    isDisabled: !panel.isDirty,
+                    action: { panel.loadTextContent() }
+                )
 
-                Button {
-                    panel.saveTextContent()
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .buttonStyle(.borderless)
-                .disabled(!panel.isDirty || panel.isSaving)
-                .help(String(localized: "filePreview.save", defaultValue: "Save"))
-                .accessibilityLabel(String(localized: "filePreview.save", defaultValue: "Save"))
+                PanelHeaderIconButton(
+                    systemName: "square.and.arrow.down",
+                    label: String(localized: "filePreview.save", defaultValue: "Save"),
+                    isDisabled: !panel.isDirty || panel.isSaving,
+                    action: { panel.saveTextContent() }
+                )
             }
+
+            FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(Color(nsColor: themeBackgroundColor))
     }
 
     @ViewBuilder
@@ -880,7 +1196,7 @@ struct FilePreviewPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: themeBackgroundColor,
+                    themeBackgroundColor: .clear,
                     themeForegroundColor: themeForegroundColor
                 )
             case .pdf:
@@ -1166,6 +1482,7 @@ private struct FilePreviewPDFSidebarChromeView: View {
 
 struct FilePreviewPDFZoomChromeView: View {
     let chromeStyleVariant: FilePreviewPDFChromeStyleVariant
+    let fileURL: URL?
     let zoomOut: () -> Void
     let actualSize: () -> Void
     let zoomIn: () -> Void
@@ -1178,6 +1495,9 @@ struct FilePreviewPDFZoomChromeView: View {
             ControlGroup {
                 zoomButtons(includeDividers: false)
                 secondaryButtons(includeDividers: false)
+                if let fileURL {
+                    FileExternalOpenMenu(fileURL: fileURL)
+                }
             } label: {
                 Label(
                     String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
@@ -1198,6 +1518,14 @@ struct FilePreviewPDFZoomChromeView: View {
                 }
                 .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
                 .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
+
+                if let fileURL {
+                    HStack(spacing: 0) {
+                        FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
+                    }
+                    .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
+                    .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
+                }
             }
         }
     }
@@ -1822,7 +2150,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
-        static let floatingControlsWidth: CGFloat = 266
+        static let floatingControlsWidth: CGFloat = 318
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
@@ -1916,6 +2244,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             return
         }
         currentURL = url
+        updateChromeRootViews()
         pdfView.document = nil
         thumbnailView.setDocument(nil)
         outlineRoot = nil
@@ -2176,6 +2505,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         ))
         zoomChromeHost.rootView = AnyView(FilePreviewPDFZoomChromeView(
             chromeStyleVariant: chromeStyleVariant,
+            fileURL: currentURL,
             zoomOut: { [weak self] in self?.zoomOut() },
             actualSize: { [weak self] in self?.actualSize() },
             zoomIn: { [weak self] in self?.zoomIn() },

@@ -39,6 +39,37 @@ class UpdateViewModel: ObservableObject {
         detectedUpdateVersion = nil
     }
 
+    func dismissDetectedAvailableUpdate() {
+        clearDetectedUpdate()
+
+        var didDismissUpdate = false
+        if case .updateAvailable(let update) = state {
+            update.reply(.dismiss)
+            didDismissUpdate = true
+            state = .idle
+        }
+
+        if let overrideState, case .updateAvailable(let update) = overrideState {
+            if !didDismissUpdate {
+                update.reply(.dismiss)
+            }
+            self.overrideState = nil
+        }
+    }
+
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
+    func applyDriverState(_ newState: UpdateState) {
+        if case .updateAvailable(let update) = newState {
+            recordDetectedUpdate(update.appcastItem)
+        }
+        state = newState
+    }
+
     var text: String {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }
