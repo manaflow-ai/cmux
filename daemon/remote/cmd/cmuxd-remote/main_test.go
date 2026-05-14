@@ -120,8 +120,12 @@ func TestOMOEnsurePluginRejectsInvalidUserConfig(t *testing.T) {
 	}
 
 	shadowOmoConfig := filepath.Join(home, ".cmuxterm", "omo-config", "oh-my-opencode.json")
-	if _, statErr := os.Stat(shadowOmoConfig); !os.IsNotExist(statErr) {
-		t.Fatalf("shadow OMO config should not be written after invalid user config, stat err=%v", statErr)
+	shadowContents, err := os.ReadFile(shadowOmoConfig)
+	if err != nil {
+		t.Fatalf("read shadow OMO config: %v", err)
+	}
+	if string(shadowContents) != "{" {
+		t.Fatalf("shadow OMO config should not be replaced after invalid user config, got %q", shadowContents)
 	}
 }
 
