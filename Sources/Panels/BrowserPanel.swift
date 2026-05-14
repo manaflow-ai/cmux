@@ -4588,6 +4588,7 @@ extension BrowserPanel {
                 Self.isDetachedInspectorWindow(window)
             }
             guard isDetachedInspectorWindow else { return }
+            self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard self.preferredDeveloperToolsPresentation == .detached else { return }
@@ -4604,6 +4605,27 @@ extension BrowserPanel {
 #endif
             }
         }
+    }
+
+    @discardableResult
+    private func closeDeveloperToolsFromDetachedInspectorWindowWillClose(_ window: NSWindow) -> Bool {
+        guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
+        let closed = closeDeveloperToolsForTeardown()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools detachedClose.willClose panel=\(id.uuidString.prefix(5)) " +
+            "closed=\(closed ? 1 : 0) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+        return closed
+    }
+
+    private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
+        guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
+              let contentView = window.contentView else {
+            return false
+        }
+        return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
@@ -4635,7 +4657,11 @@ extension BrowserPanel {
     }
 
     private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
-        guard preferredDeveloperToolsPresentation == .unknown else { return }
+        if preferredDeveloperToolsPresentation != .unknown {
+            guard preferredDeveloperToolsPresentation == .attached else { return }
+            guard webView.superview != nil, webView.window != nil else { return }
+            guard inspector.cmuxCallBool(selector: NSSelectorFromString("isAttached")) == false else { return }
+        }
         let attachSelector = NSSelectorFromString("attach")
         guard inspector.responds(to: attachSelector) else { return }
         inspector.cmuxCallVoid(selector: attachSelector)
