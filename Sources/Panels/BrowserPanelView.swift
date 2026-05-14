@@ -7,6 +7,94 @@ import ObjectiveC
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
+private final class WeakOmnibarNativeTextField {
+    weak var field: OmnibarNativeTextField?
+
+    init(_ field: OmnibarNativeTextField) {
+        self.field = field
+    }
+}
+
+final class BrowserOmnibarNativeFieldRegistry {
+    static let shared = BrowserOmnibarNativeFieldRegistry()
+
+    private var fields: [UUID: [WeakOmnibarNativeTextField]] = [:]
+
+    func register(_ field: OmnibarNativeTextField, panelId: UUID) {
+        var entries = fields[panelId] ?? []
+        entries.removeAll { entry in
+            guard let existing = entry.field else { return true }
+            return existing === field
+        }
+        entries.append(WeakOmnibarNativeTextField(field))
+        fields[panelId] = entries
+    }
+
+    func unregister(_ field: OmnibarNativeTextField, panelId: UUID) {
+        guard var entries = fields[panelId] else { return }
+        entries.removeAll { entry in
+            guard let existing = entry.field else { return true }
+            return existing === field
+        }
+        if entries.isEmpty {
+            fields.removeValue(forKey: panelId)
+        } else {
+            fields[panelId] = entries
+        }
+    }
+
+    func field(for panelId: UUID?, in window: NSWindow? = nil) -> OmnibarNativeTextField? {
+        guard let panelId else { return nil }
+        pruneDeadEntries(for: panelId)
+        guard let entries = fields[panelId] else { return nil }
+        let liveFields = entries.reversed().compactMap(\.field)
+        if let window, let windowField = liveFields.first(where: { $0.window === window }) {
+            return windowField
+        }
+        return liveFields.first
+    }
+
+    func fieldOwningEditor(_ editor: NSTextView, in window: NSWindow? = nil) -> OmnibarNativeTextField? {
+        for panelId in Array(fields.keys) {
+            pruneDeadEntries(for: panelId)
+        }
+
+        let liveFields = fields.values.flatMap { entries in
+            entries.reversed().compactMap(\.field)
+        }
+        if let window,
+           let windowField = liveFields.first(where: { $0.window === window && $0.currentEditor() === editor }) {
+            return windowField
+        }
+        if let registeredField = liveFields.first(where: { $0.currentEditor() === editor }) {
+            return registeredField
+        }
+
+        guard let root = window?.contentView?.superview ?? window?.contentView else {
+            return nil
+        }
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            if let field = view as? OmnibarNativeTextField,
+               field.currentEditor() === editor {
+                return field
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    private func pruneDeadEntries(for panelId: UUID) {
+        guard var entries = fields[panelId] else { return }
+        entries.removeAll { $0.field == nil }
+        if entries.isEmpty {
+            fields.removeValue(forKey: panelId)
+        } else {
+            fields[panelId] = entries
+        }
+    }
+}
+
 private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
     guard let object else { return "nil" }
     return String(describing: Unmanaged.passUnretained(object).toOpaque())
@@ -3967,6 +4055,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
         field.panelId = panelId
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
         field.font = .systemFont(ofSize: 12)
         field.placeholderString = placeholder
@@ -3990,7 +4079,11 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        if let previousPanelId = nsView.panelId, previousPanelId != panelId {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: previousPanelId)
+        }
         nsView.panelId = panelId
+        BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
         nsView.placeholderString = placeholder
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
@@ -4116,6 +4209,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: OmnibarNativeTextField, coordinator: Coordinator) {
+        if let panelId = nsView.panelId {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: panelId)
+        }
         nsView.onPointerDown = nil
         nsView.onHandleKeyEvent = nil
         nsView.delegate = nil
@@ -4126,6 +4222,24 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
 func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
     browserOmnibarField(for: responder)?.panelId
+}
+
+func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
+    if let registeredField = BrowserOmnibarNativeFieldRegistry.shared.field(for: panelId, in: window) {
+        return registeredField
+    }
+    guard let panelId, let root = window?.contentView?.superview ?? window?.contentView else {
+        return nil
+    }
+
+    var stack: [NSView] = [root]
+    while let view = stack.popLast() {
+        if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
+            return field
+        }
+        stack.append(contentsOf: view.subviews)
+    }
+    return nil
 }
 
 @discardableResult
@@ -4145,11 +4259,16 @@ private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTe
         return field
     }
 
-    if let editor = responder as? NSTextView,
-       editor.isFieldEditor,
-       let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
-       field.currentEditor() === editor {
-        return field
+    if let editor = responder as? NSTextView, editor.isFieldEditor {
+        if let field = BrowserOmnibarNativeFieldRegistry.shared.fieldOwningEditor(editor, in: editor.window) {
+            return field
+        }
+
+        if let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
+           field.currentEditor() === editor {
+            return field
+        }
+
     }
 
     return nil

@@ -12258,6 +12258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserAddressBarFocusedPanelId
     }
 
+    func focusedBrowserOmnibarField(in window: NSWindow?) -> OmnibarNativeTextField? {
+        browserOmnibarField(panelId: browserAddressBarFocusedPanelId, in: window)
+    }
+
     func clearBrowserAddressBarFocus(panelId: UUID, reason: String) {
         guard browserAddressBarFocusedPanelId == panelId else { return }
         browserAddressBarFocusedPanelId = nil
@@ -14791,6 +14795,34 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(in: self),
+               browserOmnibarPanelId(for: self.firstResponder) == nil,
+               focusedOmnibarField.window === self {
+                if cmuxBrowserArrowForwardingDepth > 0 {
+#if DEBUG
+                    cmuxDebugLog("  → browser arrow omnibar restore reentry; using normal dispatch")
+#endif
+                    return cmux_performKeyEquivalent(with: event)
+                }
+                cmuxBrowserArrowForwardingDepth += 1
+                defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
+
+                if focusedOmnibarField.currentEditor() == nil ||
+                    browserOmnibarPanelId(for: self.firstResponder) != focusedOmnibarField.panelId {
+                    _ = self.makeFirstResponder(focusedOmnibarField)
+                }
+
+                let omnibarResponder = (focusedOmnibarField.currentEditor() as? NSResponder) ?? focusedOmnibarField
+                guard !browserResponderHasMarkedText(omnibarResponder) else {
+                    return false
+                }
+#if DEBUG
+                cmuxDebugLog("  → browser arrow restored focused omnibar before keyDown")
+#endif
+                omnibarResponder.keyDown(with: event)
+                return true
+            }
+
             // Match the Return/Enter forwarding guard: AppKit/WebKit can re-enter
             // performKeyEquivalent while the synthesized keyDown is in flight.
             if cmuxBrowserArrowForwardingDepth > 0 {
@@ -14926,6 +14958,10 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent?
     ) -> CmuxWebView? {
+        if browserOmnibarPanelId(for: responder) != nil {
+            return nil
+        }
+
         // Browser find runs in the portal slot alongside the hosted WKWebView.
         // Treat its native field editor chain as browser chrome, not as web content,
         // so Cmd+F can move first responder into the find field while web focus is suppressed.
