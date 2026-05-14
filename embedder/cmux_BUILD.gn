@@ -44,6 +44,7 @@ template("cmux_helper_app") {
     extra_substitutions = [
       "CMUX_HELPER_BUNDLE_ID=${cmux_core_framework_bundle_id}${invoker.helper_bundle_id_suffix}",
       "CMUX_HELPER_NAME=${cmux_helper_name}${invoker.helper_name_suffix}",
+
       # mac_helpers.gni does not provide a CFBundlePackageType
       # variant. Chrome hard-codes APPL for every helper; cmux does
       # the same. (See chrome/app/helper-Info.plist.)
@@ -117,15 +118,9 @@ mac_framework_bundle("cmux_core_framework") {
     "//services/network/public/mojom",
   ]
 
-  data_deps = [
-    ":cmux_helpers",
-  ]
+  data_deps = [ ":cmux_helpers" ]
 
-  configs += [
-    "//build/config/compiler:enable_arc",
-  ]
+  configs += [ "//build/config/compiler:enable_arc" ]
 
-  ldflags = [
-    "-Wl,-install_name,@executable_path/../Frameworks/CmuxCore.framework/Versions/A/CmuxCore",
-  ]
+  ldflags = [ "-Wl,-install_name,@executable_path/../Frameworks/CmuxCore.framework/Versions/A/CmuxCore" ]
 }

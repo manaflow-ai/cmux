@@ -16,12 +16,11 @@ import("//content/public/app/mac_helpers.gni")
 # Public C header set. Anything that links the framework can include
 # the header; only the framework target links the source_set.
 source_set("embedder") {
-  visibility = [
-    "//cmux:*",
-  ]
+  visibility = [ "//cmux:*" ]
 
   sources = [
     "cmux_browser.h",
+
     # Stub implementations of the C ABI. Each TU compiles standalone
     # against //base and the system frameworks; the bodies return
     # CMUX_E_NATIVE / sentinel values until the real //content wiring
@@ -54,9 +53,7 @@ source_set("embedder") {
     "QuartzCore.framework",
   ]
 
-  configs += [
-    "//build/config/compiler:enable_arc",
-  ]
+  configs += [ "//build/config/compiler:enable_arc" ]
 }
 
 # Header-only target. Lets external GN consumers depend on the header
@@ -66,7 +63,5 @@ source_set("embedder_headers") {
     "//cmux:*",
     "//cmux/*",
   ]
-  sources = [
-    "cmux_browser.h",
-  ]
+  sources = [ "cmux_browser.h" ]
 }

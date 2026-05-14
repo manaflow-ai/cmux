@@ -1,9 +1,15 @@
 # `embedder/` — fork-bound artifacts
 
-> **NOTE — the `BUILD.gn` files are still unvalidated.** They have not
-> been `gn check`-ed against a real Chromium tree (no fork repo
-> exists), but the obvious bugs the earlier WARNING called out are
-> fixed:
+> **NOTE — the `BUILD.gn` files pass `gn format` against the M148 tree
+> on `cmux-aws-mac`** (both files round-trip cleanly through the
+> depot_tools `gn format` parser; the only diffs are GN's single-line
+> collapses for length-1 lists, which have been applied here). They
+> have **not yet been `gn gen`-ed against a real `cmux_core_framework`
+> dep graph** (the framework is not yet reachable from
+> `//chrome:gn_all`), so semantic checks like target-lookup,
+> source-file existence beyond this directory, and template arg
+> types are still unverified. The obvious bugs the earlier WARNING
+> called out are fixed:
 >
 > - `BUILD.gn` no longer lists `cmux_browser.mm` / `cmux_view.cc` /
 >   `cmux_session.cc` / `cmux_profile.cc` / `cmux_layer_host.mm` in
