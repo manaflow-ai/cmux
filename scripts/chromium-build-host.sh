@@ -237,6 +237,47 @@ PYEOF
         echo "  applied: third_party/angle/.../metal_wrapper.py"
     fi
 
+    if [ -f "${patches_dir}/0005-ax-cocoa-rename-private-symbol-backports.patch" ]; then
+        local target="${REMOTE_CHROMIUM_ROOT}/src/ui/accessibility/platform/browser_accessibility_cocoa.mm"
+        echo ">> Applying browser_accessibility_cocoa SDK-shadow rename"
+        ssh -o BatchMode=yes "${REMOTE_HOST}" "python3 - <<'PY'
+import pathlib
+p = pathlib.Path('${target}')
+s = p.read_text()
+# Idempotent rename: only act if the bare names are still present.
+# The bare names declared in the anonymous namespace collide with the
+# macOS 26.2 SDK; rename to CmuxNS* prefix. String literals unchanged.
+old_decl_a = '''NSString* const
+    NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute =
+        @\"AXUIElementsForSearchPredicate\";'''
+new_decl_a = '''// cmux fork: renamed to avoid collision with macOS 26.2 SDK
+// (which now declares the same identifier @available(macos 26.0)).
+NSString* const
+    CmuxNSAccessibilityUIElementsForSearchPredicateParameterizedAttribute =
+        @\"AXUIElementsForSearchPredicate\";'''
+old_decl_b = 'NSString* const NSAccessibilityScrollToVisibleAction = @\"AXScrollToVisible\";'
+new_decl_b = '''// cmux fork: renamed to avoid collision with macOS 26.2 SDK.
+NSString* const CmuxNSAccessibilityScrollToVisibleAction = @\"AXScrollToVisible\";'''
+changed = False
+if old_decl_a in s:
+    s = s.replace(old_decl_a, new_decl_a, 1)
+    s = s.replace('NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute',
+                  'CmuxNSAccessibilityUIElementsForSearchPredicateParameterizedAttribute')
+    changed = True
+if old_decl_b in s:
+    s = s.replace(old_decl_b, new_decl_b, 1)
+    s = s.replace('NSAccessibilityScrollToVisibleAction',
+                  'CmuxNSAccessibilityScrollToVisibleAction')
+    changed = True
+if changed:
+    p.write_text(s)
+    print('applied: ui/accessibility/platform/browser_accessibility_cocoa.mm')
+else:
+    print('already-applied (no-op)')
+PY
+"
+    fi
+
     if [ -f "${patches_dir}/0004-ax-platform-node-cocoa-suppress-new-availability.patch" ]; then
         local target="${REMOTE_CHROMIUM_ROOT}/src/ui/accessibility/platform/ax_platform_node_cocoa.mm"
         echo ">> Applying ax_platform_node_cocoa file-scope availability suppression"
