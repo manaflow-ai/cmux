@@ -923,6 +923,65 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testWindowKeyEquivalentRoutesApplePinyinCandidateArrowThroughKeyDownWithoutMarkedText() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let terminalSurface = hostedTerminal.surface
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            window.orderOut(nil)
+            withExtendedLifetime(terminalSurface) {}
+        }
+
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Pinyin"
+
+        var textInputKeyCodes: [UInt16] = []
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, event in
+            guard candidateView === surfaceView else { return false }
+            textInputKeyCodes.append(event.keyCode)
+            return true
+        }
+
+        var forwardedPressKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPressKeyCodes.append(keyEvent.keycode)
+        }
+
+        let event = try keyEvent(
+            text: "\u{F701}",
+            keyCode: UInt16(kVK_DownArrow),
+            windowNumber: window.windowNumber
+        )
+
+        window.makeFirstResponder(surfaceView)
+        withExtendedLifetime(terminalSurface) {
+            XCTAssertTrue(
+                window.performKeyEquivalent(with: event),
+                "Window-level Apple Pinyin candidate arrows must re-enter keyDown for NSTextInputContext"
+            )
+        }
+
+        XCTAssertEqual(
+            textInputKeyCodes,
+            [UInt16(kVK_DownArrow)],
+            "Window key-equivalent routing should give the candidate arrow to text input first"
+        )
+        XCTAssertEqual(
+            forwardedPressKeyCodes,
+            [],
+            "Text-input-handled Apple Pinyin candidate arrows must not leak to Ghostty"
+        )
+    }
+
     func testZhuyinPreCompositionStillUsesNoMarkedTextSuppression() throws {
         let view = GhosttyNSView(frame: .zero)
         let event = try keyEvent(
