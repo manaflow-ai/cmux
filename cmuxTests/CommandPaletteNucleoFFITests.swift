@@ -459,6 +459,95 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         )
     }
 
+    func testNucleoFFIEdgeCaseTypingFrameBudgetComparison() throws {
+        let entries = makeEdgeCasePaletteEntries(generatedWorkspaceCount: 2_000)
+        let corpus = searchCorpus(entries: entries)
+        var index: CommandPaletteNucleoSearchIndex<String>?
+        let buildMs = benchmarkElapsedMs {
+            index = CommandPaletteNucleoSearchIndex(entries: corpus)
+        }
+        let productionIndex = try XCTUnwrap(index)
+        let queries = repeatedQueries(edgeCaseTypingQueries(), repetitions: 2)
+
+        for query in queries.prefix(16) {
+            _ = optimizedResults(corpus: corpus, query: query, resultLimit: 100)
+            _ = productionIndex.search(query: query, resultLimit: 100)
+        }
+
+        var swiftDurationsMs: [Double] = []
+        var nucleoDurationsMs: [Double] = []
+        var boostedNucleoDurationsMs: [Double] = []
+        swiftDurationsMs.reserveCapacity(queries.count)
+        nucleoDurationsMs.reserveCapacity(queries.count)
+        boostedNucleoDurationsMs.reserveCapacity(queries.count)
+
+        for query in queries {
+            swiftDurationsMs.append(
+                benchmarkElapsedMs {
+                    _ = optimizedResults(corpus: corpus, query: query, resultLimit: 100)
+                }
+            )
+            nucleoDurationsMs.append(
+                benchmarkElapsedMs {
+                    _ = productionIndex.search(query: query, resultLimit: 100)
+                }
+            )
+            boostedNucleoDurationsMs.append(
+                benchmarkElapsedMs {
+                    _ = productionIndex.search(
+                        query: query,
+                        resultLimit: 100,
+                        historyBoost: { commandID, queryIsEmpty in
+                            if commandID == "palette.markWorkspaceUnread" {
+                                return queryIsEmpty ? 300 : 120
+                            }
+                            return 0
+                        }
+                    )
+                }
+            )
+        }
+
+        let expectedTopResults = [
+            ("ims", "workspace.indigoMarkdownStudio"),
+            ("wunr", "palette.markWorkspaceUnread"),
+            ("open folder", "palette.openFolder"),
+            ("workspace 1901", "workspace.large.1901"),
+            ("cafe", "workspace.cafeUnicodeNotes"),
+        ]
+        for (query, expectedID) in expectedTopResults {
+            XCTAssertEqual(
+                productionIndex.search(query: query, resultLimit: 10)?.first?.payload,
+                expectedID,
+                "Unexpected top result for \(query)"
+            )
+        }
+
+        print(String(
+            format: "BENCH cmd+p nucleo-ffi edge-typing entries=%d queries=%d build=%.2fms swift=%.2fms nucleo=%.2fms boostedNucleo=%.2fms maxSwift=%.2fms p95Swift=%.2fms maxNucleo=%.2fms p95Nucleo=%.2fms maxBoostedNucleo=%.2fms p95BoostedNucleo=%.2fms swiftDroppedFrames=%d nucleoDroppedFrames=%d boostedNucleoDroppedFrames=%d",
+            entries.count,
+            queries.count,
+            buildMs,
+            swiftDurationsMs.reduce(0, +),
+            nucleoDurationsMs.reduce(0, +),
+            boostedNucleoDurationsMs.reduce(0, +),
+            swiftDurationsMs.max() ?? 0,
+            percentile(swiftDurationsMs, percentile: 0.95),
+            nucleoDurationsMs.max() ?? 0,
+            percentile(nucleoDurationsMs, percentile: 0.95),
+            boostedNucleoDurationsMs.max() ?? 0,
+            percentile(boostedNucleoDurationsMs, percentile: 0.95),
+            estimatedDroppedFrames(for: swiftDurationsMs),
+            estimatedDroppedFrames(for: nucleoDurationsMs),
+            estimatedDroppedFrames(for: boostedNucleoDurationsMs)
+        ))
+
+        XCTAssertLessThanOrEqual(
+            estimatedDroppedFrames(for: nucleoDurationsMs),
+            estimatedDroppedFrames(for: swiftDurationsMs)
+        )
+    }
+
     func testNucleoFFICallOverheadBenchmark() throws {
         let library = try NucleoLibrary()
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
@@ -597,6 +686,57 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         ]
     }
 
+    private func makeEdgeCasePaletteEntries(generatedWorkspaceCount: Int) -> [FixtureEntry] {
+        var entries = makeOpenFolderEntries()
+        entries.append(
+            FixtureEntry(
+                id: "palette.markWorkspaceUnread",
+                rank: entries.count,
+                title: "Mark Workspace as Unread",
+                searchableTexts: [
+                    "Mark Workspace as Unread",
+                    "Workspace",
+                    "mark",
+                    "unread",
+                    "notification",
+                ]
+            )
+        )
+        entries.append(contentsOf: makeInitialismWorkspaceEntries().map { entry in
+            FixtureEntry(
+                id: entry.id,
+                rank: entries.count + entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        })
+        entries.append(
+            FixtureEntry(
+                id: "workspace.cafeUnicodeNotes",
+                rank: entries.count,
+                title: "Café Unicode Notes",
+                searchableTexts: [
+                    "Café Unicode Notes",
+                    "Cafe Unicode Notes",
+                    "cafe",
+                    "unicode",
+                    "workspace",
+                ]
+            )
+        )
+
+        let generatedRankOffset = entries.count
+        entries.append(contentsOf: makeLargeWorkspaceSwitcherEntries(count: generatedWorkspaceCount).map { entry in
+            FixtureEntry(
+                id: entry.id,
+                rank: generatedRankOffset + entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        })
+        return entries
+    }
+
     private func makeLargeWorkspaceSwitcherEntries(count: Int) -> [FixtureEntry] {
         (0..<count).map { index in
             let projectSlug = "project-\(index)-cmd-p-search-performance"
@@ -725,6 +865,40 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         }
     }
 
+    private func edgeCaseTypingQueries() -> [String] {
+        var queries: [String] = []
+        for text in [
+            "ims",
+            "wunr",
+            "open folder",
+            "workspace 1901",
+            "feature/palette-latency-177",
+            "project-1999",
+            "cmd-p-search",
+            "cafe unicode",
+            "zzzzzzzz",
+        ] {
+            queries.append(contentsOf: fastTypingPrefixes(text))
+        }
+        queries.append(contentsOf: [
+            "",
+            "   ",
+            "  OPEN   FOLDER  ",
+            "Window 3",
+            "3007",
+            "4207",
+            "9207",
+            "task/cmd-p-search-7",
+            "feature palette latency",
+            "project 42 cmd p",
+            "workspace/branch:177",
+            "café",
+            "Cafe",
+            "no-match-query",
+        ])
+        return queries
+    }
+
     private func estimatedDroppedFrames(
         for queryDurationsMs: [Double],
         frameBudgetMs: Double = 1000.0 / 60.0
@@ -739,6 +913,14 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         operation()
         let elapsed = DispatchTime.now().uptimeNanoseconds - start
         return Double(elapsed) / 1_000_000
+    }
+
+    private func percentile(_ values: [Double], percentile: Double) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        let clampedPercentile = min(1, max(0, percentile))
+        let index = Int((Double(sorted.count - 1) * clampedPercentile).rounded())
+        return sorted[index]
     }
 
     private func repeatedQueries(_ baseQueries: [String], repetitions: Int) -> [String] {

@@ -9,3 +9,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 nucleo = "0.5"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { CodeBlock } from "../../components/code-block";
+import { DocsHeading } from "../../components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -18,7 +19,7 @@ export default function SshPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
       <iframe
@@ -29,14 +30,14 @@ export default function SshPage() {
         allowFullScreen
       />
 
-      <h2>{t("usage")}</h2>
+      <DocsHeading level={2} id="usage">{t("usage")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux ssh user@remote
 cmux ssh user@remote --name "dev server"
 cmux ssh user@remote -p 2222
 cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
-      <h2>{t("flagsTitle")}</h2>
+      <DocsHeading level={2} id="flags-title">{t("flagsTitle")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -53,25 +54,25 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
         </tbody>
       </table>
 
-      <h2>{t("browserTitle")}</h2>
+      <DocsHeading level={2} id="browser-title">{t("browserTitle")}</DocsHeading>
       <p>{t("browserDesc")}</p>
 
-      <h2>{t("dragDropTitle")}</h2>
+      <DocsHeading level={2} id="drag-drop-title">{t("dragDropTitle")}</DocsHeading>
       <p>{t("dragDropDesc")}</p>
 
-      <h2>{t("notificationsTitle")}</h2>
+      <DocsHeading level={2} id="notifications-title">{t("notificationsTitle")}</DocsHeading>
       <p>{t("notificationsDesc")}</p>
 
-      <h2>{t("agentsTitle")}</h2>
+      <DocsHeading level={2} id="agents-title">{t("agentsTitle")}</DocsHeading>
       <p>{t("agentsDesc")}</p>
       <CodeBlock lang="bash">{`# Inside an SSH session:
 cmux claude-teams
 cmux omo`}</CodeBlock>
 
-      <h2>{t("reconnectTitle")}</h2>
+      <DocsHeading level={2} id="reconnect-title">{t("reconnectTitle")}</DocsHeading>
       <p>{t("reconnectDesc")}</p>
 
-      <h2>{t("daemonTitle")}</h2>
+      <DocsHeading level={2} id="daemon-title">{t("daemonTitle")}</DocsHeading>
       <p>{t("daemonDesc")}</p>
       <table>
         <thead>

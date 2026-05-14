@@ -27,4 +27,7 @@ NSUnbufferedIO=YES CMUX_NUCLEO_FFI_LIB="${LIB_PATH}" \
     -only-testing:cmuxTests/CommandPaletteNucleoFFITests \
     test | tee "${LOG_PATH}"
 
-grep 'BENCH cmd+p nucleo-ffi' "${LOG_PATH}" || true
+if ! grep 'BENCH cmd+p nucleo-ffi' "${LOG_PATH}"; then
+  echo "error: CommandPaletteNucleoFFITests did not emit benchmark output" >&2
+  exit 1
+fi
