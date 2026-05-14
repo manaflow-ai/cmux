@@ -4,11 +4,11 @@ Read this first when starting any session on `feat-chromium-engine`. Append a ne
 
 ## Next steps (always current)
 
-- [x] Confirm the `:base` smoke build finished green on `cmux-aws-mac`. ✅ 2026-05-14 session 1: `1m33.11s Build Succeeded: 2192 steps - 23.54/s` in `~/chromium-fork/build-base.log`. Toolchain validated end-to-end.
-- [ ] Build `content_shell` next: `./scripts/chromium-build-host.sh build content_shell`. Roughly 30-60 min on M1 Ultra at -j16. This is upstream's minimal embedder; if it builds, the fork's `cmux_core_framework` target will too.
-- [ ] Wire CmuxBrowserEngine into `GhosttyTabs.xcodeproj` so cmux's main target picks it up. Today the package compiles standalone but isn't a dependency. Pattern: see how `Packages/CMUXAuthCore` is referenced in `project.pbxproj`.
-- [ ] Continue Packages/CmuxBrowserEngine expansions from `plans/wkwebview-surface-audit.md` "Migration order recommended". DONE so far: KVO/Combine mirrors, pageZoom. NEXT: CmuxDataStore + CmuxCookieStore (wraps `WKWebsiteDataStore(forIdentifier:)` and `httpCookieStore` — see `Sources/Panels/BrowserPanel.swift:383-3010` for the cmux-specific profile/data-store dance that needs neutralizing).
-- [ ] Create the Chromium fork repo `manaflow-ai/cmux-chromium` (requires user permission to create org-level repo). Once created, push the M148 base commit + an empty `//cmux/embedder/` skeleton matching the C ABI in `plans/cmux-embedder-c-abi.md`.
+- [x] Confirm the `:base` smoke build finished green on `cmux-aws-mac`. ✅ 2026-05-14 session 1: `1m33.11s Build Succeeded: 2192 steps - 23.54/s`.
+- [ ] Verify the `content_shell` build (started session 2 with metal patch). Build log at `~/chromium-fork/build-content-shell.log`. Round 3 of the build is in flight as of session 2 close. Once it lands green, the wider Chromium target graph is proven.
+- [ ] Wire CmuxBrowserEngine into `GhosttyTabs.xcodeproj` so cmux's main target picks it up. Today the package compiles standalone (32 tests green) but isn't a dependency. Pattern: see how `Packages/CMUXAuthCore` is referenced in `project.pbxproj`.
+- [ ] Migrate audit step 5: `CmuxInspector` (the only remaining migration-order item — explicitly last because the inspector is its own subsystem).
+- [ ] Create the Chromium fork repo `manaflow-ai/cmux-chromium` (requires user permission to create org-level repo). Once created, push the M148 base commit + an empty `//cmux/embedder/` skeleton matching the C ABI in `plans/cmux-embedder-c-abi.md`. Patches in `patches/` get squashed in at that point.
 - [ ] Once the fork repo exists, push `//cmux/embedder/cmux_browser.h` (from `plans/cmux-embedder-c-abi.md`) and the matching `BUILD.gn` for a `cmux_core_framework` target. First real build with that target = end of P1.
 
 ## Active milestone
@@ -106,3 +106,34 @@ Did NOT prove:
 - The fork repo exists. `manaflow-ai/cmux-chromium` is not created; the embedder C ABI is design-only.
 
 Next session: see "Next steps" above. Start with `content_shell` build to validate the wider Chromium target graph before the fork-specific `cmux_core_framework` target.
+
+### Session 2 — 2026-05-14 (content_shell + package expansions)
+
+Continued under the same `/goal i have reviewed it, use your best judgment and implement fully` stop-hook from session 1.
+
+- Kicked off `content_shell` build. Round 1 died at `//third_party/angle/.../metal:angle_metal_internal_shaders_to_air` with `error: cannot execute tool 'metal' due to missing Metal Toolchain`. Root cause: macOS 15 + Xcode 26 ships the Metal compiler toolchain as a separate downloadable component mounted under `/var/run/com.apple.security.cryptexd/.../Metal.xctoolchain/usr/bin/`; the Xcode stub at `XcodeDefault.xctoolchain/usr/bin/metal{,lib}` does NOT auto-locate that mount. `xcrun --find <tool>` does. Worse, `metallib` doesn't even exist as a stub.
+- Wrote `patches/0001-angle-metal-wrapper-resolve-via-xcrun.patch` and applied it to the host's checkout: ANGLE's `metal_wrapper.py` now detects the broken Xcode metal-family stub paths and xcrun-resolves the real binary. Round 2 still hit the same wrapper for `metallib`; round 3 covers both. After the third restart, `.air` (149 KB) and `.metallib` (359 KB) produce cleanly and content_shell is compiling through the wider target graph.
+- Added `apply-patches` subcommand to `scripts/chromium-build-host.sh` so a fresh build host can be one-shot-patched.
+- Continued audit migration order in `Packages/CmuxBrowserEngine`:
+  - **CmuxDataStore** (step 3) — wraps `WKWebsiteDataStore` with `.default()`, `.nonPersistent()`, `.forIdentifier(UUID)`. Lazy `cookieStore` accessor. `allDataTypes()` static. `removeData(ofTypes:modifiedSince:)` async.
+  - **CmuxCookieStore** (step 3) — wraps `WKHTTPCookieStore` with `allCookies/setCookie/deleteCookie/addObserver/removeObserver`. Private WK observer shim dispatches `cookiesDidChange(in:)`.
+  - `CmuxBrowserConfiguration.dataStore` plumbed into `WKWebViewConfiguration.websiteDataStore`.
+  - **CmuxDownload** + **CmuxDownloadDelegate** (step 4) — engine-neutral wrapper around `WKDownload`/`WKDownloadDelegate`. Strong-references shims per-WKDownload and clears them in terminal callbacks. `CmuxNavigationDelegate` gains `didBecome download` extensions; backend's nav bridge invokes them.
+  - **CmuxSnapshotConfiguration** (step 6) — bridges `WKSnapshotConfiguration` (rect, snapshotWidth, afterScreenUpdates). `CmuxBrowserView.takeSnapshot(configuration:completionHandler:)` overload added.
+- **Tests:** 32 total (was 19), all green, 0 warnings, swift 6 strict concurrency.
+- **Did not** wire CmuxBrowserEngine into `GhosttyTabs.xcodeproj` (deferred again — pbxproj edits warrant their own session).
+- **Did not** implement `CmuxInspector` (step 5 in the audit is explicitly last).
+- **Did not** create `manaflow-ai/cmux-chromium` (still needs user OK).
+- Pushed 5 commits to `feat-chromium-engine`; draft PR #4159 has them.
+
+#### What session 2 added to "proved"
+
+- ANGLE Metal shader compilation now works on this host class (the patched wrapper is verified by a successful `:angle_metal_internal_shaders_to_*` step).
+- Engine-neutral wrappers exist for: data store, cookie store, downloads, snapshot config (in addition to nav, UI, scripts, scheme handlers, state mirror, pageZoom).
+- The fork's `patches/` directory is the durable home for chromium-side patches; `scripts/chromium-build-host.sh apply-patches` is idempotent and exercised.
+
+#### What session 2 did NOT prove
+
+- `content_shell` itself building green end-to-end. Round 3 was still in flight at session 2 close; verify on next session via `tail ~/chromium-fork/build-content-shell.log` and `ls ~/chromium-fork/src/out/cmux_release/Content\ Shell.app`.
+- CmuxBrowserEngine is still **not** linked into `GhosttyTabs.xcodeproj`. The package compiles in isolation but cmux's main target still uses raw WKWebView.
+- The Chromium backend is still a `fatalError` stub. No screenshots of "Chromium-in-cmux" possible.
