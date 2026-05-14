@@ -153,7 +153,7 @@ enum RipgrepExecutableResolver {
 
     private static func defaultSearchPaths(userName: String, homeDirectory: String) -> [String] {
         let homeDirectory = (homeDirectory as NSString).standardizingPath
-        [
+        return [
             "/opt/homebrew/bin/rg",
             "/usr/local/bin/rg",
             "/opt/local/bin/rg",
