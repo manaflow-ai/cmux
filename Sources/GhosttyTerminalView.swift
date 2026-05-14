@@ -7121,11 +7121,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
                 if nextTrimmed.isEmpty { break }
                 if Self.isBlockStartLine(nextTrimmed) { break }
+                if nextTrimmed.unicodeScalars.first.map({ terminalDecorationChars.contains($0) }) == true { break }
 
                 let nextIndent = nextLine.prefix(while: { $0 == " " }).count
                 if nextIndent > startIndent + 4 { break }
 
-                paragraph += (isURL ? "" : " ") + nextTrimmed
+                let skipSpace = isURL && !nextTrimmed.contains(" ")
+                paragraph += (skipSpace ? "" : " ") + nextTrimmed
                 i += 1
             }
             result.append(paragraph)
