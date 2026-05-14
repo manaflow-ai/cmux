@@ -14809,6 +14809,23 @@ private extension NSWindow {
         }
 
         if let firstResponderWebView,
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+               event,
+               responder: self.firstResponder
+           ) {
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser document editing command preflight " +
+                (result ? "resolved before window menu path" : "left unclaimed; continuing")
+            )
+#endif
+            if result {
+                return true
+            }
+        }
+
+        if let firstResponderWebView,
            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
                event,
                responder: self.firstResponder,
