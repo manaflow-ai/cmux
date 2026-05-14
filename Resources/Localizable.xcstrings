@@ -18101,6 +18101,91 @@
         }
       }
     },
+    "command.cloudVM.failed.action.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm new`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開いて `cmux auth status`、`cmux vm ls`、`cmux vm new` を実行してください。アクティブな VM 数の上限に達している場合は `cmux vm rm <id>` で削除してから再試行してください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm new` in a terminal and send us the output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バンドルされた CLI を使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで `cmux vm new` を実行して出力を送ってください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.missingCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm new` in a terminal to see the full error."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから、Start Cloud VM をもう一度試してください。ターミナルで `cmux vm new` を実行すると完全なエラーも確認できます。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細:"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.details.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional technical details are available in logs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加の技術的な詳細はログで確認できます。"
+          }
+        }
+      }
+    },
     "command.cloudVM.failed.launch": {
       "extractionState": "manual",
       "localizations": {
@@ -18148,6 +18233,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud VMを開始できませんでした"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.whatToTry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What to try:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試すこと:"
           }
         }
       }
@@ -21209,6 +21311,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバー"
+          }
+        }
+      }
+    },
+    "command.toggleSetting.disableTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を無効化"
+          }
+        }
+      }
+    },
+    "command.toggleSetting.enableTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を有効化"
+          }
+        }
+      }
+    },
+    "command.toggleSetting.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ • %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ • %@"
+          }
+        }
+      }
+    },
+    "command.toggleSetting.state.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
+          }
+        }
+      }
+    },
+    "command.toggleSetting.state.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
           }
         }
       }
