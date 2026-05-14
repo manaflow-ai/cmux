@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Fix keyboard accessibility for sidebar and titlebar controls — the toggle sidebar, notifications, new workspace, and help buttons are now reachable via Full Keyboard Access Tab navigation
+
 ## [0.64.6] - 2026-05-14
 
 ### Added
