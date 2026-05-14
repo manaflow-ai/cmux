@@ -19,6 +19,57 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
+nonisolated enum SocketAccessDeniedRequestDrain {
+    /// After an access-denied response has been written and the server has
+    /// half-closed its write side, briefly consume the peer's initial request.
+    /// This keeps normal CLI clients from observing EPIPE while preserving a
+    /// bounded unauthorized-socket path: the helper stops at newline, EOF,
+    /// temporary quiescence, or maxBytesToDrain.
+    static func drainInitialRequestIfAvailable(
+        _ socket: Int32,
+        timeoutMilliseconds: Int32,
+        maxBytesToDrain: Int = 64 * 1024
+    ) -> Bool {
+        guard maxBytesToDrain > 0 else { return false }
+
+        var pollDescriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
+        let pollResult = poll(&pollDescriptor, 1, timeoutMilliseconds)
+        guard pollResult > 0, pollDescriptor.revents & Int16(POLLIN) != 0 else {
+            return false
+        }
+
+        var drainedAnyBytes = false
+        var totalBytesDrained = 0
+        var buffer = [UInt8](repeating: 0, count: min(4096, maxBytesToDrain))
+        while totalBytesDrained < maxBytesToDrain {
+            let remainingLimit = maxBytesToDrain - totalBytesDrained
+            let bytesRead = read(socket, &buffer, min(buffer.count, remainingLimit))
+            if bytesRead < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                return drainedAnyBytes
+            }
+            guard bytesRead > 0 else {
+                return drainedAnyBytes
+            }
+
+            drainedAnyBytes = true
+            totalBytesDrained += bytesRead
+            if buffer[0..<bytesRead].contains(UInt8(ascii: "\n")) {
+                return true
+            }
+
+            var nextPollDescriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
+            let nextPollResult = poll(&nextPollDescriptor, 1, 0)
+            guard nextPollResult > 0, nextPollDescriptor.revents & Int16(POLLIN) != 0 else {
+                return drainedAnyBytes
+            }
+        }
+        return drainedAnyBytes
+    }
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1932,9 +1983,16 @@ class TerminalController {
             let pid = peerPid ?? getPeerPid(socket)
             if let pid {
                 guard isDescendant(pid) else {
-                    _ = writeSocketResponse(
+                    guard writeSocketResponse(
                         "ERROR: Access denied — only processes started inside cmux can connect",
                         to: socket
+                    ) else {
+                        return
+                    }
+                    _ = shutdown(socket, SHUT_WR)
+                    _ = SocketAccessDeniedRequestDrain.drainInitialRequestIfAvailable(
+                        socket,
+                        timeoutMilliseconds: 0
                     )
                     return
                 }

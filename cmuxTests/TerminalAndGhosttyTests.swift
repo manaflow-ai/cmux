@@ -4750,6 +4750,110 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+    func testDrainInitialSocketRequestConsumesPendingCommandLineBeforeAccessDeniedReply() throws {
+        var sockets: [Int32] = [-1, -1]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
+        defer {
+            Darwin.close(sockets[0])
+            Darwin.close(sockets[1])
+        }
+
+        let command = "ping\n"
+        _ = command.withCString { ptr in
+            write(sockets[0], ptr, strlen(ptr))
+        }
+
+        XCTAssertTrue(
+            SocketAccessDeniedRequestDrain.drainInitialRequestIfAvailable(
+                sockets[1],
+                timeoutMilliseconds: 100
+            )
+        )
+
+        var pollDescriptor = pollfd(fd: sockets[1], events: Int16(POLLIN), revents: 0)
+        XCTAssertEqual(poll(&pollDescriptor, 1, 0), 0)
+
+        let response = "ERROR: Access denied — only processes started inside cmux can connect\n"
+        XCTAssertTrue(TerminalController.writeAllToSocket(Data(response.utf8), to: sockets[1]))
+        var buffer = [UInt8](repeating: 0, count: 256)
+        let count = read(sockets[0], &buffer, buffer.count)
+        XCTAssertGreaterThan(count, 0)
+        XCTAssertEqual(String(bytes: buffer[0..<count], encoding: .utf8), response)
+    }
+
+    func testDrainInitialSocketRequestCapsBytesWithoutNewline() throws {
+        var sockets: [Int32] = [-1, -1]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
+        defer {
+            Darwin.close(sockets[0])
+            Darwin.close(sockets[1])
+        }
+
+        let payload = Data(repeating: UInt8(ascii: "x"), count: 512)
+        _ = payload.withUnsafeBytes { rawBuffer in
+            write(sockets[0], rawBuffer.baseAddress, rawBuffer.count)
+        }
+
+        XCTAssertTrue(
+            SocketAccessDeniedRequestDrain.drainInitialRequestIfAvailable(
+                sockets[1],
+                timeoutMilliseconds: 100,
+                maxBytesToDrain: 128
+            )
+        )
+
+        var pollDescriptor = pollfd(fd: sockets[1], events: Int16(POLLIN), revents: 0)
+        XCTAssertEqual(poll(&pollDescriptor, 1, 0), 1)
+    }
+
+    func testAccessDeniedHalfCloseAllowsAlreadyQueuedClientRequestWrite() throws {
+        var sockets: [Int32] = [-1, -1]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
+        defer {
+            Darwin.close(sockets[0])
+            Darwin.close(sockets[1])
+        }
+
+        let response = "ERROR: Access denied — only processes started inside cmux can connect\n"
+        XCTAssertTrue(TerminalController.writeAllToSocket(Data(response.utf8), to: sockets[1]))
+        XCTAssertEqual(shutdown(sockets[1], SHUT_WR), 0)
+
+        let command = "ping\n"
+        let sent = command.withCString { ptr in
+            write(sockets[0], ptr, strlen(ptr))
+        }
+        XCTAssertEqual(sent, command.utf8.count)
+        XCTAssertTrue(
+            SocketAccessDeniedRequestDrain.drainInitialRequestIfAvailable(
+                sockets[1],
+                timeoutMilliseconds: 0
+            )
+        )
+
+        var buffer = [UInt8](repeating: 0, count: 256)
+        let count = read(sockets[0], &buffer, buffer.count)
+        XCTAssertGreaterThan(count, 0)
+        XCTAssertEqual(String(bytes: buffer[0..<count], encoding: .utf8), response)
+    }
+
+    func testDrainInitialSocketRequestReturnsFalseWhenNoClientLineArrives() throws {
+        var sockets: [Int32] = [-1, -1]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
+        defer {
+            Darwin.close(sockets[0])
+            Darwin.close(sockets[1])
+        }
+
+        let startedAt = Date()
+        XCTAssertFalse(
+            SocketAccessDeniedRequestDrain.drainInitialRequestIfAvailable(
+                sockets[1],
+                timeoutMilliseconds: 20
+            )
+        )
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.25)
+    }
+
     func testProbeSocketCommandReturnsFirstLineResponse() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
