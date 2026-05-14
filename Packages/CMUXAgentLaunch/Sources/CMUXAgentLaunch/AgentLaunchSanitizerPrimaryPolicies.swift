@@ -152,7 +152,13 @@ extension AgentLaunchSanitizer {
         ],
         droppedOptions: [
             "--last",
+            "--remote",
+            "--remote-auth-token-env",
             "--all"
+        ],
+        droppedOptionPrefixes: [
+            "--remote=",
+            "--remote-auth-token-env="
         ],
         resumeSubcommand: "resume"
     )
