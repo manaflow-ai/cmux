@@ -529,7 +529,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             recorded,
             "FORWARDED_KEYSTROKE",
-            "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? \"<empty>\" : recorded)"
+            "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? "<empty>" : recorded)"
         )
     }
 
