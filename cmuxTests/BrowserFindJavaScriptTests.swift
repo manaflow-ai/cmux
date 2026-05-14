@@ -156,8 +156,7 @@ final class BrowserPopupDecisionTests: XCTestCase {
             browserNavigationShouldCreatePopup(
                 navigationType: .other,
                 modifierFlags: [],
-                buttonNumber: 2,
-                popupFeaturesWereSpecified: true
+                buttonNumber: 2
             )
         )
     }
