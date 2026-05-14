@@ -32,7 +32,7 @@ final class CmuxMainWindow: NSWindow {
     weak var workspaceDockTitlebarLayout: WorkspaceDockLayout?
 
     private var isSoftHiddenForVisibilityController = false
-    private let workspaceDockTitlebarControlSize = NSSize(width: 76, height: 40)
+    private let workspaceDockTitlebarControlSize = NSSize(width: 64, height: 40)
     private let workspaceDockTitlebarTrailingInset: CGFloat = 6
 
     func setSoftHiddenForVisibilityController(_ isSoftHidden: Bool) {

@@ -872,7 +872,7 @@ struct WorkspaceDockToggleCluster: View {
     @ObservedObject var layout: WorkspaceDockLayout
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             ForEach(WorkspaceDockEdge.controlOrder) { edge in
                 Button {
                     layout.toggleEdge(edge)
@@ -880,7 +880,7 @@ struct WorkspaceDockToggleCluster: View {
                     WorkspaceDockToggleIcon(edge: edge, isOpen: layout.isEdgeOpen(edge))
                 }
                 .buttonStyle(.plain)
-                .frame(width: 22, height: 18)
+                .frame(width: 18, height: 16)
                 .contentShape(Rectangle())
                 .help(WorkspaceDockToggleText.helpTitle(edge: edge))
                 .contextMenu {
@@ -906,17 +906,11 @@ struct WorkspaceDockToggleCluster: View {
                 }
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .frame(width: 72, height: 22)
+        .padding(.horizontal, 2)
+        .frame(width: 58, height: 18)
         .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(0.045))
+            Color.clear
             MinimalModeTitlebarControlHitRegionView()
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color.primary.opacity(0.11), lineWidth: 1)
         }
     }
 }
@@ -1026,40 +1020,40 @@ private struct WorkspaceDockToggleIcon: View {
         ZStack {
             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                 .stroke(iconColor, lineWidth: 1)
-                .frame(width: 14, height: 11)
+                .frame(width: 12, height: 9)
             RoundedRectangle(cornerRadius: 1.4, style: .continuous)
                 .fill(iconColor.opacity(isOpen ? 0.95 : 0.45))
                 .frame(width: stripeSize.width, height: stripeSize.height)
                 .offset(stripeOffset)
         }
-        .frame(width: 20, height: 18)
+        .frame(width: 16, height: 16)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(isOpen ? Color.primary.opacity(0.08) : Color.clear)
+                .fill(isOpen ? Color.primary.opacity(0.055) : Color.clear)
         )
     }
 
     private var iconColor: Color {
-        Color.primary.opacity(isOpen ? 0.72 : 0.42)
+        Color.primary.opacity(isOpen ? 0.58 : 0.30)
     }
 
     private var stripeSize: CGSize {
         switch edge {
         case .left, .right:
-            return CGSize(width: 4, height: 9)
+            return CGSize(width: 3.2, height: 7.4)
         case .bottom:
-            return CGSize(width: 12, height: 4)
+            return CGSize(width: 10, height: 3.2)
         }
     }
 
     private var stripeOffset: CGSize {
         switch edge {
         case .left:
-            return CGSize(width: -4.5, height: 0)
+            return CGSize(width: -3.8, height: 0)
         case .right:
-            return CGSize(width: 4.5, height: 0)
+            return CGSize(width: 3.8, height: 0)
         case .bottom:
-            return CGSize(width: 0, height: 3.5)
+            return CGSize(width: 0, height: 3.0)
         }
     }
 
