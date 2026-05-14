@@ -4584,11 +4584,11 @@ extension BrowserPanel {
         ) { [weak self] notification in
             guard let self,
                   let window = notification.object as? NSWindow else { return }
-            let isDetachedInspectorWindow = MainActor.assumeIsolated {
-                Self.isDetachedInspectorWindow(window)
+            let handledDetachedInspector = MainActor.assumeIsolated {
+                guard Self.isDetachedInspectorWindow(window) else { return false }
+                return self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
             }
-            guard isDetachedInspectorWindow else { return }
-            self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
+            guard handledDetachedInspector else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard self.preferredDeveloperToolsPresentation == .detached else { return }
@@ -4617,7 +4617,7 @@ extension BrowserPanel {
             "closed=\(closed ? 1 : 0) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
-        return closed
+        return true
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
