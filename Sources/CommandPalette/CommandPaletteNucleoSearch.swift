@@ -9,6 +9,9 @@ struct CommandPaletteNucleoSearchResult<Payload>: Sendable where Payload: Sendab
     let titleMatchIndices: Set<Int>
 }
 
+// Sendable is safe here because the dlopen handle and C function pointers are
+// immutable after initialization. The Rust side owns synchronization for index
+// search state.
 final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     private typealias CreateIndex = @convention(c) (
         UnsafePointer<UInt8>?,
@@ -81,6 +84,8 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
             dlclose(handle)
             return nil
         }
+
+        CommandPaletteNucleoABI.assertCompatibleLayout()
 
         return CommandPaletteNucleoSearchLibrary(
             handle: handle,
@@ -224,6 +229,9 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     }
 }
 
+// Sendable is safe here because the Swift payload entries are immutable, the
+// raw index pointer is destroyed only in deinit, and Rust serializes mutable
+// matcher scratch state behind a Mutex.
 final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where Payload: Sendable {
     private let library: CommandPaletteNucleoSearchLibrary
     private let pointer: OpaquePointer
@@ -317,4 +325,28 @@ fileprivate struct CommandPaletteNucleoRawMatch {
     var index: Int
     var score: Double
     var rank: Int32
+}
+
+private enum CommandPaletteNucleoABI {
+    static func assertCompatibleLayout() {
+        _ = checked
+    }
+
+    private static let checked: Void = {
+        precondition(MemoryLayout<Int>.size == MemoryLayout<UInt>.size)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.size == 36)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.stride == 40)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.alignment == 8)
+        precondition(MemoryLayout<CommandPaletteNucleoRawMatch>.size == 20)
+        precondition(MemoryLayout<CommandPaletteNucleoRawMatch>.stride == 24)
+        precondition(MemoryLayout<CommandPaletteNucleoRawMatch>.alignment == 8)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.offset(of: \.titleOffset) == 0)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.offset(of: \.titleLength) == 8)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.offset(of: \.searchOffset) == 16)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.offset(of: \.searchLength) == 24)
+        precondition(MemoryLayout<CommandPaletteNucleoCandidateSpan>.offset(of: \.rank) == 32)
+        precondition(MemoryLayout<CommandPaletteNucleoRawMatch>.offset(of: \.index) == 0)
+        precondition(MemoryLayout<CommandPaletteNucleoRawMatch>.offset(of: \.score) == 8)
+        precondition(MemoryLayout<CommandPaletteNucleoRawMatch>.offset(of: \.rank) == 16)
+    }()
 }
