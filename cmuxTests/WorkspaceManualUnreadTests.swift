@@ -333,6 +333,36 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
     }
 
+    func testMarkPanelUnreadMarksWorkspaceUnread() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id))
+        XCTAssertTrue(store.canMarkWorkspaceUnread(forTabIds: [workspace.id]))
+
+        workspace.markPanelUnread(panelId)
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: workspace.id))
+        XCTAssertTrue(store.canMarkWorkspaceRead(forTabIds: [workspace.id]))
+        XCTAssertFalse(store.canMarkWorkspaceUnread(forTabIds: [workspace.id]))
+    }
+
     func testManualPanelUnreadSurvivesNonTerminalDirectInteraction() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
