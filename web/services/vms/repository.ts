@@ -10,6 +10,7 @@ import { VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from ".
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
+export type CloudVmStatus = CloudVmRow["status"];
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -41,6 +42,15 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number;
     readonly idempotencyKey?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmLimitExceededError>;
+  readonly activeLimitCandidates: (input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly markProviderObservedStatus: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly status: CloudVmStatus;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly markCreateRunning: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -222,7 +232,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               .from(cloudVms)
               .where(
                 and(
-                  inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+                  inArray(cloudVms.status, ["provisioning", "running"]),
                   or(
                     eq(cloudVms.billingTeamId, input.billingTeamId),
                     and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
@@ -265,6 +275,43 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       catch: (cause) => isVmLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
+    }),
+
+  activeLimitCandidates: (input) =>
+    dbEffect("activeLimitCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(
+          and(
+            eq(cloudVms.status, "running"),
+            isNotNull(cloudVms.providerVmId),
+            or(
+              eq(cloudVms.billingTeamId, input.billingTeamId),
+              and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
+            ),
+          ),
+        );
+    }),
+
+  markProviderObservedStatus: (input) =>
+    dbEffect("markProviderObservedStatus", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({
+          status: input.status,
+          destroyedAt: input.status === "destroyed" ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            ne(cloudVms.status, "destroyed"),
+          ),
+        );
     }),
 
   markCreateRunning: (input) =>
