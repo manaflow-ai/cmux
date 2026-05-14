@@ -48,6 +48,12 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
         if let app = configuration.applicationNameForUserAgent {
             wk.applicationNameForUserAgent = app
         }
+        // Bind a specific WKWebsiteDataStore when the caller wants a
+        // non-default profile. Without this, all views would share the
+        // default cookies/local storage.
+        if let store = configuration.dataStore?.wkStore {
+            wk.websiteDataStore = store
+        }
         for (scheme, handler) in configuration.urlSchemeHandlers {
             wk.setURLSchemeHandler(URLSchemeShim(host: handler), forURLScheme: scheme)
         }

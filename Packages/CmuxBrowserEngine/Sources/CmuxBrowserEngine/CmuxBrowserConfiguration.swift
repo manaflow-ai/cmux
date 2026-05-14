@@ -15,6 +15,12 @@ public final class CmuxBrowserConfiguration: @unchecked Sendable {
     /// means the default profile.
     public var profileName: String?
 
+    /// Per-view website data store. `nil` falls back to the engine's
+    /// default persistent store (i.e. `CmuxDataStore.default()`).
+    /// Two views with the same `CmuxDataStore` share cookies, local
+    /// storage, IndexedDB, and service workers.
+    public var dataStore: CmuxDataStore?
+
     /// User content controller. Mutating after a view is constructed
     /// has no effect on existing views; pass a configured controller at
     /// construction time.

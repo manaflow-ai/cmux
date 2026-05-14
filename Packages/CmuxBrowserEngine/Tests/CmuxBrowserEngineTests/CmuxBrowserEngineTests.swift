@@ -252,6 +252,136 @@ struct CmuxBrowserStateSuite {
     }
 }
 
+@Suite("CmuxDataStore")
+@MainActor
+struct CmuxDataStoreSuite {
+    @Test("default + nonPersistent produce distinct backing stores")
+    func testDefaultVsNonPersistent() {
+        let a = CmuxDataStore.default()
+        let b = CmuxDataStore.nonPersistent()
+        #expect(a.kind == .default)
+        #expect(b.kind == .nonPersistent)
+        #expect(a.wkStore !== b.wkStore)
+        #expect(a.wkStore?.isPersistent == true)
+        #expect(b.wkStore?.isPersistent == false)
+    }
+
+    @Test("forIdentifier round-trips the UUID")
+    func testForIdentifier() {
+        let id = UUID()
+        let s = CmuxDataStore.forIdentifier(id)
+        if case .persistent(let identifier) = s.kind {
+            #expect(identifier == id)
+        } else {
+            Issue.record("expected .persistent kind")
+        }
+        #expect(s.wkStore != nil)
+    }
+
+    @Test("allDataTypes is a non-empty WebKit set")
+    func testAllDataTypes() {
+        let types = CmuxDataStore.allDataTypes()
+        #expect(!types.isEmpty)
+        // WKWebsiteDataTypeCookies is the most stable member of the set.
+        #expect(types.contains("WKWebsiteDataTypeCookies"))
+    }
+
+    @Test("cookieStore is cached")
+    func testCookieStoreIsCached() {
+        let s = CmuxDataStore.default()
+        let a = s.cookieStore
+        let b = s.cookieStore
+        #expect(a === b)
+    }
+
+    @Test("removeData succeeds against nonPersistent store")
+    func testRemoveDataNonPersistent() async {
+        let s = CmuxDataStore.nonPersistent()
+        // Smoke test: WK's nonPersistent store accepts removeData for
+        // any subset of types without erroring. We just await completion.
+        await s.removeData(ofTypes: CmuxDataStore.allDataTypes(),
+                           modifiedSince: .distantPast)
+    }
+
+    @Test("WebKit backend honors configuration.dataStore")
+    func testConfigBindsDataStore() {
+        let id = UUID()
+        let store = CmuxDataStore.forIdentifier(id)
+        let c = CmuxBrowserConfiguration()
+        c.engineKind = .webKit
+        c.dataStore = store
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                   configuration: c)
+        let backend = view.backend as? WebKitBrowserBackend
+        #expect(backend?.webView.configuration.websiteDataStore === store.wkStore)
+    }
+}
+
+@Suite("CmuxCookieStore")
+@MainActor
+struct CmuxCookieStoreSuite {
+    @Test("set + read round-trips through nonPersistent store")
+    func testSetAndRead() async throws {
+        let s = CmuxDataStore.nonPersistent()
+        let jar = s.cookieStore
+        let probe = HTTPCookie(properties: [
+            .name: "cmux_engine_probe",
+            .value: "ok",
+            .domain: "cmux.example",
+            .path: "/",
+        ])!
+        await jar.setCookie(probe)
+        let all = await jar.allCookies()
+        let match = all.first(where: { $0.name == "cmux_engine_probe" })
+        #expect(match != nil)
+        #expect(match?.value == "ok")
+    }
+
+    @Test("delete removes a previously-set cookie")
+    func testDelete() async {
+        let s = CmuxDataStore.nonPersistent()
+        let jar = s.cookieStore
+        let cookie = HTTPCookie(properties: [
+            .name: "cmux_engine_delete_me",
+            .value: "v",
+            .domain: "cmux-delete.example",
+            .path: "/",
+        ])!
+        await jar.setCookie(cookie)
+        await jar.deleteCookie(cookie)
+        let all = await jar.allCookies()
+        let stillThere = all.first(where: { $0.name == "cmux_engine_delete_me" })
+        #expect(stillThere == nil)
+    }
+
+    @Test("observer fires on mutation")
+    func testObserver() async throws {
+        let s = CmuxDataStore.nonPersistent()
+        let jar = s.cookieStore
+        final class Counter: CmuxCookieStoreObserver, @unchecked Sendable {
+            nonisolated(unsafe) var count = 0
+            func cookiesDidChange(in store: CmuxCookieStore) { count += 1 }
+        }
+        let o = Counter()
+        jar.addObserver(o)
+        let cookie = HTTPCookie(properties: [
+            .name: "cmux_engine_observer",
+            .value: "v",
+            .domain: "cmux-obs.example",
+            .path: "/",
+        ])!
+        await jar.setCookie(cookie)
+        // Observer fires asynchronously; poll briefly.
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            if o.count > 0 { break }
+        }
+        #expect(o.count > 0)
+        jar.removeObserver(o)
+    }
+}
+
 @Suite("CmuxBrowserView (Chromium backend stub)")
 @MainActor
 struct CmuxBrowserViewChromiumSuite {
