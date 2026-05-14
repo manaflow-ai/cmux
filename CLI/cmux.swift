@@ -921,6 +921,7 @@ private enum CLISocketPathResolver {
     private enum SocketProbeResult {
         case cmux
         case notCmux
+        case indeterminate
         case unavailable
     }
 
@@ -957,7 +958,7 @@ private enum CLISocketPathResolver {
                 return path
             case .notCmux:
                 rejectedPaths.insert(path)
-            case .unavailable:
+            case .indeterminate, .unavailable:
                 break
             }
         }
@@ -1115,7 +1116,11 @@ private enum CLISocketPathResolver {
         }
         guard result == 0 else { return .unavailable }
         guard writeAll(Data("ping\n".utf8), to: fd) else { return .notCmux }
-        guard let response = readFirstLine(from: fd) else { return .notCmux }
+        guard let response = readFirstLine(from: fd) else {
+            // A timeout or early EOF does not prove another protocol owns the
+            // socket; leave it eligible for the startup fallback below.
+            return .indeterminate
+        }
         return response == "PONG" ? .cmux : .notCmux
     }
 

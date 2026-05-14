@@ -38,7 +38,7 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
     if base == "com.cmuxterm.app.sock":
         return "cmux"
     if base.startswith("com.cmuxterm.app.dev.") and base.endswith(".sock"):
-        tag = os.environ.get("CMUX_TAG", "").strip()
+        tag = base[len("com.cmuxterm.app.dev.") : -len(".sock")].strip()
         return f"cmux DEV {tag}" if tag else "cmux DEV"
     if base.startswith("cmux-debug") and base.endswith(".sock"):
         suffix = base[len("cmux-debug") : -len(".sock")]

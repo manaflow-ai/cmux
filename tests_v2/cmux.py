@@ -113,7 +113,8 @@ def _default_socket_path() -> str:
     if override:
         if os.path.exists(override) and _can_connect(override):
             return override
-        if override not in {
+        # Treat stable defaults as implicit so old env values still migrate cleanly.
+        if not os.path.exists(override) and override not in {
             _STABLE_SOCKET_PATH,
             _LEGACY_APP_SUPPORT_SOCKET_PATH,
             _LEGACY_STABLE_SOCKET_PATH,

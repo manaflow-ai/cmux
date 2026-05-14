@@ -61,15 +61,14 @@ class PingServer:
         deadline = time.monotonic() + 2.0
         while self._thread.is_alive() and time.monotonic() < deadline:
             try:
-                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                client.settimeout(0.2)
-                client.connect(self.socket_path)
-                client.sendall(b"ping\n")
-                try:
-                    client.recv(1024)
-                except OSError:
-                    pass
-                client.close()
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(0.2)
+                    client.connect(self.socket_path)
+                    client.sendall(b"ping\n")
+                    try:
+                        client.recv(1024)
+                    except OSError:
+                        pass
             except OSError:
                 pass
             self.join(timeout=0.1)
