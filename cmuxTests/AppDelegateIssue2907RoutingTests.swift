@@ -249,6 +249,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id.uuidString
         terminalPanel.surface.markChildProcessExitedForTesting(reason: "unit-test-child-exited")
+        XCTAssertFalse(terminalPanel.surface.sendNamedKey("Return"))
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("send chart"), "ERROR: Failed to send input")
 
         let textEnvelope = try v2Envelope(
             method: "surface.send_text",

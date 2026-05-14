@@ -5767,9 +5767,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
         switch sendNamedKeyDelivery(keyName) {
-        case .delivered, .blocked:
+        case .delivered:
             return true
-        case .empty, .invalidKey:
+        case .blocked, .empty, .invalidKey:
             return false
         }
     }

@@ -15472,6 +15472,17 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
+            guard terminalPanel.surface.acceptsTerminalInput else {
+                success = false
+                return
+            }
+            if terminalPanel.surface.surface == nil {
+                guard waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) != nil else {
+                    error = "ERROR: Surface not ready"
+                    return
+                }
+            }
+
             let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
             if routed.shouldForceRefresh {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
