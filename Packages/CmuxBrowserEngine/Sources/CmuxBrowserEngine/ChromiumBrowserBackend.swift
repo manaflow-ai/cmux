@@ -33,6 +33,7 @@ final class ChromiumBrowserBackend: NSObject, CmuxBrowserBackend {
 
     var navigationDelegate: CmuxNavigationDelegate?
     var uiDelegate: CmuxUIDelegate?
+    var downloadDelegate: CmuxDownloadDelegate?
     var url: URL? { nil }
     var title: String? { nil }
     var isLoading: Bool { false }

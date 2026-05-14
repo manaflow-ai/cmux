@@ -22,6 +22,16 @@ public final class CmuxBrowserView: NSView {
         set { backend.uiDelegate = newValue }
     }
 
+    /// Receives lifecycle callbacks for every download initiated from
+    /// this view. WK semantics: any nav-action or nav-response
+    /// returning `.download` policy creates a `CmuxDownload` and the
+    /// shim attaches this delegate to it. Hosts that don't need
+    /// downloads can leave this `nil`.
+    public var downloadDelegate: (any CmuxDownloadDelegate)? {
+        get { backend.downloadDelegate }
+        set { backend.downloadDelegate = newValue }
+    }
+
     public init(frame frameRect: NSRect, configuration: CmuxBrowserConfiguration) {
         self.configuration = configuration
         self.backend = Self.makeBackend(configuration: configuration)

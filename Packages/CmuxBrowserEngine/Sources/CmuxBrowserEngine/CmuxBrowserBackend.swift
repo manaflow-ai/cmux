@@ -25,6 +25,7 @@ protocol CmuxBrowserBackend: AnyObject {
 
     var navigationDelegate: CmuxNavigationDelegate? { get set }
     var uiDelegate: CmuxUIDelegate? { get set }
+    var downloadDelegate: CmuxDownloadDelegate? { get set }
 
     func load(_ request: URLRequest) -> CmuxNavigation
     func loadHTMLString(_ html: String, baseURL: URL?) -> CmuxNavigation

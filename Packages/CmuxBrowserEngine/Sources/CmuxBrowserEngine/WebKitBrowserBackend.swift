@@ -21,7 +21,19 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
     let webView: WKWebView
     var navigationDelegate: CmuxNavigationDelegate?
     var uiDelegate: CmuxUIDelegate?
+    var downloadDelegate: CmuxDownloadDelegate?
     let state = CmuxBrowserState()
+
+    /// Strong references to WKDownloadDelegate shims, one per active
+    /// download. Cleared in the terminal callbacks. Without this the
+    /// shim would deallocate immediately after `didBecome download`
+    /// returns, since WKDownload retains its delegate only weakly.
+    private var downloadShims: [ObjectIdentifier: DownloadShim] = [:]
+
+    /// Maps WKDownload identity → the `CmuxDownload` wrapper for that
+    /// download. Used so terminal callbacks can find the right host
+    /// reference.
+    private var cmuxDownloads: [ObjectIdentifier: CmuxDownload] = [:]
 
     /// Maps the engine's underlying `WKNavigation` (whose identity we
     /// can't observe directly across the delegate methods) to a stable
@@ -179,6 +191,81 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
         guard let wkNav else { return }
         navigationMap.removeValue(forKey: ObjectIdentifier(wkNav))
     }
+
+    // MARK: download wiring
+
+    fileprivate func attachDownload(
+        _ wkDownload: WKDownload,
+        originalRequest: URLRequest?
+    ) -> CmuxDownload {
+        let cmux = CmuxDownload(wkDownload: wkDownload, originalRequest: originalRequest)
+        let shim = DownloadShim(owner: self, cmuxDownload: cmux)
+        let key = ObjectIdentifier(wkDownload)
+        downloadShims[key] = shim
+        cmuxDownloads[key] = cmux
+        wkDownload.delegate = shim
+        return cmux
+    }
+
+    fileprivate func releaseDownload(_ wkDownload: WKDownload) {
+        let key = ObjectIdentifier(wkDownload)
+        downloadShims.removeValue(forKey: key)
+        cmuxDownloads.removeValue(forKey: key)
+    }
+
+    fileprivate func cmuxDownload(for wkDownload: WKDownload) -> CmuxDownload? {
+        cmuxDownloads[ObjectIdentifier(wkDownload)]
+    }
+}
+
+// MARK: - WKDownload shim
+
+extension WebKitBrowserBackend {
+    final class DownloadShim: NSObject, WKDownloadDelegate {
+        weak var owner: WebKitBrowserBackend?
+        let cmuxDownload: CmuxDownload
+
+        init(owner: WebKitBrowserBackend, cmuxDownload: CmuxDownload) {
+            self.owner = owner
+            self.cmuxDownload = cmuxDownload
+        }
+
+        func download(
+            _ download: WKDownload,
+            decideDestinationUsing response: URLResponse,
+            suggestedFilename: String,
+            completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
+        ) {
+            // The host's CmuxDownloadDelegate signature takes a plain
+            // (URL?) -> Void; WK requires @MainActor @Sendable. Both
+            // sides run on the main actor so the conversion is safe.
+            struct Closure: @unchecked Sendable {
+                let body: @MainActor @Sendable (URL?) -> Void
+            }
+            let box = Closure(body: completionHandler)
+            guard let host = owner?.downloadDelegate else {
+                MainActor.assumeIsolated { box.body(nil) }; return
+            }
+            host.cmuxDownload(cmuxDownload,
+                              decideDestinationUsing: response,
+                              suggestedFilename: suggestedFilename,
+                              completionHandler: { url in
+                                  MainActor.assumeIsolated { box.body(url) }
+                              })
+        }
+
+        func downloadDidFinish(_ download: WKDownload) {
+            owner?.downloadDelegate?.cmuxDownloadDidFinish(cmuxDownload)
+            owner?.releaseDownload(download)
+        }
+
+        func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            owner?.downloadDelegate?.cmuxDownload(cmuxDownload,
+                                                  didFailWithError: error,
+                                                  resumeData: resumeData)
+            owner?.releaseDownload(download)
+        }
+    }
 }
 
 // MARK: - Delegate bridges (forward WK → Cmux types)
@@ -275,6 +362,31 @@ extension WebKitBrowserBackend {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard let delegate = owner?.navigationDelegate, let view = cmuxView() else { return }
             delegate.browserViewWebContentProcessDidTerminate(view)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            navigationAction: WKNavigationAction,
+            didBecome download: WKDownload
+        ) {
+            guard let owner, let view = cmuxView() else { return }
+            let cmux = owner.attachDownload(download, originalRequest: navigationAction.request)
+            owner.navigationDelegate?.browserView(view,
+                                                  navigationAction: navigationAction.cmux,
+                                                  didBecome: cmux)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            navigationResponse: WKNavigationResponse,
+            didBecome download: WKDownload
+        ) {
+            guard let owner, let view = cmuxView() else { return }
+            let req: URLRequest? = navigationResponse.response.url.map { URLRequest(url: $0) }
+            let cmux = owner.attachDownload(download, originalRequest: req)
+            owner.navigationDelegate?.browserView(view,
+                                                  navigationResponse: navigationResponse.cmux,
+                                                  didBecome: cmux)
         }
     }
 

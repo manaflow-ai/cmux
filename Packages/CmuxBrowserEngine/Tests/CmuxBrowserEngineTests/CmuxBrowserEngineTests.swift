@@ -382,6 +382,41 @@ struct CmuxCookieStoreSuite {
     }
 }
 
+@Suite("CmuxDownload")
+@MainActor
+struct CmuxDownloadSuite {
+    @Test("constructs with a stable UUID and the original request")
+    func testConstruct() {
+        let req = URLRequest(url: URL(string: "https://cmux.example/file.bin")!)
+        let d = CmuxDownload(wkDownload: nil, originalRequest: req)
+        #expect(d.originalRequest?.url?.absoluteString == "https://cmux.example/file.bin")
+        // UUID is fresh per instance
+        let d2 = CmuxDownload(wkDownload: nil, originalRequest: nil)
+        #expect(d.id != d2.id)
+    }
+
+    @Test("downloadDelegate is settable on CmuxBrowserView (WebKit backend)")
+    func testDelegateAssign() {
+        final class FakeDelegate: CmuxDownloadDelegate {
+            func cmuxDownload(
+                _ download: CmuxDownload,
+                decideDestinationUsing response: URLResponse,
+                suggestedFilename: String,
+                completionHandler: @escaping (URL?) -> Void
+            ) {
+                completionHandler(nil)
+            }
+        }
+        let c = CmuxBrowserConfiguration()
+        c.engineKind = .webKit
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 50, height: 50),
+                                   configuration: c)
+        let delegate = FakeDelegate()
+        view.downloadDelegate = delegate
+        #expect(view.downloadDelegate === delegate)
+    }
+}
+
 @Suite("CmuxBrowserView (Chromium backend stub)")
 @MainActor
 struct CmuxBrowserViewChromiumSuite {
