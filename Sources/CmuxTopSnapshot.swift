@@ -411,14 +411,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     }
                 )
                 let activeScopeKeys = Set(scopeKeyByPID.values)
-                let parentScopeKeys = Dictionary(
-                    uniqueKeysWithValues: sampledProcesses.compactMap { process in
+                let parentScopeKeyPairs: [(CmuxTopProcessScopeCacheKey, CmuxTopProcessScopeCacheKey)] =
+                    sampledProcesses.compactMap { process -> (CmuxTopProcessScopeCacheKey, CmuxTopProcessScopeCacheKey)? in
                         let key = scopeCacheKey(from: process)
                         let parentPID = Int(process.kp_eproc.e_ppid)
                         guard let parentKey = scopeKeyByPID[parentPID] else { return nil }
                         return (key, parentKey)
                     }
-                )
+                let parentScopeKeys = Dictionary(uniqueKeysWithValues: parentScopeKeyPairs)
                 let sampledAtNanoseconds = cpuSampleClockNanoseconds()
                 var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
                 var processRecords: [(info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)] = []
@@ -541,7 +541,11 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     private static func resourceUsage(for pid: Int) -> rusage_info_v2? {
         var info = rusage_info_v2()
-        let result = proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, &info)
+        let result = withUnsafeMutablePointer(to: &info) { pointer -> Int32 in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { reboundPointer in
+                proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, reboundPointer)
+            }
+        }
         return result == 0 ? info : nil
     }
 

@@ -491,7 +491,11 @@ while allocations:
 
     private func physicalFootprintBytes(for pid: Int) -> Int64? {
         var info = rusage_info_v2()
-        let result = proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, &info)
+        let result = withUnsafeMutablePointer(to: &info) { pointer -> Int32 in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { reboundPointer in
+                proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, reboundPointer)
+            }
+        }
         guard result == 0 else { return nil }
         return int64Clamped(info.ri_phys_footprint)
     }
