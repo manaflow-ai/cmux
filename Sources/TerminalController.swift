@@ -9320,28 +9320,14 @@ class TerminalController {
                     return
                 }
 
-                let targetPaneUUID = ws.paneId(forPanelId: openResult.panel.id)?.id
-                let windowId = v2ResolveWindowId(tabManager: tabManager)
-                result = .ok([
-                    "window_id": v2OrNull(windowId?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowId),
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "pane_id": v2OrNull(targetPaneUUID?.uuidString),
-                    "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                    "surface_id": openResult.panel.id.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: openResult.panel.id),
-                    "source_surface_id": sourceSurfaceId.uuidString,
-                    "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
-                    "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
-                    "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
-                    "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
-                    "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                    "created_split": openResult.createdSplit,
-                    "placement": openResult.placement.rawValue,
-                    "placement_strategy": openResult.placementStrategy,
-                    "url": url.absoluteString
-                ])
+                result = .ok(v2TerminalLinkBrowserOpenPayload(
+                    tabManager: tabManager,
+                    workspace: ws,
+                    sourceSurfaceId: sourceSurfaceId,
+                    sourcePaneUUID: sourcePaneUUID,
+                    openResult: openResult,
+                    url: url
+                ))
                 return
             }
 
@@ -9383,6 +9369,38 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2TerminalLinkBrowserOpenPayload(
+        tabManager: TabManager,
+        workspace ws: Workspace,
+        sourceSurfaceId: UUID,
+        sourcePaneUUID: UUID?,
+        openResult: TerminalLinkBrowserOpenResult,
+        url: URL
+    ) -> [String: Any] {
+        let targetPaneUUID = ws.paneId(forPanelId: openResult.panel.id)?.id
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return [
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": ws.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+            "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+            "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+            "surface_id": openResult.panel.id.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: openResult.panel.id),
+            "source_surface_id": sourceSurfaceId.uuidString,
+            "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
+            "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
+            "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
+            "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
+            "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
+            "created_split": openResult.createdSplit,
+            "placement": openResult.placement.rawValue,
+            "placement_strategy": openResult.placementStrategy,
+            "url": url.absoluteString
+        ]
     }
 
 #if DEBUG
@@ -9465,28 +9483,14 @@ class TerminalController {
                 return
             }
 
-            let targetPaneUUID = ws.paneId(forPanelId: openResult.panel.id)?.id
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId),
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
-                "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                "surface_id": openResult.panel.id.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: openResult.panel.id),
-                "source_surface_id": sourceSurfaceId.uuidString,
-                "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
-                "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
-                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
-                "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
-                "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
-                "created_split": openResult.createdSplit,
-                "placement": openResult.placement.rawValue,
-                "placement_strategy": openResult.placementStrategy,
-                "url": url.absoluteString
-            ])
+            result = .ok(v2TerminalLinkBrowserOpenPayload(
+                tabManager: tabManager,
+                workspace: ws,
+                sourceSurfaceId: sourceSurfaceId,
+                sourcePaneUUID: sourcePaneUUID,
+                openResult: openResult,
+                url: url
+            ))
         }
         return result
     }
