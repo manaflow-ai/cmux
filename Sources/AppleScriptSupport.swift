@@ -81,7 +81,13 @@ private extension Workspace {
 @MainActor
 extension NSApplication {
     var isAppleScriptEnabled: Bool {
-        GhosttyApp.shared.appleScriptAutomationEnabled()
+        // cmux always enables AppleScript — the underlying Ghostty fork
+        // doesn't have the macos-applescript config key yet (added in
+        // upstream ghostty commit 25fa58143, 2026-03-06), so
+        // appleScriptAutomationEnabled() always returns false.
+        // Once the fork is updated, this can revert to:
+        //   GhosttyApp.shared.appleScriptAutomationEnabled()
+        return true
     }
 
     @discardableResult
@@ -532,7 +538,10 @@ final class ScriptTerminal: NSObject {
     @objc(workingDirectory)
     var workingDirectory: String {
         guard NSApp.isAppleScriptEnabled else { return "" }
-        return terminal?.directory ?? ""
+        // TerminalPanel.directory is never updated (updateDirectory is never called).
+        // Read from Workspace.panelDirectories instead, which is kept up to date
+        // via updatePanelDirectory() from OSC 7 / shell integration.
+        return workspace?.panelDirectories[terminalId] ?? terminal?.directory ?? ""
     }
 
     func input(text: String) -> Bool {

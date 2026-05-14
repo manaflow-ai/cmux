@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -93,6 +94,31 @@ def _start_external_server(base: Path, port: int) -> subprocess.Popen:
         stderr=subprocess.DEVNULL,
     )
     _wait_for_lsof_listen_pid(port, expected_pid=proc.pid, timeout=6.0)
+    return proc
+
+
+def _start_agent_server(base: Path, port: int, pid_file: Path, log_file: Path) -> subprocess.Popen:
+    """
+    Start a long-lived "agent" shell outside cmux. The shell owns a child
+    http.server, which should be attributed to the workspace only after the
+    shell PID is registered via set_agent_pid.
+    """
+    script = (
+        f"rm -f {pid_file} {log_file}; "
+        f"python3 -m http.server {port} --bind {_PREFERRED_BIND_HOST} > {log_file} 2>&1 & "
+        f"echo $! > {pid_file}; "
+        "wait"
+    )
+    proc = subprocess.Popen(
+        ["/bin/bash", "-lc", script],
+        cwd=str(base),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    _wait_for(lambda: pid_file.exists(), timeout=4.0, interval=0.1, label="agent pid file")
+    child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+    _wait_for_lsof_listen_pid(port, expected_pid=child_pid, timeout=8.0)
     return proc
 
 
@@ -200,15 +226,46 @@ def _wait_for_lsof_listen_gone(port: int, timeout: float = 8.0) -> None:
     _wait_for(pred, timeout=timeout, interval=0.15, label=f"lsof no LISTEN for {port}")
 
 
+def _terminate_process_group(proc: subprocess.Popen | None) -> None:
+    if proc is None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            return
+    try:
+        proc.wait(timeout=3.0)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            proc.wait(timeout=2.0)
+        except Exception:
+            pass
+
+
 def main() -> int:
     tag = os.environ.get("CMUX_TAG") or ""
     if not tag:
         print("Tip: set CMUX_TAG=<tag> when running this test to avoid socket conflicts.")
 
     base = Path("/tmp") / f"cmux_ports_test_{os.getpid()}"
-    pid_file = base / "server.pid"
-    log_file = base / "server.log"
+    tab_pid_file = base / "tab-server.pid"
+    tab_log_file = base / "tab-server.log"
+    agent_pid_file = base / "agent-server.pid"
+    agent_log_file = base / "agent-server.log"
     external_proc: subprocess.Popen | None = None
+    agent_proc: subprocess.Popen | None = None
 
     try:
         if base.exists():
@@ -255,13 +312,13 @@ def main() -> int:
             _wait_for_lsof_listen_gone(port, timeout=8.0)
 
             # Start a server in the background and capture its PID so we can clean up.
-            client.send(f"rm -f {pid_file} {log_file}\n")
+            client.send(f"rm -f {tab_pid_file} {tab_log_file}\n")
             client.send(
-                f"python3 -m http.server {port} --bind {_PREFERRED_BIND_HOST} > {log_file} 2>&1 & echo $! > {pid_file}\n"
+                f"python3 -m http.server {port} --bind {_PREFERRED_BIND_HOST} > {tab_log_file} 2>&1 & echo $! > {tab_pid_file}\n"
             )
 
-            _wait_for(lambda: pid_file.exists(), timeout=4.0, interval=0.1, label="pid file")
-            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            _wait_for(lambda: tab_pid_file.exists(), timeout=4.0, interval=0.1, label="pid file")
+            pid = int(tab_pid_file.read_text(encoding="utf-8").strip())
 
             # Ensure the server is actually listening (sanity check + reduces flakiness).
             _wait_for_lsof_listen_pid(port, expected_pid=pid, timeout=8.0)
@@ -274,6 +331,24 @@ def main() -> int:
 
             _wait_for_lsof_listen_gone(port, timeout=8.0)
             _wait_for_port_absent(client, port, timeout=18.0)
+
+            # Agent-owned descendant processes should stay hidden until the agent PID is
+            # explicitly registered for this workspace.
+            agent_port = _find_free_allowed_port()
+            agent_proc = _start_agent_server(base, agent_port, agent_pid_file, agent_log_file)
+            client.ports_kick(tab=new_tab_id)
+            _assert_port_absent_for_duration(client, agent_port, duration=3.0)
+
+            client.set_agent_pid("test_agent", agent_proc.pid, tab=new_tab_id)
+            client.ports_kick(tab=new_tab_id)
+            _wait_for_port(client, agent_port, timeout=18.0)
+
+            client.clear_agent_pid("test_agent", tab=new_tab_id)
+            _wait_for_port_absent(client, agent_port, timeout=18.0)
+
+            _terminate_process_group(agent_proc)
+            agent_proc = None
+            _wait_for_lsof_listen_gone(agent_port, timeout=8.0)
 
             try:
                 client.close_tab(new_tab_id)
@@ -296,6 +371,7 @@ def main() -> int:
                     external_proc.kill()
                 except Exception:
                     pass
+        _terminate_process_group(agent_proc)
         try:
             shutil.rmtree(base)
         except Exception:

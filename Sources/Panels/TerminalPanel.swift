@@ -22,6 +22,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Published directory from the terminal
     @Published private(set) var directory: String = ""
 
+    @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
+
     /// Search state for find functionality
     @Published var searchState: TerminalSurface.SearchState? {
         didSet {
@@ -35,6 +37,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
+
+    var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -86,17 +90,27 @@ final class TerminalPanel: Panel, ObservableObject {
     convenience init(
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
-        configTemplate: ghostty_surface_config_s? = nil,
+        configTemplate: CmuxSurfaceConfigTemplate? = nil,
         workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        portOrdinal: Int = 0
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
-            additionalEnvironment: additionalEnvironment
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
@@ -121,11 +135,24 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.updateWorkspaceId(newWorkspaceId)
     }
 
+    func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
+        guard tmuxLayoutReport != report else { return }
+        tmuxLayoutReport = report
+    }
+
     func focus() {
-        surface.setFocus(true)
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.setActive(true)
+        guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
+            workspaceId: workspaceId,
+            panelId: id,
+            in: hostedView.window
+        ) != false else {
+            surface.setFocus(false)
+            return
+        }
+        surface.setFocus(true)
         hostedView.ensureFocus(for: workspaceId, surfaceId: id)
     }
 
@@ -148,7 +175,7 @@ final class TerminalPanel: Panel, ObservableObject {
 #if DEBUG
         let frame = String(format: "%.1fx%.1f", hostedView.frame.width, hostedView.frame.height)
         let bounds = String(format: "%.1fx%.1f", hostedView.bounds.width, hostedView.bounds.height)
-        dlog(
+        cmuxDebugLog(
             "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
             "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
             "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
@@ -159,7 +186,7 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
             "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
             "hidden=\(hostedView.isHidden ? 1 : 0)"
@@ -176,6 +203,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func sendText(_ text: String) {
         surface.sendText(text)
+    }
+
+    func sendInput(_ text: String) {
+        surface.sendInput(text)
     }
 
     func performBindingAction(_ action: String) -> Bool {
@@ -196,14 +227,23 @@ final class TerminalPanel: Panel, ObservableObject {
         !surface.needsConfirmClose()
     }
 
-    func triggerFlash() {
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
-        hostedView.triggerFlash()
+
+        switch TmuxOverlayExperimentSettings.target() {
+        case .bonsplitPane:
+            if let onRequestWorkspacePaneFlash {
+                onRequestWorkspacePaneFlash(reason)
+                return
+            }
+            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+        case .surface, .tmuxActivePane:
+            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+        }
     }
 
     func triggerNotificationDismissFlash() {
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
-        hostedView.triggerFlash(style: .notificationDismiss)
+        triggerFlash(reason: .notificationDismiss)
     }
 
     func applyWindowBackgroundIfActive() {

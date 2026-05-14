@@ -26,9 +26,9 @@ export function SiteHeader({
   return (
     <>
       <header className="sticky top-0 z-30 w-full bg-background">
-        <div className="w-full max-w-6xl mx-auto flex items-center px-6 h-12">
+        <div className="w-full max-w-6xl mx-auto flex h-12 items-center px-6 min-[940px]:grid min-[940px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[940px]:gap-4">
           {/* Left: logo + section */}
-          <div className="flex flex-1 items-center gap-3 min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
               <>
                 <Link href="/" className="flex items-center gap-2.5">
@@ -54,14 +54,14 @@ export function SiteHeader({
           </div>
 
           {/* Center: nav links */}
-          <nav className="hidden md:flex items-center justify-center gap-4 text-sm text-muted shrink-0">
+          <nav className="hidden min-w-0 items-center justify-center gap-4 text-sm text-muted min-[940px]:flex">
             <NavLinks />
           </nav>
 
           {/* Right: GitHub stars + Download + theme + mobile */}
-          <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
+          <div className="ml-auto flex min-w-0 items-center justify-end gap-3 min-[940px]:ml-0">
             <GitHubStarsBadge />
-            <div className="hidden md:block">
+            <div className="hidden min-[940px]:block">
               <DownloadButton size="sm" location="navbar" />
             </div>
             <ThemeToggle />
@@ -80,7 +80,7 @@ export function SiteHeader({
         ref={drawerRef}
         role="navigation"
         aria-label="Main navigation"
-        className={`fixed inset-y-0 right-0 z-50 w-56 bg-background border-l border-border overflow-y-auto transition-transform md:hidden ${
+        className={`fixed inset-y-0 right-0 z-50 w-56 bg-background border-l border-border overflow-y-auto transition-transform min-[940px]:hidden ${
           open ? "translate-x-0" : "translate-x-full invisible"
         }`}
       >

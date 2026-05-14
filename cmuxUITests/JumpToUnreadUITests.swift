@@ -50,17 +50,14 @@ final class JumpToUnreadUITests: XCTestCase {
     }
 
     private func waitForJumpUnreadData(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadJumpUnreadData(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        if let data = loadJumpUnreadData(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let data = self.loadJumpUnreadData() else { return false }
+                return keys.allSatisfy { data[$0] != nil }
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func loadJumpUnreadData() -> [String: String]? {

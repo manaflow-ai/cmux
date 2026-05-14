@@ -28,10 +28,11 @@ on:
 
 jobs:
   tests:
-    runs-on: depot-macos-latest
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
           submodules: recursive
@@ -61,7 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
+          BUILD_FLAVOR="crashsubdir-cmux-crash-v1"
+          TAG="xcframework-$GHOSTTY_SHA-$BUILD_FLAVOR"
           URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
           echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
           MAX_RETRIES=30
@@ -84,9 +86,7 @@ jobs:
 
       - name: Install zig
         run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            brew install zig
-          fi
+          ./scripts/install-zig-ci.sh
 
       - name: Create virtual display
         run: |

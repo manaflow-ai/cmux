@@ -8,12 +8,13 @@
 </p>
 
 <p align="center">
-  English | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  English | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -21,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Features
@@ -63,8 +64,28 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> runs Claude Code's teammate mode with one command. Teammates spawn as native splits with sidebar metadata and notifications. No tmux required.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Browser import** — Import cookies, history, and sessions from Chrome, Firefox, Arc, and 20+ browsers so browser panes start authenticated
+- **Custom commands** — Define project-specific actions in [`cmux.json`](https://cmux.com/docs/custom-commands) that launch from the command palette
 - **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
@@ -119,7 +140,7 @@ Give a million developers composable primitives and they'll collectively find th
 
 ## Documentation
 
-For more info on how to configure cmux, [head over to our docs](https://cmux.dev/docs/getting-started?utm_source=readme).
+For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Keyboard Shortcuts
 
@@ -134,7 +155,10 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.dev
 | ⌃ ⌘ [ | Previous workspace |
 | ⌘ ⇧ W | Close workspace |
 | ⌘ ⇧ R | Rename workspace |
+| ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
+| ⌥ ⌘ B | Toggle right sidebar |
+| ⌘ ⇧ E | Toggle right sidebar focus |
 
 ### Surfaces
 
@@ -161,6 +185,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.dev
 ### Browser
 
 Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+Command palette navigation shortcuts, including ⌃ P, are also customizable and can be cleared so the keypress reaches the active terminal.
 
 | Shortcut | Action |
 |----------|--------|
@@ -178,14 +203,16 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 |----------|--------|
 | ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
+| ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
 
 ### Find
 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ F | Find |
-| ⌘ G / ⌘ ⇧ G | Find next / previous |
-| ⌘ ⇧ F | Hide find bar |
+| ⌘ ⇧ F | Find in directory |
+| ⌘ G / ⌥ ⌘ G | Find next / previous |
+| ⌥ ⌘ ⇧ F | Hide find bar |
 | ⌘ E | Use selection for find |
 
 ### Terminal
@@ -203,6 +230,7 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ ⇧ N | New window |
+| ⌘ ⇧ O | Reopen previous session |
 | ⌘ , | Settings |
 | ⌘ ⇧ , | Reload configuration |
 | ⌘ Q | Quit |
@@ -215,15 +243,59 @@ cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the 
 
 Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) or in [#nightly-bugs on Discord](https://discord.gg/xsgFEVrWCZ).
 
-## Session restore (current behavior)
+## Session restore
 
-On relaunch, cmux currently restores app layout and metadata only:
+Quitting cmux saves the current session. On relaunch, cmux restores app-owned
+state:
 - Window/workspace/pane layout
 - Working directories
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
 
-cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
+cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
+unsupported terminal apps reopen as normal terminals.
+
+Supported agent sessions can resume when hooks have saved a native session ID.
+Install hooks after installing the agent CLI so its binary is on `PATH`:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+`cmux hooks setup` installs supported agents it can find and prints a summary
+for skipped agents. Supported resume integrations include Claude Code, Codex,
+OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory,
+and Qoder. Claude Code is handled by the cmux Claude wrapper when Claude
+integration is enabled in Settings.
+
+To keep restored agent terminals idle instead of automatically running their resume commands,
+turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set this in
+`~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+This only disables automatic agent resume commands. cmux still restores the saved layout,
+working directories, scrollback, and browser history.
+
+If you need to reapply the last saved snapshot manually, use:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+Under the hood, cmux writes a versioned snapshot under
+`~/Library/Application Support/cmux/` and agent hooks write session mappings
+under `~/.cmuxterm/`. On restore, cmux rebuilds the layout first, then runs the
+supported agent's native resume command when automatic agent resume is enabled.
+
+Read the full guide at <https://cmux.com/docs/session-restore>.
 
 ## Star History
 
@@ -268,6 +340,6 @@ cmux is free, open source, and always will be. If you'd like to support developm
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+cmux is open source under [GPL-3.0-or-later](LICENSE).
 
-See `LICENSE` for the full text.
+If your organization cannot comply with GPL, a commercial license is available. Contact [founders@manaflow.com](mailto:founders@manaflow.com) for details.

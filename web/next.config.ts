@@ -5,7 +5,6 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const nextConfig: NextConfig = {
-  skipTrailingSlashRedirect: true,
   images: {
     remotePatterns: [
       {
@@ -14,18 +13,6 @@ const nextConfig: NextConfig = {
         pathname: "/*.png",
       },
     ],
-  },
-  async rewrites() {
-    return [
-      {
-        source: "/cmuxterm/static/:path*",
-        destination: "https://us-assets.i.posthog.com/static/:path*",
-      },
-      {
-        source: "/cmuxterm/:path*",
-        destination: "https://us.i.posthog.com/:path*",
-      },
-    ];
   },
 };
 

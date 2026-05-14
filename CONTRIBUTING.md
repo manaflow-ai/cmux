@@ -24,17 +24,18 @@
    - Build the GhosttyKit.xcframework from source
    - Create the necessary symlinks
 
-3. Build and run the debug app:
+3. Build the debug app:
    ```bash
-   ./scripts/reload.sh
+   ./scripts/reload.sh --tag my-feature
    ```
+   The script prints the `.app` path. Cmd-click to open, or pass `--launch` to open automatically.
 
 ## Development Scripts
 
 | Script | Description |
 |--------|-------------|
 | `./scripts/setup.sh` | One-time setup (submodules + xcframework) |
-| `./scripts/reload.sh` | Build and launch Debug app |
+| `./scripts/reload.sh` | Build Debug app (pass `--launch` to also open it) |
 | `./scripts/reloadp.sh` | Build and launch Release app |
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
@@ -99,4 +100,7 @@ See `docs/ghostty-fork.md` for details on fork changes and conflict notes.
 
 ## License
 
-By contributing to this repository, you agree that your contributions are licensed under the project's GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+By contributing to this repository, you agree that:
+
+1. Your contributions are licensed under the project's GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
+2. You grant Manaflow, Inc. a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to use, reproduce, modify, sublicense, and distribute your contributions under any license, including a commercial license offered to third parties.

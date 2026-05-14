@@ -6,9 +6,11 @@ import posthog from "posthog-js";
 export function DownloadButton({
   size = "default",
   location = "hero",
+  className,
 }: {
   size?: "default" | "sm";
   location?: string;
+  className?: string;
 }) {
   const t = useTranslations("common");
   const isSmall = size === "sm";
@@ -18,7 +20,7 @@ export function DownloadButton({
       onClick={() => posthog.capture("cmuxterm_download_clicked", { location })}
       className={`inline-flex items-center whitespace-nowrap rounded-full font-medium bg-foreground hover:opacity-85 transition-opacity ${
         isSmall ? "gap-2 px-4 py-1.5 text-xs" : "gap-2.5 px-5 py-2.5 text-[15px]"
-      }`}
+      } ${className ?? ""}`}
       style={{ color: "var(--background)", textDecoration: "none" }}
     >
       <svg

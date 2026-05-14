@@ -1,0 +1,355 @@
+import XCTest
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+final class BrowserImportMappingTests: XCTestCase {
+    @MainActor
+    func testDefaultExecutionPlanUsesSeparateModeForMultipleSourceProfiles() {
+        let defaultProfile = BrowserProfileDefinition(
+            id: UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!,
+            displayName: "Default",
+            createdAt: .distantPast,
+            isBuiltInDefault: true
+        )
+        let sourceProfiles = [
+            makeSourceProfile(displayName: "You", path: "/tmp/browser-import-you", isDefault: true),
+            makeSourceProfile(displayName: "austin", path: "/tmp/browser-import-austin", isDefault: false),
+        ]
+
+        let plan = BrowserImportPlanResolver.defaultPlan(
+            selectedSourceProfiles: sourceProfiles,
+            destinationProfiles: [defaultProfile],
+            preferredSingleDestinationProfileID: defaultProfile.id
+        )
+
+        XCTAssertEqual(plan.mode, .separateProfiles)
+        XCTAssertEqual(plan.entries.count, 2)
+        XCTAssertEqual(plan.entries.map { $0.sourceProfiles.map(\.displayName) }, [["You"], ["austin"]])
+    }
+
+    @MainActor
+    func testDefaultExecutionPlanUsesSingleDestinationForSingleSourceProfile() {
+        let defaultProfileID = UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!
+        let sourceProfile = makeSourceProfile(
+            displayName: "You",
+            path: "/tmp/browser-import-single",
+            isDefault: true
+        )
+
+        let plan = BrowserImportPlanResolver.defaultPlan(
+            selectedSourceProfiles: [sourceProfile],
+            destinationProfiles: [],
+            preferredSingleDestinationProfileID: defaultProfileID
+        )
+
+        XCTAssertEqual(plan.mode, .singleDestination)
+        XCTAssertEqual(plan.entries.count, 1)
+        XCTAssertEqual(plan.entries[0].sourceProfiles.map(\.displayName), ["You"])
+    }
+
+    @MainActor
+    func testSeparatePlanReusesExistingSameNamedDestinationProfiles() {
+        let workID = UUID()
+        let destinationProfiles = [
+            BrowserProfileDefinition(
+                id: workID,
+                displayName: "You",
+                createdAt: .distantPast,
+                isBuiltInDefault: false
+            )
+        ]
+        let sourceProfiles = [
+            makeSourceProfile(displayName: " you ", path: "/tmp/browser-import-match", isDefault: true)
+        ]
+
+        let plan = BrowserImportPlanResolver.separateProfilesPlan(
+            selectedSourceProfiles: sourceProfiles,
+            destinationProfiles: destinationProfiles
+        )
+
+        XCTAssertEqual(plan.entries.count, 1)
+        XCTAssertEqual(plan.entries[0].destination, .existing(workID))
+    }
+
+    @MainActor
+    func testSeparatePlanUsesStableCreateNamesWhenTwoSourceProfilesShareDisplayName() {
+        let sourceProfiles = [
+            makeSourceProfile(displayName: "Work", path: "/tmp/browser-import-work-1", isDefault: true),
+            makeSourceProfile(displayName: "Work", path: "/tmp/browser-import-work-2", isDefault: false),
+        ]
+
+        let plan = BrowserImportPlanResolver.separateProfilesPlan(
+            selectedSourceProfiles: sourceProfiles,
+            destinationProfiles: []
+        )
+
+        XCTAssertEqual(plan.entries.count, 2)
+        XCTAssertEqual(plan.entries[0].destination, .createNamed("Work"))
+        XCTAssertEqual(plan.entries[1].destination, .createNamed("Work (2)"))
+    }
+
+    func testStep3PresentationShowsPerProfileRowsWhenPlanUsesSeparateMode() {
+        let presentation = BrowserImportStep3Presentation(
+            plan: BrowserImportExecutionPlan(
+                mode: .separateProfiles,
+                entries: [
+                    BrowserImportExecutionEntry(
+                        sourceProfiles: [
+                            makeSourceProfile(
+                                displayName: "You",
+                                path: "/tmp/browser-import-presentation-separate",
+                                isDefault: true
+                            )
+                        ],
+                        destination: .createNamed("You")
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(presentation.showsSeparateRows)
+        XCTAssertFalse(presentation.showsSingleDestinationPicker)
+    }
+
+    func testStep3PresentationShowsSingleDestinationPickerWhenPlanUsesMergeMode() {
+        let presentation = BrowserImportStep3Presentation(
+            plan: BrowserImportExecutionPlan(
+                mode: .mergeIntoOne,
+                entries: []
+            )
+        )
+
+        XCTAssertFalse(presentation.showsSeparateRows)
+        XCTAssertTrue(presentation.showsSingleDestinationPicker)
+    }
+
+    func testSourceProfilesPresentationShrinksListForSmallProfileCounts() {
+        let presentation = BrowserImportSourceProfilesPresentation(profileCount: 2)
+
+        XCTAssertEqual(presentation.scrollHeight, 76)
+        XCTAssertTrue(presentation.showsHelpText)
+    }
+
+    func testSourceProfilesPresentationCapsListHeightAndHidesHelpForSingleProfile() {
+        let singleProfilePresentation = BrowserImportSourceProfilesPresentation(profileCount: 1)
+        let manyProfilesPresentation = BrowserImportSourceProfilesPresentation(profileCount: 9)
+
+        XCTAssertEqual(singleProfilePresentation.scrollHeight, 76)
+        XCTAssertFalse(singleProfilePresentation.showsHelpText)
+        XCTAssertEqual(manyProfilesPresentation.scrollHeight, 144)
+        XCTAssertTrue(manyProfilesPresentation.showsHelpText)
+    }
+
+    func testBrowserImportHintSettingsDefaultToToolbarChip() throws {
+        let suiteName = "BrowserImportHintDefaults-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let presentation = BrowserImportHintSettings.presentation(defaults: defaults)
+
+        XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
+        XCTAssertEqual(presentation.settingsStatus, .visible)
+    }
+
+    func testBrowserImportHintPresentationHidesBlankTabHintWhenDismissed() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .floatingCard,
+            showOnBlankTabs: true,
+            isDismissed: true
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .hidden)
+        XCTAssertEqual(presentation.settingsStatus, .hidden)
+    }
+
+    func testBrowserImportHintPresentationUsesToolbarChipWhenEnabled() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .toolbarChip,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
+        XCTAssertEqual(presentation.settingsStatus, .visible)
+    }
+
+    func testBrowserImportHintPresentationSettingsOnlyVariantStaysInSettings() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .settingsOnly,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .hidden)
+        XCTAssertEqual(presentation.settingsStatus, .settingsOnly)
+    }
+
+    @MainActor
+    func testRealizePlanCreatesMissingDestinationProfilesOnlyWhenRequested() throws {
+        let suiteName = "BrowserImportMappingTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = BrowserProfileStore(defaults: defaults)
+        let plan = BrowserImportExecutionPlan(
+            mode: .separateProfiles,
+            entries: [
+                BrowserImportExecutionEntry(
+                    sourceProfiles: [
+                        makeSourceProfile(
+                            displayName: "You",
+                            path: "/tmp/browser-import-realize-create",
+                            isDefault: true
+                        )
+                    ],
+                    destination: .createNamed("You")
+                )
+            ]
+        )
+
+        let realized = try BrowserImportPlanResolver.realize(plan: plan, profileStore: store)
+
+        XCTAssertEqual(realized.createdProfiles.map(\.displayName), ["You"])
+        XCTAssertEqual(store.profiles.map(\.displayName), ["Default", "You"])
+    }
+
+    @MainActor
+    func testRealizePlanReusesExistingProfileInsteadOfCreatingDuplicate() throws {
+        let suiteName = "BrowserImportMappingTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = BrowserProfileStore(defaults: defaults)
+        let existing = try XCTUnwrap(store.createProfile(named: "You"))
+        let plan = BrowserImportExecutionPlan(
+            mode: .separateProfiles,
+            entries: [
+                BrowserImportExecutionEntry(
+                    sourceProfiles: [
+                        makeSourceProfile(
+                            displayName: "You",
+                            path: "/tmp/browser-import-realize-existing",
+                            isDefault: true
+                        )
+                    ],
+                    destination: .existing(existing.id)
+                )
+            ]
+        )
+
+        let realized = try BrowserImportPlanResolver.realize(plan: plan, profileStore: store)
+
+        XCTAssertTrue(realized.createdProfiles.isEmpty)
+        XCTAssertEqual(realized.entries[0].destinationProfileID, existing.id)
+    }
+
+    func testAggregateOutcomeIncludesOneMappingLinePerDestination() {
+        let outcome = BrowserImportOutcome(
+            browserName: "Helium",
+            scope: .cookiesAndHistory,
+            domainFilters: [],
+            createdDestinationProfileNames: ["You", "austin"],
+            entries: [
+                BrowserImportOutcomeEntry(
+                    sourceProfileNames: ["You"],
+                    destinationProfileName: "You",
+                    importedCookies: 10,
+                    skippedCookies: 0,
+                    importedHistoryEntries: 20,
+                    warnings: []
+                ),
+                BrowserImportOutcomeEntry(
+                    sourceProfileNames: ["austin"],
+                    destinationProfileName: "austin",
+                    importedCookies: 5,
+                    skippedCookies: 1,
+                    importedHistoryEntries: 9,
+                    warnings: []
+                ),
+            ],
+            warnings: []
+        )
+
+        let lines = BrowserImportOutcomeFormatter.lines(for: outcome)
+
+        XCTAssertTrue(lines.contains("You -> You"))
+        XCTAssertTrue(lines.contains("austin -> austin"))
+        XCTAssertTrue(lines.contains("Created cmux profiles: You, austin"))
+    }
+
+    @MainActor
+    func testImportWizardCanBeConstructedForSettingsChoosePath() {
+        let destinationProfiles = [
+            BrowserProfileDefinition(
+                id: UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!,
+                displayName: "Default",
+                createdAt: .distantPast,
+                isBuiltInDefault: true
+            )
+        ]
+        let browser = makeInstalledBrowserCandidate(
+            descriptorID: "google-chrome",
+            displayName: "Chrome",
+            profiles: [
+                makeSourceProfile(displayName: "Default", path: "/tmp/browser-import-chrome-default", isDefault: true),
+                makeSourceProfile(displayName: "Profile 1", path: "/tmp/browser-import-chrome-profile-1", isDefault: false),
+            ]
+        )
+
+        let window = BrowserDataImportCoordinator.shared.debugMakeImportWizardWindow(
+            browsers: [browser],
+            destinationProfiles: destinationProfiles,
+            defaultDestinationProfileID: destinationProfiles[0].id
+        )
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        XCTAssertEqual(window.title, "Import Browser Data")
+        XCTAssertNotNil(window.contentView)
+    }
+
+    private func makeSourceProfile(displayName: String, path: String, isDefault: Bool) -> InstalledBrowserProfile {
+        InstalledBrowserProfile(
+            displayName: displayName,
+            rootURL: URL(fileURLWithPath: path, isDirectory: true),
+            isDefault: isDefault
+        )
+    }
+
+    private func makeInstalledBrowserCandidate(
+        descriptorID: String,
+        displayName: String,
+        profiles: [InstalledBrowserProfile]
+    ) -> InstalledBrowserCandidate {
+        let descriptor = try! XCTUnwrap(InstalledBrowserDetector.allBrowserDescriptors.first(where: { $0.id == descriptorID }))
+        return InstalledBrowserCandidate(
+            descriptor: BrowserImportBrowserDescriptor(
+                id: descriptor.id,
+                displayName: displayName,
+                family: descriptor.family,
+                tier: descriptor.tier,
+                bundleIdentifiers: descriptor.bundleIdentifiers,
+                appNames: descriptor.appNames,
+                dataRootRelativePaths: descriptor.dataRootRelativePaths,
+                dataArtifactRelativePaths: descriptor.dataArtifactRelativePaths,
+                supportsDataOnlyDetection: descriptor.supportsDataOnlyDetection
+            ),
+            resolvedFamily: descriptor.family,
+            homeDirectoryURL: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+            appURL: nil,
+            dataRootURL: URL(fileURLWithPath: "/tmp/browser-import-\(descriptorID)", isDirectory: true),
+            profiles: profiles,
+            detectionSignals: ["test"],
+            detectionScore: 1
+        )
+    }
+}

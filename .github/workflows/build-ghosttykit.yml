@@ -1,19 +1,22 @@
 name: Build GhosttyKit
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-ghosttykit:
-    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-macos-latest
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
+    env:
+      GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
+      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-v1
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
@@ -29,7 +32,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
+          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}-${GHOSTTYKIT_BUILD_FLAVOR}"
           if gh release view "$TAG" --repo manaflow-ai/ghostty >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Release $TAG already exists, skipping build"
@@ -57,19 +60,20 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Cache Zig packages
+        if: steps.check-release.outputs.exists == 'false'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          if ! command -v zig >/dev/null 2>&1; then
-            if command -v brew >/dev/null 2>&1; then
-              brew install zig
-            else
-              echo "zig is required to build GhosttyKit.xcframework. Install zig and retry." >&2
-              exit 1
-            fi
-          fi
-          cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          ./scripts/install-zig-ci.sh
+          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
         if: steps.check-release.outputs.exists == 'false'
@@ -77,7 +81,8 @@ jobs:
           set -euo pipefail
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          COPYFILE_DISABLE=1 tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+          python3 scripts/validate-xcframework-archive.py GhosttyKit.xcframework.tar.gz
 
       - name: Upload xcframework release
         if: steps.check-release.outputs.exists == 'false'
@@ -85,10 +90,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "GHOSTTY_RELEASE_TOKEN not available (fork PR), skipping upload"
+            exit 0
+          fi
+          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}-${GHOSTTYKIT_BUILD_FLAVOR}"
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
-            --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }})" \
-            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }}" \
+            --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
+            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"

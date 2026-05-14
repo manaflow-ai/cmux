@@ -1,12 +1,14 @@
 import SwiftUI
 import Foundation
 import AppKit
+import Bonsplit
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
@@ -21,6 +23,7 @@ struct TerminalPanelView: View {
         // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
         GhosttyTerminalView(
             terminalSurface: panel.surface,
+            paneId: paneId,
             isActive: isFocused,
             isVisibleInUI: isVisibleInUI,
             portalZPriority: portalPriority,
@@ -42,15 +45,48 @@ struct TerminalPanelView: View {
 
 /// Shared appearance settings for panels
 struct PanelAppearance {
+    let backgroundColor: NSColor
+    let foregroundColor: NSColor
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
+    let usesClearContentBackground: Bool
+
+    var contentBackgroundColor: NSColor {
+        usesClearContentBackground ? .clear : backgroundColor
+    }
+
+    var drawsContentBackground: Bool {
+        !usesClearContentBackground
+    }
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
+        fromConfig(config, usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow())
+    }
+
+    static func fromConfig(_ config: GhosttyConfig, usesTransparentWindow: Bool) -> PanelAppearance {
         PanelAppearance(
+            backgroundColor: GhosttyBackgroundTheme.color(
+                backgroundColor: config.backgroundColor,
+                opacity: config.backgroundOpacity
+            ),
+            foregroundColor: config.foregroundColor,
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
-            unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
+            unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
+            usesClearContentBackground: shouldUseClearContentBackground(
+                opacity: config.backgroundOpacity,
+                usesGhosttyGlassStyle: config.backgroundBlur.isMacOSGlassStyle,
+                usesTransparentWindow: usesTransparentWindow
+            )
         )
+    }
+
+    static func shouldUseClearContentBackground(
+        opacity: Double,
+        usesGhosttyGlassStyle: Bool,
+        usesTransparentWindow: Bool
+    ) -> Bool {
+        usesTransparentWindow || usesGhosttyGlassStyle || opacity < 0.999
     }
 }

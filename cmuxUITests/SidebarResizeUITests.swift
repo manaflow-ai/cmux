@@ -90,16 +90,14 @@ final class SidebarResizeUITests: XCTestCase {
     }
 
     private func waitForElementHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if element.exists, element.isHittable {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard element.exists, element.isHittable else { return false }
                 let frame = element.frame
-                if frame.width > 1, frame.height > 1 {
-                    return true
-                }
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
+                return frame.width > 1 && frame.height > 1
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }

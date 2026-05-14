@@ -3,13 +3,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "EULA — cmux",
   description: "End-User License Agreement for cmux",
+  alternates: { canonical: "https://cmux.com/eula" },
 };
 
 export default function EulaPage() {
   return (
     <>
       <h1>EULA</h1>
-      <p>Last updated: December 2, 2025</p>
+      <p>Last updated: March 18, 2026</p>
 
       <p>
         Please read this End-User License Agreement carefully before

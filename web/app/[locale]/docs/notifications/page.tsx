@@ -1,7 +1,9 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../../i18n/seo";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
+import { DocsHeading } from "../../components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -9,6 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/docs/notifications"),
   };
 }
 
@@ -17,10 +20,10 @@ export default function NotificationsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("lifecycle")}</h2>
+      <DocsHeading level={2} id="lifecycle">{t("lifecycle")}</DocsHeading>
       <ol>
         <li>{t("received")}</li>
         <li>{t("unread")}</li>
@@ -28,7 +31,7 @@ export default function NotificationsPage() {
         <li>{t("cleared")}</li>
       </ol>
 
-      <h3>{t("suppression")}</h3>
+      <DocsHeading level={3} id="suppression">{t("suppression")}</DocsHeading>
       <p>{t("suppressionDesc")}</p>
       <ul>
         <li>{t("suppressItem1")}</li>
@@ -36,7 +39,7 @@ export default function NotificationsPage() {
         <li>{t("suppressItem3")}</li>
       </ul>
 
-      <h3>{t("notificationPanel")}</h3>
+      <DocsHeading level={3} id="notification-panel">{t("notificationPanel")}</DocsHeading>
       <p>
         {t.rich("notificationPanelDesc", {
           openShortcut: (chunks) => <code>{chunks}</code>,
@@ -44,7 +47,7 @@ export default function NotificationsPage() {
         })}
       </p>
 
-      <h2>{t("customCommand")}</h2>
+      <DocsHeading level={2} id="custom-command">{t("customCommand")}</DocsHeading>
       <p>{t("customCommandDesc")}</p>
       <table>
         <thead>
@@ -78,13 +81,68 @@ afplay /path/to/sound.aiff
 echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`}</CodeBlock>
       <p>{t("customCommandNote")}</p>
 
-      <h2>{t("sending")}</h2>
+      <DocsHeading level={2} id="notification-hooks">{t("hooksTitle")}</DocsHeading>
+      <p>
+        {t.rich("hooksIntro", {
+          config: (chunks) => <code>{chunks}</code>,
+          hooksMode: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title={t("hooksJsonTitle")} lang="json">{`{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "quiet-docs",
+        "command": "sed 's/\"desktop\":true/\"desktop\":false/'",
+        "timeoutSeconds": 20
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <CodeBlock title={t("hooksIOTitle")} lang="json">{`{
+  "version": 1,
+  "notification": {
+    "workspaceId": "3B3F0D83-...",
+    "surfaceId": "7E9C1A02-...",
+    "title": "Codex",
+    "subtitle": "Waiting",
+    "body": "Agent needs input"
+  },
+  "context": {
+    "cwd": "/path/to/project",
+    "configPath": "/path/to/project/.cmux/cmux.json",
+    "hookId": "quiet-docs",
+    "appFocused": false,
+    "focusedPanel": false
+  },
+  "effects": {
+    "record": true,
+    "markUnread": true,
+    "reorderWorkspace": true,
+    "desktop": true,
+    "sound": true,
+    "command": true,
+    "paneFlash": true
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("hooksDetails", {
+          globalConfig: (chunks) => <code>{chunks}</code>,
+          projectConfig: (chunks) => <code>{chunks}</code>,
+          config: (chunks) => <code>{chunks}</code>,
+          desktop: (chunks) => <code>{chunks}</code>,
+          hooksMode: (chunks) => <code>{chunks}</code>,
+          replace: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
 
-      <h3>{t("cli")}</h3>
+      <DocsHeading level={2} id="sending">{t("sending")}</DocsHeading>
+
+      <DocsHeading level={3} id="cli-usage">{t("cli")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux notify --title "Task Complete" --body "Your build finished"
 cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input"`}</CodeBlock>
 
-      <h3>{t("osc777Title")}</h3>
+      <DocsHeading level={3} id="osc777-title">{t("osc777Title")}</DocsHeading>
       <p>{t("osc777Desc")}</p>
       <CodeBlock lang="bash">{`printf '\\e]777;notify;My Title;Message body here\\a'`}</CodeBlock>
       <CodeBlock title="Shell function" lang="bash">{`notify_osc777() {
@@ -95,7 +153,7 @@ cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input
 
 notify_osc777 "Build Complete" "All tests passed"`}</CodeBlock>
 
-      <h3>{t("osc99Title")}</h3>
+      <DocsHeading level={3} id="osc99-title">{t("osc99Title")}</DocsHeading>
       <p>{t("osc99Desc")}</p>
       <CodeBlock lang="bash">{`# Format: ESC ] 99 ; <params> ; <payload> ESC \\
 
@@ -143,7 +201,7 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
         {t("comparisonCallout")}
       </Callout>
 
-      <h2>{t("claudeCodeHooks")}</h2>
+      <DocsHeading level={2} id="claude-code-hooks">{t("claudeCodeHooks")}</DocsHeading>
       <p>
         {t.rich("claudeCodeHooksDesc", {
           link: (chunks) => (
@@ -152,7 +210,7 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
         })}
       </p>
 
-      <h3>{t("createHookScript")}</h3>
+      <DocsHeading level={3} id="create-hook-script">{t("createHookScript")}</DocsHeading>
       <CodeBlock title="~/.claude/hooks/cmux-notify.sh" lang="bash">{`#!/bin/bash
 # Skip if not in cmux
 [ -S /tmp/cmux.sock ] || exit 0
@@ -171,7 +229,7 @@ case "$EVENT_TYPE" in
 esac`}</CodeBlock>
       <CodeBlock lang="bash">{`chmod +x ~/.claude/hooks/cmux-notify.sh`}</CodeBlock>
 
-      <h3>{t("configureClaude")}</h3>
+      <DocsHeading level={3} id="configure-claude">{t("configureClaude")}</DocsHeading>
       <CodeBlock title="~/.claude/settings.json" lang="json">{`{
   "hooks": {
     "Stop": [
@@ -200,9 +258,58 @@ esac`}</CodeBlock>
 }`}</CodeBlock>
       <p>{t("restartNote")}</p>
 
-      <h2>{t("integrationExamples")}</h2>
+      <DocsHeading level={2} id="copilot-cli-hooks">{t("copilotCliHooks")}</DocsHeading>
+      <p>
+        {t.rich("copilotCliHooksDesc", {
+          link: (chunks) => (
+            <a href="https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks">{chunks}</a>
+          ),
+        })}
+      </p>
+      <CodeBlock title="~/.copilot/config.json" lang="json">{`{
+  "hooks": {
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux set-status copilot_cli Running; fi",
+        "timeoutSec": 3
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --body 'Done'; cmux set-status copilot_cli Idle; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body 'An error occurred'; cmux set-status copilot_cli Error; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux clear-status copilot_cli; fi",
+        "timeoutSec": 3
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>{t("copilotCliRepoHooks")}</p>
+      <CodeBlock title=".github/hooks/notify.json" lang="json">{`{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [ ... ],
+    "agentStop": [ ... ]
+  }
+}`}</CodeBlock>
 
-      <h3>{t("notifyAfterLong")}</h3>
+      <DocsHeading level={2} id="integration-examples">{t("integrationExamples")}</DocsHeading>
+
+      <DocsHeading level={3} id="notify-after-long">{t("notifyAfterLong")}</DocsHeading>
       <CodeBlock title="~/.zshrc" lang="bash">{`# Add to your shell config
 notify-after() {
   "$@"
@@ -217,7 +324,7 @@ notify-after() {
 
 # Usage: notify-after npm run build`}</CodeBlock>
 
-      <h3>{t("python")}</h3>
+      <DocsHeading level={3} id="python">{t("python")}</DocsHeading>
       <CodeBlock title="python" lang="python">{`import sys
 
 def notify(title: str, body: str):
@@ -227,14 +334,14 @@ def notify(title: str, body: str):
 
 notify("Script Complete", "Processing finished")`}</CodeBlock>
 
-      <h3>{t("nodejs")}</h3>
+      <DocsHeading level={3} id="nodejs">{t("nodejs")}</DocsHeading>
       <CodeBlock title="node" lang="javascript">{`function notify(title, body) {
   process.stdout.write(\`\\x1b]777;notify;\${title};\${body}\\x07\`);
 }
 
 notify('Build Done', 'webpack finished');`}</CodeBlock>
 
-      <h3>{t("tmuxPassthrough")}</h3>
+      <DocsHeading level={3} id="tmux-passthrough">{t("tmuxPassthrough")}</DocsHeading>
       <p>{t("tmuxDesc")}</p>
       <CodeBlock title=".tmux.conf" lang="bash">{`set -g allow-passthrough on`}</CodeBlock>
       <CodeBlock lang="bash">{`printf '\\ePtmux;\\e\\e]777;notify;Title;Body\\a\\e\\\\'`}</CodeBlock>

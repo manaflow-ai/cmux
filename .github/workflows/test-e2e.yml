@@ -20,22 +20,23 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (macos-15 or macos-26)"
+        description: "Runner OS (Depot runners for GUI activation support)"
         required: false
-        default: "macos-15"
+        default: "depot-macos-latest"
         type: choice
         options:
-          - macos-15
-          - macos-26
+          - depot-macos-latest
+          - depot-macos-14
 
 jobs:
   e2e:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
+    timeout-minutes: 20
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
@@ -69,7 +70,8 @@ jobs:
         run: |
           set -euo pipefail
           GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
+          BUILD_FLAVOR="crashsubdir-cmux-crash-v1"
+          TAG="xcframework-$GHOSTTY_SHA-$BUILD_FLAVOR"
           URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
           echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
           MAX_RETRIES=30
@@ -92,11 +94,16 @@ jobs:
 
       - name: Install zig
         run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            brew install zig
-          fi
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Bun for Feed sidebar tests
+        if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
 
       - name: Create virtual display
+        if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -158,11 +165,11 @@ jobs:
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'macos-15' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'macos-15' }}-
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
         run: |
@@ -193,8 +200,24 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           ONLY_TESTING="-only-testing:cmuxUITests/$TEST_FILTER"
+          DISPLAY_ENV_PREFIX=()
 
-          # Start recording right before the test (after build/resolve)
+          if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
+            HELPER_PATH="/tmp/create-virtual-display"
+            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+
+            rm -f "$MANIFEST_PATH"
+            trap 'rm -f "$MANIFEST_PATH"' EXIT
+
+            clang -framework Foundation -framework CoreGraphics \
+              -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+            printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" > "$MANIFEST_PATH"
+          fi
+
+          # Start recording right before the test (after build/resolve).
+          # The display churn regression creates its own virtual display above,
+          # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
             DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
             echo "Available devices:"
@@ -221,13 +244,22 @@ jobs:
             fi
           fi
 
+          XCODEBUILD_CMD=(
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
+            -disableAutomaticPackageResolution
+            -destination "platform=macOS"
+            -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
+            $ONLY_TESTING
+            test
+          )
+
           set +e
-          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            $ONLY_TESTING test 2>&1)
+          if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
+            OUTPUT=$(env "${DISPLAY_ENV_PREFIX[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
+          else
+            OUTPUT=$("${XCODEBUILD_CMD[@]}" 2>&1)
+          fi
           EXIT_CODE=$?
           set -e
 
@@ -297,7 +329,7 @@ jobs:
 
       - name: Upload recording artifact
         if: ${{ always() && inputs.record_video }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-recording
           path: /tmp/test-recording.mp4

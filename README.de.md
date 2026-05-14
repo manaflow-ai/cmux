@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | Deutsch | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | Deutsch | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -23,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo-Video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo-Video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funktionen
@@ -65,8 +66,28 @@ Die Seitenleiste zeigt Git-Branch, verknüpften PR-Status/Nummer, Arbeitsverzeic
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertikale Tabs und geteilte Bereiche" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> erstellt einen Arbeitsbereich für eine entfernte Maschine. Browser-Bereiche werden über das entfernte Netzwerk geleitet, sodass localhost einfach funktioniert. Ziehen Sie ein Bild in eine entfernte Sitzung, um es per scp hochzuladen.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> startet den Teammate-Modus von Claude Code mit einem einzigen Befehl. Teammates erscheinen als native Teilungen mit Seitenleisten-Metadaten und Benachrichtigungen. Kein tmux erforderlich.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Browser-Import** — Importieren Sie Cookies, Verlauf und Sitzungen aus Chrome, Firefox, Arc und über 20 weiteren Browsern, damit Browser-Bereiche bereits authentifiziert starten
+- **Benutzerdefinierte Befehle** — Definieren Sie projektspezifische Aktionen in [`cmux.json`](https://cmux.com/docs/custom-commands), die über die Befehlspalette gestartet werden
 - **Skriptfähig** — CLI und Socket-API zum Erstellen von Arbeitsbereichen, Teilen von Bereichen, Senden von Tastenanschlägen und Automatisieren des Browsers
 - **Native macOS-App** — Entwickelt mit Swift und AppKit, nicht Electron. Schneller Start, geringer Speicherverbrauch.
 - **Ghostty-kompatibel** — Liest Ihre vorhandene `~/.config/ghostty/config` für Themes, Schriftarten und Farben
@@ -121,7 +142,7 @@ Geben Sie einer Million Entwickler komponierbare Grundbausteine, und sie werden 
 
 ## Dokumentation
 
-Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokumentation](https://cmux.dev/docs/getting-started?utm_source=readme).
+Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokumentation](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Tastenkürzel
 
@@ -268,6 +289,6 @@ cmux ist kostenlos, Open Source und wird es immer sein. Wenn Sie die Entwicklung
 
 ## Lizenz
 
-Dieses Projekt ist unter der GNU Affero General Public License v3.0 oder neuer (`AGPL-3.0-or-later`) lizenziert.
+cmux ist Open Source unter [GPL-3.0-or-later](LICENSE).
 
-Den vollständigen Lizenztext finden Sie in der `LICENSE`-Datei.
+Wenn Ihre Organisation GPL nicht einhalten kann, ist eine kommerzielle Lizenz verfügbar. Kontaktieren Sie [founders@manaflow.com](mailto:founders@manaflow.com) für Details.

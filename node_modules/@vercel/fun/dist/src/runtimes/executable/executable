@@ -1,3 +1,0 @@
-#!/bin/bash
-# Delegate out to the provided `executable` file
-exec "$LAMBDA_TASK_ROOT/executable" "$@"
