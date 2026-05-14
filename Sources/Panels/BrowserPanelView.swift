@@ -428,6 +428,9 @@ struct BrowserPanelView: View {
     @State private var omnibarSelectAllRequestId: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    @State private var isBrowserToolsMenuPresented = false
+    @State private var isBrowserToolsClearingCookies = false
+    @State private var isBrowserToolsClearingCache = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -439,6 +442,8 @@ struct BrowserPanelView: View {
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
+    private let browserToolsPopoverWidth: CGFloat = 276
+    private let browserToolsRowHeight: CGFloat = 32
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
@@ -856,6 +861,7 @@ struct BrowserPanelView: View {
                 browserProfileButton
                 browserThemeModeButton
                 developerToolsButton
+                browserToolsButton
             }
         }
         .padding(.horizontal, 8)
@@ -1033,6 +1039,193 @@ struct BrowserPanelView: View {
             )
         )
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserToolsButton: some View {
+        Button(action: {
+            isBrowserToolsMenuPresented.toggle()
+        }) {
+            Image(systemName: "ellipsis")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .semibold))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .popover(isPresented: $isBrowserToolsMenuPresented, arrowEdge: .bottom) {
+            browserToolsPopover
+        }
+        .safeHelp(String(localized: "browser.tools.buttonHelp", defaultValue: "Browser Tools"))
+        .accessibilityIdentifier("BrowserToolsButton")
+    }
+
+    private var browserToolsPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            browserToolsTextButton(
+                title: String(localized: "browser.tools.forceReload", defaultValue: "Force reload"),
+                isDisabled: !panel.canForceReloadCurrentPage,
+                accessibilityIdentifier: "BrowserToolsForceReloadButton"
+            ) {
+                panel.forceReload()
+                isBrowserToolsMenuPresented = false
+            }
+
+            browserToolsTextButton(
+                title: String(localized: "browser.tools.showDeviceToolbar", defaultValue: "Show device toolbar"),
+                isDisabled: true,
+                accessibilityIdentifier: "BrowserToolsDeviceToolbarButton"
+            ) {}
+            .safeHelp(String(localized: "browser.tools.showDeviceToolbar.unavailable", defaultValue: "Device toolbar is not available in WKWebView."))
+
+            browserToolsDivider
+
+            browserToolsZoomRow
+
+            browserToolsDivider
+
+            browserToolsTextButton(
+                title: String(localized: "browser.tools.clearCookies", defaultValue: "Clear cookies"),
+                isDisabled: isBrowserToolsClearingCookies,
+                accessibilityIdentifier: "BrowserToolsClearCookiesButton"
+            ) {
+                clearBrowserToolsCookies()
+            }
+
+            browserToolsTextButton(
+                title: String(localized: "browser.tools.clearCache", defaultValue: "Clear cache"),
+                isDisabled: isBrowserToolsClearingCache,
+                accessibilityIdentifier: "BrowserToolsClearCacheButton"
+            ) {
+                clearBrowserToolsCache()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(width: browserToolsPopoverWidth)
+        .accessibilityIdentifier("BrowserToolsPopover")
+    }
+
+    private var browserToolsDivider: some View {
+        Divider()
+            .padding(.vertical, 6)
+    }
+
+    private var browserToolsZoomRow: some View {
+        HStack(spacing: 10) {
+            Text(String(localized: "browser.tools.zoom", defaultValue: "Zoom"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            HStack(spacing: 0) {
+                Button {
+                    _ = panel.zoomOut()
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 34, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"))
+                .accessibilityIdentifier("BrowserToolsZoomOutButton")
+
+                browserToolsZoomDivider
+
+                Text(browserToolsZoomPercent)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .frame(width: 62, height: 26)
+                    .accessibilityIdentifier("BrowserToolsZoomPercent")
+
+                browserToolsZoomDivider
+
+                Button {
+                    _ = panel.zoomIn()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 34, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"))
+                .accessibilityIdentifier("BrowserToolsZoomInButton")
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.04))
+                    )
+            )
+
+            Button {
+                _ = panel.resetZoom()
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .safeHelp(String(localized: "menu.view.actualSize", defaultValue: "Actual Size"))
+            .accessibilityIdentifier("BrowserToolsZoomResetButton")
+        }
+        .frame(height: browserToolsRowHeight)
+    }
+
+    private var browserToolsZoomDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.12))
+            .frame(width: 1, height: 18)
+    }
+
+    private var browserToolsZoomPercent: String {
+        "\(Int((panel.pageZoomFactor * 100).rounded()))%"
+    }
+
+    private func browserToolsTextButton(
+        title: String,
+        isDisabled: Bool,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 0)
+            }
+            .frame(height: browserToolsRowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1.0)
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func clearBrowserToolsCookies() {
+        guard !isBrowserToolsClearingCookies else { return }
+        isBrowserToolsClearingCookies = true
+        Task { @MainActor in
+            _ = await panel.clearCookies()
+            isBrowserToolsClearingCookies = false
+            isBrowserToolsMenuPresented = false
+        }
+    }
+
+    private func clearBrowserToolsCache() {
+        guard !isBrowserToolsClearingCache else { return }
+        isBrowserToolsClearingCache = true
+        Task { @MainActor in
+            _ = await panel.clearCache()
+            isBrowserToolsClearingCache = false
+            isBrowserToolsMenuPresented = false
+        }
     }
 
     private var browserImportHintToolbarChip: some View {

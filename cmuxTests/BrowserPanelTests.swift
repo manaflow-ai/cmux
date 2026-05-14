@@ -82,6 +82,79 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 }
 
 
+@MainActor
+final class BrowserPanelToolsActionsTests: XCTestCase {
+    func testClearCookiesDeletesCookiesInCurrentProfileStore() async throws {
+        let profile = try makeTemporaryBrowserPanelProfile(named: "ToolsCookies")
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
+
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: profile.id)
+        let cookie = try makeCookie(name: "cmux_tools_cookie")
+        let cookieStore = panel.webView.configuration.websiteDataStore.httpCookieStore
+        await setCookie(cookie, in: cookieStore)
+
+        let initialCookies = await allCookies(in: cookieStore)
+        XCTAssertTrue(initialCookies.contains { $0.name == cookie.name })
+
+        let removed = await panel.clearCookies()
+
+        XCTAssertEqual(removed, 1)
+        let remainingCookies = await allCookies(in: cookieStore)
+        XCTAssertFalse(remainingCookies.contains { $0.name == cookie.name })
+    }
+
+    func testClearCacheDoesNotClearCookies() async throws {
+        let profile = try makeTemporaryBrowserPanelProfile(named: "ToolsCache")
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
+
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: profile.id)
+        let cookie = try makeCookie(name: "cmux_tools_cache_cookie")
+        let cookieStore = panel.webView.configuration.websiteDataStore.httpCookieStore
+        await setCookie(cookie, in: cookieStore)
+
+        let clearedTypes = await panel.clearCache()
+
+        XCTAssertTrue(
+            clearedTypes.allSatisfy {
+                $0.range(of: "cache", options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+        )
+        let remainingCookies = await allCookies(in: cookieStore)
+        XCTAssertTrue(remainingCookies.contains { $0.name == cookie.name })
+        _ = await panel.clearCookies()
+    }
+
+    private func makeCookie(name: String) throws -> HTTPCookie {
+        try XCTUnwrap(
+            HTTPCookie(properties: [
+                .originURL: URL(string: "https://example.com")!,
+                .domain: "example.com",
+                .path: "/",
+                .name: "\(name)-\(UUID().uuidString)",
+                .value: "1",
+                .expires: Date(timeIntervalSinceNow: 3600),
+            ])
+        )
+    }
+
+    private func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.setCookie(cookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func allCookies(in store: WKHTTPCookieStore) async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            store.getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+    }
+}
+
+
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)

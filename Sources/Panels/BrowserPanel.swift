@@ -2288,6 +2288,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Published can go forward state
     @Published private(set) var canGoForward: Bool = false
+    @Published private(set) var pageZoomFactor: CGFloat = 1.0
 
     private var nativeCanGoBack: Bool = false
     private var nativeCanGoForward: Bool = false
@@ -3073,6 +3074,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
+        pageZoomFactor = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
         currentURL = restoreURL
@@ -3423,6 +3425,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
+        pageZoomFactor = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
         shouldRenderWebView = wasRenderable
@@ -4514,6 +4517,57 @@ extension BrowserPanel {
             }
         }
         webView.reload()
+    }
+
+    var canForceReloadCurrentPage: Bool {
+        currentURL != nil || webView.url != nil
+    }
+
+    /// Reload the current page while bypassing WebKit's cache when possible.
+    func forceReload() {
+        guard canForceReloadCurrentPage else { return }
+        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        if webView.url == nil {
+            reload()
+            return
+        }
+        webView.reloadFromOrigin()
+    }
+
+    @discardableResult
+    func clearCookies() async -> Int {
+        let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+        let cookies = await withCheckedContinuation { continuation in
+            cookieStore.getAllCookies { cookies in
+                continuation.resume(returning: cookies)
+            }
+        }
+
+        var removed = 0
+        for cookie in cookies {
+            await withCheckedContinuation { continuation in
+                cookieStore.delete(cookie) {
+                    continuation.resume()
+                }
+            }
+            removed += 1
+        }
+        return removed
+    }
+
+    @discardableResult
+    func clearCache() async -> [String] {
+        let dataTypes = Self.cacheWebsiteDataTypes(from: WKWebsiteDataStore.allWebsiteDataTypes())
+        guard !dataTypes.isEmpty else { return [] }
+        await withCheckedContinuation { continuation in
+            webView.configuration.websiteDataStore.removeData(
+                ofTypes: dataTypes,
+                modifiedSince: .distantPast
+            ) {
+                continuation.resume()
+            }
+        }
+        return Array(dataTypes).sorted()
     }
 
     /// Stop loading
@@ -5890,6 +5944,12 @@ extension BrowserPanel {
 #endif
 
 private extension BrowserPanel {
+    static func cacheWebsiteDataTypes(from availableDataTypes: Set<String>) -> Set<String> {
+        availableDataTypes.filter {
+            $0.range(of: "cache", options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
+
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
@@ -5897,6 +5957,7 @@ private extension BrowserPanel {
             return false
         }
         webView.pageZoom = clamped
+        pageZoomFactor = clamped
         return true
     }
 
