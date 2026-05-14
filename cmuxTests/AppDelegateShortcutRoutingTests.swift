@@ -5398,6 +5398,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(menuProbe.callCount, 0, "Cmd+D must not keep splitting after splitRight is remapped")
     }
 
+    func testCurrentGlobalSearchShortcutIsNotSuppressedAsStaleMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "d",
+            modifiers: [.command],
+            keyCode: 2,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+D event")
+            return
+        }
+
+        let remappedGlobalSearch = StoredShortcut(
+            key: "d",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .globalSearch, shortcut: remappedGlobalSearch) {
+            XCTAssertFalse(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "Current globalSearch remaps must not be treated as stale menu shortcuts"
+            )
+        }
+    }
+
     func testApplicationSendEventSuppressesRemappedCmdDStaleMenuShortcut() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
