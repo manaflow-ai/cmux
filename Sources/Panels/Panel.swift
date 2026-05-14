@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import AppKit
-import SwiftUI
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -251,25 +250,6 @@ enum FocusFlashPattern {
             let inverse = 1 - progress
             return 1 - (inverse * inverse)
         }
-    }
-}
-
-struct WorkspaceAttentionFlashRingView: View {
-    let opacity: Double
-    var reason: WorkspaceAttentionFlashReason = .navigation
-
-    var body: some View {
-        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
-        let color = Color(nsColor: presentation.accent.strokeColor)
-
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(color.opacity(opacity), lineWidth: PanelOverlayRingMetrics.lineWidth)
-            .shadow(
-                color: color.opacity(opacity * presentation.glowOpacity),
-                radius: presentation.glowRadius
-            )
-            .padding(FocusFlashPattern.ringInset)
-            .allowsHitTesting(false)
     }
 }
 
