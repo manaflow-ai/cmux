@@ -83,12 +83,13 @@ Each milestone is a sequence of PRs, not a single PR. Each PR is mergeable on it
 
 ### P1 — Custom framework target (2–4 weeks elapsed) — in progress
 
-- [ ] **GATING**: `manaflow-ai/cmux-chromium` fork repo must exist. Org-level repo creation needs user permission. Once it does, `embedder/` artifacts (`BUILD.gn`, `cmux_browser.h`, `CHANGELOG.md`) drop in as session 2's deliverable.
-- [ ] Add a GN build target `//cmux:cmux_core_framework` that produces `CmuxCore.framework`. Skeleton declared in `embedder/BUILD.gn` (session 2). Strip browser UI; keep content/, ANGLE, V8, blink.
-- [ ] Custom branding: bundle IDs `ai.manaflow.cmux.browser.helper*`, plist `CFBundleName = cmux Helper`, version string set to Chromium upstream + `.cmux.N`.
-- [ ] Build all four helper apps with the cmux bundle ID prefix.
-- [ ] Codesign with Developer ID Application identity, embed `embedded.provisionprofile`, notarize via `notarytool`. Helpers and framework signed before the host app.
-- [ ] Smoke test: `CmuxCore` loads in a minimal Swift host that calls `ChromeMain` with `--type=` flags and shuts down cleanly.
+- [ ] **GATING**: `manaflow-ai/cmux-chromium` fork repo must exist. Org-level repo creation needs user permission. Once it does, `embedder/` artifacts (`BUILD.gn`, `cmux_browser.h`, branding plists, stub `.cc`/`.mm` files, `CHANGELOG.md`) drop in as sessions 2+3's deliverable.
+- [x] **GN build target `//cmux:cmux_core_framework`** — declared and validated. `gn gen` + `gn check` against M148 stable on cmux-aws-mac confirms the framework, all four helper apps (`cmux_helper_app_default/_renderer/_gpu/_plugin`), `cmux_helpers` group, and `//cmux/embedder:embedder` all pass `Header dependency check OK`. See `embedder/cmux_BUILD.gn` and `embedder/README.md` for the verification path (one-line entry to root `//BUILD.gn`'s `gn_all` group; tree reverted clean afterward). Real `//content` linking remains; the framework definition is correct against the dep graph.
+- [x] **Stub `.cc`/`.mm` implementations matching the v1 C ABI** — every function declared in `cmux_browser.h` has a sentinel body in `embedder/cmux_{session,profile,view,browser}.{cc,mm}` + `cmux_layer_host.mm` (empty), `cmux_helper_main_mac.cc` (returns 0), `cmux_framework_main.cc` (exposes `cmux_framework_abi_version()`). Stubs return `CMUX_E_NATIVE` / NULL / 0 / "" and use a shared `cmux_internal_set_last_error` helper. The framework can link in isolation against the stubs; real implementations replace bodies per ABI group when //content wiring lands.
+- [x] **Custom branding**: bundle IDs `ai.manaflow.cmux.browser.helper{.renderer,.plugin}` (gpu reuses the default suffix), `cmux_helper_name = "cmux Helper"` so helpers compose as "cmux Helper", "cmux Helper (Renderer)", "cmux Helper (GPU)", "cmux Helper (Plugin)". `embedder/branding/cmux_core_framework-Info.plist` and `embedder/branding/cmux_helper-Info.plist` hold the substitution-templated plists. Version string `0.1.cmux.0` declared in `cmux_BUILD.gn`.
+- [x] **All four helper apps declared with the cmux bundle ID prefix** — `foreach(helper_params, content_mac_helpers)` instantiates them via the inlined `cmux_helper_app` template (mirrors `chrome_helper_app` in `chrome/BUILD.gn:730`). Header dependency check passes for every variant.
+- [ ] Codesign with Developer ID Application identity, embed `embedded.provisionprofile`, notarize via `notarytool`. Helpers and framework signed before the host app. **Gated on fork repo + ninja link success.**
+- [ ] Smoke test: `CmuxCore` loads in a minimal Swift host that calls `ChromeMain` with `--type=` flags and shuts down cleanly. **Gated on fork repo + real //content wiring (stubs return `CMUX_E_NATIVE` for everything but `cmux_session_init`).**
 
 ### P2 — Embedding API (3–6 weeks elapsed) — Swift surface DONE, C-side gated on fork repo
 
