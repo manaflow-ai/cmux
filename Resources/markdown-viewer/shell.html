@@ -328,6 +328,18 @@ html { scroll-behavior: smooth; }
     return value;
   }
 
+  // FNV-1a hash for fast content-change detection. Uses 32-bit arithmetic
+  // (safe in JS) to avoid the O(n) innerHTML string comparison on re-render.
+  function fnv1aHash(str) {
+    var hash = 0x811c9dc5;
+    for (var i = 0, len = str.length; i < len; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = (hash * 0x01000193) >>> 0;
+    }
+    return hash;
+  }
+  var lastRenderedHash = 0;
+
   function escapeHtml(s) {
     // Let WebKit's HTML serializer do escaping rather than trying
     // to keep a hand-written entity table correct.
@@ -882,6 +894,14 @@ html { scroll-behavior: smooth; }
     } catch (e) {
       return false;
     }
+  }
+
+  // Fast pre-check: most markdown files produce HTML with no dangerous
+  // elements or attributes. This regex tests for patterns the full
+  // TreeWalker sanitizer would act on — if none match, skip the walk.
+  var sanitizationPattern = /<(?:script|iframe|object|embed|link(?:\s)|meta|base|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|(?:\son[a-z]+=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):/i;
+  function needsSanitization(html) {
+    return sanitizationPattern.test(html || '');
   }
 
   function sanitizeRenderedHTML(html) {
@@ -1503,15 +1523,22 @@ html { scroll-behavior: smooth; }
     openMarkdownCandidate(rawPath);
   }, true);
 
-  window.__cmuxRenderMarkdown = function(md) {
+  // Debounce rapid re-renders (e.g. atomic write-rename fires watcher
+  // twice in quick succession). 80ms is fast enough to feel instant but
+  // collapses bursts from editors like vim, emacs, and VS Code.
+  var renderTimer = null;
+  function doRender(md) {
     try {
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
+      var parsed = marked.parse(documentParts.body || '');
       var html = renderFrontmatter(documentParts.frontmatter)
-        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
-      var didReplaceContent = contentEl.innerHTML !== html;
+        + (needsSanitization(parsed) ? sanitizeRenderedHTML(parsed) : parsed);
+      var hash = fnv1aHash(html);
+      var didReplaceContent = hash !== lastRenderedHash;
       var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
       if (didReplaceContent) {
+        lastRenderedHash = hash;
         contentEl.innerHTML = html;
       }
       rewriteLocalImageSources();
@@ -1526,6 +1553,17 @@ html { scroll-behavior: smooth; }
         + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))
         + '</div><pre><code>' + escapeHtml(md || '') + '</code></pre>';
     }
+  }
+  window.__cmuxRenderMarkdown = function(md) {
+    if (renderTimer) { clearTimeout(renderTimer); }
+    if (lastRenderedHash === 0) {
+      doRender(md);
+      return;
+    }
+    renderTimer = setTimeout(function() {
+      renderTimer = null;
+      doRender(md);
+    }, 80);
   };
 
   function cleanRenderedContentClone(options) {
