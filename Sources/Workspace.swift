@@ -1179,6 +1179,7 @@ extension Workspace {
             }
         }
         pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
