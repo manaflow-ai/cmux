@@ -215,6 +215,7 @@ Before declaring browser proxying complete:
 3. Defaults preserve loopback behavior on a single host; override both when docker runs on a different host (for example VM -> host OrbStack).
 
 ### 10.4 Manual Cloud VM Sleep/Network Smoke
+
 Use this smoke when validating Cloud VM SSH resilience against a real provider VM:
 
 1. Create or select a running Cloud VM and open it with `cmux vm ssh <vm-id>` from the tagged app build under test.
