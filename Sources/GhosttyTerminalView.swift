@@ -7112,7 +7112,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
             var paragraph = cleaned
             let startIndent = line.prefix(while: { $0 == " " }).count
-            let isURL = Self.containsURL(paragraph)
+            let isURL = Self.startsWithURL(paragraph)
             while i + 1 < lines.count {
                 let nextLine = lines[i + 1]
                 let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
@@ -7150,6 +7150,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if trimmed.hasPrefix("```") { return true }
         if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") { return true }
         if trimmed.hasPrefix("# ") { return true }
+        if trimmed.hasPrefix("> ") || trimmed == ">" { return true }
         return false
     }
 
@@ -7165,8 +7166,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return s
     }
 
-    private static func containsURL(_ text: String) -> Bool {
-        text.contains("http://") || text.contains("https://") || text.contains("www.")
+    private static func startsWithURL(_ text: String) -> Bool {
+        let s = text.drop(while: { "->*+ ".contains($0) })
+        return s.hasPrefix("http://") || s.hasPrefix("https://") || s.hasPrefix("www.")
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
