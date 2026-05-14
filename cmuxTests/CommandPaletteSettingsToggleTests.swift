@@ -16,12 +16,12 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             )
 
             let settingTitle = String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode")
-            let enableTitle = String(
-                format: String(localized: "command.toggleSetting.enableTitle", defaultValue: "Enable %@"),
+            let enableTitle = String.localizedStringWithFormat(
+                String(localized: "command.toggleSetting.enableTitle", defaultValue: "Enable %@"),
                 settingTitle
             )
-            let disableTitle = String(
-                format: String(localized: "command.toggleSetting.disableTitle", defaultValue: "Disable %@"),
+            let disableTitle = String.localizedStringWithFormat(
+                String(localized: "command.toggleSetting.disableTitle", defaultValue: "Disable %@"),
                 settingTitle
             )
             let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
@@ -95,6 +95,20 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             XCTAssertFalse(defaults.bool(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey))
             XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
+    func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.openSidebarPortLinksInCmuxBrowser"
+                )
+            )
+
+            XCTAssertTrue(descriptor.isAvailable(defaults))
+            defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPortsKey)
+            XCTAssertFalse(descriptor.isAvailable(defaults))
         }
     }
 

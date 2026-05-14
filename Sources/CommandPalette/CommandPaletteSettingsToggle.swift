@@ -63,7 +63,7 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         let format = isOn(defaults)
             ? String(localized: "command.toggleSetting.disableTitle", defaultValue: "Disable %@")
             : String(localized: "command.toggleSetting.enableTitle", defaultValue: "Enable %@")
-        return String(format: format, title())
+        return String.localizedStringWithFormat(format, title())
     }
 
     func commandSubtitle(defaults: UserDefaults = .standard) -> String {
@@ -71,7 +71,7 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
             ? String(localized: "command.toggleSetting.state.on", defaultValue: "On")
             : String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
         let format = String(localized: "command.toggleSetting.subtitle", defaultValue: "%@ • %@")
-        return String(format: format, sectionTitle(), state)
+        return String.localizedStringWithFormat(format, sectionTitle(), state)
     }
 
     func toggle(
@@ -115,6 +115,14 @@ enum CommandPaletteSettingsToggleCommands {
             sidebarDetailsAvailable(defaults)
                 && SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: defaults)
                 && SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
+        }
+        let sidebarPortLinksAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
+            sidebarDetailsAvailable(defaults)
+                && SidebarWorkspaceDetailDefaults.boolValue(
+                    defaults: defaults,
+                    key: SidebarWorkspaceDetailDefaults.showPortsKey,
+                    defaultValue: SidebarWorkspaceDetailDefaults.showPorts
+                )
         }
 
         return [
@@ -466,7 +474,7 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["sidebar.openPortLinksInCmuxBrowser", "sidebar", "port", "localhost", "browser", "link"],
                 defaultValue: BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                 defaultsKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey,
-                isAvailable: sidebarDetailsAvailable
+                isAvailable: sidebarPortLinksAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showSSHInSidebar",
