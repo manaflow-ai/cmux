@@ -215,7 +215,7 @@ extension Workspace {
         }
         let notificationStore = AppDelegate.shared?.notificationStore
         let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
-        let hasWorkspaceUnreadIndicator = isWorkspaceManuallyUnread ||
+        let hasWorkspaceUnreadIndicator =
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
 
@@ -320,12 +320,10 @@ extension Workspace {
         }
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
-        if !isWorkspaceManuallyUnread {
-            if snapshot.hasUnreadIndicator == true {
-                AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
-            } else {
-                AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
-            }
+        if snapshot.hasUnreadIndicator == true {
+            AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
+        } else {
+            AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
     }
 
@@ -430,7 +428,7 @@ extension Workspace {
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
-        let hasUnreadIndicator = isManuallyUnread ||
+        let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
             hasUnreadNotification(panelId: panelId)
         let branchSnapshot = panelGitBranches[panelId].map {
@@ -901,10 +899,12 @@ extension Workspace {
 
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
-        } else if snapshot.hasUnreadIndicator == true {
-            restorePanelUnreadIndicator(panelId)
         } else {
             clearManualUnread(panelId: panelId)
+        }
+        if snapshot.hasUnreadIndicator == true {
+            restorePanelUnreadIndicator(panelId)
+        } else {
             clearRestoredUnreadIndicator(panelId: panelId)
         }
 
@@ -11796,6 +11796,9 @@ final class Workspace: Identifiable, ObservableObject {
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
+        if currentlyFocusedPanelId != panelId {
+            syncUnreadBadgeStateForAllPanels()
+        }
 
         if let browserPanel = panels[panelId] as? BrowserPanel {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
@@ -14413,7 +14416,7 @@ extension Workspace: BonsplitDelegate {
             setPanelPinned(panelId: panelId, pinned: shouldPin)
         case .markAsRead:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            clearManualUnread(panelId: panelId)
+            markPanelRead(panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)

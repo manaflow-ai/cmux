@@ -1398,6 +1398,9 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        if surfaceId == nil {
+            setWorkspaceRestoredUnread(false, forTabId: tabId)
+        }
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1468,6 +1471,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         clearWorkspaceManualUnread()
+        clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1492,10 +1496,14 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
-        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty || !manualUnreadWorkspaceIds.isEmpty else { return }
+        guard !notifications.isEmpty ||
+            !focusedReadIndicatorByTabId.isEmpty ||
+            !manualUnreadWorkspaceIds.isEmpty ||
+            !restoredUnreadWorkspaceIds.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
+        clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
@@ -1509,6 +1517,7 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
+        let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1519,9 +1528,12 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
-        guard !idsToClear.isEmpty || hadFocusedReadIndicator else { return }
+        guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadRestoredWorkspaceUnread else { return }
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
+        }
+        if surfaceId == nil {
+            setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if !idsToClear.isEmpty {
@@ -1579,6 +1591,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         setWorkspaceManualUnread(false, forTabId: tabId)
+        setWorkspaceRestoredUnread(false, forTabId: tabId)
         guard !idsToClear.isEmpty || hadFocusedReadIndicator else { return }
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
