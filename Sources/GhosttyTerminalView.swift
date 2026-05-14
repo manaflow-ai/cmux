@@ -2117,6 +2117,12 @@ class GhosttyApp {
                 logLabel: "renderer background (fallback)"
             )
             loadInlineGhosttyConfig(
+                "macos-titlebar-proxy-icon = hidden",
+                into: fallbackConfig,
+                prefix: "cmux-titlebar-proxy-icon",
+                logLabel: "titlebar proxy icon (fallback)"
+            )
+            loadInlineGhosttyConfig(
                 "shell-integration = none",
                 into: fallbackConfig,
                 prefix: "cmux-shell-integration-override",
@@ -2272,6 +2278,14 @@ class GhosttyApp {
             into: config,
             prefix: "cmux-renderer-bg",
             logLabel: "renderer background"
+        )
+        // Hide Ghostty's native AppKit proxy icon at the source instead of
+        // overriding NSWindow.representedURL on every cmux main window.
+        loadInlineGhosttyConfig(
+            "macos-titlebar-proxy-icon = hidden",
+            into: config,
+            prefix: "cmux-titlebar-proxy-icon",
+            logLabel: "titlebar proxy icon"
         )
         // Save the user's preference before we force it to none.
         userGhosttyShellIntegrationMode = "detect"
@@ -7549,7 +7563,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
 #endif
-            AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
+            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
             )
@@ -7709,14 +7723,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let markedTextBefore = markedText.length > 0
         let markedStateBefore = (markedText.string, markedSelectedRange)
 
-        // Capture the keyboard layout ID before interpretation so we can
-        // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // Capture the keyboard layout ID before interpretation so the IME
+        // forwarding decision uses the source that saw this key.
+        let keyboardIdBefore = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -7758,11 +7767,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let accumulatedText = keyTextAccumulator ?? []
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
-            before: markedStateBefore, after: (markedText.string, markedSelectedRange), accumulatedText: accumulatedText
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: event,
+            inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
             return
         }
+
+        // A forwarded keyDown owns its keyUp. Clear any stale IME suppression
+        // entry left by an earlier suppressed repeat for the same physical key.
+        imeConsumedKeyUps.remove(event.keyCode)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -8350,7 +8367,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         if let terminalSurface {
-            AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
+            AppDelegate.shared?.tabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
             )
@@ -13204,6 +13221,12 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
+        if keyTextAccumulator != nil,
+           shouldBufferBopomofoInsertedPreedit(chars) {
+            insertBopomofoPreeditText(chars, replacementRange: replacementRange)
+            return
+        }
+
         // Clear marked text since we're inserting
         unmarkText()
 
@@ -13253,6 +13276,32 @@ extension GhosttyNSView: NSTextInputClient {
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText
         )
+    }
+
+    private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
+        let effectiveRange = effectiveBopomofoPreeditReplacementRange(replacementRange)
+        if let range = Range(effectiveRange, in: markedText.string) {
+            let insertionLocation = effectiveRange.location + (chars as NSString).length
+            let next = markedText.string.replacingCharacters(in: range, with: chars)
+            markedText = NSMutableAttributedString(string: next)
+            markedSelectedRange = normalizedMarkedSelectionRange(
+                NSRange(location: insertionLocation, length: 0),
+                markedLength: markedText.length
+            )
+            return
+        }
+
+        markedText.append(NSAttributedString(string: chars))
+        markedSelectedRange = normalizedMarkedSelectionRange(
+            NSRange(location: markedText.length, length: 0),
+            markedLength: markedText.length
+        )
+    }
+
+    private func effectiveBopomofoPreeditReplacementRange(_ replacementRange: NSRange) -> NSRange {
+        guard replacementRange.location == NSNotFound else { return replacementRange }
+        guard markedText.length > 0 else { return NSRange(location: 0, length: 0) }
+        return normalizedMarkedSelectionRange(markedSelectedRange, markedLength: markedText.length)
     }
 }
 
@@ -13372,18 +13421,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     enum HostCallbackPortalGeometrySynchronizationAction<Window> {
         case skip
-        case scheduleExternal(Window)
+        case synchronizeWithoutLayoutFlush(Window)
     }
 
     static func hostCallbackPortalGeometrySynchronizationAction<Window>(
         window: Window?
     ) -> HostCallbackPortalGeometrySynchronizationAction<Window> {
         // HostContainerView callbacks can fire while SwiftUI/AppKit is already
-        // rendering or laying out the representable. External AppKit resize
-        // observers own immediate live-resize flushing; host callbacks only
-        // schedule the portal owner.
+        // rendering or laying out the representable. Keep the immediate path,
+        // but forbid ancestor layout flushes from this callback.
         guard let window else { return .skip }
-        return .scheduleExternal(window)
+        return .synchronizeWithoutLayoutFlush(window)
     }
 
     private static func synchronizePortalGeometry(
@@ -13393,14 +13441,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        // Avoid synchronizing the terminal portal while AppKit is still inside
-        // the current layout turn. Re-entrant syncs here can escalate from
-        // SwiftUI warnings to AppKit exceptions during CATransaction display
-        // link flushes.
-        guard case let .scheduleExternal(window) = hostCallbackPortalGeometrySynchronizationAction(
+        // Avoid forcing ancestor AppKit layout while SwiftUI is still inside
+        // the current update/layout turn. Reconcile the portal against the
+        // already-current host geometry so terminal content tracks resize
+        // without reopening the CATransaction display-link reentry path.
+        guard case .synchronizeWithoutLayoutFlush = hostCallbackPortalGeometrySynchronizationAction(
             window: host.window
         ) else { return }
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
 
     func makeNSView(context: Context) -> NSView {
