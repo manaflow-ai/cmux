@@ -2060,12 +2060,18 @@ final class FilePreviewPDFChromeTests: XCTestCase {
             NSPoint(x: zoomChromeHost.frame.midX, y: zoomChromeHost.frame.midY),
             to: container
         )
+        let shareProbe = chromeHost.convert(
+            NSPoint(x: zoomChromeHost.frame.maxX - 20, y: zoomChromeHost.frame.midY),
+            to: container
+        )
         let leftChromeHit = container.hitTest(leftProbe)
         let rightChromeHit = container.hitTest(rightProbe)
-        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit))"
+        let shareChromeHit = container.hitTest(shareProbe)
+        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) shareProbe=\(shareProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit)) shareHit=\(String(describing: shareChromeHit))"
 
         XCTAssertTrue(isView(leftChromeHit, inside: sidebarChromeHost), debugFrames)
         XCTAssertTrue(isView(rightChromeHit, inside: zoomChromeHost), debugFrames)
+        XCTAssertTrue(isView(shareChromeHit, inside: zoomChromeHost), debugFrames)
     }
 
     func testThumbnailSidebarUsesFullWidthSingleColumnLayout() throws {

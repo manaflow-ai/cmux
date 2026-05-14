@@ -186,7 +186,7 @@ enum FileExternalOpenMenuStyle {
         case .header:
             return CGSize(width: 18, height: 18)
         case .chrome:
-            return CGSize(width: 42, height: 40)
+            return CGSize(width: 40, height: 40)
         }
     }
 }
@@ -207,32 +207,16 @@ struct FileExternalOpenMenu: View {
         }
         let helpText = helpText(for: primaryApplication)
 
-        Menu {
-            if let primaryApplication {
-                Button(openInTitle(primaryApplication.displayName)) {
-                    FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
-                }
-                if !otherApplications.isEmpty {
-                    Divider()
-                    Menu(FileExternalOpenText.openWithMenu) {
-                        ForEach(otherApplications) { application in
-                            Button(application.displayName) {
-                                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
-                            }
-                        }
-                    }
-                }
-            } else {
-                Button(FileExternalOpenText.openExternally) {
-                    FileExternalOpenAction.openDefault(fileURL: fileURL)
-                }
-            }
+        Button {
+            presentMenu(
+                applications: applications,
+                currentPrimaryApplication: primaryApplication,
+                otherApplications: otherApplications
+            )
         } label: {
             label
         }
-        .menuIndicator(.hidden)
-        .menuStyle(.borderlessButton)
-        .modifier(FileExternalOpenMenuChromeStyleModifier(
+        .modifier(FileExternalOpenButtonStyleModifier(
             style: style,
             isHovered: isChromeHovered
         ))
@@ -292,9 +276,79 @@ struct FileExternalOpenMenu: View {
         guard !Task.isCancelled else { return }
         resolvedApplications = applications
     }
+
+    private func presentMenu(
+        applications: [FileExternalOpenApplication],
+        currentPrimaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) {
+        guard !isDisabled else { return }
+        let menuApplications: [FileExternalOpenApplication]
+        if applications.isEmpty {
+            menuApplications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+        } else {
+            menuApplications = applications
+        }
+        let primary = primaryApplication(in: menuApplications) ?? currentPrimaryApplication
+        let others = menuApplications.filter { application in
+            application.id != primary?.id
+        } + otherApplications.filter { application in
+            application.id != primary?.id
+                && !menuApplications.contains(where: { $0.id == application.id })
+        }
+        let menu = makeMenu(primaryApplication: primary, otherApplications: others)
+        if let event = NSApp.currentEvent, let contentView = event.window?.contentView {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
+        } else {
+            menu.popUp(positioning: nil as NSMenuItem?, at: NSEvent.mouseLocation, in: nil as NSView?)
+        }
+    }
+
+    private func makeMenu(
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        if let primaryApplication {
+            menu.addItem(FileExternalOpenMenuItem(
+                title: openInTitle(primaryApplication.displayName)
+            ) {
+                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
+            })
+
+            if !otherApplications.isEmpty {
+                menu.addItem(.separator())
+                let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+                openWithMenu.autoenablesItems = false
+                for application in otherApplications {
+                    openWithMenu.addItem(FileExternalOpenMenuItem(
+                        title: application.displayName
+                    ) {
+                        FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
+                    })
+                }
+                let openWithItem = NSMenuItem(
+                    title: FileExternalOpenText.openWithMenu,
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                openWithItem.submenu = openWithMenu
+                menu.addItem(openWithItem)
+            }
+        } else {
+            menu.addItem(FileExternalOpenMenuItem(title: FileExternalOpenText.openExternally) {
+                FileExternalOpenAction.openDefault(fileURL: fileURL)
+            })
+        }
+
+        return menu
+    }
 }
 
-private struct FileExternalOpenMenuChromeStyleModifier: ViewModifier {
+private struct FileExternalOpenButtonStyleModifier: ViewModifier {
     let style: FileExternalOpenMenuStyle
     let isHovered: Bool
 
@@ -308,6 +362,25 @@ private struct FileExternalOpenMenuChromeStyleModifier: ViewModifier {
                 .buttonStyle(FilePreviewChromeHoverButtonStyle(isHovered: isHovered))
                 .contentShape(Rectangle())
         }
+    }
+}
+
+private final class FileExternalOpenMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(performHandler(_:)), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc
+    private func performHandler(_ sender: Any?) {
+        handler()
     }
 }
 
@@ -1506,8 +1579,8 @@ struct FilePreviewPDFZoomChromeView: View {
                     HStack(spacing: 0) {
                         FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
                     }
-                    .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-                    .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
+                    .frame(width: 40, height: 40)
+                    .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
                 }
             }
         }
@@ -1738,6 +1811,68 @@ struct FilePreviewPDFChromeStyleModifier: ViewModifier {
             .background(material, in: Capsule())
             .overlay {
                 Capsule()
+                    .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
+            }
+    }
+}
+
+struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
+    let variant: FilePreviewPDFChromeStyleVariant
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch variant {
+        case .systemControlGroup:
+            content
+                .buttonStyle(.automatic)
+                .controlSize(.regular)
+        case .liquidGlass:
+            liquidGlassChrome(content: content)
+        case .materialCapsule:
+            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.5)
+        case .borderedCapsule:
+            materialChrome(content: content, material: .ultraThinMaterial, strokeOpacity: 0.55)
+        case .thinOutline:
+            materialChrome(content: content, material: .thinMaterial, strokeOpacity: 0.75)
+        case .plainToolbar:
+            content
+                .controlSize(.regular)
+        }
+    }
+
+    @ViewBuilder
+    private func liquidGlassChrome(content: Content) -> some View {
+        #if compiler(>=6.3)
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.24), lineWidth: 0.85)
+                }
+                .shadow(color: Color.black.opacity(0.18), radius: 8, y: 1)
+        } else {
+            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
+        }
+        #else
+        materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
+        #endif
+    }
+
+    private func materialChrome(
+        content: Content,
+        material: Material,
+        strokeOpacity: Double
+    ) -> some View {
+        content
+            .background {
+                Circle()
+                    .fill(material)
+                Circle()
+                    .fill(Color.white.opacity(0.04))
+            }
+            .overlay {
+                Circle()
                     .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
             }
     }
