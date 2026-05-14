@@ -755,9 +755,13 @@ private final class ClaudeHookSessionStore {
         surfaceId: String
     ) throws -> [String] {
         let keep = normalizeSessionId(keepSessionId)
-        let normalizedWorkspace = normalizeOptional(workspaceId)
-        let normalizedSurface = normalizeOptional(surfaceId)
-        guard !keep.isEmpty, normalizedWorkspace != nil || normalizedSurface != nil else {
+        // Require both workspace and surface: pruning is a panel-scoped
+        // operation, and proceeding with only one would silently widen the
+        // sweep (e.g. an empty surfaceId would prune every session in the
+        // workspace).
+        guard !keep.isEmpty,
+              let workspace = normalizeOptional(workspaceId),
+              let surface = normalizeOptional(surfaceId) else {
             return []
         }
         return try withLockedState { state in
@@ -766,13 +770,9 @@ private final class ClaudeHookSessionStore {
             // checks. Compute the set, then remove in a separate pass.
             var removed: [String] = []
             for (sid, record) in state.sessions {
-                guard sid != keep else { continue }
-                let recordWorkspace = normalizeOptional(record.workspaceId)
-                let recordSurface = normalizeOptional(record.surfaceId)
-                if let normalizedSurface, recordSurface != normalizedSurface {
-                    continue
-                }
-                if let normalizedWorkspace, recordWorkspace != normalizedWorkspace {
+                guard sid != keep,
+                      normalizeOptional(record.workspaceId) == workspace,
+                      normalizeOptional(record.surfaceId) == surface else {
                     continue
                 }
                 removed.append(sid)
@@ -783,10 +783,9 @@ private final class ClaudeHookSessionStore {
             // If the active-session pointer still targets a removed record,
             // clear it so later Stop/SessionEnd events cannot revive state
             // that no longer has a matching session record.
-            if let normalizedWorkspace,
-               let active = state.activeSessionsByWorkspace[normalizedWorkspace],
+            if let active = state.activeSessionsByWorkspace[workspace],
                removed.contains(active.sessionId) {
-                state.activeSessionsByWorkspace.removeValue(forKey: normalizedWorkspace)
+                state.activeSessionsByWorkspace.removeValue(forKey: workspace)
             }
             return removed
         }
