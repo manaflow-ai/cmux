@@ -79,6 +79,25 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testInterceptTerminalOpenCommandReadsRawSettingWhenBrowserIsDisabled() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.interceptTerminalOpenCommandInCmuxBrowser"
+                )
+            )
+            defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
+            defaults.set(true, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertFalse(defaults.bool(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey))
+            XCTAssertFalse(descriptor.isOn(defaults))
+        }
+    }
+
     func testSettingsToggleContributionsIncludeEveryDescriptor() {
         let descriptorIds = Set(CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId))
         let contributionIds = Set(ContentView.commandPaletteSettingsToggleCommandContributions().map(\.commandId))

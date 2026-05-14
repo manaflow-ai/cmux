@@ -1,25 +1,25 @@
 import Foundation
 
-struct CommandPaletteSettingToggleDescriptor {
+struct CommandPaletteSettingToggleDescriptor: Sendable {
     let commandId: String
     let settingsKey: String
-    let title: () -> String
-    let sectionTitle: () -> String
+    let title: @Sendable () -> String
+    let sectionTitle: @Sendable () -> String
     let keywords: [String]
-    let isOn: (UserDefaults) -> Bool
-    let setOn: (Bool, UserDefaults, NotificationCenter) -> Void
-    let isAvailable: (UserDefaults) -> Bool
+    let isOn: @Sendable (UserDefaults) -> Bool
+    let setOn: @Sendable (Bool, UserDefaults, NotificationCenter) -> Void
+    let isAvailable: @Sendable (UserDefaults) -> Bool
 
     init(
         commandId: String,
         settingsKey: String,
-        title: @escaping () -> String,
-        sectionTitle: @escaping () -> String,
+        title: @escaping @Sendable () -> String,
+        sectionTitle: @escaping @Sendable () -> String,
         keywords: [String],
         defaultValue: Bool,
         defaultsKey: String,
-        isAvailable: @escaping (UserDefaults) -> Bool = { _ in true },
-        didSet: @escaping (Bool, UserDefaults, NotificationCenter) -> Void = { _, _, _ in }
+        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true },
+        didSet: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void = { _, _, _ in }
     ) {
         self.commandId = commandId
         self.settingsKey = settingsKey
@@ -42,12 +42,12 @@ struct CommandPaletteSettingToggleDescriptor {
     init(
         commandId: String,
         settingsKey: String,
-        title: @escaping () -> String,
-        sectionTitle: @escaping () -> String,
+        title: @escaping @Sendable () -> String,
+        sectionTitle: @escaping @Sendable () -> String,
         keywords: [String],
-        isOn: @escaping (UserDefaults) -> Bool,
-        setOn: @escaping (Bool, UserDefaults, NotificationCenter) -> Void,
-        isAvailable: @escaping (UserDefaults) -> Bool = { _ in true }
+        isOn: @escaping @Sendable (UserDefaults) -> Bool,
+        setOn: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void,
+        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true }
     ) {
         self.commandId = commandId
         self.settingsKey = settingsKey
@@ -90,18 +90,28 @@ enum CommandPaletteSettingsToggleCommands {
     }
 
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
-        let app = { String(localized: "settings.section.app", defaultValue: "App") }
-        let terminal = { String(localized: "settings.section.terminal", defaultValue: "Terminal") }
-        let sidebar = { String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar") }
-        let beta = { String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features") }
-        let automation = { String(localized: "settings.section.automation", defaultValue: "Automation") }
-        let browser = { String(localized: "settings.section.browser", defaultValue: "Browser") }
-        let browserImport = { String(localized: "settings.section.browserImport", defaultValue: "Browser Import") }
-        let globalHotkey = { String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey") }
-        let sidebarDetailsAvailable: (UserDefaults) -> Bool = { defaults in
+        let app: @Sendable () -> String = { String(localized: "settings.section.app", defaultValue: "App") }
+        let terminal: @Sendable () -> String = { String(localized: "settings.section.terminal", defaultValue: "Terminal") }
+        let sidebar: @Sendable () -> String = {
+            String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
+        }
+        let beta: @Sendable () -> String = {
+            String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
+        }
+        let automation: @Sendable () -> String = {
+            String(localized: "settings.section.automation", defaultValue: "Automation")
+        }
+        let browser: @Sendable () -> String = { String(localized: "settings.section.browser", defaultValue: "Browser") }
+        let browserImport: @Sendable () -> String = {
+            String(localized: "settings.section.browserImport", defaultValue: "Browser Import")
+        }
+        let globalHotkey: @Sendable () -> String = {
+            String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
+        }
+        let sidebarDetailsAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
             !SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
         }
-        let sidebarPullRequestLinksAvailable: (UserDefaults) -> Bool = { defaults in
+        let sidebarPullRequestLinksAvailable: @Sendable (UserDefaults) -> Bool = { defaults in
             sidebarDetailsAvailable(defaults)
                 && SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: defaults)
                 && SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
@@ -596,7 +606,13 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: browser,
                 keywords: ["browser.interceptTerminalOpenCommandInCmuxBrowser", "browser", "terminal", "open", "http", "https", "intercept"],
                 isOn: { defaults in
-                    BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
+                    if defaults.object(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
+                        return defaults.bool(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+                    }
+                    if defaults.object(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) != nil {
+                        return defaults.bool(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+                    }
+                    return BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
                 },
                 setOn: { newValue, defaults, _ in
                     defaults.set(newValue, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
