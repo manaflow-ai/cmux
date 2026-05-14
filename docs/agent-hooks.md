@@ -44,6 +44,24 @@ Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores 
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
+## Disable automatic resume
+
+To restore panes without automatically restarting saved agent sessions, turn off
+**Settings > Terminal > Resume Agent Sessions on Reopen**.
+
+You can also set the same preference in `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+When this is off, cmux still restores the saved window, workspace, pane, scrollback,
+and browser state. Restored agent terminals stay idle until you resume them manually.
+
 ## Environment overrides
 
 | Agent | Config directory override | Disable cmux hooks for one process |
