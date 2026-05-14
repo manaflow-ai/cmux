@@ -22,7 +22,6 @@ nonisolated struct CmuxEventsClientFrame {
     }
 
     let kind: Kind
-    let object: [String: Any]
 
     var eventSequence: Int64? {
         if case let .event(seq) = kind { return seq }
@@ -75,7 +74,7 @@ nonisolated struct CmuxEventsClientHelper {
             let resume = try Self.parseAckResume(object)
             receivedAck = true
             highWaterSequence = resume.gap ? nil : resume.requestedAfterSequence
-            return CmuxEventsClientFrame(kind: .ack(resume), object: object)
+            return CmuxEventsClientFrame(kind: .ack(resume))
         case "event":
             let seq = try Self.parseEventSequence(object)
             if let highWaterSequence, seq <= highWaterSequence {
@@ -84,10 +83,10 @@ nonisolated struct CmuxEventsClientHelper {
                 )
             }
             highWaterSequence = seq
-            return CmuxEventsClientFrame(kind: .event(seq: seq), object: object)
+            return CmuxEventsClientFrame(kind: .event(seq: seq))
         case "heartbeat":
             try Self.validateProtocol(object)
-            return CmuxEventsClientFrame(kind: .heartbeat, object: object)
+            return CmuxEventsClientFrame(kind: .heartbeat)
         default:
             throw CLIError(message: "Invalid event stream frame: unknown type \(type)")
         }
