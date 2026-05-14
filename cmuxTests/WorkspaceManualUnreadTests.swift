@@ -544,6 +544,15 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         }
     }
 
+    func testWorkspaceReadFlowsClearNotificationBackedPanelBadges() throws {
+        try assertWorkspaceReadFlowClearsNotificationBackedPanelBadge { store, workspaceId in
+            store.markRead(forTabId: workspaceId)
+        }
+        try assertWorkspaceReadFlowClearsNotificationBackedPanelBadge { store, _ in
+            store.markAllRead()
+        }
+    }
+
     private func assertWorkspaceReadFlowClearsRepresentativeBadge(
         _ action: (TerminalNotificationStore, UUID) -> Void,
         line: UInt = #line
@@ -580,6 +589,62 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.hasPanelDerivedUnread(forTabId: workspace.id), line: line)
         XCTAssertFalse(store.workspaceIsUnread(forTabId: workspace.id), line: line)
         XCTAssertFalse(workspace.bonsplitController.tab(tabId)?.showsNotificationBadge ?? true, line: line)
+    }
+
+    private func assertWorkspaceReadFlowClearsNotificationBackedPanelBadge(
+        _ action: (TerminalNotificationStore, UUID) -> Void,
+        line: UInt = #line
+    ) throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, line: line)
+        let manualPanelId = try XCTUnwrap(workspace.focusedPanelId, line: line)
+        let notificationPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: manualPanelId, orientation: .horizontal, focus: false),
+            line: line
+        )
+        let manualTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(manualPanelId), line: line)
+        let notificationTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(notificationPanel.id), line: line)
+
+        workspace.markPanelUnread(manualPanelId)
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: notificationPanel.id,
+                title: "Unread",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false
+            ),
+        ])
+        workspace.bonsplitController.updateTab(notificationTabId, showsNotificationBadge: true)
+
+        XCTAssertTrue(workspace.bonsplitController.tab(manualTabId)?.showsNotificationBadge ?? false, line: line)
+        XCTAssertTrue(workspace.bonsplitController.tab(notificationTabId)?.showsNotificationBadge ?? false, line: line)
+
+        action(store, workspace.id)
+
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(manualPanelId), line: line)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: notificationPanel.id), line: line)
+        XCTAssertFalse(store.hasPanelDerivedUnread(forTabId: workspace.id), line: line)
+        XCTAssertFalse(workspace.bonsplitController.tab(manualTabId)?.showsNotificationBadge ?? true, line: line)
+        XCTAssertFalse(workspace.bonsplitController.tab(notificationTabId)?.showsNotificationBadge ?? true, line: line)
     }
 
     func testClearUnreadAfterJumpClearsWorkspaceLevelRepresentativeFallback() throws {

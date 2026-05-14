@@ -1445,12 +1445,14 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        if !idsToClear.isEmpty {
+            notifications = updated
+        }
         setWorkspaceManualUnread(false, forTabId: tabId)
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
-            notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         }
     }
@@ -1466,13 +1468,15 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        if !idsToClear.isEmpty {
+            notifications = updated
+        }
         if surfaceId == nil {
             clearWorkspacePanelUnread(forTabId: tabId)
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
-            notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
@@ -1540,12 +1544,14 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        if !idsToClear.isEmpty {
+            notifications = updated
+        }
         clearWorkspaceManualUnread()
         clearAllWorkspacePanelUnread(forTabIds: panelDerivedUnreadWorkspaceIds)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
-            notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
