@@ -262,7 +262,8 @@ final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where 
 
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let queryIsEmpty = preparedQuery.isEmpty
-        let boosts: [Int32]? = historyBoost.map { historyBoost in
+        let boosts: [Int32]?
+        if let historyBoost {
             var values: [Int32] = []
             values.reserveCapacity(entries.count)
             var hasNonZeroBoost = false
@@ -271,8 +272,10 @@ final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where 
                 hasNonZeroBoost = hasNonZeroBoost || boost != 0
                 values.append(boost)
             }
-            return hasNonZeroBoost ? values : []
-        }.flatMap { $0.isEmpty ? nil : $0 }
+            boosts = hasNonZeroBoost ? values : nil
+        } else {
+            boosts = nil
+        }
         guard let rawMatches = library.search(
             index: pointer,
             query: query,
@@ -304,12 +307,24 @@ final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where 
                     payload: entry.payload,
                     rank: entry.rank,
                     title: entry.title,
-                    score: Int(rawMatch.score.rounded()),
+                    score: Self.clampedRoundedScore(rawMatch.score),
                     titleMatchIndices: titleMatchIndices
                 )
             )
         }
         return results
+    }
+
+    private static func clampedRoundedScore(_ score: Double) -> Int {
+        let rounded = score.rounded()
+        guard rounded.isFinite else {
+            if rounded == .infinity { return Int.max }
+            if rounded == -.infinity { return Int.min }
+            return 0
+        }
+        if rounded >= Double(Int.max) { return Int.max }
+        if rounded <= Double(Int.min) { return Int.min }
+        return Int(rounded)
     }
 }
 
