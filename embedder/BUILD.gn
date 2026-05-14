@@ -22,15 +22,16 @@ source_set("embedder") {
 
   sources = [
     "cmux_browser.h",
-    # Implementation translation units land here once the fork repo is
-    # created and we can build incrementally against a real //content
-    # toolchain. Keep these commented until each file exists; gn will
-    # otherwise fail with "source file does not exist" at gen time.
-    #   "cmux_browser.mm",
-    #   "cmux_layer_host.mm",
-    #   "cmux_profile.cc",
-    #   "cmux_session.cc",
-    #   "cmux_view.cc",
+    # Stub implementations of the C ABI. Each TU compiles standalone
+    # against //base and the system frameworks; the bodies return
+    # CMUX_E_NATIVE / sentinel values until the real //content wiring
+    # lands. Splitting follows the ABI grouping (session / profile /
+    # view / browser / layer_host); see plans/chromium-engine.md P1.
+    "cmux_browser.mm",
+    "cmux_layer_host.mm",
+    "cmux_profile.cc",
+    "cmux_session.cc",
+    "cmux_view.cc",
   ]
 
   deps = [
