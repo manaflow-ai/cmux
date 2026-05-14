@@ -43810,6 +43810,23 @@
         }
       }
     },
+    "menu.history.reopenClosedItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen Closed Item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じた項目を再度開く"
+          }
+        }
+      }
+    },
     "menu.history.title": {
       "extractionState": "manual",
       "localizations": {

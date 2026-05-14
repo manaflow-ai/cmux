@@ -241,6 +241,10 @@ extension Workspace {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+        let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
+        suppressClosedPanelHistory = true
+        defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
@@ -545,6 +549,66 @@ extension Workspace {
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot
         )
+    }
+
+    private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
+        guard !suppressClosedPanelHistory else { return nil }
+        guard let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tabId }) else {
+            return nil
+        }
+        let restorableAgentIndex = RestorableAgentSessionIndex.load()
+        guard let snapshot = sessionPanelSnapshot(
+            panelId: panelId,
+            includeScrollback: true,
+            restorableAgent: restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId)
+        ) else {
+            return nil
+        }
+        return ClosedPanelHistoryEntry(
+            workspaceId: id,
+            paneId: pane.id,
+            tabIndex: tabIndex,
+            snapshot: snapshot
+        )
+    }
+
+    private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
+        let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
+        let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
+        return eligibleByTab || eligibleByPanel
+    }
+
+    @discardableResult
+    private func pushClosedPanelHistoryIfEligible(for tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        guard !suppressClosedPanelHistory else { return false }
+        guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
+        guard consumeCloseHistoryEligibility(tabId: tab.id, panelId: panelId) else { return false }
+        guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
+            return false
+        }
+        ClosedItemHistoryStore.shared.push(.panel(entry))
+        return true
+    }
+
+    @discardableResult
+    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        guard let pane =
+            bonsplitController.allPaneIds.first(where: { $0.id == entry.paneId })
+            ?? bonsplitController.focusedPaneId
+            ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else { return nil }
+
+        let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
+        _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
+        if let tabId = surfaceIdFromPanelId(panelId) {
+            bonsplitController.focusPane(pane)
+            bonsplitController.selectTab(tabId)
+        }
+        focusPanel(panelId)
+        triggerFocusFlash(panelId: panelId)
+        return panelId
     }
 
     nonisolated static func resolvedSnapshotTerminalScrollback(
@@ -8020,6 +8084,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// shortcut when the shortcut preference is set to close the workspace on the last surface),
     /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
+    private var closeHistoryEligibleTabIds: Set<TabID> = []
+    private var closeHistoryEligiblePanelIds: Set<UUID> = []
+    private var suppressClosedPanelHistory = false
 
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
@@ -8095,6 +8162,24 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markExplicitClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
+        closeHistoryEligibleTabIds.insert(surfaceId)
+        if let panelId = panelIdFromSurfaceId(surfaceId) {
+            closeHistoryEligiblePanelIds.insert(panelId)
+        }
+    }
+
+    func markCloseHistoryEligible(panelId: UUID) {
+        closeHistoryEligiblePanelIds.insert(panelId)
+        if let surfaceId = surfaceIdFromPanelId(panelId) {
+            closeHistoryEligibleTabIds.insert(surfaceId)
+        }
+    }
+
+    func withClosedPanelHistorySuppressed(_ body: () -> Void) {
+        let previous = suppressClosedPanelHistory
+        suppressClosedPanelHistory = true
+        defer { suppressClosedPanelHistory = previous }
+        body()
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -13984,7 +14069,11 @@ extension Workspace: BonsplitDelegate {
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil
 
         if forceCloseTabIds.contains(tab.id) {
-            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
+                stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            } else {
+                clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            }
             recordPostCloseSelection()
             return true
         }
@@ -13994,12 +14083,18 @@ extension Workspace: BonsplitDelegate {
             ?? AppDelegate.shared?.tabManager
         if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            closeHistoryEligibleTabIds.remove(tab.id)
+            if let panelId = panelIdFromSurfaceId(tab.id) {
+                closeHistoryEligiblePanelIds.remove(panelId)
+            }
             return false
         }
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            closeHistoryEligibleTabIds.remove(tab.id)
+            closeHistoryEligiblePanelIds.remove(panelId)
             NSSound.beep()
             return false
         }
@@ -14050,7 +14145,13 @@ extension Workspace: BonsplitDelegate {
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
                     let confirmed = await self.confirmClosePanel(for: tabId)
-                    guard confirmed else { return }
+                    guard confirmed else {
+                        self.closeHistoryEligibleTabIds.remove(tabId)
+                        if let panelId = self.panelIdFromSurfaceId(tabId) {
+                            self.closeHistoryEligiblePanelIds.remove(panelId)
+                        }
+                        return
+                    }
 
                     self.forceCloseTabIds.insert(tabId)
                     self.bonsplitController.closeTab(tabId)
@@ -14060,7 +14161,11 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+        if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+        } else {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        }
         recordPostCloseSelection()
         return true
     }
@@ -14088,6 +14193,7 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+        _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
 

@@ -8,6 +8,11 @@ import XCTest
 
 @MainActor
 final class TabManagerSessionSnapshotTests: XCTestCase {
+    override func tearDown() {
+        ClosedItemHistoryStore.shared.removeAll()
+        super.tearDown()
+    }
+
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
@@ -385,6 +390,75 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let forwardSnapshot = manager.focusHistoryMenuSnapshot(direction: .forward)
         XCTAssertEqual(forwardSnapshot.items.map(\.workspaceTitle), ["Second", "Third"])
+    }
+
+    func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        workspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(workspace.closePanel(panelId, force: true))
+        drainMainQueue()
+        XCTAssertNil(workspace.panels[panelId])
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertEqual(workspace.panels.count, 2)
+        XCTAssertNotNil(workspace.focusedPanelId.flatMap { workspace.panels[$0] })
+    }
+
+    func testReopenClosedPanelBackReturnsToPreviousWorkspaceFocus() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: false)
+        let pane = try XCTUnwrap(secondWorkspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(secondWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        secondWorkspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(secondWorkspace.closePanel(panelId, force: true))
+        drainMainQueue()
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+    }
+
+    func testReopenClosedItemRestoresClosedWorkspaceSnapshot() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Recovered")
+
+        manager.closeWorkspace(secondWorkspace)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertEqual(manager.tabs.count, 2)
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Recovered")
+    }
+
+    func testReopenClosedWorkspaceBackReturnsToPreviousWorkspaceFocus() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Recovered")
+
+        manager.closeWorkspace(secondWorkspace)
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Recovered")
+        XCTAssertTrue(manager.canNavigateBack)
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
     }
 
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {

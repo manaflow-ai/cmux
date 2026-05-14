@@ -2904,6 +2904,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    @discardableResult
+    func reopenMostRecentlyClosedItem(
+        preferredTabManager: TabManager? = nil,
+        shouldActivate: Bool = true
+    ) -> Bool {
+        while let entry = ClosedItemHistoryStore.shared.pop() {
+            switch entry {
+            case .panel(let panelEntry):
+                let manager =
+                    tabManagerFor(tabId: panelEntry.workspaceId)
+                    ?? preferredTabManager
+                    ?? tabManager
+                if manager?.restoreClosedPanel(panelEntry) == true {
+                    return true
+                }
+            case .workspace(let workspaceEntry):
+                let manager =
+                    workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
+                    ?? preferredTabManager
+                    ?? tabManager
+                if manager?.restoreClosedWorkspace(workspaceEntry) == true {
+                    return true
+                }
+            case .window(let windowEntry):
+                _ = createMainWindow(
+                    sessionWindowSnapshot: windowEntry.snapshot,
+                    shouldActivate: shouldActivate
+                )
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func applySessionWindowSnapshot(
         _ snapshot: SessionWindowSnapshot,
         to context: MainWindowContext,
@@ -3783,20 +3818,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .map { context in
-                let window = context.window ?? windowForMainWindowId(context.windowId)
-                return SessionWindowSnapshot(
-                    frame: window.map { SessionRectSnapshot($0.frame) },
-                    display: displaySnapshot(for: window),
-                    tabManager: context.tabManager.sessionSnapshot(
-                        includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex
-                    ),
-                    sidebar: SessionSidebarSnapshot(
-                        isVisible: context.sidebarState.isVisible,
-                        selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+            .compactMap { context in
+                sessionWindowSnapshot(
+                    for: context,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex
                 )
             }
 
@@ -3805,6 +3831,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: windows
+        )
+    }
+
+    private func sessionWindowSnapshot(
+        for context: MainWindowContext,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> SessionWindowSnapshot? {
+        let tabManagerSnapshot = context.tabManager.sessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex
+        )
+        guard !tabManagerSnapshot.workspaces.isEmpty else { return nil }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        return SessionWindowSnapshot(
+            frame: window.map { SessionRectSnapshot($0.frame) },
+            display: displaySnapshot(for: window),
+            tabManager: tabManagerSnapshot,
+            sidebar: SessionSidebarSnapshot(
+                isVisible: context.sidebarState.isVisible,
+                selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+            )
         )
     }
 
@@ -12276,7 +12326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            _ = routedManager?.reopenMostRecentlyClosedBrowserPanel()
+            _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
             return true
         }
 
@@ -14203,6 +14253,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+        let closingContext = contextForMainTerminalWindow(window, reindex: false)
+
+        if !isTerminatingApp,
+           !isApplyingSessionRestore,
+           let closingContext,
+           let snapshot = sessionWindowSnapshot(
+            for: closingContext,
+            includeScrollback: true,
+            restorableAgentIndex: RestorableAgentSessionIndex.load()
+           ) {
+            ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(snapshot: snapshot)))
+        }
 
         // Keep geometry available as a fallback for the next window placement.
         if !isTerminatingApp {

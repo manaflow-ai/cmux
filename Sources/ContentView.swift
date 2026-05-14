@@ -6159,8 +6159,6 @@ struct ContentView: View {
             return "⌘W"
         case "palette.closeWorkspace":
             return "⌘⇧W"
-        case "palette.reopenClosedBrowserTab":
-            return "⌘⇧T"
         case "palette.openSettings":
             return "⌘,"
         case "palette.browserBack":
@@ -6463,11 +6461,9 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.reopenClosedBrowserTab",
-                title: constant(String(localized: "command.reopenClosedBrowserTab.title", defaultValue: "Reopen Closed Browser Tab")),
-                subtitle: constant(String(localized: "command.reopenClosedBrowserTab.subtitle", defaultValue: "Browser")),
-                shortcutHint: "⌘⇧T",
-                keywords: ["reopen", "closed", "browser"],
-                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+                title: constant(String(localized: "menu.history.reopenClosedItem", defaultValue: "Reopen Closed Item")),
+                subtitle: constant(String(localized: "menu.history.title", defaultValue: "History")),
+                keywords: ["reopen", "closed", "history", "tab", "workspace", "window"]
             )
         )
         contributions.append(
@@ -7441,7 +7437,7 @@ struct ContentView: View {
             window.toggleFullScreen(nil)
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
-            _ = tabManager.reopenMostRecentlyClosedBrowserPanel()
+            _ = AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: tabManager)
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
@@ -10896,6 +10892,92 @@ private struct SidebarFooterButtons: View {
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarFocusHistoryControls: View {
+    @EnvironmentObject private var tabManager: TabManager
+
+    var body: some View {
+        let _ = tabManager.focusHistoryRevision
+        HStack(spacing: 4) {
+            SidebarFocusHistoryButton(direction: .back)
+                .disabled(!tabManager.canNavigateBack)
+            SidebarFocusHistoryButton(direction: .forward)
+                .disabled(!tabManager.canNavigateForward)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct SidebarFocusHistoryButton: View {
+    enum Direction {
+        case back
+        case forward
+    }
+
+    @EnvironmentObject private var tabManager: TabManager
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    let direction: Direction
+    private let buttonSize: CGFloat = 22
+    private let iconSize: CGFloat = 11
+
+    private var action: KeyboardShortcutSettings.Action {
+        switch direction {
+        case .back: return .focusHistoryBack
+        case .forward: return .focusHistoryForward
+        }
+    }
+
+    private var title: String {
+        switch direction {
+        case .back:
+            return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
+        case .forward:
+            return String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
+        }
+    }
+
+    private var systemImageName: String {
+        switch direction {
+        case .back: return "chevron.left"
+        case .forward: return "chevron.right"
+        }
+    }
+
+    private var accessibilityIdentifier: String {
+        switch direction {
+        case .back: return "sidebar.focusHistoryBack"
+        case .forward: return "sidebar.focusHistoryForward"
+        }
+    }
+
+    private var tooltip: String {
+        let _ = keyboardShortcutSettingsObserver.revision
+        return action.tooltip(title)
+    }
+
+    var body: some View {
+        Button {
+            switch direction {
+            case .back:
+                tabManager.navigateBack()
+            case .forward:
+                tabManager.navigateForward()
+            }
+        } label: {
+            Image(systemName: systemImageName)
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: iconSize, weight: .semibold))
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .frame(width: buttonSize, height: buttonSize, alignment: .center)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .safeHelp(tooltip)
     }
 }
 

@@ -4252,16 +4252,30 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace) {
+    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        if recordHistory,
+           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
+            let snapshot = workspace.sessionSnapshot(
+                includeScrollback: true,
+                restorableAgentIndex: RestorableAgentSessionIndex.load()
+            )
+            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+                windowId: AppDelegate.shared?.windowId(for: self),
+                workspaceIndex: index,
+                snapshot: snapshot
+            )))
+        }
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
         invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
+        workspace.withClosedPanelHistorySuppressed {
+            workspace.teardownAllPanels()
+        }
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
         workspace.owningTabManager = nil
@@ -4362,6 +4376,7 @@ class TabManager: ObservableObject {
         }
 
         for panelId in plan.panelIds {
+            plan.workspace.markCloseHistoryEligible(panelId: panelId)
             _ = plan.workspace.closePanel(panelId, force: true)
         }
     }
@@ -4746,6 +4761,7 @@ class TabManager: ObservableObject {
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)
         }
+        tab.markCloseHistoryEligible(panelId: panelId)
         let closed = tab.closePanel(panelId)
 #if DEBUG
         cmuxDebugLog(
@@ -4876,7 +4892,7 @@ class TabManager: ObservableObject {
                     closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
                 }
             } else {
-                closeWorkspace(tab)
+                closeWorkspace(tab, recordHistory: false)
             }
             return
         }
@@ -6219,6 +6235,10 @@ class TabManager: ObservableObject {
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        if reopenMostRecentlyClosedItem() {
+            return true
+        }
+
         guard BrowserAvailabilitySettings.isEnabled() else { return false }
 
         while let snapshot = recentlyClosedBrowsers.pop() {
@@ -6245,6 +6265,82 @@ class TabManager: ObservableObject {
         }
 
         return false
+    }
+
+    @discardableResult
+    func reopenMostRecentlyClosedItem() -> Bool {
+        if let appDelegate = AppDelegate.shared {
+            return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
+        }
+
+        while let entry = ClosedItemHistoryStore.shared.pop() {
+            switch entry {
+            case .panel(let panelEntry):
+                if restoreClosedPanel(panelEntry) {
+                    return true
+                }
+            case .workspace(let workspaceEntry):
+                if restoreClosedWorkspace(workspaceEntry) {
+                    return true
+                }
+            case .window:
+                continue
+            }
+        }
+
+        return false
+    }
+
+    @discardableResult
+    func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> Bool {
+        guard let workspace =
+            tabs.first(where: { $0.id == entry.workspaceId })
+            ?? selectedWorkspace
+            ?? tabs.first else {
+            return false
+        }
+
+        let preRestoreFocus = currentFocusHistoryEntry
+        if selectedTabId != workspace.id {
+            withFocusHistoryRecordingSuppressed {
+                selectedTabId = workspace.id
+            }
+        }
+
+        guard let panelId = workspace.restoreClosedPanel(entry) else { return false }
+        recordFocusInHistory(preRestoreFocus)
+        rememberFocusedSurface(tabId: workspace.id, surfaceId: panelId)
+        recordFocusInHistory(workspaceId: workspace.id, panelId: panelId)
+        return true
+    }
+
+    @discardableResult
+    func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
+        let preRestoreFocus = currentFocusHistoryEntry
+        let workspace = addWorkspace(
+            title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
+            workingDirectory: entry.snapshot.currentDirectory,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        workspace.restoreSessionSnapshot(entry.snapshot)
+
+        if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
+            let removed = tabs.remove(at: currentIndex)
+            let insertIndex = min(max(entry.workspaceIndex, 0), tabs.count)
+            tabs.insert(removed, at: insertIndex)
+        }
+
+        withFocusHistoryRecordingSuppressed {
+            selectedTabId = workspace.id
+        }
+        if let focusedPanelId = workspace.focusedPanelId {
+            recordFocusInHistory(preRestoreFocus)
+            rememberFocusedSurface(tabId: workspace.id, surfaceId: focusedPanelId)
+            workspace.triggerFocusFlash(panelId: focusedPanelId)
+            recordFocusInHistory(workspaceId: workspace.id, panelId: focusedPanelId)
+        }
+        return true
     }
 
     private func enforceReopenedBrowserFocus(
