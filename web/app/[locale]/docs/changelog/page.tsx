@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
+import { DocsHeading } from "../../components/docs-heading";
 
 /** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
 function pngDimensions(filePath: string): { width: number; height: number } {
@@ -251,7 +252,7 @@ export default function ChangelogPage() {
 
   return (
     <div className="max-w-[640px] overflow-hidden">
-      <h1 style={{ margin: 0, padding: 0, paddingBottom: 8 }}>{t("title")}</h1>
+      <DocsHeading level={1} id="title" className="docs-heading-compact">{t("title")}</DocsHeading>
 
       <div style={{ paddingTop: 16 }}>
         {versions.map((v, vi) => {
