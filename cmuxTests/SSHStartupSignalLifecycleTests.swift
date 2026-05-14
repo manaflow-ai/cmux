@@ -526,10 +526,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         let recorded = (try? String(contentsOf: stdinCapture, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let recordedDescription = recorded.isEmpty ? "<empty>" : recorded
         XCTAssertEqual(
             recorded,
             "FORWARDED_KEYSTROKE",
-            "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? \"<empty>\" : recorded)"
+            "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recordedDescription)"
         )
     }
 
