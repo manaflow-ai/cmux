@@ -189,6 +189,10 @@
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		C0DE412700000000000001 /* CodexTranscriptMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE412700000000000002 /* CodexTranscriptMonitor.swift */; };
 		C0DE412700000000000003 /* SidebarLogRingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE412700000000000004 /* SidebarLogRingBuffer.swift */; };
+		C0DE412700000000000005 /* CodexTranscriptMonitorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE412700000000000006 /* CodexTranscriptMonitorModels.swift */; };
+		C0DE412700000000000007 /* CodexTranscriptMonitorRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE412700000000000008 /* CodexTranscriptMonitorRegistry.swift */; };
+		C0DE412700000000000009 /* CodexTranscriptMonitorParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE41270000000000000A /* CodexTranscriptMonitorParsing.swift */; };
+		C0DE41270000000000000B /* CodexTranscriptPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE41270000000000000C /* CodexTranscriptPathResolver.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
@@ -692,6 +696,10 @@
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		C0DE412700000000000002 /* CodexTranscriptMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor.swift; sourceTree = "<group>"; };
 		C0DE412700000000000004 /* SidebarLogRingBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLogRingBuffer.swift; sourceTree = "<group>"; };
+		C0DE412700000000000006 /* CodexTranscriptMonitorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorModels.swift; sourceTree = "<group>"; };
+		C0DE412700000000000008 /* CodexTranscriptMonitorRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorRegistry.swift; sourceTree = "<group>"; };
+		C0DE41270000000000000A /* CodexTranscriptMonitorParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorParsing.swift; sourceTree = "<group>"; };
+		C0DE41270000000000000C /* CodexTranscriptPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptPathResolver.swift; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
@@ -1246,6 +1254,10 @@
 					E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 					A5001019 /* TerminalController.swift */,
 					C0DE412700000000000002 /* CodexTranscriptMonitor.swift */,
+					C0DE412700000000000006 /* CodexTranscriptMonitorModels.swift */,
+					C0DE412700000000000008 /* CodexTranscriptMonitorRegistry.swift */,
+					C0DE41270000000000000A /* CodexTranscriptMonitorParsing.swift */,
+					C0DE41270000000000000C /* CodexTranscriptPathResolver.swift */,
 					E7E000000000000000000002 /* CmuxEventStream.swift */,
 					E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
 						A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
@@ -1927,6 +1939,10 @@
 					E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 					A5001007 /* TerminalController.swift in Sources */,
 					C0DE412700000000000001 /* CodexTranscriptMonitor.swift in Sources */,
+					C0DE412700000000000005 /* CodexTranscriptMonitorModels.swift in Sources */,
+					C0DE412700000000000007 /* CodexTranscriptMonitorRegistry.swift in Sources */,
+					C0DE412700000000000009 /* CodexTranscriptMonitorParsing.swift in Sources */,
+					C0DE41270000000000000B /* CodexTranscriptPathResolver.swift in Sources */,
 					E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 					E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */,
 					A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */,
