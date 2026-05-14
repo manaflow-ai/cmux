@@ -1,3 +1,5 @@
+import Foundation
+
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
     static let showPullRequestsKey = "sidebarShowPullRequest"
@@ -14,6 +16,19 @@ enum SidebarWorkspaceDetailDefaults {
     static let showLog = true
     static let showProgress = true
     static let showCustomMetadata = true
+}
+
+extension SidebarWorkspaceDetailDefaults {
+    static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+
+    static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+    }
 }
 
 enum AutomationSettings {

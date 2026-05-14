@@ -663,19 +663,6 @@ enum CommandPaletteSettingsToggleCommands {
     }()
 }
 
-extension SidebarWorkspaceDetailDefaults {
-    static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-
-    static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
-    }
-}
-
 extension ContentView {
     nonisolated static func commandPaletteSettingsToggleCommandContributions() -> [CommandPaletteCommandContribution] {
         CommandPaletteSettingsToggleCommands.descriptors.map { descriptor in
