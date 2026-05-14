@@ -31058,16 +31058,106 @@
             "value": "検索に一致するワークスペースまたはタブはありません。"
           }
         },
-        "uk": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Робочі області чи вкладки, що відповідають пошуку, не знайдено."
+            "value": "没有匹配的工作区或标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合搜尋的工作區或標籤頁。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "검색과 일치하는 워크스페이스 또는 탭이 없습니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Arbeitsbereiche oder Tabs entsprechen Ihrer Suche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún espacio de trabajo o pestaña coincide con tu búsqueda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun espace de travail ou onglet ne correspond à votre recherche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna area di lavoro o scheda corrisponde alla ricerca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen arbejdsområder eller faner matcher din søgning."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak przestrzeni roboczych lub kart pasujących do wyszukiwania."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет рабочих пространств или вкладок, соответствующих запросу."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan radni prostor ili kartica ne odgovara vašoj pretrazi."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحات عمل أو تبويبات تطابق بحثك."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen arbeidsområder eller faner samsvarer med søket ditt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma área de trabalho ou aba corresponde à sua pesquisa."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเวิร์กสเปซหรือแท็บที่ตรงกับการค้นหาของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aramanızla eşleşen çalışma alanı veya sekme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі області чи вкладки, що відповідають пошуку, не знайдено."
           }
         }
       }
@@ -31206,16 +31296,106 @@
             "value": "ワークスペースとタブを検索"
           }
         },
-        "uk": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пошук робочих областей і вкладок"
+            "value": "搜索工作区和标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋工作區和標籤頁"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "워크스페이스 및 탭 검색"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche und Tabs durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar espacios de trabajo y pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des espaces de travail et des onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca aree di lavoro e schede"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i arbejdsområder og faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj przestrzeni roboczych i kart"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск рабочих пространств и вкладок"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži radne prostore i kartice"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في مساحات العمل والتبويبات"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i arbeidsområder og faner"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquisar áreas de trabalho e abas"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาเวิร์กสเปซและแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanlarını ve sekmeleri ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук робочих областей і вкладок"
           }
         }
       }
@@ -42787,13 +42967,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作区或标签页..."
+            "value": "前往工作区或标签页…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作區或標籤頁..."
+            "value": "前往工作區或標籤頁…"
           }
         },
         "ko": {
@@ -42817,7 +42997,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aller à l'espace de travail ou à l'onglet..."
+            "value": "Aller à l'espace de travail ou à l'onglet…"
           }
         },
         "it": {
@@ -42841,7 +43021,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перейти к рабочему пространству или вкладке..."
+            "value": "Перейти к рабочему пространству или вкладке…"
           }
         },
         "bs": {
@@ -42871,7 +43051,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไปที่เวิร์กสเปซหรือแท็บ..."
+            "value": "ไปที่เวิร์กสเปซหรือแท็บ…"
           }
         },
         "tr": {

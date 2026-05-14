@@ -310,11 +310,11 @@ enum CommandPaletteSettingsToggleCommands {
                 title: {
                     String(
                         localized: "settings.app.commandPaletteSearchAllSurfaces",
-                        defaultValue: "Command Palette Searches All Surfaces"
+                        defaultValue: "Command Palette Searches Tabs"
                     )
                 },
                 sectionTitle: app,
-                keywords: ["app.commandPaletteSearchesAllSurfaces", "command", "palette", "search", "surfaces", "workspace"],
+                keywords: ["app.commandPaletteSearchesAllSurfaces", "command", "palette", "search", "tabs", "tab", "titles", "workspace"],
                 defaultValue: CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 defaultsKey: CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey
             ),
