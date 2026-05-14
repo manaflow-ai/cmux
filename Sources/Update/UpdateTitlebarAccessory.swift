@@ -378,34 +378,43 @@ struct TitlebarControlButton<Content: View>: View {
     }
 
     var body: some View {
-        let baseButton = AnyView(
-            Button(action: action) {
-                content()
-                    .frame(width: config.buttonSize, height: config.buttonSize)
-                    .contentShape(Rectangle())
+        Group {
+            if titlebarControlsShouldTrackButtonHover(config: config) {
+                hintedButton.onHover { isHovering = $0 }
+            } else {
+                hintedButton
             }
-            .buttonStyle(.plain)
-            .frame(width: config.buttonSize, height: config.buttonSize)
-            .contentShape(Rectangle())
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier(accessibilityIdentifier)
-            .accessibilityLabel(accessibilityLabel)
-            .focusable()
-            .background(hoverBackground)
-            .overlay {
-                if let rightClickAction {
-                    TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
-                }
+        }
+    }
+
+    private var baseButton: some View {
+        Button(action: action) {
+            content()
+                .frame(width: config.buttonSize, height: config.buttonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: config.buttonSize, height: config.buttonSize)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityLabel(accessibilityLabel)
+        .focusable()
+        .background(hoverBackground)
+        .overlay {
+            if let rightClickAction {
+                TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
             }
-        )
+        }
+    }
 
-        let baseButtonWithHint: AnyView = accessibilityHint.flatMap { AnyView(baseButton.accessibilityHint(Text($0))) } ?? baseButton
-
-        if titlebarControlsShouldTrackButtonHover(config: config) {
-            baseButtonWithHint.onHover { isHovering = $0 }
+    @ViewBuilder
+    private var hintedButton: some View {
+        if let hint = accessibilityHint {
+            baseButton.accessibilityHint(Text(hint))
         } else {
-            baseButtonWithHint
+            baseButton
         }
     }
 
