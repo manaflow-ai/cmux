@@ -1,0 +1,67 @@
+# Copyright 2026 manaflow-ai. All rights reserved.
+#
+# //cmux/embedder/BUILD.gn
+#
+# Builds the cmux embedder C ABI source set. The framework target that
+# wraps it lives at //cmux:cmux_core_framework and pulls this in as a
+# dependency.
+#
+# When the cmux Chromium fork lands at manaflow-ai/cmux-chromium, this
+# file drops into src/cmux/embedder/ as-is.
+
+import("//build/buildflag_header.gni")
+import("//build/config/mac/mac_sdk.gni")
+import("//content/public/app/mac_helpers.gni")
+
+# Public C header set. Anything that links the framework can include
+# the header; only the framework target links the source_set.
+source_set("embedder") {
+  visibility = [
+    "//cmux:*",
+  ]
+
+  sources = [
+    "cmux_browser.h",
+    "cmux_browser.mm",
+    "cmux_layer_host.mm",
+    "cmux_profile.cc",
+    "cmux_session.cc",
+    "cmux_view.cc",
+  ]
+
+  deps = [
+    "//base",
+    "//content/public/browser",
+    "//content/public/common",
+    "//net",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
+    "//ui/base",
+    "//ui/gfx",
+    "//ui/gfx/geometry",
+    "//ui/views",
+    "//url",
+  ]
+
+  frameworks = [
+    "AppKit.framework",
+    "CoreFoundation.framework",
+    "QuartzCore.framework",
+  ]
+
+  configs += [
+    "//build/config/compiler:enable_arc",
+  ]
+}
+
+# Header-only target. Lets external GN consumers depend on the header
+# without pulling in the implementation translation units.
+source_set("embedder_headers") {
+  visibility = [
+    "//cmux:*",
+    "//cmux/*",
+  ]
+  sources = [
+    "cmux_browser.h",
+  ]
+}
