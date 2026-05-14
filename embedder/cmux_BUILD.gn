@@ -1,0 +1,107 @@
+# Copyright 2026 manaflow-ai. All rights reserved.
+#
+# //cmux/BUILD.gn (NOT //cmux/embedder/BUILD.gn — see embedder/README.md)
+#
+# Declares the cmux_core_framework target that the cmux macOS app
+# (Packages/CmuxBrowserEngine) links against. When the cmux Chromium
+# fork lands at manaflow-ai/cmux-chromium, this file drops into
+# src/cmux/BUILD.gn as-is.
+#
+# Naming convention is intentional: `cmux_core_framework` mirrors
+# upstream's `chrome_framework` target shape but with cmux branding.
+
+import("//build/buildflag_header.gni")
+import("//build/config/apple/symbols.gni")
+import("//build/config/mac/mac_sdk.gni")
+import("//build/config/mac/rules.gni")
+import("//build/util/process_version.gni")
+import("//content/public/app/mac_helpers.gni")
+
+# Version: cmux's framework version is upstream Chromium's marketing
+# version with a `.cmux.N` suffix bumped per fork release.
+cmux_core_framework_version = "0.1.cmux.0"
+cmux_core_framework_bundle_id = "ai.manaflow.cmux.browser.framework"
+
+# Helpers come from //content; we re-instantiate them with cmux bundle
+# ids so they sandbox correctly on macOS.
+group("cmux_helpers") {
+  deps = [
+    ":cmux_helper",
+    ":cmux_helper_renderer",
+    ":cmux_helper_gpu",
+    ":cmux_helper_plugin",
+  ]
+}
+
+foreach(helper, content_mac_helpers) {
+  helper_name = helper[0]                                # e.g. "renderer"
+  helper_bundle_id_suffix = helper[1]                    # e.g. "helper.renderer"
+  helper_app_role = helper[2]                            # CFBundlePackageType
+  helper_visibility = helper[3]
+  helper_extra_configs = helper[4]
+  helper_extra_substitutions = helper[5]
+
+  mac_app_bundle("cmux_helper${helper_name}") {
+    output_name = "cmux Helper${helper_name}"
+    info_plist = "//cmux/branding/cmux_helper-Info.plist"
+    extra_substitutions = [
+      "CMUX_HELPER_BUNDLE_ID=${cmux_core_framework_bundle_id}.${helper_bundle_id_suffix}",
+      "CMUX_HELPER_NAME=cmux Helper${helper_name}",
+      "CMUX_PACKAGE_TYPE=${helper_app_role}",
+    ] + helper_extra_substitutions
+    sources = [ "//content/app/mac/main.cc" ]
+    deps = [
+      ":cmux_core_framework+link",
+      "//content/public/app",
+    ]
+    if (helper_extra_configs != []) {
+      configs += helper_extra_configs
+    }
+  }
+}
+
+# The framework itself.
+mac_framework_bundle("cmux_core_framework") {
+  output_name = "CmuxCore"
+  framework_version = cmux_core_framework_version
+  framework_contents = [
+    "Frameworks",
+    "Helpers",
+    "Libraries",
+    "Resources",
+  ]
+  info_plist = "//cmux/branding/cmux_core_framework-Info.plist"
+
+  sources = [
+    # Stub — the real entry points come from the embedder source_set
+    # and content/'s mac framework template. No sources needed here
+    # beyond the configuration plist; content/app/content_main_mac.mm
+    # is brought in transitively.
+  ]
+
+  deps = [
+    "//cmux/embedder:embedder",
+    "//content/app:content_main",
+    "//content/public/app",
+    "//mojo",
+    "//services/network/public/mojom",
+  ]
+
+  data_deps = [
+    ":cmux_helpers",
+  ]
+
+  configs += [
+    "//build/config/compiler:enable_arc",
+  ]
+
+  ldflags = [
+    "-Wl,-install_name,@executable_path/../Frameworks/CmuxCore.framework/Versions/A/CmuxCore",
+  ]
+
+  if (enable_dsyms) {
+    extra_substitutions = [
+      "CMUX_CORE_FRAMEWORK_BUNDLE_ID=${cmux_core_framework_bundle_id}",
+    ]
+  }
+}

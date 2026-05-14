@@ -18,8 +18,15 @@ an org-level repo. Until then, the canonical copies live here so:
 
 - `cmux_browser.h` — the C ABI exported from `CmuxCore.framework`.
   Source of truth for `CmuxBrowserEngine`'s `ChromiumBrowserBackend`.
-- `BUILD.gn` — GN target wiring for `//cmux/embedder:embedder` and the
-  parent `//cmux:cmux_core_framework`.
+  Lands at `src/cmux/embedder/cmux_browser.h` in the fork.
+- `BUILD.gn` — GN target wiring for `//cmux/embedder:embedder` and
+  `//cmux/embedder:embedder_headers`. Lands at
+  `src/cmux/embedder/BUILD.gn` in the fork.
+- `cmux_BUILD.gn` — GN target wiring for `//cmux:cmux_core_framework`
+  itself (mac_framework_bundle) plus the four helpers
+  (renderer/gpu/plugin/main). Lands at `src/cmux/BUILD.gn` in the
+  fork (note the renamed-for-disambiguation prefix only matters
+  here; the file's contents are the parent BUILD).
 - `CHANGELOG.md` — ABI version history. Bump
   `CMUX_EMBEDDER_ABI_VERSION` on any breaking change.
 
