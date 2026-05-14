@@ -2183,6 +2183,41 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 }
 
 
+private actor ControlledFilePreviewTextSaver {
+    private var capturedContent: String?
+    private var startContinuation: CheckedContinuation<String, Never>?
+    private var finishContinuation: CheckedContinuation<FilePreviewTextSaver.Result, Never>?
+
+    func save(
+        content: String,
+        to url: URL,
+        encoding: String.Encoding
+    ) async -> FilePreviewTextSaver.Result {
+        _ = url
+        _ = encoding
+        capturedContent = content
+        startContinuation?.resume(returning: content)
+        startContinuation = nil
+        return await withCheckedContinuation { continuation in
+            finishContinuation = continuation
+        }
+    }
+
+    func waitForSaveStart() async -> String {
+        if let capturedContent {
+            return capturedContent
+        }
+        return await withCheckedContinuation { continuation in
+            startContinuation = continuation
+        }
+    }
+
+    func finishSave(with result: FilePreviewTextSaver.Result = .saved) {
+        finishContinuation?.resume(returning: result)
+        finishContinuation = nil
+    }
+}
+
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testSaveTextContentWritesLiveTextViewContent() async throws {
@@ -2209,27 +2244,25 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let saveProbe = ControlledFilePreviewTextSaver()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textSaver: { content, url, encoding in
+                await saveProbe.save(content: content, to: url, encoding: encoding)
+            }
+        )
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
-        try FileManager.default.removeItem(at: url)
-        XCTAssertEqual(mkfifo(url.path, 0o600), 0)
-
         let firstSave = try XCTUnwrap(panel.saveTextContent())
         XCTAssertTrue(panel.isSaving)
+        XCTAssertEqual(await saveProbe.waitForSaveStart(), "first save")
 
         panel.updateTextContent("second save")
         XCTAssertNil(panel.saveTextContent())
 
-        let pipeRead = Task.detached { () throws -> String in
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            return String(data: handle.availableData, encoding: .utf8) ?? ""
-        }
-
-        let savedContent = try await pipeRead.value
-        XCTAssertEqual(savedContent, "first save")
+        await saveProbe.finishSave()
         await firstSave.value
 
         XCTAssertEqual(panel.textContent, "second save")

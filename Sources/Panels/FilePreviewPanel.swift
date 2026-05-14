@@ -813,6 +813,8 @@ enum FilePreviewTextSaver {
         case failed(fileExists: Bool)
     }
 
+    typealias Operation = @Sendable (String, URL, String.Encoding) async -> Result
+
     static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
         await Task.detached(priority: .userInitiated) {
             guard let data = content.data(using: encoding) else {
@@ -852,15 +854,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
+    private let textSaver: FilePreviewTextSaver.Operation
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }
 
-    init(workspaceId: UUID, filePath: String) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        textSaver: @escaping FilePreviewTextSaver.Operation = FilePreviewTextSaver.save
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.textSaver = textSaver
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
@@ -1082,8 +1090,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         activeSaveGeneration = generation
         let fileURL = fileURL
         let encoding = textEncoding
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+        let textSaver = textSaver
+        return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
+            let result = await textSaver(currentContent, fileURL, encoding)
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
