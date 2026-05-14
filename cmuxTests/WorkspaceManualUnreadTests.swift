@@ -366,6 +366,38 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.canMarkWorkspaceUnread(forTabIds: [workspace.id]))
     }
 
+    func testMarkPanelUnreadContributesToGlobalUnreadSurfaces() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertEqual(store.unreadCount, 0)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 0)
+
+        workspace.markPanelUnread(panelId)
+
+        XCTAssertEqual(store.unreadCount, 1)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 1)
+        XCTAssertTrue(store.notificationMenuSnapshot.hasUnreadNotifications)
+
+        store.markRead(forTabId: workspace.id)
+
+        XCTAssertEqual(store.unreadCount, 0)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 0)
+        XCTAssertFalse(store.notificationMenuSnapshot.hasUnreadNotifications)
+    }
+
     func testMarkPanelReadClearsPanelDerivedWorkspaceUnread() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared
