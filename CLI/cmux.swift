@@ -480,6 +480,33 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func clearAgentLifecycleIfPresent(
+        sessionId: String,
+        workspaceId: String?,
+        surfaceId: String?
+    ) throws {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty else { return }
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        try withLockedState { state in
+            let recordKey: String?
+            if state.sessions[normalizedSessionId] != nil {
+                recordKey = normalizedSessionId
+            } else {
+                recordKey = fallbackRecord(
+                    sessions: Array(state.sessions.values),
+                    workspaceId: normalizedWorkspace,
+                    surfaceId: normalizedSurface
+                )?.sessionId
+            }
+            guard let recordKey, var record = state.sessions[recordKey] else { return }
+            record.agentLifecycle = .unknown
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[recordKey] = record
+        }
+    }
+
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -17029,6 +17056,11 @@ struct CMUXCLI {
                         "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                         client: client
                     )
+                    try? sessionStore.clearAgentLifecycleIfPresent(
+                        sessionId: consumedSession.sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: consumedSession.surfaceId
+                    )
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
@@ -17243,10 +17275,16 @@ struct CMUXCLI {
                 throw CLIError(message: "Set agent hibernation parameters by providing at least one of --idle-seconds and/or --max-live-terminals. Example: cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12")
             }
             if let idle {
-                command += " --idle-seconds=\(idle)"
+                guard let parsedIdle = Int(idle), (5...604800).contains(parsedIdle) else {
+                    throw CLIError(message: "--idle-seconds must be an integer from 5 to 604800")
+                }
+                command += " --idle-seconds=\(parsedIdle)"
             }
             if let maxLive {
-                command += " --max-live-terminals=\(maxLive)"
+                guard let parsedMaxLive = Int(maxLive), (1...256).contains(parsedMaxLive) else {
+                    throw CLIError(message: "--max-live-terminals must be an integer from 1 to 256")
+                }
+                command += " --max-live-terminals=\(parsedMaxLive)"
             }
             response = try sendV1Command(command, client: client)
         default:
