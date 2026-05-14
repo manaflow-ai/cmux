@@ -35,6 +35,7 @@ private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
         state.withLock { state in
             var percentages: [CmuxTopProcessScopeCacheKey: Double] = [:]
             percentages.reserveCapacity(currentSamples.count)
+            var heldKeys: Set<CmuxTopProcessScopeCacheKey> = []
 
             for (key, sample) in currentSamples {
                 let parentKey = parentKeysByKey[key]
@@ -42,6 +43,7 @@ private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
                 if let existing,
                    existing.sample.sampledAtNanoseconds > sample.sampledAtNanoseconds {
                     percentages[key] = existing.cpuPercent
+                    heldKeys.insert(key)
                     continue
                 }
 
@@ -49,6 +51,7 @@ private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
                     let elapsedNanoseconds = sample.sampledAtNanoseconds - existing.sample.sampledAtNanoseconds
                     guard elapsedNanoseconds >= Self.minimumSampleWindowNanoseconds else {
                         percentages[key] = existing.cpuPercent
+                        heldKeys.insert(key)
                         if existing.parentKey != parentKey {
                             state.entries[key] = CmuxTopProcessCPUTrackerEntry(
                                 sample: existing.sample,
@@ -75,7 +78,8 @@ private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
             for (key, entry) in state.entries where entry.cpuPercent > 0 {
                 guard let parentKey = entry.parentKey,
                       !activeKeys.contains(key),
-                      activeKeys.contains(parentKey) else {
+                      activeKeys.contains(parentKey),
+                      !heldKeys.contains(parentKey) else {
                     continue
                 }
                 percentages[parentKey, default: 0] += entry.cpuPercent

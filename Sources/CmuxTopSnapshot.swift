@@ -11,6 +11,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     var processCount: Int = 0
     var pids: [Int] = []
     var missingPIDs: [Int] = []
+    var memorySourceFallbackPIDs: [Int] = []
 
     func payload() -> [String: Any] {
         [
@@ -20,7 +21,9 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
             "virtual_bytes": virtualBytes,
             "process_count": processCount,
             "pids": pids,
-            "missing_pids": missingPIDs
+            "missing_pids": missingPIDs,
+            "memory_source_fallback_pids": memorySourceFallbackPIDs,
+            "memory_source_fallback_count": memorySourceFallbackPIDs.count
         ]
     }
 
@@ -35,6 +38,12 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     }
 }
 
+nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
+    case physicalFootprint = "proc_pid_rusage.RUSAGE_INFO_V2.ri_phys_footprint"
+    case residentSize = "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size"
+    case unavailable
+}
+
 nonisolated struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
@@ -47,6 +56,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let terminalProcessGroupID: Int?
     var cpuPercent: Double
     let memoryBytes: Int64
+    let memorySource: CmuxTopProcessMemorySource
     let residentBytes: Int64
     let virtualBytes: Int64
     let threadCount: Int
@@ -106,8 +116,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
-            "memory_source": "proc_pid_rusage.RUSAGE_INFO_V2.ri_phys_footprint",
-            "resident_memory_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size",
+            "memory_source": CmuxTopProcessMemorySource.physicalFootprint.rawValue,
+            "memory_fallback_source": CmuxTopProcessMemorySource.residentSize.rawValue,
+            "resident_memory_source": CmuxTopProcessMemorySource.residentSize.rawValue,
             "process_details": includesProcessDetails
         ]
     }
@@ -160,6 +171,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             summary.residentBytes = Self.clampedAdd(summary.residentBytes, process.residentBytes)
             summary.virtualBytes = Self.clampedAdd(summary.virtualBytes, process.virtualBytes)
             summary.processCount += 1
+            if process.memorySource == .residentSize {
+                summary.memorySourceFallbackPIDs.append(pid)
+            }
         }
 
         return summary
@@ -272,6 +286,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
         var seenProcessIds: Set<Int> = []
+        var memorySourceFallbackPIDs: [Int] = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
@@ -279,6 +294,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
             residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
             processIds.append(process.pid)
+            if process.memorySource == .residentSize {
+                memorySourceFallbackPIDs.append(process.pid)
+            }
         }
 
         func payload() -> [String: Any] {
@@ -291,7 +309,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     memoryBytes: memoryBytes,
                     residentBytes: residentBytes,
                     processCount: sortedProcessIds.count,
-                    pids: sortedProcessIds
+                    pids: sortedProcessIds,
+                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted()
                 ).payload()
             ]
         }
@@ -304,6 +323,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
         var seenProcessIds: Set<Int> = []
+        var memorySourceFallbackPIDs: [Int] = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
@@ -311,6 +331,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
             residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
             processIds.append(process.pid)
+            if process.memorySource == .residentSize {
+                memorySourceFallbackPIDs.append(process.pid)
+            }
         }
 
         func payload() -> [String: Any] {
@@ -324,7 +347,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     memoryBytes: memoryBytes,
                     residentBytes: residentBytes,
                     processCount: sortedProcessIds.count,
-                    pids: sortedProcessIds
+                    pids: sortedProcessIds,
+                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted()
                 ).payload()
             ]
         }
@@ -352,6 +376,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "name": process.name,
             "path": process.path ?? NSNull(),
             "thread_count": process.threadCount,
+            "memory_source": process.memorySource.rawValue,
             "resources": summary(for: [pid]).payload(),
             "children": childNodes
         ]
@@ -478,6 +503,18 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
         let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
+        let memoryBytes: Int64
+        let memorySource: CmuxTopProcessMemorySource
+        if let resourceUsage {
+            memoryBytes = int64Clamped(resourceUsage.ri_phys_footprint)
+            memorySource = .physicalFootprint
+        } else if let taskInfo {
+            memoryBytes = int64Clamped(taskInfo.pti_resident_size)
+            memorySource = .residentSize
+        } else {
+            memoryBytes = 0
+            memorySource = .unavailable
+        }
         let cpuSampleKey: CmuxTopProcessScopeCacheKey?
         if let taskInfo {
             let currentCPUSample = cpuSample(from: taskInfo, sampledAtNanoseconds: sampledAtNanoseconds)
@@ -498,7 +535,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: 0,
-            memoryBytes: int64Clamped(resourceUsage?.ri_phys_footprint ?? taskInfo?.pti_resident_size ?? 0),
+            memoryBytes: memoryBytes,
+            memorySource: memorySource,
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
@@ -541,10 +579,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     private static func resourceUsage(for pid: Int) -> rusage_info_v2? {
         var info = rusage_info_v2()
-        let result = withUnsafeMutablePointer(to: &info) { pointer -> Int32 in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { reboundPointer in
-                proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, reboundPointer)
-            }
+        let result = withUnsafeMutableBytes(of: &info) { rawBuffer -> Int32 in
+            guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+            return proc_pid_rusage(
+                pid_t(pid),
+                RUSAGE_INFO_V2,
+                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+            )
         }
         return result == 0 ? info : nil
     }

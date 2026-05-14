@@ -168,12 +168,20 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         )
 
         let windowResources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
+        let windowMemoryBytes = int64(windowResources["memory_bytes"])
         let windowResidentBytes = int64(windowResources["resident_bytes"])
+        let webViewMemoryBytes = try annotatedWebViewResources(in: windows)
+            .map { int64($0["memory_bytes"]) }
         let webViewResidentBytes = try annotatedWebViewResources(in: windows)
             .map { int64($0["resident_bytes"]) }
 
+        XCTAssertGreaterThan(windowMemoryBytes, 0)
         XCTAssertGreaterThan(windowResidentBytes, 0)
+        XCTAssertEqual(webViewMemoryBytes.count, 2)
         XCTAssertEqual(webViewResidentBytes.count, 2)
+        for memoryBytes in webViewMemoryBytes {
+            XCTAssertLessThanOrEqual(abs(memoryBytes * 2 - windowMemoryBytes), 1)
+        }
         for residentBytes in webViewResidentBytes {
             XCTAssertLessThanOrEqual(abs(residentBytes * 2 - windowResidentBytes), 1)
         }
@@ -232,7 +240,8 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         let rootProcess = try XCTUnwrap(processes.first)
         let rootResources = try XCTUnwrap(rootProcess["resources"] as? [String: Any])
 
-        XCTAssertEqual(int(rootProcess["pid"]), fixture.parentPID)
+        let rootPID = try XCTUnwrap(int(rootProcess["pid"]))
+        XCTAssertEqual(rootPID, fixture.parentPID)
         XCTAssertEqual(intArray(rootResources["pids"]), [fixture.parentPID])
     }
 
@@ -251,6 +260,19 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             abs(memoryBytes - expectedFootprintBytes),
             max(16 * 1024 * 1024, expectedFootprintBytes / 5)
+        )
+    }
+
+    func testSamplePayloadDescribesPhysicalFootprintFallbackSource() {
+        let sample = CmuxTopProcessSnapshot.capture(includeProcessDetails: false).samplePayload()
+
+        XCTAssertEqual(
+            sample["memory_source"] as? String,
+            CmuxTopProcessMemorySource.physicalFootprint.rawValue
+        )
+        XCTAssertEqual(
+            sample["memory_fallback_source"] as? String,
+            CmuxTopProcessMemorySource.residentSize.rawValue
         )
     }
 
@@ -491,10 +513,13 @@ while allocations:
 
     private func physicalFootprintBytes(for pid: Int) -> Int64? {
         var info = rusage_info_v2()
-        let result = withUnsafeMutablePointer(to: &info) { pointer -> Int32 in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { reboundPointer in
-                proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, reboundPointer)
-            }
+        let result = withUnsafeMutableBytes(of: &info) { rawBuffer -> Int32 in
+            guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+            return proc_pid_rusage(
+                pid_t(pid),
+                RUSAGE_INFO_V2,
+                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+            )
         }
         guard result == 0 else { return nil }
         return int64Clamped(info.ri_phys_footprint)
