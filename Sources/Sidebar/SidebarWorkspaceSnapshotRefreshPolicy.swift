@@ -18,6 +18,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     func applyingContextMenuImmediateFields(from snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
         guard contextMenuImmediateFields != snapshot.contextMenuImmediateFields else { return self }
         return Self(
+            presentationKey: snapshot.presentationKey,
             title: snapshot.title,
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
@@ -26,7 +27,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
-            latestSubmittedMessage: latestSubmittedMessage,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
@@ -54,9 +55,9 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
         current: SidebarWorkspaceSnapshotBuilder.Snapshot?,
         next: SidebarWorkspaceSnapshotBuilder.Snapshot,
         force: Bool,
-        freezesSidebarWorkspaceDetails: Bool
+        contextMenuVisible: Bool
     ) -> Decision {
-        guard freezesSidebarWorkspaceDetails else {
+        guard contextMenuVisible else {
             return Decision(
                 workspaceSnapshotStorage: force || current != next ? next : current,
                 pendingWorkspaceSnapshot: nil,
@@ -77,24 +78,10 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
 }
 
 struct SidebarWorkspaceRowInteractionState: Equatable {
-    // AppKit menu tracking is the authoritative freeze lifetime for row pointer
-    // context menus. SwiftUI appearance is only a fallback for menu surfaces that
-    // do not emit AppKit tracking; it must not end an active AppKit-tracking
-    // freeze early.
-    private enum ContextMenuDetailsFreezePhase: Equatable {
-        case live
-        case swiftUIFallback
-        case appKitTracking
-    }
-
     private(set) var isPointerHovering = false
-    private var contextMenuDetailsFreezePhase: ContextMenuDetailsFreezePhase = .live
+    private(set) var contextMenuVisible = false
     private var contextMenuTrackingSuppressesCloseButton = false
     private var deferredPointerHoveringWhileContextMenuTracking: Bool?
-
-    var freezesSidebarWorkspaceDetails: Bool {
-        contextMenuDetailsFreezePhase != .live
-    }
 
     mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuTrackingSuppressesCloseButton {
@@ -107,27 +94,25 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     }
 
     mutating func contextMenuDidAppear() {
-        beginSwiftUIFallbackContextMenuFreeze()
+        contextMenuVisible = true
         contextMenuTrackingSuppressesCloseButton = true
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
     }
 
     mutating func contextMenuDidDisappear() {
-        endSwiftUIFallbackContextMenuFreeze()
+        contextMenuVisible = false
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
 
     mutating func contextMenuTrackingDidBegin() {
-        beginAppKitTrackingContextMenuFreeze()
         contextMenuTrackingSuppressesCloseButton = true
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
     }
 
     mutating func contextMenuTrackingDidEnd() {
-        endAppKitTrackingContextMenuFreeze()
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
@@ -140,24 +125,6 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
             && !contextMenuTrackingSuppressesCloseButton
             && canCloseWorkspace
             && !shortcutHintModeActive
-    }
-
-    private mutating func beginSwiftUIFallbackContextMenuFreeze() {
-        guard contextMenuDetailsFreezePhase == .live else { return }
-        contextMenuDetailsFreezePhase = .swiftUIFallback
-    }
-
-    private mutating func endSwiftUIFallbackContextMenuFreeze() {
-        guard contextMenuDetailsFreezePhase == .swiftUIFallback else { return }
-        contextMenuDetailsFreezePhase = .live
-    }
-
-    private mutating func beginAppKitTrackingContextMenuFreeze() {
-        contextMenuDetailsFreezePhase = .appKitTracking
-    }
-
-    private mutating func endAppKitTrackingContextMenuFreeze() {
-        contextMenuDetailsFreezePhase = .live
     }
 
     private mutating func applyDeferredPointerHovering() {
