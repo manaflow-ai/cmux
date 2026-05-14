@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 
@@ -57,19 +58,21 @@ class PingServer:
         self._thread.join(timeout=timeout)
 
     def stop(self) -> None:
-        try:
-            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            client.settimeout(0.2)
-            client.connect(self.socket_path)
-            client.sendall(b"ping\n")
+        deadline = time.monotonic() + 2.0
+        while self._thread.is_alive() and time.monotonic() < deadline:
             try:
-                client.recv(1024)
+                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                client.settimeout(0.2)
+                client.connect(self.socket_path)
+                client.sendall(b"ping\n")
+                try:
+                    client.recv(1024)
+                except OSError:
+                    pass
+                client.close()
             except OSError:
                 pass
-            client.close()
-        except OSError:
-            pass
-        self.join(timeout=2.0)
+            self.join(timeout=0.1)
 
     def _run(self) -> None:
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -306,6 +309,61 @@ def main() -> int:
             print(f"stdout={proc.stdout!r}")
             print(f"stderr={proc.stderr!r}")
             return 1
+
+    for variant_name in [
+        "com.cmuxterm.app.staging.review.sock",
+        "com.cmuxterm.app.nightly.review.sock",
+    ]:
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-autodiscover-home-") as temp_home:
+            app_support_dir = Path(temp_home) / "Library/Application Support/cmux"
+            variant_socket_path = str(app_support_dir / variant_name)
+            app_support_dir.mkdir(parents=True, exist_ok=True)
+            (app_support_dir / "last-socket-path").write_text(variant_socket_path + "\n", encoding="utf-8")
+
+            variant_server = PingServer(variant_socket_path, max_ping_requests=2)
+            variant_server.start()
+
+            if not variant_server.wait_ready(2.0):
+                print("FAIL: dotted variant socket server did not become ready")
+                return 1
+
+            if variant_server.error is not None:
+                print(f"FAIL: dotted variant socket server failed to start: {variant_server.error}")
+                return 1
+
+            env = os.environ.copy()
+            env["HOME"] = temp_home
+            env.pop("CMUX_SOCKET_PATH", None)
+            env.pop("CMUX_SOCKET", None)
+            env.pop("CMUX_TAG", None)
+            env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+            try:
+                proc = subprocess.run(
+                    [cli_path, "ping"],
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                    timeout=8,
+                    check=False,
+                )
+            except Exception as exc:
+                print(f"FAIL: invoking cmux ping for dotted variant isolation failed: {exc}")
+                return 1
+            finally:
+                variant_server.stop()
+
+            if variant_server.error is not None:
+                print(f"FAIL: dotted variant socket server error: {variant_server.error}")
+                return 1
+
+            if proc.returncode == 0 and proc.stdout.strip() == "PONG":
+                print("FAIL: cmux ping used non-release dotted variant last-socket-path")
+                print(f"variant={variant_name!r}")
+                print(f"stdout={proc.stdout!r}")
+                print(f"stderr={proc.stderr!r}")
+                return 1
 
     print("PASS: cmux ping auto-discovers tagged and protocol-verified fallback sockets")
     return 0
