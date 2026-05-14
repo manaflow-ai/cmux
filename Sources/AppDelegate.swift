@@ -10600,7 +10600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var seenWindowIds = Set<UUID>()
         let preferredContext = preferredRegisteredMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
-        let orderedContexts = ([preferredContext].compactMap { $0 } + Array(mainWindowContexts.values))
+        let orderedContexts = ([preferredContext].compactMap { $0 } + sortedMainWindowContextsForSessionSnapshot())
             .filter { seenWindowIds.insert($0.windowId).inserted }
 
         for context in orderedContexts {
@@ -10633,11 +10633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func clearWorkspaceUnreadAfterJump(workspace: Workspace, panelId: UUID?) {
-        if let panelId {
-            workspace.markPanelRead(panelId)
-        } else {
-            notificationStore?.markRead(forTabId: workspace.id)
-        }
+        workspace.clearUnreadAfterJump(panelId: panelId)
     }
 
     @discardableResult

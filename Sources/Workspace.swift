@@ -8556,6 +8556,15 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func clearUnreadAfterJump(panelId: UUID?) {
+        if let panelId,
+           manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId) {
+            markPanelRead(panelId)
+            return
+        }
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+    }
+
     func clearManualUnread(panelId: UUID) {
         let didRemoveManual = clearManualUnreadState(panelId: panelId)
         let didRemoveRestored = clearRestoredUnreadIndicatorState(panelId: panelId)

@@ -1644,7 +1644,7 @@ private struct NotificationsPopoverView: View {
 
             Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
                         .font(.system(size: 28))
@@ -1654,6 +1654,15 @@ private struct NotificationsPopoverView: View {
                     Text(String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here."))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                }
+                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
+            } else if notificationStore.notifications.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell.badge")
+                        .font(.system(size: 28))
+                        .foregroundColor(.secondary)
+                    Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                        .font(.headline)
                 }
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
