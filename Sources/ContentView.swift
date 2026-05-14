@@ -5055,9 +5055,17 @@ struct ContentView: View {
             rows: rows,
             selectedIndex: selectedIndex,
             shouldShowEmptyState: commandPaletteShouldShowEmptyState,
-            scrollTargetIndex: commandPaletteScrollTargetIndex,
+            scrollTargetID: commandPaletteScrollTargetID(rows: rows),
             scrollTargetAnchor: commandPaletteScrollTargetAnchor
         )
+    }
+
+    private func commandPaletteScrollTargetID(rows: [CommandPaletteRenderResultRow]) -> String? {
+        guard let index = commandPaletteScrollTargetIndex,
+              rows.indices.contains(index) else {
+            return nil
+        }
+        return rows[index].id
     }
 
     private func syncCommandPaletteOverlayCommandListState() {
@@ -5097,8 +5105,7 @@ struct ContentView: View {
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
         if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
-            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
-            hasNucleoSearchIndex: searchIndex != nil
+            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope
         ) {
             let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,
@@ -5127,7 +5134,7 @@ struct ContentView: View {
         }
         let previewCandidateCommandIDs: [String]
         if commandPaletteVisibleResultsScope == scope,
-           commandPaletteVisibleResultsFingerprint == fingerprint {
+           !commandPaletteVisibleResults.isEmpty {
             previewCandidateCommandIDs = CommandPaletteSearchOrchestrator.previewCandidateCommandIDs(
                 resultIDs: commandPaletteVisibleResults.map(\.id),
                 limit: Self.commandPaletteVisiblePreviewCandidateLimit
@@ -5135,21 +5142,24 @@ struct ContentView: View {
         } else {
             previewCandidateCommandIDs = []
         }
+        let shouldApplyPreviewResults = scope == .commands || !previewCandidateCommandIDs.isEmpty
         isCommandPaletteSearchPending = true
 
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
-            let previewMatches = CommandPaletteSearchOrchestrator.previewSearchMatches(
-                scope: scope,
-                searchIndex: searchIndex,
-                searchCorpus: searchCorpus,
-                candidateCommandIDs: previewCandidateCommandIDs,
-                searchCorpusByID: searchCorpusByID,
-                query: matchingQuery,
-                usageHistory: usageHistory,
-                queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp,
-                resultLimit: visiblePreviewResultLimit
-            )
+            let previewMatches = shouldApplyPreviewResults
+                ? CommandPaletteSearchOrchestrator.previewSearchMatches(
+                    scope: scope,
+                    searchIndex: searchIndex,
+                    searchCorpus: searchCorpus,
+                    candidateCommandIDs: previewCandidateCommandIDs,
+                    searchCorpusByID: searchCorpusByID,
+                    query: matchingQuery,
+                    usageHistory: usageHistory,
+                    queryIsEmpty: queryIsEmpty,
+                    historyTimestamp: historyTimestamp,
+                    resultLimit: visiblePreviewResultLimit
+                )
+                : []
 
             guard !Task.isCancelled else { return }
 
@@ -5166,6 +5176,9 @@ struct ContentView: View {
                     && cachedCommandPaletteFingerprint == fingerprint
                     && isCommandPaletteSearchPending
                 guard shouldApplyPreview else {
+                    return
+                }
+                guard shouldApplyPreviewResults else {
                     return
                 }
 

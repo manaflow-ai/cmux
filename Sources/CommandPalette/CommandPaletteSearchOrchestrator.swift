@@ -156,10 +156,9 @@ enum CommandPaletteSearchOrchestrator {
     }
 
     static func shouldSynchronouslySeedResults(
-        hasVisibleResultsForScope: Bool,
-        hasNucleoSearchIndex: Bool
+        hasVisibleResultsForScope: Bool
     ) -> Bool {
-        hasNucleoSearchIndex || !hasVisibleResultsForScope
+        !hasVisibleResultsForScope
     }
 
     static func shouldPreserveEmptyStateWhileSearchPending(

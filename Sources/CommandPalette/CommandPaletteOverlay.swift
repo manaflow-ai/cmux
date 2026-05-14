@@ -24,7 +24,7 @@ struct CommandPaletteCommandListRenderState: Equatable {
     var rows: [CommandPaletteRenderResultRow] = []
     var selectedIndex: Int = 0
     var shouldShowEmptyState = false
-    var scrollTargetIndex: Int?
+    var scrollTargetID: String?
     var scrollTargetAnchor: UnitPoint?
 
     static let empty = CommandPaletteCommandListRenderState()
@@ -131,7 +131,7 @@ struct CommandPaletteCommandListRowsView: View {
         .frame(height: listHeight)
         .scrollPosition(
             id: Binding(
-                get: { state.scrollTargetIndex },
+                get: { state.scrollTargetID },
                 // Ignore passive readback so manual scrolling doesn't mutate selection-follow state.
                 set: { _ in }
             ),
