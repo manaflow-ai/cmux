@@ -1,6 +1,6 @@
 import Foundation
 
-enum CommandPaletteListScope: String {
+enum CommandPaletteListScope: String, Sendable {
     case commands
     case switcher
 }
@@ -156,9 +156,10 @@ enum CommandPaletteSearchOrchestrator {
     }
 
     static func shouldSynchronouslySeedResults(
-        hasVisibleResultsForScope: Bool
+        hasVisibleResultsForScope: Bool,
+        hasSearchIndex: Bool
     ) -> Bool {
-        !hasVisibleResultsForScope
+        !hasVisibleResultsForScope && hasSearchIndex
     }
 
     static func shouldPreserveEmptyStateWhileSearchPending(

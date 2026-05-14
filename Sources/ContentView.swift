@@ -1102,6 +1102,8 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
+    @State private var commandPaletteSearchIndexBuildTask: Task<Void, Never>?
+    @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResultsVersion: UInt64 = 0
@@ -4990,14 +4992,48 @@ struct ContentView: View {
         }
         commandPaletteSearchCorpus = searchCorpus
         commandPaletteSearchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
-        commandPaletteNucleoSearchIndex = CommandPaletteNucleoSearchIndex(entries: searchCorpus)
         cachedCommandPaletteScope = scope
         cachedCommandPaletteFingerprint = fingerprint
+        scheduleCommandPaletteSearchIndexBuild(
+            entries: searchCorpus,
+            scope: scope,
+            fingerprint: fingerprint
+        )
     }
 
     private func cancelCommandPaletteSearch() {
         commandPaletteSearchTask?.cancel()
         commandPaletteSearchTask = nil
+    }
+
+    private func cancelCommandPaletteSearchIndexBuild() {
+        commandPaletteSearchIndexBuildTask?.cancel()
+        commandPaletteSearchIndexBuildTask = nil
+        commandPaletteSearchIndexBuildGeneration &+= 1
+    }
+
+    private func scheduleCommandPaletteSearchIndexBuild(
+        entries: [CommandPaletteSearchCorpusEntry<String>],
+        scope: CommandPaletteListScope,
+        fingerprint: Int?
+    ) {
+        cancelCommandPaletteSearchIndexBuild()
+        commandPaletteNucleoSearchIndex = nil
+        let generation = commandPaletteSearchIndexBuildGeneration
+        commandPaletteSearchIndexBuildTask = Task.detached(priority: .userInitiated) {
+            let index = CommandPaletteNucleoSearchIndex(entries: entries)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard commandPaletteSearchIndexBuildGeneration == generation,
+                      cachedCommandPaletteScope == scope,
+                      cachedCommandPaletteFingerprint == fingerprint else {
+                    return
+                }
+                commandPaletteNucleoSearchIndex = index
+                commandPaletteSearchIndexBuildTask = nil
+            }
+        }
     }
 
     private static func commandPaletteMaterializedSearchResults(
@@ -5105,7 +5141,8 @@ struct ContentView: View {
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
         if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
-            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope
+            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
+            hasSearchIndex: searchIndex != nil
         ) {
             let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,
@@ -8053,6 +8090,7 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
+        cancelCommandPaletteSearchIndexBuild()
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands
