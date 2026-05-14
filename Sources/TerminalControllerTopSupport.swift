@@ -216,11 +216,13 @@ extension TerminalController {
 
         let rootPIDs: Set<Int> = [pid]
         let pids = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
-        webview["shared_process_count"] = browserPIDOccurrences[pid] ?? 1
+        let sharedProcessCount = max(1, browserPIDOccurrences[pid] ?? 1)
+        let resources = processSnapshot.summary(for: pids, rootPIDs: rootPIDs)
+        webview["shared_process_count"] = sharedProcessCount
         webview["root_pids"] = rootPIDs.sorted()
         webview["top_level_pids"] = processSnapshot.topLevelPIDs(for: pids).sorted()
         webview["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: pids).sorted()
-        webview["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
+        webview["resources"] = resources.attributedPayload(sharedAcross: sharedProcessCount)
         webview["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: pids, rootPIDs: rootPIDs) : []
         return pids
     }

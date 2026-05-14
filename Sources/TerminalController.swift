@@ -148,6 +148,8 @@ class TerminalController {
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
+        "notification.open",
+        "notification.jump_to_unread",
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
@@ -2624,6 +2626,14 @@ class TerminalController {
             return v2Ok(id: id, result: self.v2NotificationList())
         case "notification.clear":
             return v2Result(id: id, self.v2NotificationClear())
+        case "notification.dismiss":
+            return v2Result(id: id, self.v2NotificationDismiss(params: params))
+        case "notification.mark_read":
+            return v2Result(id: id, self.v2NotificationMarkRead(params: params))
+        case "notification.open":
+            return v2Result(id: id, self.v2NotificationOpen(params: params))
+        case "notification.jump_to_unread":
+            return v2Result(id: id, self.v2NotificationJumpToUnread())
 
         // App focus
         case "app.focus_override.set":
@@ -2988,6 +2998,10 @@ class TerminalController {
             "notification.create_for_target",
             "notification.list",
             "notification.clear",
+            "notification.dismiss",
+            "notification.mark_read",
+            "notification.open",
+            "notification.jump_to_unread",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",
@@ -3374,9 +3388,15 @@ class TerminalController {
         }
         v2AttachTopApplicationProcess(to: &windowNodes)
 
-        let processSnapshot = await Task.detached(priority: .utility) {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        }.value
+        let processSnapshot = await withTaskGroup(
+            of: CmuxTopProcessSnapshot.self,
+            returning: CmuxTopProcessSnapshot.self
+        ) { group in
+            group.addTask(priority: .utility) {
+                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+            }
+            return await group.next()!
+        }
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes
         let totalPIDs = v2AnnotateTopWindows(
@@ -3385,14 +3405,27 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "program_totals": aggregates.programs,
+            "coding_agents": aggregates.codingAgents,
             "windows": annotatedWindows
         ]
+    }
+
+    private nonisolated func processAggregates(
+        from processSnapshot: CmuxTopProcessSnapshot,
+        totalPIDs: Set<Int>
+    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
+        (
+            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
+            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        )
     }
 
     private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
@@ -3414,9 +3447,12 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
+        payload["program_totals"] = aggregates.programs
+        payload["coding_agents"] = aggregates.codingAgents
         payload["windows"] = windowNodes
         return .ok(payload)
     }
@@ -3850,6 +3886,21 @@ class TerminalController {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
         if let value { return value }
         return NSNull()
+    }
+
+    private static func notificationCreatedAtString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+
+    private static func notificationListTrailingField(_ value: String) -> String {
+        "pct:" + value
+            .replacingOccurrences(of: "%", with: "%25")
+            .replacingOccurrences(of: "|", with: "%7C")
+            .replacingOccurrences(of: "\n", with: "%0A")
+            .replacingOccurrences(of: "\r", with: "%0D")
     }
 
     nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
@@ -4559,7 +4610,7 @@ class TerminalController {
                 iMessageModeEnabled: iMessageModeEnabled
             )
             if iMessageModeEnabled {
-                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestSubmittedMessage
+                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
             }
         }
 
@@ -7760,9 +7811,10 @@ class TerminalController {
                 return
             }
 
-            let destinationWorkspace = tabManager.addWorkspace(select: focus)
-            guard let destinationPane = destinationWorkspace.bonsplitController.focusedPaneId
-                ?? destinationWorkspace.bonsplitController.allPaneIds.first else {
+            guard let destinationWorkspace = tabManager.addWorkspace(
+                fromDetachedSurface: detached,
+                select: focus
+            ) else {
                 if let sourcePaneForRollback {
                     _ = sourceWorkspace.attachDetachedSurface(
                         detached,
@@ -7771,20 +7823,18 @@ class TerminalController {
                         focus: true
                     )
                 }
-                result = .err(code: "internal_error", message: "Destination workspace has no pane", data: nil)
+                result = .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
                 return
             }
-
-            guard destinationWorkspace.attachDetachedSurface(detached, inPane: destinationPane, focus: focus) != nil else {
-                if let sourcePaneForRollback {
-                    _ = sourceWorkspace.attachDetachedSurface(
-                        detached,
-                        inPane: sourcePaneForRollback,
-                        atIndex: sourceIndex,
-                        focus: true
-                    )
-                }
-                result = .err(code: "internal_error", message: "Failed to attach surface to new workspace", data: nil)
+            guard let destinationPaneId = destinationWorkspace.paneId(forPanelId: surfaceId)?.id else {
+                result = .err(
+                    code: "internal_error",
+                    message: "Failed to resolve destination pane for detached surface",
+                    data: [
+                        "workspace_id": destinationWorkspace.id.uuidString,
+                        "surface_id": surfaceId.uuidString
+                    ]
+                )
                 return
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -7793,8 +7843,8 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": destinationWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: destinationWorkspace.id),
-                "pane_id": destinationPane.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
+                "pane_id": destinationPaneId.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: destinationPaneId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
             ])
@@ -7983,18 +8033,228 @@ class TerminalController {
         var items: [[String: Any]] = []
         v2MainSync {
             items = TerminalNotificationStore.shared.notifications.map { n in
-                return [
-                    "id": n.id.uuidString,
-                    "workspace_id": n.tabId.uuidString,
-                    "surface_id": v2OrNull(n.surfaceId?.uuidString),
-                    "is_read": n.isRead,
-                    "title": n.title,
-                    "subtitle": n.subtitle,
-                    "body": n.body
-                ]
+                return notificationPayload(n, opened: nil, includeReadState: true)
             }
         }
         return ["notifications": items]
+    }
+
+    private func v2NotificationDismiss(params: [String: Any]) -> V2CallResult {
+        let id = v2UUID(params, "id")
+        let allRead = v2Bool(params, "all_read") ?? false
+        let selectorCount = (id == nil ? 0 : 1) + (allRead ? 1 : 0)
+
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.dismissSelectorRequired", defaultValue: "Select exactly one of id or all_read"),
+                data: nil
+            )
+        }
+
+        if allRead {
+            var dismissedCount = 0
+            v2MainSync {
+                let readIds = TerminalNotificationStore.shared.notifications
+                    .filter(\.isRead)
+                    .map(\.id)
+                for id in readIds {
+                    TerminalNotificationStore.shared.remove(id: id)
+                }
+                dismissedCount = readIds.count
+            }
+            return .ok(["dismissed": dismissedCount, "all_read": true])
+        }
+
+        guard let id else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.idRequired", defaultValue: "Missing or invalid notification id"),
+                data: nil
+            )
+        }
+
+        var dismissed = false
+        var payload: [String: Any] = [:]
+        v2MainSync {
+            let notification = TerminalNotificationStore.shared.notifications.first(where: { $0.id == id })
+            if let notification {
+                payload = notificationPayload(notification, opened: nil, includeReadState: true)
+                TerminalNotificationStore.shared.remove(id: id)
+                dismissed = true
+            }
+        }
+        guard dismissed else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
+        }
+        payload["dismissed"] = 1
+        return .ok(payload)
+    }
+
+    private func v2NotificationMarkRead(params: [String: Any]) -> V2CallResult {
+        let id = v2UUID(params, "id")
+        let tabId = v2UUID(params, "tab_id") ?? v2UUID(params, "workspace_id")
+        let hasSurfaceSelector = v2HasNonNullParam(params, "surface_id")
+        let surfaceId = v2UUID(params, "surface_id")
+        let all = v2Bool(params, "all") ?? false
+        let selectorCount = (id == nil ? 0 : 1) + (tabId == nil ? 0 : 1) + (all ? 1 : 0)
+
+        guard selectorCount == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.markReadSelectorRequired", defaultValue: "Select exactly one of id, tab_id, or all"),
+                data: nil
+            )
+        }
+        if hasSurfaceSelector, surfaceId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.surfaceIdInvalid", defaultValue: "Missing or invalid surface_id"),
+                data: nil
+            )
+        }
+        if hasSurfaceSelector, tabId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.surfaceIdRequiresWorkspace", defaultValue: "surface_id requires tab_id or workspace_id"),
+                data: nil
+            )
+        }
+
+        var markedCount = 0
+        var selectedNotificationExists = true
+        v2MainSync {
+            let store = TerminalNotificationStore.shared
+            let before = store.notifications
+            if let id {
+                guard before.contains(where: { $0.id == id }) else {
+                    selectedNotificationExists = false
+                    return
+                }
+                store.markRead(id: id)
+            } else if let tabId {
+                if hasSurfaceSelector {
+                    store.markRead(forTabId: tabId, surfaceId: surfaceId)
+                } else {
+                    store.markRead(forTabId: tabId)
+                }
+            } else if all {
+                store.markAllRead()
+            }
+            let afterById = Dictionary(uniqueKeysWithValues: store.notifications.map { ($0.id, $0.isRead) })
+            markedCount = before.filter { !$0.isRead && afterById[$0.id] == true }.count
+        }
+
+        if !selectedNotificationExists, let id {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
+        }
+
+        var result: [String: Any] = ["marked_read": markedCount]
+        if let id { result["id"] = id.uuidString }
+        if let tabId {
+            result["workspace_id"] = tabId.uuidString
+            result["workspace_ref"] = v2Ref(kind: .workspace, uuid: tabId)
+        }
+        if hasSurfaceSelector {
+            result["surface_id"] = v2OrNull(surfaceId?.uuidString)
+            result["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+        }
+        if all { result["all"] = true }
+        return .ok(result)
+    }
+
+    private func v2NotificationOpen(params: [String: Any]) -> V2CallResult {
+        guard let id = v2UUID(params, "id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.notification.idRequired", defaultValue: "Missing or invalid notification id"),
+                data: nil
+            )
+        }
+
+        var notification: TerminalNotification?
+        var opened = false
+        var payload: [String: Any] = [:]
+        v2MainSync {
+            let store = TerminalNotificationStore.shared
+            notification = store.notifications.first(where: { $0.id == id })
+            if let notification {
+                opened = AppDelegate.shared?.openNotification(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId,
+                    notificationId: notification.id
+                ) ?? false
+                let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
+                payload = notificationPayload(current, opened: opened, includeReadState: true)
+            }
+        }
+
+        guard notification != nil else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.notFound", defaultValue: "Notification not found"),
+                data: ["id": id.uuidString]
+            )
+        }
+        guard opened else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.notification.targetNotFound", defaultValue: "Notification target not found"),
+                data: payload
+            )
+        }
+        return .ok(payload)
+    }
+
+    private func v2NotificationJumpToUnread() -> V2CallResult {
+        var openedNotification: TerminalNotification?
+        var payload: [String: Any] = [:]
+        v2MainSync {
+            openedNotification = AppDelegate.shared?.jumpToLatestUnread()
+            if let openedNotification {
+                let store = TerminalNotificationStore.shared
+                let current = store.notifications.first(where: { $0.id == openedNotification.id }) ?? openedNotification
+                payload = notificationPayload(current, opened: true, includeReadState: true)
+            }
+        }
+        guard openedNotification != nil else {
+            return .ok(["opened": false])
+        }
+        return .ok(payload)
+    }
+
+    private func notificationPayload(
+        _ notification: TerminalNotification,
+        opened: Bool?,
+        includeReadState: Bool
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": notification.id.uuidString,
+            "workspace_id": notification.tabId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: notification.tabId),
+            "surface_id": v2OrNull(notification.surfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: notification.surfaceId),
+            "title": notification.title,
+            "subtitle": notification.subtitle,
+            "body": notification.body,
+            "created_at": Self.notificationCreatedAtString(notification.createdAt),
+            "tab_title": v2OrNull(AppDelegate.shared?.tabTitle(for: notification.tabId)),
+        ]
+        if includeReadState {
+            payload["is_read"] = notification.isRead
+        }
+        if let opened {
+            payload["opened"] = opened
+        }
+        return payload
     }
 
     private func v2NotificationClear() -> V2CallResult {
@@ -8183,7 +8443,7 @@ class TerminalController {
         }
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-        v2ApplyPromptSubmitSideEffects(for: event)
+        v2ApplyIMessageModeSideEffects(for: event)
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
@@ -8197,21 +8457,38 @@ class TerminalController {
         return .ok(FeedSocketEncoding.payload(for: result))
     }
 
-    private nonisolated func v2ApplyPromptSubmitSideEffects(for event: WorkstreamEvent) {
-        guard event.hookEventName == .userPromptSubmit,
+    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
+        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop || event.hookEventName == .subagentStop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
         else { return }
 
         let iMessageModeEnabled = IMessageModeSettings.isEnabled()
-        v2MainSync {
-            guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
-            _ = tabManager.handlePromptSubmit(
-                workspaceId: workspaceId,
-                message: event.submittedPromptMessage,
-                iMessageModeEnabled: iMessageModeEnabled
-            )
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            v2MainSync {
+                guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                _ = tabManager.handlePromptSubmit(
+                    workspaceId: workspaceId,
+                    message: event.submittedPromptMessage,
+                    iMessageModeEnabled: iMessageModeEnabled
+                )
+            }
+        case .stop, .subagentStop:
+            let assistantFinalMessage = event.assistantFinalMessage
+            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
+                guard let self,
+                      let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                _ = tabManager.handleAssistantFinalMessage(
+                    workspaceId: workspaceId,
+                    message: assistantFinalMessage,
+                    iMessageModeEnabled: iMessageModeEnabled
+                )
+            }
+        default:
+            break
         }
     }
 
@@ -9071,7 +9348,7 @@ class TerminalController {
             var createdSplit = true
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
-            if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
+            if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
                 createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: focus)
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -14463,7 +14740,9 @@ class TerminalController {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
-                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)"
+                let createdAt = Self.notificationCreatedAtString(notification.createdAt)
+                let tabTitle = Self.notificationListTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
+                return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
             }
             result = lines.joined(separator: "\n")
         }

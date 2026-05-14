@@ -52,3 +52,26 @@ enum SidebarResizeInteraction {
         sidebarSideHitWidth + contentSideHitWidth
     }
 }
+
+enum SidebarSelectedWorkspaceScrollPolicy {
+    static func shouldScrollSelectedWorkspace<ID: Equatable>(
+        selectedWorkspaceId: ID?,
+        oldWorkspaceIds: [ID],
+        newWorkspaceIds: [ID]
+    ) -> Bool {
+        guard let selectedWorkspaceId,
+              let newIndex = newWorkspaceIds.firstIndex(of: selectedWorkspaceId) else {
+            return false
+        }
+
+        guard let oldIndex = oldWorkspaceIds.firstIndex(of: selectedWorkspaceId) else {
+            return true
+        }
+
+        guard oldIndex != newIndex else {
+            return false
+        }
+
+        return true
+    }
+}

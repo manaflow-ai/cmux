@@ -2071,6 +2071,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -2794,6 +2795,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
@@ -2935,6 +2937,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
+        }
+        browserUIDelegate.closeRequested = { [weak self] closedWebView in
+            guard let self, self.isCurrentWebView(closedWebView) else { return }
+#if DEBUG
+            cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
+#endif
+            self.webViewDidRequestClose?()
         }
         self.uiDelegate = browserUIDelegate
 
@@ -3321,6 +3330,7 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         webViewObservers.append(urlObserver)
@@ -3335,6 +3345,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         webViewObservers.append(titleObserver)
@@ -3579,6 +3590,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
 
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
@@ -3600,6 +3612,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = nil
         navigationDelegate = nil
         uiDelegate = nil
+        webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         faviconTask?.cancel()
@@ -6831,6 +6844,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
+    var closeRequested: ((WKWebView) -> Void)?
+
+    func webViewDidClose(_ webView: WKWebView) {
+        closeRequested?(webView)
+    }
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
