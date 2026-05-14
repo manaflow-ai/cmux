@@ -106,20 +106,20 @@ Live config flags read from cmux code (drives what `CmuxBrowserConfiguration` mu
 | `timeoutIntervalForRequest` | (TBD) | missing |
 | `timeoutIntervalForResource` | (TBD) | missing |
 | `userContentController` | ✓ | done |
-| `websiteDataStore` | (TBD) `CmuxBrowserConfiguration.dataStore` | missing |
-| `websiteDataStore.httpCookieStore` | (TBD) `CmuxBrowserConfiguration.dataStore.cookieStore` | missing |
-| `connectionProxyDictionary` | (TBD) | missing |
+| `websiteDataStore` | ✅ `CmuxBrowserConfiguration.dataStore` (s2) | shipped |
+| `websiteDataStore.httpCookieStore` | ✅ `CmuxDataStore.cookieStore` (s2) | shipped |
+| `connectionProxyDictionary` | (TBD — not yet used) | missing |
 
 ## Migration order recommended
 
 Driven by what unblocks the largest BrowserPanel callsite groups first:
 
-1. **KVO/Combine mirrors on CmuxBrowserView** — unblocks the 9 `webView.observe` sites; small surface, mostly mechanical
-2. **`pageZoom`** — unblocks 5 sites
-3. **`CmuxDataStore` + `CmuxCookieStore`** — unblocks ~25 sites across config and cookie reads
-4. **`CmuxDownload` + `CmuxDownloadDelegate`** — unblocks the download flow (14 sites + delegate impl)
-5. **`CmuxInspector` + the `cmuxInspector*` extensions** — last because the inspector is its own subsystem
-6. **`CmuxSnapshotConfiguration`** — for high-DPI snapshots used by `cmux browser screenshot`
+1. ✅ **KVO/Combine mirrors on CmuxBrowserView** — unblocks the 9 `webView.observe` sites. Done in session 1: `CmuxBrowserState` with `@Published url/title/isLoading/estimatedProgress/canGoBack/canGoForward/pageZoom`. KVO observations push to state.
+2. ✅ **`pageZoom`** — unblocks 5 sites. Done in session 1: `CmuxBrowserView.pageZoom` getter/setter, mirrored on `state.pageZoom`.
+3. ✅ **`CmuxDataStore` + `CmuxCookieStore`** — unblocks ~25 sites across config and cookie reads. Done in session 2: factories (`.default()`, `.nonPersistent()`, `.forIdentifier(_:)`), `removeData(ofTypes:modifiedSince:)`, cookie store with get/set/delete/observer. `CmuxBrowserConfiguration.dataStore` is plumbed.
+4. ✅ **`CmuxDownload` + `CmuxDownloadDelegate`** — unblocks the download flow. Done in session 2: per-WKDownload shim with strong refs cleared in terminal callbacks; `CmuxNavigationDelegate.didBecome download` extensions for both nav-action and nav-response.
+5. ⏳ **`CmuxInspector` + the `cmuxInspector*` extensions** — last because the inspector is its own subsystem. NOT done.
+6. ✅ **`CmuxSnapshotConfiguration`** — for high-DPI snapshots used by `cmux browser screenshot`. Done in session 2: rect/snapshotWidth/afterScreenUpdates bridged to `WKSnapshotConfiguration`.
 
 ## Non-Browser callsites of WKWebView
 
