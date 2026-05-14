@@ -164,9 +164,9 @@ build_helper() {
     effective_target=""
   fi
 
-  local -a crash_args=()
+  local crash_arg=""
   if git -C "$GHOSTTY_DIR" grep -q "crash-report-subdir" HEAD -- src/build/Config.zig build.zig 2>/dev/null; then
-    crash_args=(-Dcrash-report-subdir=cmux/crash)
+    crash_arg="-Dcrash-report-subdir=cmux/crash"
   fi
 
   local args=(
@@ -174,7 +174,11 @@ build_helper() {
     build
     cli-helper
     -Dapp-runtime=none
-    "${crash_args[@]}"
+  )
+  if [[ -n "$crash_arg" ]]; then
+    args+=("$crash_arg")
+  fi
+  args+=(
     -Demit-macos-app=false
     -Demit-xcframework=false
     -Doptimize=ReleaseFast

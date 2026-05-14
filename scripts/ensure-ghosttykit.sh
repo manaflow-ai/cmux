@@ -76,12 +76,12 @@ if ! validate_bridge_header "$PROJECT_DIR/ghostty.h"; then
 fi
 
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
-GHOSTTYKIT_CRASH_ARGS=()
+GHOSTTYKIT_CRASH_ARG=""
 GHOSTTY_CLEAN_KEY="$GHOSTTY_SHA"
 if git -C ghostty grep -q "crash-report-subdir" HEAD -- src/build/Config.zig build.zig 2>/dev/null; then
   GHOSTTYKIT_CRASH_REPORT_SUBDIR="${CMUX_GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/crash}"
   GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-v1"
-  GHOSTTYKIT_CRASH_ARGS=(-Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR")
+  GHOSTTYKIT_CRASH_ARG="-Dcrash-report-subdir=$GHOSTTYKIT_CRASH_REPORT_SUBDIR"
   GHOSTTY_CLEAN_KEY="${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
 fi
 GHOSTTY_KEY="$GHOSTTY_CLEAN_KEY"
@@ -227,7 +227,11 @@ else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
     (
       cd ghostty
-      zig build "${GHOSTTYKIT_CRASH_ARGS[@]}" -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      if [[ -n "$GHOSTTYKIT_CRASH_ARG" ]]; then
+        zig build "$GHOSTTYKIT_CRASH_ARG" -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      else
+        zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      fi
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"
