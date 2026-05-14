@@ -106,10 +106,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         }
     }
 
-    static func shouldDrawBackground(for backgroundColor: NSColor) -> Bool {
-        backgroundColor.alphaComponent > 0.001
-    }
-
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
         var isApplyingPanelUpdate = false

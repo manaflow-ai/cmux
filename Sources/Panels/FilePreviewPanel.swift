@@ -2350,12 +2350,23 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var rotationAccumulator: CGFloat = 0
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
-    private var lastAppliedPDFScrollBackgroundColor: NSColor?
-    private var lastAppliedPDFScrollDrawsBackground: Bool?
+    private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
     private static let documentLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.pdf-document-load",
         qos: .userInitiated
     )
+
+    private struct PDFScrollBackgroundAppearance {
+        let hostIdentifiers: Set<ObjectIdentifier>
+        let backgroundColor: NSColor
+        let drawsBackground: Bool
+
+        func matches(_ other: PDFScrollBackgroundAppearance) -> Bool {
+            hostIdentifiers == other.hostIdentifiers
+                && drawsBackground == other.drawsBackground
+                && backgroundColor.isEqual(other.backgroundColor)
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2626,26 +2637,39 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             drawsBackground: drawsPreviewBackground
         )
         pdfView.backgroundColor = resolvedBackgroundColor
-        guard shouldApplyPDFScrollBackground(resolvedBackgroundColor: resolvedBackgroundColor) else { return }
+        let scrollBackgroundAppearance = currentPDFScrollBackgroundAppearance(
+            resolvedBackgroundColor: resolvedBackgroundColor
+        )
+        guard shouldApplyPDFScrollBackground(scrollBackgroundAppearance) else { return }
         FilePreviewNativeBackground.applyScrollBackgrounds(
             in: pdfView,
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
-        lastAppliedPDFScrollBackgroundColor = resolvedBackgroundColor
-        lastAppliedPDFScrollDrawsBackground = drawsPreviewBackground
+        lastAppliedPDFScrollBackgroundAppearance = scrollBackgroundAppearance
     }
 
     private func invalidatePDFScrollBackgroundAppearance() {
-        lastAppliedPDFScrollBackgroundColor = nil
-        lastAppliedPDFScrollDrawsBackground = nil
+        lastAppliedPDFScrollBackgroundAppearance = nil
     }
 
-    private func shouldApplyPDFScrollBackground(resolvedBackgroundColor: NSColor) -> Bool {
-        guard let lastAppliedPDFScrollBackgroundColor,
-              let lastAppliedPDFScrollDrawsBackground else { return true }
-        return lastAppliedPDFScrollDrawsBackground != drawsPreviewBackground
-            || !lastAppliedPDFScrollBackgroundColor.isEqual(resolvedBackgroundColor)
+    private func currentPDFScrollBackgroundAppearance(
+        resolvedBackgroundColor: NSColor
+    ) -> PDFScrollBackgroundAppearance {
+        var hostIdentifiers = FilePreviewNativeBackground.scrollBackgroundHostIdentifiers(in: pdfView)
+        if hostIdentifiers.isEmpty {
+            hostIdentifiers.insert(ObjectIdentifier(pdfView))
+        }
+        return PDFScrollBackgroundAppearance(
+            hostIdentifiers: hostIdentifiers,
+            backgroundColor: resolvedBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+    }
+
+    private func shouldApplyPDFScrollBackground(_ appearance: PDFScrollBackgroundAppearance) -> Bool {
+        guard let lastAppliedPDFScrollBackgroundAppearance else { return true }
+        return !lastAppliedPDFScrollBackgroundAppearance.matches(appearance)
     }
 
     private func setupFloatingChrome() {

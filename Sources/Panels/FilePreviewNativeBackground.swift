@@ -44,4 +44,22 @@ enum FilePreviewNativeBackground {
             )
         }
     }
+
+    static func scrollBackgroundHostIdentifiers(in view: NSView) -> Set<ObjectIdentifier> {
+        var identifiers = Set<ObjectIdentifier>()
+        collectScrollBackgroundHostIdentifiers(in: view, into: &identifiers)
+        return identifiers
+    }
+
+    private static func collectScrollBackgroundHostIdentifiers(
+        in view: NSView,
+        into identifiers: inout Set<ObjectIdentifier>
+    ) {
+        if view is NSScrollView || view is NSClipView {
+            identifiers.insert(ObjectIdentifier(view))
+        }
+        for subview in view.subviews {
+            collectScrollBackgroundHostIdentifiers(in: subview, into: &identifiers)
+        }
+    }
 }
