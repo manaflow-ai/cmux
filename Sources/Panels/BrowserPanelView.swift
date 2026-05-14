@@ -16,6 +16,15 @@ private func browserPanelViewRectDescription(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
 }
 
+private struct BrowserDevicePreset: Identifiable, Hashable {
+    static let responsiveID = "responsive"
+
+    let id: String
+    let name: String
+    let width: Int?
+    let height: Int?
+}
+
 private extension NSObject {
     @discardableResult
     func browserPanelCallVoidIfAvailable(_ rawSelector: String) -> Bool {
@@ -423,6 +432,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
+    @State private var browserDeviceToolbarHeight: CGFloat = 0
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var omnibarSelectAllRequestId: UInt64 = 0
@@ -431,6 +441,10 @@ struct BrowserPanelView: View {
     @State private var isBrowserToolsMenuPresented = false
     @State private var isBrowserToolsClearingCookies = false
     @State private var isBrowserToolsClearingCache = false
+    @State private var isBrowserDeviceToolbarVisible = false
+    @State private var browserDevicePresetID = BrowserDevicePreset.responsiveID
+    @State private var browserDeviceViewportWidth = 390
+    @State private var browserDeviceViewportHeight = 844
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -444,6 +458,19 @@ struct BrowserPanelView: View {
     private let devToolsButtonIconSize: CGFloat = 11
     private let browserToolsPopoverWidth: CGFloat = 276
     private let browserToolsRowHeight: CGFloat = 32
+    private let browserDeviceToolbarHorizontalPadding: CGFloat = 8
+    private let browserDeviceToolbarVerticalPadding: CGFloat = 5
+    private let browserDeviceViewportMinDimension = 240
+    private let browserDeviceViewportMaxDimension = 4096
+    private static let browserDeviceDimensionFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        formatter.allowsFloats = false
+        formatter.minimum = 240
+        formatter.maximum = 4096
+        formatter.usesGroupingSeparator = false
+        return formatter
+    }()
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
@@ -517,6 +544,10 @@ struct BrowserPanelView: View {
         browserChromeStyle.colorScheme
     }
 
+    private var browserTopChromeHeight: CGFloat {
+        addressBarHeight + (isBrowserDeviceToolbarVisible ? browserDeviceToolbarHeight : 0)
+    }
+
     private var browserContentAccessibilityIdentifier: String {
         "BrowserPanelContent.\(panel.id.uuidString)"
     }
@@ -560,7 +591,11 @@ struct BrowserPanelView: View {
         VStack(spacing: 0) {
             addressBar
                 .fixedSize(horizontal: false, vertical: true)
-            webView
+            if isBrowserDeviceToolbarVisible {
+                browserDeviceToolbar
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            browserWebContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
@@ -617,6 +652,9 @@ struct BrowserPanelView: View {
         }
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
+        }
+        .onPreferenceChange(BrowserDeviceToolbarHeightPreferenceKey.self) { height in
+            browserDeviceToolbarHeight = height
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
             // Only handle clicks from our own webview.
@@ -1073,11 +1111,13 @@ struct BrowserPanelView: View {
             }
 
             browserToolsTextButton(
-                title: String(localized: "browser.tools.showDeviceToolbar", defaultValue: "Show device toolbar"),
-                isDisabled: true,
+                title: browserDeviceToolbarMenuTitle,
+                isDisabled: false,
                 accessibilityIdentifier: "BrowserToolsDeviceToolbarButton"
-            ) {}
-            .safeHelp(String(localized: "browser.tools.showDeviceToolbar.unavailable", defaultValue: "Device toolbar is not available in WKWebView."))
+            ) {
+                isBrowserDeviceToolbarVisible.toggle()
+                isBrowserToolsMenuPresented = false
+            }
 
             browserToolsDivider
 
@@ -1226,6 +1266,248 @@ struct BrowserPanelView: View {
             isBrowserToolsClearingCache = false
             isBrowserToolsMenuPresented = false
         }
+    }
+
+    private var browserDeviceToolbarMenuTitle: String {
+        if isBrowserDeviceToolbarVisible {
+            return String(localized: "browser.tools.hideDeviceToolbar", defaultValue: "Hide device toolbar")
+        }
+        return String(localized: "browser.tools.showDeviceToolbar", defaultValue: "Show device toolbar")
+    }
+
+    private var browserDevicePresets: [BrowserDevicePreset] {
+        [
+            BrowserDevicePreset(
+                id: BrowserDevicePreset.responsiveID,
+                name: String(localized: "browser.device.preset.responsive", defaultValue: "Responsive"),
+                width: nil,
+                height: nil
+            ),
+            BrowserDevicePreset(
+                id: "iphone-se",
+                name: String(localized: "browser.device.preset.iphoneSE", defaultValue: "iPhone SE"),
+                width: 375,
+                height: 667
+            ),
+            BrowserDevicePreset(
+                id: "iphone-15",
+                name: String(localized: "browser.device.preset.iphone15", defaultValue: "iPhone 15"),
+                width: 393,
+                height: 852
+            ),
+            BrowserDevicePreset(
+                id: "ipad",
+                name: String(localized: "browser.device.preset.ipad", defaultValue: "iPad"),
+                width: 820,
+                height: 1180
+            ),
+            BrowserDevicePreset(
+                id: "desktop",
+                name: String(localized: "browser.device.preset.desktop", defaultValue: "Desktop"),
+                width: 1280,
+                height: 800
+            ),
+        ]
+    }
+
+    private var browserDevicePresetBinding: Binding<String> {
+        Binding(
+            get: { browserDevicePresetID },
+            set: { applyBrowserDevicePreset(id: $0) }
+        )
+    }
+
+    private var browserDeviceViewportWidthBinding: Binding<Int> {
+        Binding(
+            get: { browserDeviceViewportWidth },
+            set: { value in
+                browserDeviceViewportWidth = clampedBrowserDeviceDimension(value)
+                browserDevicePresetID = BrowserDevicePreset.responsiveID
+            }
+        )
+    }
+
+    private var browserDeviceViewportHeightBinding: Binding<Int> {
+        Binding(
+            get: { browserDeviceViewportHeight },
+            set: { value in
+                browserDeviceViewportHeight = clampedBrowserDeviceDimension(value)
+                browserDevicePresetID = BrowserDevicePreset.responsiveID
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var browserWebContent: some View {
+        if isBrowserDeviceToolbarVisible {
+            browserDevicePreviewCanvas
+        } else {
+            webView
+        }
+    }
+
+    private var browserDeviceToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Image(systemName: "iphone")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 22)
+
+                Picker(
+                    String(localized: "browser.device.preset", defaultValue: "Device"),
+                    selection: browserDevicePresetBinding
+                ) {
+                    ForEach(browserDevicePresets) { preset in
+                        Text(preset.name)
+                            .tag(preset.id)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(width: 142)
+                .accessibilityIdentifier("BrowserDevicePresetPicker")
+
+                browserDeviceDimensionField(
+                    title: String(localized: "browser.device.width.short", defaultValue: "W"),
+                    accessibilityLabel: String(localized: "browser.device.width", defaultValue: "Width"),
+                    accessibilityIdentifier: "BrowserDeviceWidthField",
+                    value: browserDeviceViewportWidthBinding
+                )
+
+                Text(verbatim: "×")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                browserDeviceDimensionField(
+                    title: String(localized: "browser.device.height.short", defaultValue: "H"),
+                    accessibilityLabel: String(localized: "browser.device.height", defaultValue: "Height"),
+                    accessibilityIdentifier: "BrowserDeviceHeightField",
+                    value: browserDeviceViewportHeightBinding
+                )
+
+                Button {
+                    browserDevicePresetID = BrowserDevicePreset.responsiveID
+                    swap(&browserDeviceViewportWidth, &browserDeviceViewportHeight)
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "browser.device.rotate", defaultValue: "Rotate viewport"))
+                .accessibilityIdentifier("BrowserDeviceRotateButton")
+
+                Text(browserDeviceViewportSummary)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(minWidth: 78, alignment: .leading)
+                    .accessibilityIdentifier("BrowserDeviceViewportSummary")
+
+                Button {
+                    isBrowserDeviceToolbarVisible = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "browser.device.close", defaultValue: "Close device toolbar"))
+                .accessibilityIdentifier("BrowserDeviceCloseButton")
+            }
+            .padding(.horizontal, browserDeviceToolbarHorizontalPadding)
+            .padding(.vertical, browserDeviceToolbarVerticalPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(browserChromeBackground)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .preference(
+                        key: BrowserDeviceToolbarHeightPreferenceKey.self,
+                        value: geo.size.height
+                    )
+            }
+        }
+        .accessibilityIdentifier("BrowserDeviceToolbar")
+        .environment(\.colorScheme, browserChromeColorScheme)
+        .zIndex(1)
+    }
+
+    private var browserDevicePreviewCanvas: some View {
+        GeometryReader { geometry in
+            let viewportWidth = CGFloat(browserDeviceViewportWidth)
+            let viewportHeight = CGFloat(browserDeviceViewportHeight)
+            let contentWidth = max(geometry.size.width, viewportWidth + 32)
+            let contentHeight = max(geometry.size.height, viewportHeight + 32)
+
+            ScrollView([.horizontal, .vertical]) {
+                ZStack(alignment: .top) {
+                    webView
+                        .frame(width: viewportWidth, height: viewportHeight, alignment: .topLeading)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .clipShape(Rectangle())
+                        .overlay {
+                            Rectangle()
+                                .stroke(Color.primary.opacity(0.16), lineWidth: 1)
+                        }
+                        .shadow(color: Color.black.opacity(0.14), radius: 12, y: 4)
+                        .padding(16)
+                }
+                .frame(width: contentWidth, height: contentHeight, alignment: .top)
+            }
+            .background(
+                browserChromeBackground
+                    .overlay(Color.primary.opacity(browserChromeColorScheme == .dark ? 0.08 : 0.05))
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .layoutPriority(1)
+        .accessibilityIdentifier("BrowserDevicePreviewCanvas")
+    }
+
+    private var browserDeviceViewportSummary: String {
+        String(
+            format: String(localized: "browser.device.sizeFormat", defaultValue: "%d × %d"),
+            browserDeviceViewportWidth,
+            browserDeviceViewportHeight
+        )
+    }
+
+    private func browserDeviceDimensionField(
+        title: String,
+        accessibilityLabel: String,
+        accessibilityIdentifier: String,
+        value: Binding<Int>
+    ) -> some View {
+        TextField(title, value: value, formatter: Self.browserDeviceDimensionFormatter)
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .frame(width: 56)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func applyBrowserDevicePreset(id: String) {
+        browserDevicePresetID = id
+        guard let preset = browserDevicePresets.first(where: { $0.id == id }),
+              let width = preset.width,
+              let height = preset.height else {
+            return
+        }
+        browserDeviceViewportWidth = clampedBrowserDeviceDimension(width)
+        browserDeviceViewportHeight = clampedBrowserDeviceDimension(height)
+    }
+
+    private func clampedBrowserDeviceDimension(_ value: Int) -> Int {
+        min(browserDeviceViewportMaxDimension, max(browserDeviceViewportMinDimension, value))
     }
 
     private var browserImportHintToolbarChip: some View {
@@ -1480,7 +1762,7 @@ struct BrowserPanelView: View {
                             onFieldDidFocus: { panel.noteFindFieldFocused() }
                         )
                     },
-                    paneTopChromeHeight: addressBarHeight
+                    paneTopChromeHeight: browserTopChromeHeight
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -3124,6 +3406,14 @@ private struct OmnibarPillFramePreferenceKey: PreferenceKey {
 }
 
 private struct BrowserAddressBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct BrowserDeviceToolbarHeightPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
