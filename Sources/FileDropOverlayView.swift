@@ -62,6 +62,39 @@ final class FileDropOverlayView: NSView {
     var lastHitTestLogSignature: String?
     var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
+    /// Cached "pasteboard contains at least one plain directory" result for the current
+    /// drag session, keyed by pasteboard `changeCount`. Avoids re-reading the pasteboard
+    /// and running filesystem stat on every `draggingUpdated` event.
+    private var plainDirectoryCacheChangeCount: Int = -1
+    private var plainDirectoryCacheResult: Bool = false
+
+    /// Reads file URLs from the dragging pasteboard.
+    func fileURLs(from sender: any NSDraggingInfo) -> [URL] {
+        return sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+    }
+
+    /// Returns true when the dragging pasteboard contains at least one plain directory
+    /// URL (not a filesystem package such as `.app` / `.xcworkspace`). Cached per
+    /// pasteboard `changeCount` so repeated calls during a drag session are cheap.
+    func draggingPayloadContainsPlainDirectory(_ sender: any NSDraggingInfo) -> Bool {
+        let current = sender.draggingPasteboard.changeCount
+        if plainDirectoryCacheChangeCount == current {
+            return plainDirectoryCacheResult
+        }
+        let urls = fileURLs(from: sender)
+        let result = urls.contains { url in
+            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            else { return false }
+            return values.isDirectory == true && values.isPackage != true
+        }
+        plainDirectoryCacheChangeCount = current
+        plainDirectoryCacheResult = result
+        return result
+    }
+
     override var acceptsFirstResponder: Bool { false }
 
     override init(frame frameRect: NSRect) {
@@ -305,7 +338,9 @@ final class FileDropOverlayView: NSView {
             preparedDragWebView = accepted ? webView : nil
             return accepted
         }
-        return hasPaneTarget
+        // Allow the folder-drop fallback path (e.g. sidebar) when no pane target is under
+        // the cursor — performDragOperation will route the URLs through `onDrop`.
+        return hasPaneTarget || onDrop != nil
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -394,7 +429,11 @@ final class FileDropOverlayView: NSView {
             return handled
         }
         activeDragWebView = nil
-        guard let terminal else { return false }
+        guard let terminal else {
+            // No terminal/browser/pane target under the drop point — delegate to the folder-drop
+            // handler. In practice the only non-pane area visible to this overlay is the sidebar.
+            return onDrop?(fileURLs(from: sender)) ?? false
+        }
         return terminal.performDragOperation(sender)
     }
 

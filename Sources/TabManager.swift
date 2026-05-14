@@ -2115,6 +2115,75 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    /// Handles a folder drag-and-drop onto the sidebar or non-terminal window area.
+    ///
+    /// - If an existing workspace has the same working directory, selects it and adds a new
+    ///   terminal split. If the workspace contains only non-terminal panels (e.g. browser-only),
+    ///   the terminal split is anchored beside the existing panel rather than creating a new workspace.
+    /// - Otherwise, creates a new workspace rooted at the dropped folder.
+    ///
+    /// Only the first plain-directory URL is acted upon. Non-directory URLs and filesystem
+    /// packages (.app, .xcworkspace, .playground, etc.) are silently ignored.
+    @discardableResult
+    func handleSidebarFolderDrop(_ urls: [URL]) -> Bool {
+        let folderURLs = urls.filter { url in
+            // Accept only plain directories; exclude filesystem packages (.app, .xcworkspace,
+            // .playground, etc.) which report isDirectory=true but should be ignored like files.
+            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            else { return false }
+            return values.isDirectory == true && values.isPackage != true
+        }
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            from: folderURLs.filter { $0.isFileURL }
+        )
+        guard let path = directories.first else { return false }
+
+#if DEBUG
+        cmuxDebugLog("sidebar.folderDrop path=\(path) tabCount=\(tabs.count)")
+#endif
+
+        // Note: resolvingSymlinksInPath is intentionally not applied here.
+        // orderedUniqueDirectories already uses standardizedFileURL which resolves /tmp → /private/tmp
+        // on macOS. Adding resolvingSymlinksInPath to both sides would be equivalent but adds
+        // unnecessary cost; /tmp symlink matching already passes without it.
+        let existing = tabs.first { workspace in
+            var cd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            while cd.count > 1 && cd.hasSuffix("/") { cd.removeLast() }
+            return cd == path
+        }
+
+        if let existing {
+            // Prefer a focused or existing TerminalPanel as the split source.
+            // If the workspace has only non-terminal panels (e.g. browser-only), use any panel
+            // so a new terminal appears as a split beside it rather than creating a new workspace.
+            let panelId = existing.focusedPanelId
+                ?? existing.panels.values.compactMap { $0 as? TerminalPanel }.first?.id
+                ?? existing.panels.values.first?.id
+            guard let panelId else {
+                // No panel to split from — drop is not handled.
+                return false
+            }
+            let newPanel = existing.newTerminalSplit(from: panelId, orientation: .horizontal)
+            guard newPanel != nil else {
+#if DEBUG
+                cmuxDebugLog("sidebar.folderDrop.splitFailed panelId=\(panelId.uuidString.prefix(5))")
+#endif
+                return false
+            }
+            // Switch workspace selection only after a successful split.
+            selectedTabId = existing.id
+#if DEBUG
+            cmuxDebugLog("sidebar.folderDrop.existing workspaceId=\(existing.id.uuidString.prefix(5))")
+#endif
+        } else {
+            addWorkspace(workingDirectory: path, select: true)
+#if DEBUG
+            cmuxDebugLog("sidebar.folderDrop.new path=\(path)")
+#endif
+        }
+        return true
+    }
+
     @discardableResult
     func addWorkspace(
         title: String? = nil,

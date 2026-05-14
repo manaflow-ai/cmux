@@ -91,8 +91,13 @@ extension FileDropOverlayView {
             hasPaneTarget: hasPaneTarget
         )
 #endif
-        guard shouldCapture, hasPaneTarget else { return [] }
-        return .copy
+        guard shouldCapture else { return [] }
+        if hasPaneTarget { return .copy }
+        // Sidebar / non-pane area: only show the copy cursor when the payload contains
+        // at least one plain directory (not a package like .app/.xcworkspace). Files
+        // and packages should not advertise copy here since they cannot open as a workspace.
+        if onDrop != nil, draggingPayloadContainsPlainDirectory(sender) { return .copy }
+        return []
     }
 
     private func fileDropPaneTargetsAreIdentical(
