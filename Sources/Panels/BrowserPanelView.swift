@@ -15,6 +15,7 @@ private final class WeakOmnibarNativeTextField {
     }
 }
 
+@MainActor
 final class BrowserOmnibarNativeFieldRegistry {
     static let shared = BrowserOmnibarNativeFieldRegistry()
 
@@ -4220,10 +4221,12 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 }
 
+@MainActor
 func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
     browserOmnibarField(for: responder)?.panelId
 }
 
+@MainActor
 func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
     if let registeredField = BrowserOmnibarNativeFieldRegistry.shared.field(for: panelId, in: window) {
         return registeredField
@@ -4243,6 +4246,7 @@ func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeT
 }
 
 @discardableResult
+@MainActor
 func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
     guard let field = browserOmnibarField(for: responder),
           field.panelId == panelId else {
@@ -4252,6 +4256,7 @@ func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSRespon
     return true
 }
 
+@MainActor
 private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTextField? {
     guard let responder else { return nil }
 
