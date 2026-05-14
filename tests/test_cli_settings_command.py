@@ -712,6 +712,16 @@ def main() -> int:
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
         assert_fails(failures, "settings import unsupported TOML escape", bad_escape, "Unsupported TOML string escape: \\q")
 
+        bad_multiline_basic_path = home / "bad-multiline-basic.toml"
+        bad_multiline_basic_path.write_text('app.preferredEditor = """vim"""\n', encoding="utf-8")
+        bad_multiline_basic = run_cli(cli_path, ["settings", "import", str(bad_multiline_basic_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects TOML multi-line basic string",
+            bad_multiline_basic,
+            "Unsupported TOML multi-line basic string",
+        )
+
         bad_inline_table_path = home / "bad-inline-table.toml"
         bad_inline_table_path.write_text('appearance = { theme = "dark" }\n', encoding="utf-8")
         bad_inline_table = run_cli(cli_path, ["settings", "import", str(bad_inline_table_path)], home)

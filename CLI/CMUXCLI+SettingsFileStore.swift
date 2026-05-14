@@ -635,6 +635,9 @@ extension CMUXCLI {
                 }
                 return value
             }
+            if raw.hasPrefix("\"\"\"") {
+                throw CLIError(message: "Unsupported TOML multi-line basic string: \(raw)")
+            }
             if raw.hasPrefix("\""), raw.hasSuffix("\"") {
                 let inner = raw.dropFirst().dropLast()
                 return try unescapeTomlString(String(inner))
