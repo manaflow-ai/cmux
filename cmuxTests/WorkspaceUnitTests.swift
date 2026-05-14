@@ -389,7 +389,20 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    func testMarkOldestUnreadAndJumpNextUsesConfigurableCommandControlUDefault() {
+        let shortcut = KeyboardShortcutSettings.Action.markOldestUnreadAndJumpNext.defaultShortcut
+
+        XCTAssertEqual(shortcut.key, "u")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertTrue(shortcut.control)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.markOldestUnreadAndJumpNext))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.markOldestUnreadAndJumpNext))
     }
 
     func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
@@ -2455,6 +2468,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             cachedTitle: nil,
             customTitle: nil,
             manuallyUnread: false,
+            restoredUnread: false,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             agentRuntime: nil,
@@ -2536,6 +2550,44 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         XCTAssertEqual(insertedIndex, baselineCount)
+    }
+
+    func testAddWorkspaceInIMessageModeInsertsAtTopOfUnpinnedSegment() {
+        let defaults = UserDefaults.standard
+        let placementKey = WorkspacePlacementSettings.placementKey
+        let iMessageModeKey = IMessageModeSettings.key
+        let previousPlacement = defaults.object(forKey: placementKey)
+        let previousIMessageMode = defaults.object(forKey: iMessageModeKey)
+        defer {
+            if let previousPlacement {
+                defaults.set(previousPlacement, forKey: placementKey)
+            } else {
+                defaults.removeObject(forKey: placementKey)
+            }
+            if let previousIMessageMode {
+                defaults.set(previousIMessageMode, forKey: iMessageModeKey)
+            } else {
+                defaults.removeObject(forKey: iMessageModeKey)
+            }
+        }
+
+        defaults.set(NewWorkspacePlacement.end.rawValue, forKey: placementKey)
+        defaults.set(true, forKey: iMessageModeKey)
+
+        let manager = TabManager()
+        guard let pinned = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+        manager.setPinned(pinned, pinned: true)
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        manager.selectWorkspace(third)
+
+        let inserted = manager.addWorkspace()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, inserted.id, second.id, third.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 
     func testAddWorkspaceAfterCurrentOverrideAppendsAfterLastSelectedWorkspace() {
@@ -3132,6 +3184,112 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
 
 
 final class WorkspaceReorderTests: XCTestCase {
+    @MainActor
+    func testReorderWorkspacePostsMovedWorkspaceId() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: second.id, toIndex: 0))
+
+        XCTAssertEqual(observedMovedIds, [second.id])
+    }
+
+    @MainActor
+    func testMoveTabsToTopPostsMovedWorkspaceIds() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        manager.moveTabsToTop([third.id, second.id])
+
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id])
+        XCTAssertEqual(observedMovedIds, [second.id, third.id])
+    }
+
+    @MainActor
+    func testMoveTabsToTopSkipsNotificationWhenOrderDoesNotChange() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        var notificationCount = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        manager.moveTabsToTop([first.id])
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id])
+        XCTAssertEqual(notificationCount, 0)
+    }
+
+    @MainActor
+    func testMoveTabToTopPostsMovedWorkspaceIdWhenOrderChanges() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        manager.moveTabToTop(second.id)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id])
+        XCTAssertEqual(observedMovedIds, [second.id])
+    }
+
+    @MainActor
+    func testMoveTabToTopSkipsNotificationWhenUnpinnedAlreadyFirstBelowPinnedWorkspaces() {
+        let manager = TabManager()
+        let pinned = manager.tabs[0]
+        manager.setPinned(pinned, pinned: true)
+        let firstUnpinned = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        var notificationCount = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        manager.moveTabToTop(firstUnpinned.id)
+
+        XCTAssertEqual(manager.tabs.map(\.id).prefix(2), [pinned.id, firstUnpinned.id])
+        XCTAssertEqual(notificationCount, 0)
+    }
+
     @MainActor
     func testReorderWorkspaceMovesWorkspaceToRequestedIndex() {
         let manager = TabManager()
@@ -4395,6 +4553,79 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to stay on the original focused panel"
         )
+    }
+
+    func testNewRightSidebarToolSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId),
+              let originalTabId = workspace.surfaceIdFromPanelId(originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel, pane, and tab")
+            return
+        }
+
+        guard let newPanel = workspace.newRightSidebarToolSurface(
+            inPane: originalPaneId,
+            mode: .files,
+            focus: false
+        ) else {
+            XCTFail("Expected right sidebar tool surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(newPanel.panelType, .rightSidebarTool)
+        XCTAssertEqual(newPanel.mode, .files)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus right sidebar tool surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            originalTabId,
+            "Expected selected tab to stay on the original focused panel"
+        )
+        XCTAssertEqual(
+            workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
+            Workspace.SurfaceKind.rightSidebarTool
+        )
+    }
+
+    func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane")
+            return
+        }
+
+        guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .sessions,
+            focus: true
+        ) else {
+            XCTFail("Expected Vault tool surface to be created")
+            return
+        }
+        guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .sessions,
+            focus: true
+        ) else {
+            XCTFail("Expected existing Vault tool surface to be focused")
+            return
+        }
+
+        XCTAssertEqual(firstPanel.id, secondPanel.id)
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? RightSidebarToolPanel }.filter { $0.mode == .sessions }.count,
+            1
+        )
+        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {

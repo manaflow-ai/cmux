@@ -392,6 +392,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
         }
+        if let value = jsonBool(section["openSupportedFilesInCmux"]) {
+            snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)
+        }
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
             snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
         }
