@@ -53,6 +53,14 @@ actor GoalSupervisionPersistence {
 @Observable
 final class GoalSupervisionStore {
     static let shared = GoalSupervisionStore()
+    static let loadFailureMessage = String(
+        localized: "goals.error.load",
+        defaultValue: "Goals couldn't be loaded. Check that cmux has permission to read its data folder."
+    )
+    static let saveFailureMessage = String(
+        localized: "goals.error.save",
+        defaultValue: "Goal changes couldn't be saved. Check that cmux has permission to write its data folder."
+    )
 
     private(set) var goals: [GoalSupervisionRecord] = []
     private(set) var lastError: String?
@@ -177,7 +185,7 @@ final class GoalSupervisionStore {
                 goals = []
             }
             hasLoaded = true
-            lastError = error.localizedDescription
+            lastError = Self.loadFailureMessage
         }
     }
 
@@ -247,7 +255,7 @@ final class GoalSupervisionStore {
             } catch is CancellationError {
                 return
             } catch {
-                await MainActor.run { self.lastError = error.localizedDescription }
+                await MainActor.run { self.lastError = Self.saveFailureMessage }
             }
         }
     }

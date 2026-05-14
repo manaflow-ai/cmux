@@ -80,6 +80,33 @@ final class GoalSupervisionStoreTests: XCTestCase {
         await store.waitForPendingSave()
     }
 
+    func testLoadFailureUsesUserFacingErrorMessage() async throws {
+        let fileURL = try makeTemporaryGoalsFileURL()
+        defer { removeTemporaryContainer(for: fileURL) }
+        try Data("not json".utf8).write(to: fileURL)
+
+        let store = GoalSupervisionStore(persistence: GoalSupervisionPersistence(fileURL: fileURL))
+        await store.waitForInitialLoad()
+
+        XCTAssertEqual(store.lastError, GoalSupervisionStore.loadFailureMessage)
+        XCTAssertTrue(store.snapshots().isEmpty)
+    }
+
+    func testSaveFailureUsesUserFacingErrorMessage() async throws {
+        let directoryURL = try makeTemporaryDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let blockingFileURL = directoryURL.appendingPathComponent("goals-parent", isDirectory: false)
+        _ = FileManager.default.createFile(atPath: blockingFileURL.path, contents: Data())
+        let fileURL = blockingFileURL.appendingPathComponent("goals.json", isDirectory: false)
+        let store = GoalSupervisionStore(persistence: GoalSupervisionPersistence(fileURL: fileURL))
+        await store.waitForInitialLoad()
+
+        XCTAssertNotNil(store.createGoal(title: "Save error", acceptanceCriteria: "", workspacePath: nil))
+        await store.waitForPendingSave()
+
+        XCTAssertEqual(store.lastError, GoalSupervisionStore.saveFailureMessage)
+    }
+
     private func makeRecord(
         title: String,
         status: GoalSupervisionStatus,
@@ -100,10 +127,14 @@ final class GoalSupervisionStoreTests: XCTestCase {
     }
 
     private func makeTemporaryGoalsFileURL() throws -> URL {
+        try makeTemporaryDirectoryURL().appendingPathComponent("goals.json", isDirectory: false)
+    }
+
+    private func makeTemporaryDirectoryURL() throws -> URL {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-goals-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        return directoryURL.appendingPathComponent("goals.json", isDirectory: false)
+        return directoryURL
     }
 
     private func removeTemporaryContainer(for fileURL: URL) {
