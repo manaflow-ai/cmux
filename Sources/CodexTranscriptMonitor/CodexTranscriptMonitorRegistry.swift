@@ -57,8 +57,10 @@ final class CodexTranscriptMonitorRegistry: @unchecked Sendable {
     }
 
     private func publish(_ event: CodexTranscriptMonitorEvent) {
-        Task { @MainActor in
-            TerminalController.shared.handleCodexTranscriptMonitorEvent(event)
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                TerminalController.shared.handleCodexTranscriptMonitorEvent(event)
+            }
         }
     }
 }

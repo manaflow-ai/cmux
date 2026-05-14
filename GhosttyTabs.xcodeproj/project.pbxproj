@@ -694,12 +694,12 @@
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
-		C0DE412700000000000002 /* CodexTranscriptMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor.swift; sourceTree = "<group>"; };
+		C0DE412700000000000002 /* CodexTranscriptMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor/CodexTranscriptMonitor.swift; sourceTree = "<group>"; };
 		C0DE412700000000000004 /* SidebarLogRingBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLogRingBuffer.swift; sourceTree = "<group>"; };
-		C0DE412700000000000006 /* CodexTranscriptMonitorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorModels.swift; sourceTree = "<group>"; };
-		C0DE412700000000000008 /* CodexTranscriptMonitorRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorRegistry.swift; sourceTree = "<group>"; };
-		C0DE41270000000000000A /* CodexTranscriptMonitorParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitorParsing.swift; sourceTree = "<group>"; };
-		C0DE41270000000000000C /* CodexTranscriptPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptPathResolver.swift; sourceTree = "<group>"; };
+		C0DE412700000000000006 /* CodexTranscriptMonitorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor/CodexTranscriptMonitorModels.swift; sourceTree = "<group>"; };
+		C0DE412700000000000008 /* CodexTranscriptMonitorRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor/CodexTranscriptMonitorRegistry.swift; sourceTree = "<group>"; };
+		C0DE41270000000000000A /* CodexTranscriptMonitorParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor/CodexTranscriptMonitorParsing.swift; sourceTree = "<group>"; };
+		C0DE41270000000000000C /* CodexTranscriptPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTranscriptMonitor/CodexTranscriptPathResolver.swift; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };

@@ -222,7 +222,8 @@ final class CodexTranscriptMonitorSession {
 
         if objectType == "response_item",
            let payload = object["payload"] as? [String: Any] {
-            if CodexTranscriptMonitorParser.transcriptLineHasAssistantMessage(payload: payload) {
+            if CodexTranscriptMonitorParser.transcriptLineHasAssistantMessage(payload: payload),
+               turnMatches(payload: payload) || sawRelevantTurn {
                 sawAssistantMessage = true
             }
             if let userInput = userInputFunctionCallCandidate(from: payload) {
