@@ -7,7 +7,7 @@ HAVE_ALT_SCREEN=0
 NEEDS_DRAW=1
 
 cleanup() {
-  printf '\033[0m\033[?7h\033[?25h'
+  printf '\033[0m\033[?7h\033[?25h\033[0 q'
   if (( HAVE_ALT_SCREEN == 1 )); then
     printf '\033[?1049l'
   fi
@@ -191,13 +191,13 @@ draw_frame() {
 draw() {
   read -r ROWS COLS < <(read_size)
 
-  printf '\033[0m\033[?7l\033[?25h\033[H'
+  printf '\033[0m\033[?7l\033[?12l\033[2 q\033[?25h\033[H'
 
   if (( ROWS < 8 || COLS < 28 )); then
     printf 'CMUX CURSOR CHECK\r\n'
     printf 'Too small: %sx%s\r\n' "$ROWS" "$COLS"
     printf 'Need 8x28 or larger.'
-    printf '\033[?25h\033[1;1H'
+    printf '\033[?12l\033[2 q\033[?25h\033[1;1H'
     return 0
   fi
 
@@ -212,14 +212,14 @@ draw() {
     printf '%s' "${LINES_BUFFER[$row]}"
   done
 
-  printf '\033[?25h\033[%s;%sH' "$TARGET_ROW" "$TARGET_COL"
+  printf '\033[?12l\033[2 q\033[?25h\033[%s;%sH' "$TARGET_ROW" "$TARGET_COL"
 }
 
 if [[ "$USE_ALT_SCREEN" != "0" ]]; then
   printf '\033[?1049h'
   HAVE_ALT_SCREEN=1
 fi
-printf '\033[?7l\033[?25h\033[H\033[2J'
+printf '\033[?7l\033[?12l\033[2 q\033[?25h\033[H\033[2J'
 
 while true; do
   if (( NEEDS_DRAW == 1 )); then
@@ -231,11 +231,8 @@ while true; do
       case "$key" in
         q|Q) exit_clean ;;
       esac
-    else
-      NEEDS_DRAW=1
     fi
   else
     sleep "$INTERVAL"
-    NEEDS_DRAW=1
   fi
 done

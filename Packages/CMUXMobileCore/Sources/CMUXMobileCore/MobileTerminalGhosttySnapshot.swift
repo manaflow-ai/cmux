@@ -382,7 +382,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 rows: visibleGrid.rows,
                 columns: columns,
                 count: rows,
-                cursorRow: resolvedCursor.row,
+                cursorRow: resolvedCursor.isVisible ? resolvedCursor.row : nil,
                 sourceCursorRow: visibleGrid.cursorRow
             ),
             cursor: resolvedCursor,

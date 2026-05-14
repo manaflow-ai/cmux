@@ -266,6 +266,22 @@ import Testing
     #expect(snapshot.cursor.row == 5)
 }
 
+@Test func ghosttyTextBuilderDoesNotShiftRowsToHiddenLiveCursor() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-hidden-live-cursor",
+        columns: 24,
+        rows: 6,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[?25lline one\nline two",
+        cursor: MobileTerminalGhosttyCursor(column: 8, row: 5)
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["line one", "line two", "", "", "", ""])
+    #expect(snapshot.cursor.column == 8)
+    #expect(snapshot.cursor.row == 5)
+    #expect(snapshot.cursor.isVisible == false)
+}
+
 @Test func ghosttyTextBuilderDoesNotShiftRowsForNormalNewlineCursorMovement() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-normal-newline",
