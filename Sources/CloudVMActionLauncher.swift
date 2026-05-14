@@ -177,6 +177,7 @@ final class CloudVMActionLauncher {
             "bearer",
             "billingcustomer",
             "billingteam",
+            "cmuxvmapi",
             "cookie",
             "credential",
             "database",
