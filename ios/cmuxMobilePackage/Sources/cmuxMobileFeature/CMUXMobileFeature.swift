@@ -1644,10 +1644,7 @@ struct WorkspaceDetailView: View {
             if !isTerminalKeyboardVisible,
                MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: isTerminalKeyboardVisible) {
                 terminalBottomActionBar(
-                    expandsSafeArea: MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(
-                        isKeyboardVisible: isTerminalKeyboardVisible,
-                        softwareKeyboardOverlap: terminalKeyboardOverlap
-                    )
+                    expandsSafeArea: inlineBottomBarExpandsSafeArea
                 )
             }
         }
@@ -1657,7 +1654,12 @@ struct WorkspaceDetailView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        .mobileTerminalSafeAreaExpansion(context: safeAreaContext, includesBottom: false)
+        .mobileTerminalSafeAreaExpansion(
+            context: safeAreaContext,
+            includesBottom: MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(
+                isKeyboardVisible: isTerminalKeyboardVisible
+            )
+        )
         .background {
             TerminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -1678,6 +1680,15 @@ struct WorkspaceDetailView: View {
             }
         #endif
         }
+    }
+
+    private var inlineBottomBarExpandsSafeArea: Bool {
+        MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(
+            isKeyboardVisible: isTerminalKeyboardVisible,
+            softwareKeyboardOverlap: terminalKeyboardOverlap
+        ) && !MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(
+            isKeyboardVisible: isTerminalKeyboardVisible
+        )
     }
 
     private static let minimumTerminalFontScale: CGFloat = 0.8
@@ -2212,6 +2223,7 @@ enum TerminalInputAccessoryVisualMetrics {
     static let buttonCornerRadius: CGFloat = 6
     static let buttonSpacing: CGFloat = 6
     static let hideKeyboardWidth: CGFloat = 32
+    static let hideKeyboardSymbolPointSize: CGFloat = 15
     static let nubSize: CGFloat = 34
     static let nubInnerDotSize: CGFloat = 12
     static let nubMaxOffset: CGFloat = 9
@@ -2246,6 +2258,12 @@ enum MobileTerminalBottomBarPlacementPolicy {
 enum MobileTerminalBottomBarVisibilityPolicy {
     static func showsInlineBar(isKeyboardVisible: Bool) -> Bool {
         true
+    }
+}
+
+enum MobileTerminalShellSafeAreaPolicy {
+    static func expandsBehindBottomSafeArea(isKeyboardVisible: Bool) -> Bool {
+        !isKeyboardVisible
     }
 }
 
@@ -2410,7 +2428,7 @@ private struct TerminalBottomActionBar: View {
 private struct TerminalHideKeyboardGlyph: View {
     var body: some View {
         Image(systemName: "keyboard.chevron.compact.down")
-            .font(.system(size: 16, weight: .medium))
+            .font(.system(size: TerminalInputAccessoryVisualMetrics.hideKeyboardSymbolPointSize, weight: .medium))
             .symbolRenderingMode(.monochrome)
             .frame(width: TerminalInputAccessoryVisualMetrics.hideKeyboardWidth, height: TerminalInputAccessoryVisualMetrics.barHeight)
             .accessibilityHidden(true)
@@ -2805,6 +2823,12 @@ struct TerminalPreviewSurface: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onEnded { _ in
+                        focusTerminalInput()
+                    }
+            )
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded {
                         focusTerminalInput()
                     }
             )
@@ -3768,9 +3792,13 @@ private final class TerminalUIKitActionButton: UIButton {
         titleLabel?.adjustsFontSizeToFitWidth = true
         titleLabel?.minimumScaleFactor = 0.75
         if action == .hideKeyboard {
-            imageView?.contentMode = .center
-            let configuration = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            imageView?.contentMode = .scaleAspectFit
+            let configuration = UIImage.SymbolConfiguration(
+                pointSize: TerminalInputAccessoryVisualMetrics.hideKeyboardSymbolPointSize,
+                weight: .medium
+            )
             setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: configuration), for: .normal)
+            setPreferredSymbolConfiguration(configuration, forImageIn: .normal)
         } else if let symbolName = action.symbolName {
             setImage(UIImage(systemName: symbolName), for: .normal)
         } else {

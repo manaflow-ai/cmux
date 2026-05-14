@@ -1203,11 +1203,14 @@ import Testing
     #expect(TerminalInputAccessoryVisualMetrics.buttonHeight == 28)
     #expect(TerminalInputAccessoryVisualMetrics.buttonMinWidth == 44)
     #expect(TerminalInputAccessoryVisualMetrics.buttonCornerRadius == 6)
+    #expect(TerminalInputAccessoryVisualMetrics.hideKeyboardSymbolPointSize == 15)
     #expect(TerminalInputAccessoryVisualMetrics.nubSize == 34)
     #expect(TerminalInputAccessoryVisualMetrics.nubInnerDotSize == 12)
 }
 
 @Test func terminalBottomBarOnlyExpandsBottomSafeAreaWhenKeyboardIsHidden() {
+    #expect(MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(isKeyboardVisible: false))
+    #expect(!MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(isKeyboardVisible: true))
     #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: false))
     #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true, softwareKeyboardOverlap: 0))
     #expect(!MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true, softwareKeyboardOverlap: 240))
