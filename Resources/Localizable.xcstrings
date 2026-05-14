@@ -2,6 +2,8 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "filePreview.pdf.zoomControls": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Zoom Controls" } }, "ja": { "stringUnit": { "state": "translated", "value": "ズームコントロール" } } } },
+    "view.zoom.controls": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "View Zoom" } }, "ja": { "stringUnit": { "state": "translated", "value": "表示ズーム" } } } },
     "cli.error.dismissNotificationSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "dismiss-notification requires exactly one of --id or --all-read" } }, "ja": { "stringUnit": { "state": "translated", "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください" } } } },
     "cli.error.markNotificationReadSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all" } }, "ja": { "stringUnit": { "state": "translated", "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください" } } } },
     "cli.error.markNotificationReadSurfaceRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "--surface requires --workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "--surface には --workspace が必要です" } } } },

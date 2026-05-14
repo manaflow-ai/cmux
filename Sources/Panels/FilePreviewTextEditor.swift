@@ -4,10 +4,15 @@ import SwiftUI
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
+    var viewZoomFactor: CGFloat { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
     func updateTextContent(_ nextContent: String)
+    @discardableResult
+    func setViewZoomFactor(_ factor: CGFloat) -> Bool
+    @discardableResult
+    func performViewZoomCommand(_ command: ViewZoomCommand) -> Bool
     @discardableResult
     func saveTextContent() -> Task<Void, Never>?
 }
@@ -41,7 +46,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.applyPreviewFontSize(ViewZoomControl.textEditorFontSize(for: panel.viewZoomFactor))
         textView.drawsBackground = false
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -69,6 +74,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
+        textView.applyPreviewFontSize(ViewZoomControl.textEditorFontSize(for: panel.viewZoomFactor))
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true
@@ -135,12 +141,8 @@ extension NSTextView {
 }
 
 final class SavingTextView: NSTextView {
-    private static let defaultPreviewFontSize: CGFloat = 13
-    private static let minimumPreviewFontSize: CGFloat = 8
-    private static let maximumPreviewFontSize: CGFloat = 36
-
     weak var panel: (any FilePreviewTextEditingPanel)?
-    private var previewFontSize: CGFloat = 13
+    private var previewFontSize: CGFloat = ViewZoomControl.textEditorDefaultFontSize
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
 
     deinit {}
@@ -155,6 +157,13 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
+        if let zoomCommand = ViewZoomControl.command(for: event) {
+            guard let panel else { return false }
+            panel.performViewZoomCommand(zoomCommand)
+            applyPreviewFontSize(ViewZoomControl.textEditorFontSize(for: panel.viewZoomFactor))
+            return true
+        }
+
         guard let shouldSave = saveShortcutMatch(for: event) else {
             return super.performKeyEquivalent(with: event)
         }
@@ -179,11 +188,20 @@ final class SavingTextView: NSTextView {
     }
 
     override func smartMagnify(with event: NSEvent) {
-        if previewFontSize == Self.defaultPreviewFontSize {
+        if previewFontSize == ViewZoomControl.textEditorDefaultFontSize {
             setPreviewFontSize(18)
         } else {
-            setPreviewFontSize(Self.defaultPreviewFontSize)
+            setPreviewFontSize(ViewZoomControl.textEditorDefaultFontSize)
         }
+    }
+
+    func applyPreviewFontSize(_ nextFontSize: CGFloat) {
+        let clamped = Self.clampedFontSize(nextFontSize)
+        guard abs(previewFontSize - clamped) > 0.001 || font?.pointSize != clamped else { return }
+        previewFontSize = clamped
+        let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+        font = nextFont
+        typingAttributes[.font] = nextFont
     }
 
     private func adjustPreviewFontSize(by factor: CGFloat) {
@@ -191,12 +209,14 @@ final class SavingTextView: NSTextView {
     }
 
     private func setPreviewFontSize(_ nextFontSize: CGFloat) {
-        let clamped = min(max(nextFontSize, Self.minimumPreviewFontSize), Self.maximumPreviewFontSize)
-        guard clamped.isFinite else { return }
-        previewFontSize = clamped
-        let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
-        font = nextFont
-        typingAttributes[.font] = nextFont
+        let clamped = Self.clampedFontSize(nextFontSize)
+        panel?.setViewZoomFactor(ViewZoomControl.textEditorZoomFactor(forFontSize: clamped))
+        applyPreviewFontSize(clamped)
+    }
+
+    private static func clampedFontSize(_ fontSize: CGFloat) -> CGFloat {
+        guard fontSize.isFinite else { return ViewZoomControl.textEditorDefaultFontSize }
+        return ViewZoomControl.textEditorFontSize(for: ViewZoomControl.textEditorZoomFactor(forFontSize: fontSize))
     }
 
     private func saveShortcutMatch(for event: NSEvent) -> Bool? {

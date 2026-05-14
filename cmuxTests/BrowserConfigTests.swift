@@ -1,6 +1,7 @@
 import XCTest
 import Combine
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -3128,6 +3129,28 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
             browserZoomShortcutAction(flags: [.command], chars: "0", keyCode: 29),
             .reset
         )
+    }
+
+    @MainActor
+    func testViewZoomCommandRespectsUnboundZoomShortcut() throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+        KeyboardShortcutSettings.clearShortcut(for: .browserZoomIn)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "+",
+            charactersIgnoringModifiers: "=",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Equal)
+        ))
+
+        XCTAssertNil(ViewZoomControl.command(for: event))
     }
 }
 

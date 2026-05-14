@@ -168,3 +168,92 @@ struct PanelHeaderIconGlyph: View {
             .contentShape(Rectangle())
     }
 }
+
+struct PanelHeaderViewZoomButton: View {
+    @Binding var zoomFactor: CGFloat
+    var isDisabled = false
+
+    @State private var isPresented = false
+
+    private var title: String {
+        String(localized: "view.zoom.controls", defaultValue: "View Zoom")
+    }
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            PanelHeaderIconGlyph(systemName: "textformat.size")
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(title)
+        .accessibilityLabel(title)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            popoverContent
+        }
+    }
+
+    private var popoverContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text(ViewZoomControl.percentText(for: zoomFactor))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                zoomButton(
+                    systemName: "minus",
+                    label: String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out"),
+                    action: { apply(.zoomOut) }
+                )
+                Button {
+                    apply(.reset)
+                } label: {
+                    Text(ViewZoomControl.percentText(for: ViewZoomControl.defaultFactor))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .frame(width: 58, height: 26)
+                }
+                .buttonStyle(.bordered)
+                .help(String(localized: "menu.view.actualSize", defaultValue: "Actual Size"))
+                .accessibilityLabel(String(localized: "menu.view.actualSize", defaultValue: "Actual Size"))
+
+                zoomButton(
+                    systemName: "plus",
+                    label: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"),
+                    action: { apply(.zoomIn) }
+                )
+            }
+
+            Slider(
+                value: Binding(
+                    get: { Double(ViewZoomControl.normalized(zoomFactor)) },
+                    set: { zoomFactor = ViewZoomControl.normalized(CGFloat($0)) }
+                ),
+                in: Double(ViewZoomControl.minimumFactor)...Double(ViewZoomControl.maximumFactor)
+            )
+        }
+        .padding(14)
+        .frame(width: 220)
+    }
+
+    private func zoomButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 26, height: 26)
+        }
+        .buttonStyle(.bordered)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private func apply(_ command: ViewZoomCommand) {
+        zoomFactor = ViewZoomControl.applying(command, to: zoomFactor)
+    }
+}

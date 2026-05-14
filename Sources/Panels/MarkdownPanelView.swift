@@ -98,6 +98,7 @@ struct MarkdownPanelView: View {
                     backgroundColor: themeBackgroundColor,
                     typography: markdownTypography
                 ),
+                zoomFactor: panel.viewZoomFactor,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -143,6 +144,13 @@ struct MarkdownPanelView: View {
                 )
             }
             markdownModeButton
+            PanelHeaderViewZoomButton(
+                zoomFactor: Binding(
+                    get: { panel.viewZoomFactor },
+                    set: { panel.setViewZoomFactor($0) }
+                ),
+                isDisabled: panel.isFileUnavailable
+            )
             MarkdownPanelToolbar(
                 confirmation: copyConfirmation?.label,
                 onCopyMarkdown: { copyAsMarkdown() },

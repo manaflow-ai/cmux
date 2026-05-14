@@ -2330,6 +2330,117 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "original")
     }
 
+    func testSavingTextViewHandlesCommandPlusViewZoom() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.panel = panel
+        panel.attachTextView(textView)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "+",
+            charactersIgnoringModifiers: "=",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Equal)
+        ))
+
+        XCTAssertTrue(textView.performKeyEquivalent(with: event))
+        XCTAssertGreaterThan(panel.viewZoomFactor, ViewZoomControl.defaultFactor)
+        XCTAssertEqual(textView.font?.pointSize ?? 0, ViewZoomControl.textEditorFontSize(for: panel.viewZoomFactor), accuracy: 0.001)
+    }
+
+    func testSavingTextViewFontSizeTracksViewZoomBounds() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.panel = panel
+        panel.attachTextView(textView)
+
+        let zoomOutEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "-",
+            charactersIgnoringModifiers: "-",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Minus)
+        ))
+        for _ in 0..<10 {
+            XCTAssertTrue(textView.performKeyEquivalent(with: zoomOutEvent))
+        }
+        XCTAssertEqual(panel.viewZoomFactor, ViewZoomControl.minimumFactor, accuracy: 0.001)
+        XCTAssertEqual(textView.font?.pointSize ?? 0, ViewZoomControl.textEditorFontSize(for: ViewZoomControl.minimumFactor), accuracy: 0.001)
+
+        let zoomInEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "+",
+            charactersIgnoringModifiers: "=",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Equal)
+        ))
+        for _ in 0..<40 {
+            XCTAssertTrue(textView.performKeyEquivalent(with: zoomInEvent))
+        }
+        XCTAssertEqual(panel.viewZoomFactor, ViewZoomControl.maximumFactor, accuracy: 0.001)
+        XCTAssertEqual(textView.font?.pointSize ?? 0, ViewZoomControl.textEditorFontSize(for: ViewZoomControl.maximumFactor), accuracy: 0.001)
+    }
+
+    func testFilePreviewViewZoomOnlyHandlesTextMode() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        XCTAssertTrue(panel.performViewZoomCommand(.zoomIn))
+        XCTAssertEqual(panel.viewZoomFactor, 1.1, accuracy: 0.001)
+        XCTAssertTrue(panel.performViewZoomCommand(.reset))
+        XCTAssertEqual(panel.viewZoomFactor, ViewZoomControl.defaultFactor, accuracy: 0.001)
+
+        let imageURL = url.deletingLastPathComponent().appendingPathComponent("image.png")
+        let imagePanel = FilePreviewPanel(workspaceId: UUID(), filePath: imageURL.path)
+        XCTAssertFalse(imagePanel.performViewZoomCommand(.zoomIn))
+    }
+
+    func testMarkdownPanelViewZoomPersistsAcrossPreviewAndTextModes() throws {
+        let url = try temporaryTextFile(contents: "# Title", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertTrue(panel.performViewZoomCommand(.zoomIn))
+        XCTAssertEqual(panel.viewZoomFactor, 1.1, accuracy: 0.001)
+
+        panel.setDisplayMode(.text)
+        XCTAssertEqual(panel.displayMode, .text)
+        XCTAssertTrue(panel.performViewZoomCommand(.zoomOut))
+        XCTAssertEqual(panel.viewZoomFactor, ViewZoomControl.defaultFactor, accuracy: 0.001)
+    }
+
     func testSaveTextContentPreservesLoadedEncoding() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf16)
         defer { try? FileManager.default.removeItem(at: url) }

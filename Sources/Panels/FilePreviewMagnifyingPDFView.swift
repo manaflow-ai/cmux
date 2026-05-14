@@ -9,6 +9,7 @@ final class FilePreviewMagnifyingPDFView: PDFView {
     var onRotate: ((NSEvent) -> Void)?
     var onSwipe: ((NSEvent) -> Void)?
     var onFocusChanged: ((Bool) -> Void)?
+    var onViewZoomCommand: ((ViewZoomCommand) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -31,6 +32,14 @@ final class FilePreviewMagnifyingPDFView: PDFView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let command = ViewZoomControl.command(for: event), let onViewZoomCommand {
+            onViewZoomCommand(command)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func magnify(with event: NSEvent) {
@@ -73,4 +82,5 @@ final class FilePreviewMagnifyingPDFView: PDFView {
             super.swipe(with: event)
         }
     }
+
 }

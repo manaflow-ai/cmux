@@ -53,8 +53,7 @@ extension KeyboardShortcutSettings.Action {
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace:
             return .nonBrowserPanel
-        case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset:
+        case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole:
             return .browserPanel
         default:
             return .application
