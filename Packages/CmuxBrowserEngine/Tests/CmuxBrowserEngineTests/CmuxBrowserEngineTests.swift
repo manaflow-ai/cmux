@@ -417,6 +417,28 @@ struct CmuxDownloadSuite {
     }
 }
 
+@Suite("CmuxSnapshotConfiguration")
+@MainActor
+struct CmuxSnapshotConfigurationSuite {
+    @Test("default config has WK-compatible defaults")
+    func testDefaults() {
+        let c = CmuxSnapshotConfiguration()
+        #expect(c.rect == .zero)
+        #expect(c.snapshotWidth == nil)
+        #expect(c.afterScreenUpdates == true)
+    }
+
+    @Test("forwards rect + width to WKSnapshotConfiguration")
+    func testForwarding() {
+        let r = CGRect(x: 0, y: 0, width: 200, height: 100)
+        let c = CmuxSnapshotConfiguration(rect: r, snapshotWidth: 800, afterScreenUpdates: false)
+        let wk = c.makeWKConfiguration()
+        #expect(wk.rect == r)
+        #expect(wk.snapshotWidth?.doubleValue == 800)
+        #expect(wk.afterScreenUpdates == false)
+    }
+}
+
 @Suite("CmuxBrowserView (Chromium backend stub)")
 @MainActor
 struct CmuxBrowserViewChromiumSuite {

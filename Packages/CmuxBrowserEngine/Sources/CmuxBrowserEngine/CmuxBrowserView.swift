@@ -156,6 +156,15 @@ public final class CmuxBrowserView: NSView {
     }
 
     public func takeSnapshot(completionHandler: @escaping (CGImage?, Error?) -> Void) {
-        backend.takeSnapshot(completionHandler: completionHandler)
+        backend.takeSnapshot(configuration: nil, completionHandler: completionHandler)
+    }
+
+    /// Take a snapshot of the current page using `configuration`.
+    /// Pass `nil` for engine defaults.
+    public func takeSnapshot(
+        configuration: CmuxSnapshotConfiguration?,
+        completionHandler: @escaping (CGImage?, Error?) -> Void
+    ) {
+        backend.takeSnapshot(configuration: configuration, completionHandler: completionHandler)
     }
 }

@@ -64,7 +64,11 @@ final class ChromiumBrowserBackend: NSObject, CmuxBrowserBackend {
         completionHandler(nil, CmuxBrowserEngineError.backendUnavailable(.chromium, reason: "Chromium backend not built"))
     }
     func setCustomUserAgent(_ userAgent: String?) {}
-    func takeSnapshot(completionHandler: @escaping (CGImage?, Error?) -> Void) {
+    func takeSnapshot(
+        configuration: CmuxSnapshotConfiguration?,
+        completionHandler: @escaping (CGImage?, Error?) -> Void
+    ) {
+        _ = configuration
         completionHandler(nil, CmuxBrowserEngineError.backendUnavailable(.chromium, reason: "Chromium backend not built"))
     }
 }

@@ -49,8 +49,12 @@ protocol CmuxBrowserBackend: AnyObject {
     /// Page zoom factor. 1.0 = no zoom.
     var pageZoom: CGFloat { get set }
 
-    /// Snapshot the current visible region as a `CGImage`.
-    func takeSnapshot(completionHandler: @escaping (CGImage?, Error?) -> Void)
+    /// Snapshot the current visible region as a `CGImage`. Passing
+    /// `nil` uses engine defaults (full view, current width).
+    func takeSnapshot(
+        configuration: CmuxSnapshotConfiguration?,
+        completionHandler: @escaping (CGImage?, Error?) -> Void
+    )
 }
 
 /// Errors surfaced to call sites from inside the wrapper.

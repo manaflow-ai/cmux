@@ -160,8 +160,11 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
         webView.customUserAgent = userAgent
     }
 
-    func takeSnapshot(completionHandler: @escaping (CGImage?, Error?) -> Void) {
-        let config = WKSnapshotConfiguration()
+    func takeSnapshot(
+        configuration: CmuxSnapshotConfiguration?,
+        completionHandler: @escaping (CGImage?, Error?) -> Void
+    ) {
+        let config = configuration?.makeWKConfiguration() ?? WKSnapshotConfiguration()
         webView.takeSnapshot(with: config) { image, error in
             completionHandler(image?.cgImage(forProposedRect: nil, context: nil, hints: nil), error)
         }
