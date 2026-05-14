@@ -5918,6 +5918,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return handled
     }
 
+    func copyCleanText() -> Bool {
+        surfaceView.copyCleanText()
+    }
+
+    func copyRawText() -> Bool {
+        surfaceView.performBindingAction("copy_to_clipboard")
+    }
+
     func setKeyboardCopyModeActive(_ active: Bool) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -7024,7 +7032,118 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
+        if !copyCleanText() {
+            _ = performBindingAction("copy_to_clipboard")
+        }
+    }
+
+    @objc func copyRawTextMenuAction(_ sender: Any?) {
         _ = performBindingAction("copy_to_clipboard")
+    }
+
+    func copyCleanText() -> Bool {
+        guard let snapshot = readSelectionSnapshot(), !snapshot.string.isEmpty else { return false }
+        let cleaned = Self.cleanCopiedText(snapshot.string)
+        GhosttyPasteboardHelper.writeString(cleaned, to: GHOSTTY_CLIPBOARD_STANDARD)
+        return true
+    }
+
+    private static let terminalDecorationChars: CharacterSet = {
+        var set = CharacterSet()
+        for scalar in "●◆◇○◎■□▪▫▶▷►▻❯❮❱❰⚡★☆✦✧⬤⏺➜➤›»«‣⁃" {
+            for s in scalar.unicodeScalars { set.insert(s) }
+        }
+        return set
+    }()
+
+    static func cleanCopiedText(_ text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+
+        lines = lines.map { line in
+            var s = line
+            while let first = s.unicodeScalars.first,
+                  Self.terminalDecorationChars.contains(first) {
+                s = String(s.dropFirst())
+            }
+            if s.first == " " && s.count < line.count { s = String(s.dropFirst()) }
+            return s
+        }
+
+        let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard !nonEmptyLines.isEmpty else { return text }
+
+        let commonIndent = nonEmptyLines
+            .map { $0.prefix(while: { $0 == " " }).count }
+            .min() ?? 0
+
+        if commonIndent > 0 {
+            lines = lines.map { line in
+                if line.count >= commonIndent {
+                    return String(line.dropFirst(commonIndent))
+                }
+                return line
+            }
+        }
+
+        var result: [String] = []
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.isEmpty {
+                result.append("")
+                i += 1
+                continue
+            }
+
+            if Self.isHardBreakLine(trimmed) {
+                result.append(line.trimmingCharacters(in: .whitespaces))
+                i += 1
+                continue
+            }
+
+            var paragraph = trimmed
+            let startIndent = line.prefix(while: { $0 == " " }).count
+            while i + 1 < lines.count {
+                let nextLine = lines[i + 1]
+                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
+
+                if nextTrimmed.isEmpty { break }
+                if Self.isBlockStartLine(nextTrimmed) { break }
+
+                let nextIndent = nextLine.prefix(while: { $0 == " " }).count
+                if nextIndent > startIndent + 4 { break }
+
+                let separator = paragraph.contains(" ") ? " " : ""
+                paragraph += separator + nextTrimmed
+                i += 1
+            }
+            result.append(paragraph)
+            i += 1
+        }
+
+        return result.joined(separator: "\n")
+    }
+
+    private static func isBlockStartLine(_ trimmed: String) -> Bool {
+        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") { return true }
+        if trimmed.hasPrefix("```") { return true }
+        if trimmed.hasPrefix("# ") || trimmed.hasPrefix("## ") || trimmed.hasPrefix("### ") { return true }
+        if trimmed.first?.isNumber == true {
+            let rest = trimmed.drop(while: \.isNumber)
+            if rest.hasPrefix(". ") { return true }
+        }
+        if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") { return true }
+        if trimmed.hasPrefix(">") { return true }
+        return false
+    }
+
+    private static func isHardBreakLine(_ trimmed: String) -> Bool {
+        if trimmed.hasPrefix("```") { return true }
+        if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") { return true }
+        return false
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -9051,6 +9170,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            let rawItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyRawText", defaultValue: "Copy Raw Text"),
+                action: #selector(copyRawTextMenuAction(_:)),
+                keyEquivalent: ""
+            )
+            rawItem.target = self
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),

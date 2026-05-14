@@ -86962,6 +86962,40 @@
         }
       }
     },
+    "shortcut.copyRawText.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Raw Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生テキストをコピー"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.copyRawText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Raw Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生テキストをコピー"
+          }
+        }
+      }
+    },
     "sidebar.closeWorkspace.tooltip": {
       "extractionState": "manual",
       "localizations": {

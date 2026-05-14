@@ -2031,6 +2031,11 @@ class TabManager: ObservableObject {
         return panel.surface.toggleKeyboardCopyMode()
     }
 
+    func copyRawTextFromFocusedTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.surface.copyRawText()
+    }
+
     func hideFind() {
         if let panel = selectedTerminalPanel {
             panel.searchState = nil
