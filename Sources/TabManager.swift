@@ -5117,8 +5117,10 @@ class TabManager: ObservableObject {
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
         let workspace = tabs.first(where: { $0.id == tabId })
         let hasManualPanelUnread = surfaceId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
+        let hasRestoredPanelUnread = surfaceId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
         let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
-        let canDismissManualUnread = context == .terminalInteraction && (hasManualPanelUnread || hasManualWorkspaceUnread)
+        let canDismissManualUnread = context == .terminalInteraction &&
+            (hasManualPanelUnread || hasRestoredPanelUnread || hasManualWorkspaceUnread)
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
         guard hasUnreadNotification || hasFocusedIndicator || canDismissManualUnread else { return false }
@@ -5129,6 +5131,10 @@ class TabManager: ObservableObject {
         if context == .terminalInteraction {
             if let panelId = surfaceId, hasManualPanelUnread {
                 workspace?.clearManualUnread(panelId: panelId)
+                didDismissManualUnread = true
+            }
+            if let panelId = surfaceId, hasRestoredPanelUnread {
+                workspace?.clearRestoredUnreadIndicator(panelId: panelId)
                 didDismissManualUnread = true
             }
             if hasManualWorkspaceUnread {
@@ -7304,6 +7310,7 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+            hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
 
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
@@ -7311,6 +7318,7 @@ extension TabManager {
             for panelId in panelIds {
                 hasher.combine(panelId)
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
+                hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
                 hasher.combine(
                     notificationStore?.hasVisibleNotificationIndicator(
                         forTabId: workspace.id,

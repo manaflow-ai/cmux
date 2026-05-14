@@ -231,7 +231,8 @@ struct WorkspaceContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panel.id
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id),
+                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id) ||
+                        workspace.restoredUnreadPanelIds.contains(panel.id),
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
@@ -453,7 +454,8 @@ struct WorkspaceContentView: View {
                     forTabId: workspace.id,
                     surfaceId: panelId
                 ),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId),
+                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId) ||
+                    workspace.restoredUnreadPanelIds.contains(panelId),
                 isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                 isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
             )
