@@ -7087,6 +7087,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         var result: [String] = []
+        var inCodeFence = false
         var i = 0
         while i < lines.count {
             let line = lines[i]
@@ -7098,14 +7099,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 continue
             }
 
+            if trimmed.hasPrefix("```") {
+                inCodeFence.toggle()
+                result.append(trimmed)
+                i += 1
+                continue
+            }
+
+            if inCodeFence {
+                result.append(line)
+                i += 1
+                continue
+            }
+
             if Self.isHardBreakLine(trimmed) {
-                result.append(line.trimmingCharacters(in: .whitespaces))
+                result.append(trimmed)
                 i += 1
                 continue
             }
 
             var paragraph = trimmed
             let startIndent = line.prefix(while: { $0 == " " }).count
+            let isURL = paragraph.hasPrefix("http://") ||
+                paragraph.hasPrefix("https://") ||
+                paragraph.hasPrefix("www.")
             while i + 1 < lines.count {
                 let nextLine = lines[i + 1]
                 let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
@@ -7116,8 +7133,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let nextIndent = nextLine.prefix(while: { $0 == " " }).count
                 if nextIndent > startIndent + 4 { break }
 
-                let separator = paragraph.contains(" ") ? " " : ""
-                paragraph += separator + nextTrimmed
+                paragraph += (isURL ? "" : " ") + nextTrimmed
                 i += 1
             }
             result.append(paragraph)
