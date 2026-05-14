@@ -5331,6 +5331,7 @@ struct ContentView: View {
 
     nonisolated static func commandPaletteCommandPreviewMatchCommandIDsForTests(
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
+        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         candidateCommandIDs: [String],
         searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
         query: String,
@@ -5339,7 +5340,7 @@ struct ContentView: View {
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         return commandPalettePreviewSearchMatches(
             scope: .commands,
-            searchIndex: CommandPaletteNucleoSearchIndex(entries: searchCorpus),
+            searchIndex: searchIndex,
             searchCorpus: searchCorpus,
             candidateCommandIDs: candidateCommandIDs,
             searchCorpusByID: searchCorpusByID,

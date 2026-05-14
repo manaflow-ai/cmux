@@ -417,9 +417,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         }
         let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
+        let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus)
 
         let previewCommandIDs = ContentView.commandPaletteCommandPreviewMatchCommandIDsForTests(
             searchCorpus: corpus,
+            searchIndex: searchIndex,
             candidateCommandIDs: ["command.find"],
             searchCorpusByID: corpusByID,
             query: "finde",
