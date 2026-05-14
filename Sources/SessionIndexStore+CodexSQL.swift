@@ -262,9 +262,9 @@ extension SessionIndexStore {
         normalizedSessionsRoot: String
     ) -> Bool {
         guard let path = record.normalizedRolloutPath else { return false }
-        let isUnderDefaultRoot = path == normalizedSessionsRoot
+        let isUnderSessionsRoot = path == normalizedSessionsRoot
             || path.hasPrefix(normalizedSessionsRoot + "/")
-        if let rgMatchedPaths, isUnderDefaultRoot {
+        if let rgMatchedPaths, isUnderSessionsRoot {
             return rgMatchedPaths.contains(path)
         }
         return fileContainsNeedle(url: URL(fileURLWithPath: path), needle: needle)
