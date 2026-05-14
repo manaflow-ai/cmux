@@ -10570,8 +10570,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
+    struct JumpToUnreadResult {
+        let notification: TerminalNotification?
+        let tabId: UUID
+        let surfaceId: UUID?
+        let isRead: Bool
+    }
+
     @discardableResult
-    func jumpToLatestUnread(excludingNotificationId excludedNotificationId: UUID? = nil) -> TerminalNotification? {
+    func jumpToLatestUnread(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingManualTabId excludedManualTabId: UUID? = nil
+    ) -> TerminalNotification? {
+        jumpToLatestUnreadTarget(
+            excludingNotificationId: excludedNotificationId,
+            excludingManualTabId: excludedManualTabId
+        )?.notification
+    }
+
+    @discardableResult
+    func jumpToLatestUnreadTarget(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingManualTabId excludedManualTabId: UUID? = nil
+    ) -> JumpToUnreadResult? {
         guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -10586,10 +10607,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications where !notification.isRead && notification.id != excludedNotificationId {
             if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
-                return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
+                let current = notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
+                return JumpToUnreadResult(
+                    notification: current,
+                    tabId: current.tabId,
+                    surfaceId: current.surfaceId,
+                    isRead: current.isRead
+                )
+            }
+        }
+
+        for tabId in notificationStore.manualUnreadWorkspaceIdsMostRecentFirst(excluding: excludedManualTabId) {
+            let surfaceId = manualUnreadJumpSurfaceId(forTabId: tabId)
+            if openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: nil) {
+                notificationStore.clearManualUnread(forTabId: tabId)
+                return JumpToUnreadResult(
+                    notification: nil,
+                    tabId: tabId,
+                    surfaceId: manualUnreadJumpSurfaceId(forTabId: tabId) ?? surfaceId,
+                    isRead: !notificationStore.hasManualUnread(forTabId: tabId)
+                )
             }
         }
         return nil
+    }
+
+    private func manualUnreadJumpSurfaceId(forTabId tabId: UUID) -> UUID? {
+        if let context = contextContainingTabId(tabId),
+           let focusedSurfaceId = context.tabManager.focusedSurfaceId(for: tabId) {
+            return focusedSurfaceId
+        }
+        if let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId) {
+            return focusedSurfaceId
+        }
+        return workspaceForMainActor(tabId: tabId)?.representativePanelIdForWorkspaceManualUnread()
     }
 
     @discardableResult
@@ -10602,8 +10653,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch result {
         case .deferredNotification(let notificationId):
             return jumpToLatestUnread(excludingNotificationId: notificationId)
-        case .markedWorkspaceWithoutNotification:
-            return jumpToLatestUnread()
+        case .markedWorkspaceWithoutNotification(let tabId):
+            return jumpToLatestUnread(excludingManualTabId: tabId)
         }
     }
 
@@ -10614,7 +10665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private enum FocusedNotificationMarkResult {
         case deferredNotification(UUID)
-        case markedWorkspaceWithoutNotification
+        case markedWorkspaceWithoutNotification(UUID)
     }
 
     private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> FocusedNotificationMarkResult? {
@@ -10628,7 +10679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return .deferredNotification(notificationId)
         }
-        return .markedWorkspaceWithoutNotification
+        return .markedWorkspaceWithoutNotification(target.tabId)
     }
 
     private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
