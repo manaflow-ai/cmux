@@ -201,6 +201,16 @@ Published `xcframework-7e4cf8a2fd2539d68240aa046e2cc892d21d2e89` and pinned its
 regenerated whenever this commit changes, even for comment-only amends, because
 the release tag is keyed by the Ghostty commit SHA.
 
+Merge note, May 14, 2026: cmux `main` temporarily pinned Ghostty `aef980e27b`
+for the `-Dcrash-report-subdir` build option while this issue branch pins
+`7e4cf8a2f` for the cursor-line selection API. The parent merge keeps `7e4cf8a2f`
+because terminal Select All depends on `ghostty_surface_select_cursor_line`, and
+cmux build scripts detect whether a Ghostty checkout supports
+`crash-report-subdir` before selecting crash-flavored release tags or Zig flags.
+When the fork next advances, prefer a single Ghostty head that contains both
+patches and publish the crash-flavored `xcframework-<sha>-crashsubdir-cmux-crash-v1`
+artifact.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move

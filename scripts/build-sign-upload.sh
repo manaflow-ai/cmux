@@ -49,6 +49,11 @@ TAG="$1"
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
 APP_PATH="build/Build/Products/Release/cmux.app"
+GHOSTTYKIT_CRASH_REPORT_SUBDIR="cmux/crash"
+GHOSTTYKIT_CRASH_ARGS=()
+if git -C ghostty grep -q "crash-report-subdir" HEAD -- src/build/Config.zig build.zig 2>/dev/null; then
+  GHOSTTYKIT_CRASH_ARGS=(-Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR")
+fi
 
 # --- Pre-flight ---
 source ~/.secrets/cmuxterm.env
@@ -58,15 +63,14 @@ for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
 done
 echo "Pre-flight checks passed"
 
-# --- Build GhosttyKit (if needed) ---
-if [ ! -d "GhosttyKit.xcframework" ]; then
-  echo "Building GhosttyKit..."
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast && cd ..
-  rm -rf GhosttyKit.xcframework
-  cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-else
-  echo "GhosttyKit.xcframework exists, skipping build"
-fi
+# --- Build GhosttyKit ---
+echo "Building GhosttyKit..."
+rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
+(
+  cd ghostty
+  zig build "${GHOSTTYKIT_CRASH_ARGS[@]}" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+)
+cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
 # --- Build app (Release, unsigned) ---
 echo "Building app..."

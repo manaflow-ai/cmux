@@ -11,6 +11,9 @@ jobs:
   build-ghosttykit:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
+    env:
+      GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
+      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-v1
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -24,12 +27,27 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "Ghostty SHA: $SHA"
 
+      - name: Resolve GhosttyKit release tag
+        id: ghosttykit
+        run: |
+          set -euo pipefail
+          SHA="${{ steps.ghostty-sha.outputs.sha }}"
+          if git -C ghostty grep -q "crash-report-subdir" HEAD -- src/build/Config.zig build.zig 2>/dev/null; then
+            echo "tag=xcframework-$SHA-$GHOSTTYKIT_BUILD_FLAVOR" >> "$GITHUB_OUTPUT"
+            echo "crash_args=-Dcrash-report-subdir=$GHOSTTYKIT_CRASH_REPORT_SUBDIR" >> "$GITHUB_OUTPUT"
+            echo "notes=Pre-built GhosttyKit.xcframework for commit $SHA with crash-report-subdir=$GHOSTTYKIT_CRASH_REPORT_SUBDIR" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=xcframework-$SHA" >> "$GITHUB_OUTPUT"
+            echo "crash_args=" >> "$GITHUB_OUTPUT"
+            echo "notes=Pre-built GhosttyKit.xcframework for commit $SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check if xcframework release already exists
         id: check-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
+          TAG="${{ steps.ghosttykit.outputs.tag }}"
           if gh release view "$TAG" --repo manaflow-ai/ghostty >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Release $TAG already exists, skipping build"
@@ -70,7 +88,8 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
-          cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          CRASH_ARGS="${{ steps.ghosttykit.outputs.crash_args }}"
+          cd ghostty && zig build ${CRASH_ARGS:+$CRASH_ARGS} -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
         if: steps.check-release.outputs.exists == 'false'
@@ -91,10 +110,10 @@ jobs:
             echo "GHOSTTY_RELEASE_TOKEN not available (fork PR), skipping upload"
             exit 0
           fi
-          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
+          TAG="${{ steps.ghosttykit.outputs.tag }}"
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
             --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }})" \
-            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }}" \
+            --notes "${{ steps.ghosttykit.outputs.notes }}" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"

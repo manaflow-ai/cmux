@@ -14,7 +14,23 @@ else
   GHOSTTY_SHA="$(git -C "$REPO_ROOT/ghostty" rev-parse HEAD)"
 fi
 
-TAG="xcframework-$GHOSTTY_SHA"
+ghostty_supports_crash_report_subdir() {
+  [ -d "$REPO_ROOT/ghostty" ] || return 1
+  git -C "$REPO_ROOT/ghostty" grep -q "crash-report-subdir" HEAD -- src/build/Config.zig build.zig 2>/dev/null
+}
+
+if [ -z "${GHOSTTYKIT_RELEASE_TAG:-}" ] && [ -z "${GHOSTTYKIT_BUILD_FLAVOR:-}" ] && ghostty_supports_crash_report_subdir; then
+  GHOSTTYKIT_CRASH_REPORT_SUBDIR="${GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/crash}"
+  GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-v1"
+fi
+
+if [ -n "${GHOSTTYKIT_RELEASE_TAG:-}" ]; then
+  TAG="$GHOSTTYKIT_RELEASE_TAG"
+elif [ -n "${GHOSTTYKIT_BUILD_FLAVOR:-}" ]; then
+  TAG="xcframework-$GHOSTTY_SHA-$GHOSTTYKIT_BUILD_FLAVOR"
+else
+  TAG="xcframework-$GHOSTTY_SHA"
+fi
 ARCHIVE_NAME="${GHOSTTYKIT_ARCHIVE_NAME:-GhosttyKit.xcframework.tar.gz}"
 OUTPUT_DIR="${GHOSTTYKIT_OUTPUT_DIR:-GhosttyKit.xcframework}"
 CHECKSUMS_FILE="${GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
