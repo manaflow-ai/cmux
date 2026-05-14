@@ -1067,7 +1067,8 @@ final class TerminalNotificationStore: ObservableObject {
 
         let cooldownReservation = makeCooldownReservation(
             key: cooldownKey,
-            interval: resolvedCooldownInterval
+            interval: resolvedCooldownInterval,
+            reservedAt: now
         )
         if let cooldownReservation {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
@@ -1137,6 +1138,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationCooldownReservation: Sendable {
         let key: String
+        let reservedAt: Date
         let previousDate: Date?
     }
 
@@ -1149,11 +1151,13 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func makeCooldownReservation(
         key: String?,
-        interval: TimeInterval?
+        interval: TimeInterval?,
+        reservedAt: Date
     ) -> NotificationCooldownReservation? {
         guard let key, interval != nil else { return nil }
         return NotificationCooldownReservation(
             key: key,
+            reservedAt: reservedAt,
             previousDate: lastNotificationDateByCooldownKey[key]
         )
     }
@@ -1168,6 +1172,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func restoreCooldownReservation(_ reservation: NotificationCooldownReservation?) {
         guard let reservation else { return }
+        guard lastNotificationDateByCooldownKey[reservation.key] == reservation.reservedAt else { return }
         if let previousDate = reservation.previousDate {
             lastNotificationDateByCooldownKey[reservation.key] = previousDate
         } else {
@@ -1248,7 +1253,10 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownReservation: NotificationCooldownReservation?
     ) {
         let notificationTarget = TabSurfaceKey(tabId: request.tabId, surfaceId: request.surfaceId)
-        guard deliverySequenceIsCurrent(deliverySequence, for: notificationTarget) else { return }
+        guard deliverySequenceIsCurrent(deliverySequence, for: notificationTarget) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
 
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
