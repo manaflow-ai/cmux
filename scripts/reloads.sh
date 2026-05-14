@@ -181,8 +181,8 @@ if [[ -z "${APP_PATH:-}" || ! -d "${APP_PATH}" ]]; then
 fi
 
 # Staging always copies the built app and patches the plist to set an isolated
-# socket path, bundle id, and display name. This prevents conflicts with the
-# production cmux app.
+# cmuxd socket path, bundle id, and display name. This prevents conflicts with
+# the production cmux app.
 STAGING_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
 rm -rf "$STAGING_APP_PATH"
 cp -R "$APP_PATH" "$STAGING_APP_PATH"
@@ -204,8 +204,6 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST"
   if [[ -S "$CMUXD_SOCKET" ]]; then
     for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
       kill "$PID" 2>/dev/null || true
@@ -258,9 +256,9 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
-# Pass the same staging socket path through the launch environment for child
-# process consistency; the app also derives this path from its staging bundle id.
-"${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
+# Launch with the isolated cmuxd path; the app derives and exports its own
+# bundle-scoped control socket path.
+"${OPEN_CLEAN_ENV[@]}" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.
 sleep 0.2
