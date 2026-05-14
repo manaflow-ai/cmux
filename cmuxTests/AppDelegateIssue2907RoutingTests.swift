@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -420,5 +421,65 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspaceId)
         XCTAssertEqual(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
         XCTAssertTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
+    }
+
+    func testPaneBreakSuccessIncludesDestinationPaneReference() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanel = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel)
+        let splitPanel = try XCTUnwrap(sourceWorkspace.newTerminalSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        let payload = try v2Result(
+            method: "pane.break",
+            params: [
+                "surface_id": splitPanel.id.uuidString,
+                "focus": false
+            ]
+        )
+
+        let destinationWorkspaceIdString = try XCTUnwrap(payload["workspace_id"] as? String)
+        let destinationPaneIdString = try XCTUnwrap(payload["pane_id"] as? String)
+        let destinationPaneRef = try XCTUnwrap(payload["pane_ref"] as? String)
+        let destinationWorkspace = try XCTUnwrap(
+            manager.tabs.first { $0.id.uuidString == destinationWorkspaceIdString }
+        )
+
+        XCTAssertEqual(payload["window_id"] as? String, windowId.uuidString)
+        XCTAssertEqual(payload["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertFalse(destinationPaneIdString.isEmpty)
+        XCTAssertTrue(destinationPaneRef.hasPrefix("pane:"))
+        XCTAssertEqual(
+            destinationWorkspace.paneId(forPanelId: splitPanel.id)?.id.uuidString,
+            destinationPaneIdString
+        )
     }
 }

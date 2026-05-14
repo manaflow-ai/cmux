@@ -25,6 +25,9 @@ reviews:
     - path: "**/*.{ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
       instructions: |
         Apply `.github/review-bot-rules/runtime-no-hacky-sleeps.md` during review. For production runtime, script, and build changes, flag fixed sleeps, timers, delayed dispatch, polling, or wall-clock waits used as synchronization. Pass for tests, pure presentation timing, dedicated cancellation-aware retry/timeout abstractions with tests, and existing delay code not worsened.
+    - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
+      instructions: |
+        Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads.
 
   pre_merge_checks:
     custom_checks:
@@ -56,6 +59,10 @@ reviews:
         mode: error
         instructions: |
           For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-logging.md`: `print`, `debugPrint`, `dump`, or `NSLog` in app/runtime code; ad hoc file/stdout logging for diagnostics; MainActor-coupled file-scoped Logger constants; or logs that expose secrets or personal data. Do not require new logs for new code paths; only check logging that the diff adds or materially changes. Pass for CLI output, tests, debug-only logs, and explicitly sanitized provider diagnostics.
+      - name: "cmux user-facing error privacy"
+        mode: error
+        instructions: |
+          For production changes, fail when the diff violates `.github/review-bot-rules/user-facing-errors.md`: user-facing errors, alerts, command output, API error bodies, or recovery copy must not expose upstream vendor names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variables, database or migration details, raw upstream messages, billing item ids, billing customer ids, unrelated team ids, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps. Pass for tests, docs, operational runbooks, developer-only comments, safe generic terms like billing/team/Cloud VM service, and explicitly advanced help text for user-configured settings.
       - name: "cmux SwiftUI state layout"
         mode: error
         instructions: |
