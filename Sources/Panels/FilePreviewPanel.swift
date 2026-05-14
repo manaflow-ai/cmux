@@ -830,7 +830,7 @@ enum FilePreviewTextSaver {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel, ViewZoomControlling {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
@@ -843,6 +843,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+    @Published private(set) var viewZoomFactor: CGFloat = ViewZoomControl.defaultFactor
 
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
@@ -926,6 +927,21 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func noteFilePreviewFocusIntent(_ intent: FilePreviewPanelFocusIntent) {
         focusCoordinator.notePreferredIntent(intent)
+    }
+
+    @discardableResult
+    func setViewZoomFactor(_ factor: CGFloat) -> Bool {
+        guard previewMode == .text else { return false }
+        let normalized = ViewZoomControl.normalized(factor)
+        guard abs(viewZoomFactor - normalized) > 0.0001 else { return false }
+        viewZoomFactor = normalized
+        return true
+    }
+
+    @discardableResult
+    func performViewZoomCommand(_ command: ViewZoomCommand) -> Bool {
+        guard previewMode == .text else { return false }
+        return setViewZoomFactor(ViewZoomControl.applying(command, to: viewZoomFactor))
     }
 
     func currentFilePreviewFocusIntent(in window: NSWindow?) -> FilePreviewPanelFocusIntent? {
@@ -1179,6 +1195,14 @@ struct FilePreviewPanelView: View {
                     label: String(localized: "filePreview.save", defaultValue: "Save"),
                     isDisabled: !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
+                )
+
+                PanelHeaderViewZoomButton(
+                    zoomFactor: Binding(
+                        get: { panel.viewZoomFactor },
+                        set: { panel.setViewZoomFactor($0) }
+                    ),
+                    isDisabled: panel.isFileUnavailable
                 )
             }
 
@@ -1981,6 +2005,7 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
 
 private final class FilePreviewPDFOutlineView: NSOutlineView {
     var onFocusChanged: ((Bool) -> Void)?
+    var onViewZoomCommand: ((ViewZoomCommand) -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
@@ -2004,6 +2029,14 @@ private final class FilePreviewPDFOutlineView: NSOutlineView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let command = ViewZoomControl.command(for: event), let onViewZoomCommand {
+            onViewZoomCommand(command)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -2311,6 +2344,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         pdfView.onSmartMagnify = { [weak self] in
             self?.togglePDFSmartZoom()
         }
+        pdfView.onViewZoomCommand = { [weak self] command in
+            self?.performPDFViewZoomCommand(command)
+        }
         pdfView.onRotate = { [weak self] event in
             self?.rotatePDF(with: event)
         }
@@ -2379,6 +2415,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         outlineView.delegate = self
         outlineView.onFocusChanged = { [weak self] isActive in
             self?.setActivePDFRegion(isActive ? .pdfOutline : nil)
+        }
+        outlineView.onViewZoomCommand = { [weak self] command in
+            self?.performPDFViewZoomCommand(command)
         }
         outlineView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -2533,6 +2572,17 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     @objc private func actualSize() {
         pdfView.autoScales = false
         setPDFScaleFactor(1.0, preservingVisibleCenter: true)
+    }
+
+    private func performPDFViewZoomCommand(_ command: ViewZoomCommand) {
+        switch command {
+        case .zoomIn:
+            zoomIn()
+        case .zoomOut:
+            zoomOut()
+        case .reset:
+            actualSize()
+        }
     }
 
     @objc private func rotateLeft() {
@@ -3448,6 +3498,9 @@ private final class FilePreviewImageContainerView: NSView {
         scrollView.onSmartMagnify = { [weak self] event in
             self?.toggleImageSmartZoom(with: event)
         }
+        scrollView.onViewZoomCommand = { [weak self] command in
+            self?.performImageViewZoomCommand(command)
+        }
         scrollView.onRotate = { [weak self] event in
             self?.rotateImage(with: event)
         }
@@ -3497,6 +3550,21 @@ private final class FilePreviewImageContainerView: NSView {
     @objc private func actualSize() {
         isFitMode = false
         setImageScale(1.0, preservingVisibleCenter: true)
+    }
+
+    private func performImageViewZoomCommand(_ command: ViewZoomCommand) {
+        switch command {
+        case .zoomIn:
+            zoomIn()
+        case .zoomOut:
+            zoomOut()
+        case .reset:
+            actualSize()
+        }
+    }
+
+    private func viewZoomCommand(for event: NSEvent) -> ViewZoomCommand? {
+        ViewZoomControl.command(for: event)
     }
 
     @objc private func rotateLeft() {
@@ -3696,6 +3764,7 @@ private final class FilePreviewImageScrollView: NSScrollView {
     var onMagnify: ((NSEvent) -> Void)?
     var onScrollZoom: ((NSEvent) -> Void)?
     var onSmartMagnify: ((NSEvent) -> Void)?
+    var onViewZoomCommand: ((ViewZoomCommand) -> Void)?
     var onRotate: ((NSEvent) -> Void)?
     private var panStartClipPoint: CGPoint?
     private var panStartDocumentOrigin: CGPoint?
@@ -3709,6 +3778,14 @@ private final class FilePreviewImageScrollView: NSScrollView {
         } else {
             super.magnify(with: event)
         }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let command = viewZoomCommand(for: event), let onViewZoomCommand {
+            onViewZoomCommand(command)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -3800,6 +3877,10 @@ private final class FilePreviewImageScrollView: NSScrollView {
             NSCursor.pop()
             hasPushedPanCursor = false
         }
+    }
+
+    private func viewZoomCommand(for event: NSEvent) -> ViewZoomCommand? {
+        ViewZoomControl.command(for: event)
     }
 }
 

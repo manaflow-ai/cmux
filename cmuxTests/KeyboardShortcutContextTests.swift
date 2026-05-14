@@ -141,6 +141,12 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testViewZoomShortcutsAreApplicationScoped() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.browserZoomIn.shortcutContext, .application)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.browserZoomOut.shortcutContext, .application)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.browserZoomReset.shortcutContext, .application)
+    }
+
     func testShortcutSettingsFilePreservesConfiguredShortcutWithoutGlobalConflictLookup() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

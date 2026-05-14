@@ -4845,6 +4845,12 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    var focusedPanel: (any Panel)? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId]
+    }
+
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
         focusedBrowserPanel?.zoomIn() ?? false
@@ -4858,6 +4864,14 @@ class TabManager: ObservableObject {
     @discardableResult
     func resetZoomFocusedBrowser() -> Bool {
         focusedBrowserPanel?.resetZoom() ?? false
+    }
+
+    @discardableResult
+    func performViewZoomCommand(_ command: ViewZoomCommand) -> Bool {
+        guard let controller = focusedPanel as? any ViewZoomControlling else {
+            return false
+        }
+        return controller.performViewZoomCommand(command)
     }
 
     @discardableResult

@@ -12,7 +12,7 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel, ViewZoomControlling {
     let id: UUID
     let panelType: PanelType = .markdown
 
@@ -48,6 +48,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
+
+    /// Per-panel view zoom used by both rendered preview and TextEdit mode.
+    @Published private(set) var viewZoomFactor: CGFloat = ViewZoomControl.defaultFactor
 
     // MARK: - File watching
 
@@ -108,6 +111,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if mode == .text {
             focus()
         }
+    }
+
+    @discardableResult
+    func setViewZoomFactor(_ factor: CGFloat) -> Bool {
+        let normalized = ViewZoomControl.normalized(factor)
+        guard abs(viewZoomFactor - normalized) > 0.0001 else { return false }
+        viewZoomFactor = normalized
+        return true
     }
 
     func attachTextView(_ textView: NSTextView) {

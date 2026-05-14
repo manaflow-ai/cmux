@@ -11989,16 +11989,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
-        }
-
-        if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
-        }
-
-        if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
+        if let viewZoomCommand = configuredViewZoomShortcutCommand(for: event) {
+            if shouldLetFocusedTerminalHandleViewZoomShortcut(event) {
+                return false
+            }
+            let didHandle = shortcutEventTabManager(event)?.performViewZoomCommand(viewZoomCommand) ?? false
+            return didHandle
         }
 
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
@@ -12092,6 +12088,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return true
+    }
+
+    private func configuredViewZoomShortcutCommand(for event: NSEvent) -> ViewZoomCommand? {
+        if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
+            return .zoomIn
+        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
+            return .zoomOut
+        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
+            return .reset
+        }
+        return ViewZoomControl.command(for: event)
+    }
+
+    private func shouldLetFocusedTerminalHandleViewZoomShortcut(_ event: NSEvent) -> Bool {
+        let targetWindow = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let firstResponder = targetWindow?.firstResponder,
+              cmuxOwningGhosttyView(for: firstResponder) != nil else {
+            return false
+        }
+        return browserZoomShortcutAction(
+            flags: event.modifierFlags,
+            chars: event.charactersIgnoringModifiers ?? "",
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        ) != nil
+    }
+
+    private func shortcutEventTabManager(_ event: NSEvent) -> TabManager? {
+        preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
 #if DEBUG

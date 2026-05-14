@@ -6755,27 +6755,24 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomIn",
                 title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "in"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                subtitle: panelSubtitle,
+                keywords: ["view", "zoom", "in", "browser", "markdown", "text"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomOut",
                 title: constant(String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "out"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                subtitle: panelSubtitle,
+                keywords: ["view", "zoom", "out", "browser", "markdown", "text"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomReset",
                 title: constant(String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "reset", "actual size"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                subtitle: panelSubtitle,
+                keywords: ["view", "zoom", "reset", "actual size", "browser", "markdown", "text"]
             )
         )
         contributions.append(
@@ -7438,17 +7435,17 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.browserZoomIn") {
-            if !tabManager.zoomInFocusedBrowser() {
+            if !tabManager.performViewZoomCommand(.zoomIn) {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomOut") {
-            if !tabManager.zoomOutFocusedBrowser() {
+            if !tabManager.performViewZoomCommand(.zoomOut) {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomReset") {
-            if !tabManager.resetZoomFocusedBrowser() {
+            if !tabManager.performViewZoomCommand(.reset) {
                 NSSound.beep()
             }
         }

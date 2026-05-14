@@ -1867,7 +1867,7 @@ final class BrowserPortalAnchorView: NSView {
 }
 
 @MainActor
-final class BrowserPanel: Panel, ObservableObject {
+final class BrowserPanel: Panel, ObservableObject, ViewZoomControlling {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
@@ -5123,6 +5123,27 @@ extension BrowserPanel {
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
         return applyPageZoom(clamped)
+    }
+
+    var viewZoomFactor: CGFloat {
+        currentPageZoomFactor()
+    }
+
+    @discardableResult
+    func setViewZoomFactor(_ factor: CGFloat) -> Bool {
+        setPageZoomFactor(ViewZoomControl.normalized(factor))
+    }
+
+    @discardableResult
+    func performViewZoomCommand(_ command: ViewZoomCommand) -> Bool {
+        switch command {
+        case .zoomIn:
+            return zoomIn()
+        case .zoomOut:
+            return zoomOut()
+        case .reset:
+            return resetZoom()
+        }
     }
 
     /// Take a snapshot of the web view

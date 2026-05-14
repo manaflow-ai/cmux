@@ -56,6 +56,7 @@ struct MarkdownWebTheme: Equatable {
 struct MarkdownWebRenderer: NSViewRepresentable {
     let markdown: String
     let theme: MarkdownWebTheme
+    let zoomFactor: CGFloat
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
@@ -93,6 +94,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
         }
         applyAppearance(to: webView, isDark: theme.isDark)
+        applyZoom(to: webView)
 
         context.coordinator.webView = webView
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
@@ -108,6 +110,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.filePath = filePath
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         applyAppearance(to: nsView, isDark: theme.isDark)
+        applyZoom(to: nsView)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -128,6 +131,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         if webView.appearance !== appearance {
             webView.appearance = appearance
+        }
+    }
+
+    private func applyZoom(to webView: WKWebView) {
+        let normalized = ViewZoomControl.normalized(zoomFactor)
+        if abs(webView.pageZoom - normalized) > 0.0001 {
+            webView.pageZoom = normalized
         }
     }
 
