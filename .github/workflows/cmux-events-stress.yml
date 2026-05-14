@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 30
     env:
-      STRESS_TAG: ci-events-stress
+      STRESS_TAG: ci-events-stress-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

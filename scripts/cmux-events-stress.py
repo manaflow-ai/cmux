@@ -17,9 +17,14 @@ from typing import Any
 
 EVENT_NAME = "app.focus_override.changed"
 EVENT_LOG_CAP_BYTES = 16 * 1024 * 1024
+UNIX_SOCKET_PATH_MAX_BYTES = 103
 
 
 class StressFailure(RuntimeError):
+    pass
+
+
+class TransientReadFailure(StressFailure):
     pass
 
 
@@ -86,7 +91,9 @@ class SocketClient:
             raise StressFailure("socket reader is not connected")
         try:
             line = self.reader.readline()
-        except (socket.timeout, OSError) as exc:
+        except socket.timeout as exc:
+            raise TransientReadFailure(f"timed out reading from {self.socket_path}: {exc}") from exc
+        except OSError as exc:
             raise StressFailure(f"failed reading from {self.socket_path}: {exc}") from exc
         if not line:
             raise StressFailure(f"socket closed while reading from {self.socket_path}")
@@ -211,8 +218,9 @@ class CmuxEventsStress:
                 raise StressFailure(self.publisher_error)
             self.summary["publish_duration_ms"] = rounded_ms(now_ms() - publish_start)
 
+            deadline = time.monotonic() + self.args.consumer_timeout
             for thread in threads:
-                thread.join(timeout=self.args.consumer_timeout)
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
             alive = [thread.name for thread in threads if thread.is_alive()]
             if alive:
                 raise StressFailure(f"event consumers did not exit cleanly: {alive}")
@@ -281,6 +289,17 @@ class CmuxEventsStress:
     def check_paths(self) -> None:
         if self.socket_path.name in {"cmux.sock", "cmux-debug.sock"}:
             raise StressFailure(f"refusing to use non-tagged socket path: {self.socket_path}")
+        for label, path in (
+            ("CMUX_SOCKET_PATH", self.socket_path),
+            ("CMUXD_UNIX_PATH", self.cmuxd_socket_path),
+        ):
+            path_text = path.as_posix()
+            path_bytes = len(path_text.encode("utf-8"))
+            if path_bytes > UNIX_SOCKET_PATH_MAX_BYTES:
+                raise StressFailure(
+                    f"{label} socket path too long: {path_text!r} is {path_bytes} bytes, "
+                    f"limit is {UNIX_SOCKET_PATH_MAX_BYTES}"
+                )
         if not self.binary_path.exists():
             raise StressFailure(f"tagged cmux app binary not found: {self.binary_path}")
 
@@ -400,7 +419,7 @@ class CmuxEventsStress:
                     while stats.events < self.args.events and segment_events < self.args.consumer_segment_events:
                         try:
                             frame = client.read_frame()
-                        except StressFailure:
+                        except TransientReadFailure:
                             if self.publisher_done.is_set():
                                 raise
                             break
@@ -609,26 +628,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--publisher-read-timeout", type=float, default=20)
     parser.add_argument("--log-settle-timeout", type=float, default=30)
     parser.add_argument("--progress-interval", type=int, default=5_000)
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def validate_args(args: argparse.Namespace) -> None:
     if args.events <= 4_096:
-        raise SystemExit("--events must be greater than 4096 to exercise retention gap handling")
+        raise StressFailure("--events must be greater than 4096 to exercise retention gap handling")
     if args.payload_bytes < 0:
-        raise SystemExit("--payload-bytes must be non-negative")
+        raise StressFailure("--payload-bytes must be non-negative")
     if args.events * args.payload_bytes <= EVENT_LOG_CAP_BYTES:
-        raise SystemExit(
+        raise StressFailure(
             f"--events * --payload-bytes must exceed {EVENT_LOG_CAP_BYTES} to exercise event log rotation"
         )
     if args.consumers <= 0:
-        raise SystemExit("--consumers must be greater than 0")
+        raise StressFailure("--consumers must be greater than 0")
     if args.consumer_segment_events <= 0:
-        raise SystemExit("--consumer-segment-events must be greater than 0")
-    return args
+        raise StressFailure("--consumer-segment-events must be greater than 0")
 
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     runner = CmuxEventsStress(args)
     try:
+        validate_args(args)
         summary = runner.run()
     except Exception as exc:
         summary = dict(runner.summary)
