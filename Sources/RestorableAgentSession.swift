@@ -405,6 +405,16 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     }
 }
 
+extension SessionRestorableAgentSnapshot {
+    var agentDisplayName: String {
+        if let name = registration?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
+        }
+        return kind.displayName
+    }
+}
+
 private enum AgentResumeScriptStore {
     private static let directoryName = "cmux-agent-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -472,6 +482,7 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
+    var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }
 
@@ -481,17 +492,31 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
     }
 
-    private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+    struct Entry: Sendable {
+        let snapshot: SessionRestorableAgentSnapshot
+        let lifecycle: AgentHibernationLifecycleState?
+        let updatedAt: TimeInterval
+    }
+
+    private let entriesByPanel: [PanelKey: Entry]
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+    }
+
+    func lifecycle(workspaceId: UUID, panelId: UUID) -> AgentHibernationLifecycleState? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.lifecycle
+    }
+
+    func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]?.updatedAt
     }
 
     static func load(
@@ -533,7 +558,7 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var resolved: [PanelKey: Entry] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -586,7 +611,11 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let existing = resolved[key], existing.updatedAt > record.updatedAt {
                     continue
                 }
-                resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
+                resolved[key] = Entry(
+                    snapshot: snapshot,
+                    lifecycle: record.agentLifecycle,
+                    updatedAt: record.updatedAt
+                )
             }
         }
 
@@ -594,10 +623,10 @@ struct RestorableAgentSessionIndex: Sendable {
             if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
                 continue
             }
-            resolved[key] = detected
+            resolved[key] = Entry(snapshot: detected.snapshot, lifecycle: nil, updatedAt: detected.updatedAt)
         }
 
-        return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
+        return RestorableAgentSessionIndex(entriesByPanel: resolved)
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -840,8 +869,8 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
-        self.snapshotsByPanel = snapshotsByPanel
+    private init(entriesByPanel: [PanelKey: Entry]) {
+        self.entriesByPanel = entriesByPanel
     }
 }
 

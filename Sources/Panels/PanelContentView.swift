@@ -17,6 +17,7 @@ struct PanelContentView: View {
     let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -41,6 +42,7 @@ struct PanelContentView: View {
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
                     onFocus: onFocus,
+                    onResumeAgentHibernation: onResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
             }

@@ -40,9 +40,44 @@ That writes `.opencode/plugins/cmux-feed.js` in the current directory.
 
 ## What the hooks record
 
-Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
+Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores the agent session ID, cmux workspace ID, surface ID, cwd, process ID when available, current lifecycle (`running`, `idle`, `needsInput`, or `unknown`), and a sanitized launch command. On app relaunch, cmux rebuilds each workspace and runs the agent's native resume command with the saved session ID.
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
+
+## Agent Hibernation
+
+Agent Hibernation is opt-in. It can free old background terminals only when all of these are true:
+
+- the terminal has a saved restorable agent session
+- the saved launch data can build a resume command
+- the agent lifecycle is `idle`
+- the terminal has had no output or input for the configured idle window
+- the number of live restorable agent terminals is above the configured limit
+- the panel is not currently visible
+
+cmux double-checks the terminal tail before hibernating. A hibernated terminal stays as a placeholder and resumes only when you focus its tab or press Resume.
+
+Enable it from **Settings > Terminal > Agent Hibernation**, or from the CLI:
+
+```bash
+cmux agent-hibernation on
+cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12
+cmux agent-hibernation status
+```
+
+You can also set it in `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "agentHibernation": {
+      "enabled": true,
+      "idleSeconds": 3600,
+      "maxLiveTerminals": 12
+    }
+  }
+}
+```
 
 ## Disable automatic resume
 

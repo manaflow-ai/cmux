@@ -2160,6 +2160,12 @@ class TerminalController {
         case "set_agent_pid":
             return setAgentPID(args)
 
+        case "set_agent_lifecycle":
+            return setAgentLifecycle(args)
+
+        case "agent_hibernation":
+            return agentHibernation(args)
+
         case "clear_agent_pid":
             return clearAgentPID(args)
 
@@ -13236,6 +13242,8 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          agent_hibernation <status|on|off|set> [--idle-seconds=N] [--max-live-terminals=N] - Configure Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -16678,6 +16686,89 @@ class TerminalController {
             tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
         }
         return "OK"
+    }
+
+    /// Record the lifecycle state of a restorable agent session.
+    /// Usage: set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]
+    private func setAgentLifecycle(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Usage: \(usage)"
+        }
+        let key = parsed.positional[0]
+        guard let lifecycle = AgentHibernationLifecycleState(rawValue: parsed.positional[1]) else {
+            return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
+        }
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
+        scheduleSidebarMutation(target: target) { _, tab in
+            if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
+                return
+            }
+            tab.setAgentLifecycle(key: key, panelId: panelResolution.panelId, lifecycle: lifecycle)
+        }
+        return "OK"
+    }
+
+    private func agentHibernation(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let subcommand = parsed.positional.first?.lowercased() ?? "status"
+        let usage = "agent_hibernation <status|on|off|set> [--idle-seconds=N] [--max-live-terminals=N]"
+
+        switch subcommand {
+        case "status":
+            let values = AgentHibernationSettings.values()
+            return [
+                "enabled=\(values.enabled ? "true" : "false")",
+                "idle_seconds=\(Int(values.idleSeconds))",
+                "max_live_terminals=\(values.maxLiveTerminals)",
+                "confirmation_seconds=\(Int(values.confirmationSeconds))",
+            ].joined(separator: "\n")
+        case "on", "enable", "enabled":
+            AgentHibernationSettings.setValues(enabled: true)
+            return "OK"
+        case "off", "disable", "disabled":
+            AgentHibernationSettings.setValues(enabled: false)
+            return "OK"
+        case "set":
+            let idleSeconds: TimeInterval?
+            if let rawIdle = normalizedOptionValue(parsed.options["idle-seconds"] ?? parsed.options["idleSeconds"]) {
+                guard let parsedIdle = Double(rawIdle), parsedIdle.isFinite else {
+                    return "ERROR: Invalid --idle-seconds '\(rawIdle)'"
+                }
+                idleSeconds = parsedIdle
+            } else {
+                idleSeconds = nil
+            }
+
+            let maxLiveTerminals: Int?
+            if let rawMax = normalizedOptionValue(parsed.options["max-live-terminals"] ?? parsed.options["maxLiveTerminals"]) {
+                guard let parsedMax = Int(rawMax) else {
+                    return "ERROR: Invalid --max-live-terminals '\(rawMax)'"
+                }
+                maxLiveTerminals = parsedMax
+            } else {
+                maxLiveTerminals = nil
+            }
+
+            guard idleSeconds != nil || maxLiveTerminals != nil else {
+                return "ERROR: Usage: \(usage)"
+            }
+            AgentHibernationSettings.setValues(
+                idleSeconds: idleSeconds,
+                maxLiveTerminals: maxLiveTerminals
+            )
+            return "OK"
+        default:
+            return "ERROR: Usage: \(usage)"
+        }
     }
 
     /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]

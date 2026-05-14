@@ -1,0 +1,207 @@
+import Foundation
+import XCTest
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+final class AgentHibernationTests: XCTestCase {
+    func testSettingsDefaultToOptInAndNotifyOnChanges() throws {
+        let suiteName = "cmux-agent-hibernation-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(AgentHibernationSettings.idleSeconds(defaults: defaults), 3600)
+        XCTAssertEqual(AgentHibernationSettings.maxLiveTerminals(defaults: defaults), 12)
+
+        let notificationCenter = NotificationCenter()
+        var notificationCount = 0
+        let observer = notificationCenter.addObserver(
+            forName: AgentHibernationSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        AgentHibernationSettings.setValues(
+            enabled: true,
+            idleSeconds: 10,
+            maxLiveTerminals: 4,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+
+        let values = AgentHibernationSettings.values(defaults: defaults)
+        XCTAssertTrue(values.enabled)
+        XCTAssertEqual(values.idleSeconds, 10)
+        XCTAssertEqual(values.maxLiveTerminals, 4)
+        XCTAssertEqual(notificationCount, 1)
+
+        AgentHibernationSettings.setValues(
+            enabled: true,
+            idleSeconds: 10,
+            maxLiveTerminals: 4,
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        XCTAssertEqual(notificationCount, 1)
+    }
+
+    func testPlannerOnlySelectsIdleUnprotectedExcessLiveAgents() {
+        let workspaceId = UUID()
+        let now: TimeInterval = 1_000
+        let idleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let idleNew = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let runningOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let visibleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 60,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 5
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(key: idleOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, lastActivityAt: now - 300),
+                .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, lastActivityAt: now - 10),
+                .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, lastActivityAt: now - 300),
+                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, lastActivityAt: now - 300),
+            ],
+            settings: settings,
+            now: now
+        )
+
+        XCTAssertEqual(selected, Set([idleOld]))
+    }
+
+    func testPlannerDoesNotSelectWhenUnderLiveLimit() {
+        let key = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 60,
+            maxLiveTerminals: 2,
+            confirmationSeconds: 5
+        )
+
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(key: key, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, lastActivityAt: 0),
+            ],
+            settings: settings,
+            now: 1_000
+        )
+
+        XCTAssertTrue(selected.isEmpty)
+    }
+
+    func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "codex-hibernation-lifecycle"
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "agentLifecycle": "idle",
+                    "updatedAt": Date().timeIntervalSince1970,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": "/tmp/repo",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
+    }
+
+    func testSupportedAgentSnapshotsHaveResumeCommandsForHibernation() {
+        let cwd = "/tmp/cmux-agent-hibernation"
+        let sessionId = "session-123"
+        let launchCommands: [(RestorableAgentKind, AgentLaunchCommandSnapshot)] = [
+            (.claude, launch("claude", "/usr/local/bin/claude", cwd: cwd)),
+            (.codex, launch("codex", "/usr/local/bin/codex", cwd: cwd)),
+            (.opencode, launch("opencode", "/usr/local/bin/opencode", cwd: cwd)),
+            (.pi, launch("pi", "/usr/local/bin/pi", cwd: cwd)),
+            (.amp, launch("amp", "/usr/local/bin/amp", cwd: cwd)),
+            (.cursor, launch("cursor", "/usr/local/bin/cursor-agent", cwd: cwd)),
+            (.gemini, launch("gemini", "/usr/local/bin/gemini", cwd: cwd)),
+            (.rovodev, launch("rovodev", "/usr/local/bin/acli", arguments: ["/usr/local/bin/acli", "rovodev", "run"], cwd: cwd)),
+            (.copilot, launch("copilot", "/usr/local/bin/copilot", cwd: cwd)),
+            (.codebuddy, launch("codebuddy", "/usr/local/bin/codebuddy", cwd: cwd)),
+            (.factory, launch("factory", "/usr/local/bin/droid", cwd: cwd)),
+            (.qoder, launch("qoder", "/usr/local/bin/qodercli", cwd: cwd)),
+        ]
+
+        for (kind, launchCommand) in launchCommands {
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: kind,
+                sessionId: sessionId,
+                workingDirectory: cwd,
+                launchCommand: launchCommand
+            )
+            XCTAssertNotNil(snapshot.resumeCommand, "\(kind.rawValue) should be resumable before hibernation can use it")
+            XCTAssertFalse(snapshot.agentDisplayName.isEmpty)
+        }
+    }
+
+    func testCustomRegisteredAgentSnapshotCanHibernateWhenResumeCommandExists() {
+        let registration = CmuxVaultAgentRegistration(
+            id: "local-agent",
+            name: "Local Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "local-agent"),
+            sessionIdSource: .argvOption("--resume"),
+            resumeCommand: "{{executable}} resume {{sessionId}}",
+            cwd: .preserve
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("local-agent"),
+            sessionId: "custom-session",
+            workingDirectory: "/tmp/custom-agent",
+            launchCommand: launch("local-agent", "/usr/local/bin/local-agent", cwd: "/tmp/custom-agent"),
+            registration: registration
+        )
+
+        XCTAssertEqual(snapshot.agentDisplayName, "Local Agent")
+        XCTAssertEqual(snapshot.resumeCommand, "cd '/tmp/custom-agent' && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
+    }
+
+    private func launch(
+        _ launcher: String,
+        _ executablePath: String,
+        arguments: [String]? = nil,
+        cwd: String
+    ) -> AgentLaunchCommandSnapshot {
+        AgentLaunchCommandSnapshot(
+            launcher: launcher,
+            executablePath: executablePath,
+            arguments: arguments ?? [executablePath],
+            workingDirectory: cwd,
+            environment: nil,
+            capturedAt: nil,
+            source: nil
+        )
+    }
+}

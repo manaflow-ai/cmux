@@ -386,6 +386,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
     var isRestorable: Bool?
+    var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
     var lastBody: String?
     var startedAt: TimeInterval
@@ -488,6 +489,7 @@ private final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
+        agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
         markActive: Bool = false,
@@ -507,6 +509,7 @@ private final class ClaudeHookSessionStore {
                 pid: nil,
                 launchCommand: nil,
                 isRestorable: nil,
+                agentLifecycle: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
                 startedAt: now,
@@ -532,6 +535,9 @@ private final class ClaudeHookSessionStore {
                 // Preserve sticky true: a later isRestorable=false must not clear
                 // record.isRestorable=true from a transcript-backed event.
                 record.isRestorable = isRestorable || record.isRestorable == true
+            }
+            if let agentLifecycle {
+                record.agentLifecycle = agentLifecycle
             }
             if let subtitle = normalizeOptional(lastSubtitle) {
                 record.lastSubtitle = subtitle
@@ -2722,6 +2728,9 @@ struct CMUXCLI {
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
+
+        case "agent-hibernation":
+            try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
@@ -9427,6 +9436,12 @@ struct CMUXCLI {
             Usage: cmux browser-status [--json]
 
             Print whether cmux browser creation and link interception are enabled.
+            """
+        case "agent-hibernation":
+            return """
+            Usage: cmux agent-hibernation <status|on|off|set> [--idle-seconds <seconds>] [--max-live-terminals <count>] [--json]
+
+            Toggle Agent Hibernation or update its idle and live-terminal limits.
             """
         case "restore-session":
             return """
@@ -16699,6 +16714,7 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
+                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
@@ -16723,6 +16739,13 @@ struct CMUXCLI {
             }
             if isClearSessionStart {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                setAgentLifecycle(
+                    client: client,
+                    key: "claude_code",
+                    lifecycle: .running,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -16778,6 +16801,7 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         isRestorable: true,
+                        agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         markActive: true,
@@ -16785,6 +16809,13 @@ struct CMUXCLI {
                     )
                 }
 
+                setAgentLifecycle(
+                    client: client,
+                    key: "claude_code",
+                    lifecycle: .idle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
                 try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -16852,11 +16883,19 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     isRestorable: true,
+                    agentLifecycle: .running,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            setAgentLifecycle(
+                client: client,
+                key: "claude_code",
+                lifecycle: .running,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
             try setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -16914,11 +16953,19 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
+            setAgentLifecycle(
+                client: client,
+                key: "claude_code",
+                lifecycle: .needsInput,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -17034,6 +17081,7 @@ struct CMUXCLI {
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    agentLifecycle: .needsInput,
                     lastSubtitle: "Waiting",
                     lastBody: question
                 )
@@ -17043,7 +17091,24 @@ struct CMUXCLI {
                 return
             }
 
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
+                    agentLifecycle: .running
+                )
+            }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            setAgentLifecycle(
+                client: client,
+                key: "claude_code",
+                lifecycle: .running,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
 
             let statusValue: String
             if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
@@ -17125,6 +17190,71 @@ struct CMUXCLI {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
+    }
+
+    private func setAgentLifecycle(
+        client: SocketClient,
+        key: String,
+        lifecycle: AgentHibernationLifecycleState,
+        workspaceId: String,
+        surfaceId: String?
+    ) {
+        _ = try? sendV1Command(
+            "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+    }
+
+    private func runAgentHibernation(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "status"
+        let rest = Array(commandArgs.dropFirst())
+        let response: String
+        switch subcommand {
+        case "status":
+            response = try sendV1Command("agent_hibernation status", client: client)
+        case "on", "enable":
+            response = try sendV1Command("agent_hibernation on", client: client)
+        case "off", "disable":
+            response = try sendV1Command("agent_hibernation off", client: client)
+        case "set":
+            var command = "agent_hibernation set"
+            if let idle = optionValue(rest, name: "--idle-seconds") ?? optionValue(rest, name: "--idleSeconds") {
+                command += " --idle-seconds=\(idle)"
+            }
+            if let maxLive = optionValue(rest, name: "--max-live-terminals") ?? optionValue(rest, name: "--maxLiveTerminals") {
+                command += " --max-live-terminals=\(maxLive)"
+            }
+            response = try sendV1Command(command, client: client)
+        default:
+            throw CLIError(message: "Usage: cmux agent-hibernation <status|on|off|set> [--idle-seconds <seconds>] [--max-live-terminals <count>]")
+        }
+
+        if jsonOutput {
+            print(jsonString(parseAgentHibernationStatus(response: response, fallback: ["ok": response == "OK"])))
+        } else {
+            print(response)
+        }
+    }
+
+    private func parseAgentHibernationStatus(response: String, fallback: [String: Any]) -> [String: Any] {
+        var payload: [String: Any] = [:]
+        for line in response.split(separator: "\n") {
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            switch parts[0] {
+            case "enabled":
+                payload["enabled"] = parts[1] == "true"
+            case "idle_seconds", "max_live_terminals", "confirmation_seconds":
+                payload[parts[0]] = Int(parts[1]) ?? parts[1]
+            default:
+                payload[parts[0]] = parts[1]
+            }
+        }
+        return payload.isEmpty ? fallback : payload
     }
 
     private func shouldApplyClaudeHookVisibleMutation(
@@ -20801,7 +20931,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    agentLifecycle: .unknown
                 )
             }
             if let pid {
@@ -20810,6 +20941,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             }
+            setAgentLifecycle(
+                client: client,
+                key: def.statusKey,
+                lifecycle: .unknown,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -20835,7 +20973,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    agentLifecycle: .running
                 )
             }
             if let pid {
@@ -20845,6 +20984,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            setAgentLifecycle(
+                client: client,
+                key: def.statusKey,
+                lifecycle: .running,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
             _ = try sendV1Command(
                 "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
@@ -20935,6 +21081,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                     try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
                                       launchCommand: launchCommand,
+                                      agentLifecycle: codexFailure == nil ? .idle : .needsInput,
                                       lastSubtitle: subtitle,
                                       lastBody: body)
                 }
@@ -20948,12 +21095,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: .needsInput,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 } else {
                     let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: .idle,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
@@ -24100,6 +24261,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
+          agent-hibernation <status|on|off|set>
           restore-session
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear

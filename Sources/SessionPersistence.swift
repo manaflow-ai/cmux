@@ -226,7 +226,14 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var hibernation: SessionAgentHibernationSnapshot? = nil
 }
+
+struct SessionAgentHibernationSnapshot: Codable, Sendable {
+    var hibernatedAt: TimeInterval
+    var lastActivityAt: TimeInterval
+}
+
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?

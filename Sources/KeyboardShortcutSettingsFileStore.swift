@@ -470,6 +470,32 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
+
+        if let rawHibernation = section["agentHibernation"] {
+            guard let hibernation = rawHibernation as? [String: Any] else {
+                logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
+                return
+            }
+            if let value = jsonBool(hibernation["enabled"]) {
+                snapshot.managedUserDefaults[AgentHibernationSettings.enabledKey] = .bool(value)
+            } else if hibernation.keys.contains("enabled") {
+                logInvalid("terminal.agentHibernation.enabled", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(hibernation["idleSeconds"]) {
+                snapshot.managedUserDefaults[AgentHibernationSettings.idleSecondsKey] = .double(
+                    AgentHibernationSettings.sanitizedIdleSeconds(TimeInterval(value))
+                )
+            } else if hibernation.keys.contains("idleSeconds") {
+                logInvalid("terminal.agentHibernation.idleSeconds", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(hibernation["maxLiveTerminals"]) {
+                snapshot.managedUserDefaults[AgentHibernationSettings.maxLiveTerminalsKey] = .int(
+                    AgentHibernationSettings.sanitizedMaxLiveTerminals(value)
+                )
+            } else if hibernation.keys.contains("maxLiveTerminals") {
+                logInvalid("terminal.agentHibernation.maxLiveTerminals", sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseSidebarSection(
@@ -1204,6 +1230,11 @@ final class CmuxSettingsFileStore {
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        sideEffects.agentHibernationDidChange =
+            defaultsKey == AgentHibernationSettings.enabledKey ||
+            defaultsKey == AgentHibernationSettings.idleSecondsKey ||
+            defaultsKey == AgentHibernationSettings.maxLiveTerminalsKey ||
+            defaultsKey == AgentHibernationSettings.confirmationSecondsKey
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
@@ -1231,10 +1262,15 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard sideEffects.agentSessionAutoResumeDidChange || sideEffects.agentHibernationDidChange else { return }
         let notificationCenter = notificationCenter
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            if sideEffects.agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if sideEffects.agentHibernationDidChange {
+                AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1359,10 +1395,13 @@ private struct ResolvedSettingsSnapshot {
 
 private struct ManagedDefaultBatchSideEffects {
     var agentSessionAutoResumeDidChange = false
+    var agentHibernationDidChange = false
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
         agentSessionAutoResumeDidChange =
             agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+        agentHibernationDidChange =
+            agentHibernationDidChange || other.agentHibernationDidChange
     }
 }
 

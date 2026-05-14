@@ -3,6 +3,16 @@ import Combine
 import AppKit
 import Bonsplit
 
+struct AgentHibernationPanelState {
+    let agent: SessionRestorableAgentSnapshot
+    let hibernatedAt: Date
+    let lastActivityAt: Date
+
+    var agentDisplayName: String {
+        agent.agentDisplayName
+    }
+}
+
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -38,6 +48,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
+    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
@@ -60,6 +72,10 @@ final class TerminalPanel: Panel, ObservableObject {
         // We still honor `needsConfirmClose()` when actually closing a panel; we just don't
         // surface it as a tab-level dirty indicator.
         false
+    }
+
+    var isAgentHibernated: Bool {
+        agentHibernationState != nil
     }
 
     /// The hosted NSView for embedding in SwiftUI
@@ -195,6 +211,37 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.teardownSurface()
     }
 
+    func enterAgentHibernation(
+        agent: SessionRestorableAgentSnapshot,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date()
+    ) {
+        agentHibernationState = AgentHibernationPanelState(
+            agent: agent,
+            hibernatedAt: hibernatedAt,
+            lastActivityAt: lastActivityAt
+        )
+        unfocus()
+        searchState = nil
+        hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
+        requestViewReattach()
+    }
+
+    @discardableResult
+    func prepareAgentHibernationResume() -> Bool {
+        guard let state = agentHibernationState,
+              let startupInput = state.agent.resumeStartupInput() else {
+            return false
+        }
+        agentHibernationState = nil
+        surface.prepareNextRuntimeInitialInput(startupInput)
+        requestViewReattach()
+        surface.requestBackgroundSurfaceStartIfNeeded()
+        return true
+    }
+
     func requestViewReattach() {
         viewReattachToken &+= 1
     }
@@ -202,15 +249,18 @@ final class TerminalPanel: Panel, ObservableObject {
     // MARK: - Terminal-specific methods
 
     func sendText(_ text: String) {
+        guard !isAgentHibernated else { return }
         surface.sendText(text)
     }
 
     func sendInput(_ text: String) {
+        guard !isAgentHibernated else { return }
         surface.sendInput(text)
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        surface.performBindingAction(action)
+        guard !isAgentHibernated else { return false }
+        return surface.performBindingAction(action)
     }
 
     func hasSelection() -> Bool {

@@ -1,0 +1,296 @@
+import AppKit
+import Foundation
+
+struct AgentHibernationPanelKey: Hashable, Sendable {
+    let workspaceId: UUID
+    let panelId: UUID
+}
+
+struct AgentHibernationPlannerInput: Sendable {
+    let key: AgentHibernationPanelKey
+    let hasRestorableAgent: Bool
+    let isLive: Bool
+    let isProtected: Bool
+    let lifecycle: AgentHibernationLifecycleState
+    let lastActivityAt: TimeInterval
+}
+
+enum AgentHibernationPlanner {
+    static func selectedPanelKeys(
+        inputs: [AgentHibernationPlannerInput],
+        settings: AgentHibernationSettings.Values,
+        now: TimeInterval
+    ) -> Set<AgentHibernationPanelKey> {
+        guard settings.enabled else { return [] }
+        let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }
+        let excess = liveRestorable.count - settings.maxLiveTerminals
+        guard excess > 0 else { return [] }
+
+        let eligible = liveRestorable
+            .filter { input in
+                !input.isProtected &&
+                    input.lifecycle.allowsHibernation &&
+                    now - input.lastActivityAt >= settings.idleSeconds
+            }
+            .sorted { lhs, rhs in
+                if lhs.lastActivityAt == rhs.lastActivityAt {
+                    return lhs.key.panelId.uuidString < rhs.key.panelId.uuidString
+                }
+                return lhs.lastActivityAt < rhs.lastActivityAt
+            }
+
+        return Set(eligible.prefix(excess).map(\.key))
+    }
+}
+
+@MainActor
+struct AgentHibernationRecord {
+    let key: AgentHibernationPanelKey
+    let workspace: Workspace
+    let terminalPanel: TerminalPanel
+    let agent: SessionRestorableAgentSnapshot
+    let lifecycle: AgentHibernationLifecycleState
+    let lastActivityAt: TimeInterval
+    let isProtected: Bool
+}
+
+@MainActor
+final class AgentHibernationController {
+    static let shared = AgentHibernationController()
+
+    private struct Confirmation {
+        let fingerprint: String
+        let sampledAt: TimeInterval
+        let dueAt: TimeInterval
+    }
+
+    private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
+    private var timer: DispatchSourceTimer?
+    private var settingsObserver: NSObjectProtocol?
+    private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
+
+    private init() {}
+
+    func start() {
+        guard settingsObserver == nil else {
+            updateTimerForCurrentSettings()
+            return
+        }
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: AgentHibernationSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AgentHibernationController.shared.updateTimerForCurrentSettings()
+            }
+        }
+        updateTimerForCurrentSettings()
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+        confirmations.removeAll(keepingCapacity: false)
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+    }
+
+    func recordTerminalOutput(workspaceId: UUID, panelId: UUID) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func recordTerminalFocus(workspaceId: UUID, panelId: UUID) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    private func recordActivity(workspaceId: UUID, panelId: UUID) {
+        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        activityByPanel[key] = Date().timeIntervalSince1970
+        confirmations.removeValue(forKey: key)
+    }
+
+    private func updateTimerForCurrentSettings() {
+        guard AgentHibernationSettings.isEnabled() else {
+            timer?.cancel()
+            timer = nil
+            confirmations.removeAll(keepingCapacity: false)
+            return
+        }
+        guard timer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
+        timer.schedule(deadline: .now() + 5, repeating: 30)
+        timer.setEventHandler {
+            let settings = AgentHibernationSettings.values()
+            guard settings.enabled else { return }
+            let index = RestorableAgentSessionIndex.load()
+            let now = Date()
+            Task { @MainActor in
+                AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
+            }
+        }
+        timer.resume()
+        self.timer = timer
+    }
+
+    private func evaluate(
+        index: RestorableAgentSessionIndex,
+        settings: AgentHibernationSettings.Values,
+        now: Date
+    ) {
+        guard settings.enabled else {
+            confirmations.removeAll(keepingCapacity: false)
+            return
+        }
+        guard let appDelegate = AppDelegate.shared else { return }
+
+        let records = appDelegate.agentHibernationRecords(
+            index: index,
+            activityByPanel: activityByPanel
+        )
+        let nowTime = now.timeIntervalSince1970
+        let plannerInputs = records.map { record in
+            AgentHibernationPlannerInput(
+                key: record.key,
+                hasRestorableAgent: true,
+                isLive: record.terminalPanel.surface.hasLiveSurface && !record.terminalPanel.isAgentHibernated,
+                isProtected: record.isProtected,
+                lifecycle: record.lifecycle,
+                lastActivityAt: record.lastActivityAt
+            )
+        }
+        let selectedKeys = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: plannerInputs,
+            settings: settings,
+            now: nowTime
+        )
+        let currentKeys = Set(records.map(\.key))
+        confirmations = confirmations.filter { key, _ in
+            currentKeys.contains(key) && selectedKeys.contains(key)
+        }
+
+        for record in records where selectedKeys.contains(record.key) {
+            evaluateConfirmation(record: record, settings: settings, now: nowTime)
+        }
+    }
+
+    private func evaluateConfirmation(
+        record: AgentHibernationRecord,
+        settings: AgentHibernationSettings.Values,
+        now: TimeInterval
+    ) {
+        guard record.lifecycle.allowsHibernation,
+              !record.isProtected,
+              record.terminalPanel.surface.hasLiveSurface,
+              !record.terminalPanel.isAgentHibernated else {
+            confirmations.removeValue(forKey: record.key)
+            return
+        }
+
+        if let confirmation = confirmations[record.key] {
+            guard now >= confirmation.dueAt else { return }
+            let lastActivity = activityByPanel[record.key] ?? record.lastActivityAt
+            guard lastActivity <= confirmation.sampledAt else {
+                confirmations.removeValue(forKey: record.key)
+                return
+            }
+            guard let fingerprint = tailFingerprint(for: record.terminalPanel),
+                  fingerprint == confirmation.fingerprint else {
+                confirmations.removeValue(forKey: record.key)
+                return
+            }
+            confirmations.removeValue(forKey: record.key)
+            record.workspace.enterAgentHibernation(
+                panelId: record.key.panelId,
+                agent: record.agent,
+                lastActivityAt: Date(timeIntervalSince1970: record.lastActivityAt)
+            )
+            return
+        }
+
+        guard let fingerprint = tailFingerprint(for: record.terminalPanel) else { return }
+        confirmations[record.key] = Confirmation(
+            fingerprint: fingerprint,
+            sampledAt: now,
+            dueAt: now + settings.confirmationSeconds
+        )
+    }
+
+    private func tailFingerprint(for terminalPanel: TerminalPanel) -> String? {
+        guard terminalPanel.surface.surface != nil else { return nil }
+        return TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: true,
+            lineLimit: 12
+        )
+    }
+}
+
+extension AppDelegate {
+    @MainActor
+    func agentHibernationRecords(
+        index: RestorableAgentSessionIndex,
+        activityByPanel: [AgentHibernationPanelKey: TimeInterval]
+    ) -> [AgentHibernationRecord] {
+        var records: [AgentHibernationRecord] = []
+        var seenManagers: Set<ObjectIdentifier> = []
+
+        func visit(tabManager manager: TabManager, visibleWorkspaceId: UUID?) {
+            let managerId = ObjectIdentifier(manager)
+            guard seenManagers.insert(managerId).inserted else { return }
+            for workspace in manager.tabs {
+                let workspaceIsVisible = visibleWorkspaceId == workspace.id
+                let visiblePanelIds = workspaceIsVisible
+                    ? workspace.agentHibernationVisiblePanelIdsForCurrentLayout()
+                    : []
+                for (panelId, panel) in workspace.panels {
+                    guard let terminalPanel = panel as? TerminalPanel,
+                          let agent = workspace.restorableAgentForHibernation(panelId: panelId, index: index) else {
+                        continue
+                    }
+                    let key = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
+                    let indexActivity = index.updatedAt(workspaceId: workspace.id, panelId: panelId) ?? 0
+                    let localActivity = activityByPanel[key] ?? 0
+                    let createdAt = terminalPanel.surface.debugRuntimeSurfaceCreatedAt()?.timeIntervalSince1970
+                        ?? terminalPanel.surface.debugCreatedAt().timeIntervalSince1970
+                    let lifecycle = workspace.agentHibernationLifecycleState(
+                        panelId: panelId,
+                        fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
+                    )
+                    records.append(
+                        AgentHibernationRecord(
+                            key: key,
+                            workspace: workspace,
+                            terminalPanel: terminalPanel,
+                            agent: agent,
+                            lifecycle: lifecycle,
+                            lastActivityAt: max(indexActivity, localActivity, createdAt),
+                            isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId)
+                        )
+                    )
+                }
+            }
+        }
+
+        for context in mainWindowContexts.values {
+            let visibleWorkspaceId = context.window?.isVisible == true ? context.tabManager.selectedTabId : nil
+            visit(tabManager: context.tabManager, visibleWorkspaceId: visibleWorkspaceId)
+        }
+        if let tabManager {
+            visit(tabManager: tabManager, visibleWorkspaceId: nil)
+        }
+
+        return records
+    }
+}
