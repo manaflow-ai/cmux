@@ -6446,6 +6446,7 @@ struct SettingsView: View {
                     )
 
                     SettingsSectionHeader(title: String(localized: "settings.section.tabs", defaultValue: "Tabs"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .tabs))
                     SettingsCard {
                         SettingsPickerRow(
                             configurationReview: .settingsOnly,
@@ -6461,6 +6462,7 @@ struct SettingsView: View {
                                 Text(position.displayName).tag(position.rawValue)
                             }
                         }
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .tabs, idSuffix: "close-button-position"))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
