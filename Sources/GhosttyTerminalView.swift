@@ -7060,16 +7060,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var lines = text.components(separatedBy: "\n")
         if lines.last == "" { lines.removeLast() }
 
-        lines = lines.map { line in
-            var s = line
-            while let first = s.unicodeScalars.first,
-                  Self.terminalDecorationChars.contains(first) {
-                s = String(s.dropFirst())
-            }
-            if s.first == " " && s.count < line.count { s = String(s.dropFirst()) }
-            return s
-        }
-
         let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         guard !nonEmptyLines.isEmpty else { return text }
 
@@ -7084,6 +7074,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 return line
             }
+        }
+
+        lines = lines.map { line in
+            var s = line
+            let leading = s.prefix(while: { $0 == " " })
+            s = String(s.dropFirst(leading.count))
+            var stripped = false
+            while let first = s.unicodeScalars.first,
+                  Self.terminalDecorationChars.contains(first) {
+                s = String(s.dropFirst())
+                stripped = true
+            }
+            if stripped && s.first == " " { s = String(s.dropFirst()) }
+            return String(leading) + s
         }
 
         var result: [String] = []
