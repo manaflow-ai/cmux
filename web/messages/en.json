@@ -259,7 +259,6 @@
       "placeholder": "Search docs...",
       "label": "Search documentation",
       "resultsLabel": "Search results",
-      "loading": "Searching...",
       "noResults": "No results",
       "error": "Search unavailable",
       "resultsCount": "{count, plural, one {# result} other {# results}}"

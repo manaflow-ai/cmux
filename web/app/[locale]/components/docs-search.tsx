@@ -136,6 +136,10 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
     onNavigate?.();
   }
 
+  function preloadPagefind() {
+    void loadPagefind().catch(() => {});
+  }
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.nativeEvent.isComposing) return;
 
@@ -218,7 +222,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
         <input
           value={query}
           onChange={(event) => void search(event.target.value)}
-          onFocus={() => void loadPagefind()}
+          onFocus={preloadPagefind}
           onKeyDown={handleKeyDown}
           placeholder={t("placeholder")}
           role="combobox"
