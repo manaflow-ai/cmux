@@ -3284,7 +3284,13 @@ class TerminalController {
             "version": 2,
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
-            "surface_types": ["browser", "extension", "filepreview", "markdown", "terminal"],
+            "surface_types": [
+                Workspace.SurfaceKind.browser,
+                Workspace.SurfaceKind.extensionPane,
+                Workspace.SurfaceKind.filePreview,
+                Workspace.SurfaceKind.markdown,
+                Workspace.SurfaceKind.terminal,
+            ],
             "methods": methods.sorted()
         ]
     }
