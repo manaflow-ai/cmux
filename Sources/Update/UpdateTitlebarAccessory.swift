@@ -351,34 +351,58 @@ struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let accessibilityIdentifier: String
     let accessibilityLabel: String
+    let accessibilityHint: String?
     let action: () -> Void
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
     @State private var isHovering = false
 
+    init(
+        config: TitlebarControlsStyleConfig,
+        accessibilityIdentifier: String,
+        accessibilityLabel: String,
+        accessibilityHint: String? = nil,
+        action: @escaping () -> Void,
+        rightClickAction: ((NSView, NSEvent) -> Void)? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.config = config
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+        self.action = action
+        self.rightClickAction = rightClickAction
+        self.content = content
+    }
+
     var body: some View {
-        let baseButton = Button(action: action) {
-            content()
-                .frame(width: config.buttonSize, height: config.buttonSize)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .frame(width: config.buttonSize, height: config.buttonSize)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier(accessibilityIdentifier)
-        .accessibilityLabel(accessibilityLabel)
-        .background(hoverBackground)
-        .overlay {
-            if let rightClickAction {
-                TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
+        let baseButton = AnyView(
+            Button(action: action) {
+                content()
+                    .frame(width: config.buttonSize, height: config.buttonSize)
+                    .contentShape(Rectangle())
             }
-        }
+            .buttonStyle(.plain)
+            .frame(width: config.buttonSize, height: config.buttonSize)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            .accessibilityLabel(accessibilityLabel)
+            .focusable()
+            .background(hoverBackground)
+            .overlay {
+                if let rightClickAction {
+                    TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
+                }
+            }
+        )
+
+        let baseButtonWithHint: AnyView = accessibilityHint.flatMap { AnyView(baseButton.accessibilityHint(Text($0))) } ?? baseButton
 
         if titlebarControlsShouldTrackButtonHover(config: config) {
-            baseButton.onHover { isHovering = $0 }
+            baseButtonWithHint.onHover { isHovering = $0 }
         } else {
-            baseButton
+            baseButtonWithHint
         }
     }
 
@@ -540,6 +564,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 accessibilityIdentifier: "titlebarControl.toggleSidebar",
                 accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
+                accessibilityHint: String(localized: "titlebar.sidebar.accessibilityHint", defaultValue: "Show or hide the sidebar"),
                 action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.toggleSidebar")
@@ -554,6 +579,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 accessibilityIdentifier: "titlebarControl.showNotifications",
                 accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
+                accessibilityHint: String(localized: "titlebar.notifications.accessibilityHint", defaultValue: "Show notifications"),
                 action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.notifications")
@@ -583,6 +609,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 accessibilityIdentifier: "titlebarControl.newTab",
                 accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
+                accessibilityHint: String(localized: "titlebar.newWorkspace.accessibilityHint", defaultValue: "Create a new workspace"),
                 action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.newTab")
@@ -597,6 +624,7 @@ struct TitlebarControlsView: View {
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
         }
+        .accessibilityElement(children: .contain)
 
         let paddedContent = content.padding(config.groupPadding)
 

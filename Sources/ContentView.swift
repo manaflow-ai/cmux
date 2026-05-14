@@ -11394,6 +11394,8 @@ private struct SidebarHelpMenuButton: View {
         .safeHelp(helpTitle)
         .accessibilityLabel(helpTitle)
         .accessibilityIdentifier("SidebarHelpMenuButton")
+        .focusable()
+        .accessibilityHint(Text(String(localized: "sidebar.help.accessibilityHint", defaultValue: "Open help and resources")))
     }
 
     private var helpPopover: some View {
@@ -12338,7 +12340,7 @@ private struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
-        VStack(alignment: .leading, spacing: 4) {
+        let rowBase = VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
@@ -12714,16 +12716,13 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .safeHelp(workspaceSnapshot.title)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityTitle))
-        .accessibilityHint(Text(accessibilityHintText))
-        .accessibilityAction(named: Text(moveUpActionText)) {
-            moveBy(-1)
-        }
-        .accessibilityAction(named: Text(moveDownActionText)) {
-            moveBy(1)
-        }
+
+        accessibleWorkspaceRow(
+            rowBase,
+            accessibilityHintText: accessibilityHintText,
+            moveUpActionText: moveUpActionText,
+            moveDownActionText: moveDownActionText
+        )
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
@@ -12738,6 +12737,30 @@ private struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+    }
+
+    private func accessibleWorkspaceRow<Content: View>(
+        _ content: Content,
+        accessibilityHintText: String,
+        moveUpActionText: String,
+        moveDownActionText: String
+    ) -> some View {
+        content
+            .safeHelp(workspaceSnapshot.title)
+            .focusable()
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(Text(accessibilityTitle))
+            .accessibilityHint(Text(accessibilityHintText))
+            .accessibilityAction {
+                updateSelection()
+            }
+            .accessibilityAction(named: Text(moveUpActionText)) {
+                moveBy(-1)
+            }
+            .accessibilityAction(named: Text(moveDownActionText)) {
+                moveBy(1)
+            }
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
