@@ -29,7 +29,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(outcome.index, 0)
         XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id])
         XCTAssertEqual(manager.selectedTabId, second.id)
-        XCTAssertEqual(third.latestSubmittedMessage, "implement this now")
+        XCTAssertEqual(third.latestConversationMessage, "implement this now")
     }
 
     func testPromptSubmitDoesNothingWhenIMessageModeDisabled() throws {
@@ -50,7 +50,74 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertFalse(outcome.reordered)
         XCTAssertEqual(outcome.index, 2)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
-        XCTAssertNil(third.latestSubmittedMessage)
+        XCTAssertNil(third.latestConversationMessage)
+    }
+
+    func testAssistantFinalMessageRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
+        let manager = TabManager()
+        let pinned = manager.tabs[0]
+        manager.setPinned(pinned, pinned: true)
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        manager.selectWorkspace(second)
+
+        let outcome = try XCTUnwrap(
+            manager.handleAssistantFinalMessage(
+                workspaceId: third.id,
+                message: "  final\n\nresponse  ",
+                iMessageModeEnabled: true
+            )
+        )
+
+        XCTAssertTrue(outcome.messageRecorded)
+        XCTAssertTrue(outcome.reordered)
+        XCTAssertEqual(outcome.index, 1)
+        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, third.id, second.id])
+        XCTAssertEqual(manager.selectedTabId, second.id)
+        XCTAssertEqual(third.latestConversationMessage, "final response")
+    }
+
+    func testAssistantFinalMessageMovesWorkspaceWhenPreviewMatchesExistingMessage() throws {
+        let manager = TabManager()
+        let pinned = manager.tabs[0]
+        manager.setPinned(pinned, pinned: true)
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        XCTAssertTrue(third.recordConversationMessage("Done."))
+
+        let outcome = try XCTUnwrap(
+            manager.handleAssistantFinalMessage(
+                workspaceId: third.id,
+                message: "Done.",
+                iMessageModeEnabled: true
+            )
+        )
+
+        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertTrue(outcome.reordered)
+        XCTAssertEqual(outcome.index, 1)
+        XCTAssertEqual(manager.tabs.map(\.id), [pinned.id, third.id, second.id])
+        XCTAssertEqual(third.latestConversationMessage, "Done.")
+    }
+
+    func testBlankAssistantFinalMessageDoesNotMoveWorkspace() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+
+        let outcome = try XCTUnwrap(
+            manager.handleAssistantFinalMessage(
+                workspaceId: second.id,
+                message: " \n ",
+                iMessageModeEnabled: true
+            )
+        )
+
+        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertFalse(outcome.reordered)
+        XCTAssertEqual(outcome.index, 1)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id])
+        XCTAssertNil(second.latestConversationMessage)
     }
 
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
@@ -78,7 +145,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertTrue(outcome.messageRecorded)
         XCTAssertTrue(outcome.reordered)
         XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id])
-        XCTAssertEqual(second.latestSubmittedMessage, "shipped from feed path")
+        XCTAssertEqual(second.latestConversationMessage, "shipped from feed path")
     }
 
     func testFeedPromptSubmitEventFallsBackToContextMessage() {
@@ -106,12 +173,36 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(event.submittedPromptMessage, "from extra fields")
     }
 
+    func testFeedStopEventExtractsAssistantFinalMessageFromContext() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .stop,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            context: WorkstreamContext(assistantPreamble: "  finished\n\nthis  ")
+        )
+
+        XCTAssertEqual(event.assistantFinalMessage, "finished this")
+    }
+
+    func testFeedStopEventExtractsAssistantFinalMessageFromExtraFields() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .stop,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            extraFieldsJSON: #"{"last_assistant_message":"  done\nfrom extra fields  "}"#
+        )
+
+        XCTAssertEqual(event.assistantFinalMessage, "done from extra fields")
+    }
+
     func testBlankSubmittedMessageDoesNotClearRecordedPreview() {
         let workspace = Workspace()
 
         XCTAssertTrue(workspace.recordSubmittedMessage("keep this preview"))
         XCTAssertFalse(workspace.recordSubmittedMessage(" \n "))
-        XCTAssertEqual(workspace.latestSubmittedMessage, "keep this preview")
+        XCTAssertEqual(workspace.latestConversationMessage, "keep this preview")
     }
 
     func testIMessageModeUsesManagedSettingsKey() throws {
