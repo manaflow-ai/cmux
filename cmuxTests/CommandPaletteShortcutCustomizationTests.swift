@@ -55,15 +55,18 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
 
     func testTerminalDirectoryOpenPaletteCommandsExposeBindableShortcutActions() {
         let actions = KeyboardShortcutSettings.Action.terminalDirectoryOpenActions
+        let bindings = KeyboardShortcutSettings.Action.terminalDirectoryOpenShortcutBindings
 
         XCTAssertEqual(actions.count, TerminalDirectoryOpenTarget.commandPaletteShortcutTargets.count)
+        XCTAssertEqual(bindings.map { $0.action }, actions)
+        XCTAssertEqual(bindings.map { $0.target }, TerminalDirectoryOpenTarget.commandPaletteShortcutTargets)
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
             let action = KeyboardShortcutSettings.Action.terminalDirectoryOpenAction(for: target)
-            XCTAssertEqual(action?.rawValue, target.commandPaletteCommandId)
+            XCTAssertEqual(action.rawValue, target.commandPaletteCommandId)
             XCTAssertEqual(ContentView.commandPaletteShortcutAction(forCommandID: target.commandPaletteCommandId), action)
-            XCTAssertEqual(action?.terminalDirectoryOpenTarget, target)
-            XCTAssertEqual(action?.defaultShortcut, .unbound)
-            XCTAssertTrue(action?.isPublicShortcutAction ?? false)
+            XCTAssertEqual(action.terminalDirectoryOpenTarget, target)
+            XCTAssertEqual(action.defaultShortcut, .unbound)
+            XCTAssertTrue(action.isPublicShortcutAction)
         }
     }
 
