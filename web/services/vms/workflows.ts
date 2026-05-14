@@ -22,13 +22,15 @@ import {
   VmCreateInProgressError,
   VmNotFoundError,
   vmWorkflowErrorCause,
+  type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
 import { isProviderNotFoundError } from "./providerErrors";
-import { VmProviderGateway, VmProviderGatewayLive } from "./providerGateway";
+import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
   VmRepositoryLive,
+  type CloudVmStatus,
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
@@ -72,11 +74,12 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
-}) {
+}): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+    yield* refreshActiveLimitProviderStatuses(repo, providers, input);
     const create = yield* repo.beginCreate(input);
 
     if (!create.inserted) {
@@ -232,6 +235,46 @@ export function createVm(input: {
 
     return vmEntryFromRow(running);
   });
+}
+
+function refreshActiveLimitProviderStatuses(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+  },
+): Effect.Effect<void, VmDatabaseError, never> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    if (!getStatus) return;
+
+    const candidates = yield* repo.activeLimitCandidates({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+    });
+    yield* Effect.forEach(candidates, (vm) => {
+      const providerVmId = vm.providerVmId;
+      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      return Effect.gen(function* () {
+        const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        );
+        if (!providerStatus || providerStatus === "creating") return;
+        const dbStatus = dbStatusFromProviderStatus(providerStatus);
+        if (dbStatus === vm.status) return;
+        yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: dbStatus,
+        }).pipe(Effect.catchAll(() => Effect.void));
+      });
+    }, { concurrency: "unbounded", discard: true });
+  });
+}
+
+function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"): CloudVmStatus {
+  return status;
 }
 
 export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {

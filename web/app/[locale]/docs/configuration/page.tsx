@@ -6,6 +6,7 @@ import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
 import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
   title?: string;
@@ -56,6 +57,8 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "openSupportedFilesInCmux": true,
+  //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },
 
@@ -236,10 +239,10 @@ export default function ConfigurationPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("configLocations")}</h2>
+      <DocsHeading level={2} id="config-locations">{t("configLocations")}</DocsHeading>
       <p>{t("configLocationsDesc")}</p>
       <ol>
         <li>
@@ -253,7 +256,7 @@ export default function ConfigurationPage() {
       <CodeBlock lang="bash">{`mkdir -p ~/.config/ghostty
 touch ~/.config/ghostty/config`}</CodeBlock>
 
-      <h2>{t("exampleConfig")}</h2>
+      <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
 theme = One Dark
@@ -261,7 +264,7 @@ scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
-      <h2 id="cmux-json" className="scroll-mt-24">cmux.json</h2>
+      <DocsHeading level={2} id="cmux-json" className="scroll-mt-24">cmux.json</DocsHeading>
       <p>
         cmux keeps app-owned settings, shortcuts, actions, custom commands, and workspace layouts in{" "}
         <code>~/.config/cmux/cmux.json</code>. Terminal rendering still lives in Ghostty config.
@@ -283,8 +286,8 @@ working-directory = ~/code`}</CodeBlock>
         <strong>Precedence:</strong> global <code>~/.config/cmux/cmux.json</code> settings override
         values saved in the Settings window. Legacy <code>~/.config/cmux/settings.json</code> and
         Application Support settings files are read only as fallback for missing settings keys.
-        Project-local <code>.cmux/cmux.json</code> can override actions, commands, and UI action
-        wiring, but not global app preferences.
+        Project-local <code>.cmux/cmux.json</code> can override actions, commands, UI action
+        wiring, and notification hooks, but not global app preferences.
       </Callout>
       <Callout type="info">
         <strong>Reload:</strong> edit the file, then use <code>Cmd+Shift+,</code> or{" "}
@@ -304,7 +307,7 @@ working-directory = ~/code`}</CodeBlock>
         {settingsFileExample}
       </CodeBlock>
 
-      <h2>Schema reference</h2>
+      <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>
       <p>
         This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
         browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
@@ -312,7 +315,7 @@ working-directory = ~/code`}</CodeBlock>
         <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 
-      <h3>Metadata</h3>
+      <DocsHeading level={3} id="metadata">Metadata</DocsHeading>
       <PropertyGrid
         prefix=""
         properties={Object.fromEntries(
@@ -330,9 +333,9 @@ working-directory = ~/code`}</CodeBlock>
 
         return (
           <section key={sectionName}>
-            <h3>
+            <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
-            </h3>
+            </DocsHeading>
             {property.description && <p>{property.description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
@@ -359,9 +362,9 @@ working-directory = ~/code`}</CodeBlock>
         );
       })}
 
-      <h3>
+      <DocsHeading level={3} id="shortcuts-bindings">
         <code>shortcuts.bindings</code>
-      </h3>
+      </DocsHeading>
       <p>
         Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
         unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
