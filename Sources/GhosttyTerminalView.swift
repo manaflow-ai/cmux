@@ -7159,6 +7159,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static func isHardBreakLine(_ trimmed: String) -> Bool {
         if trimmed.hasPrefix("```") { return true }
         if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") { return true }
+        if trimmed.hasPrefix("# ") { return true }
         return false
     }
 
