@@ -5119,26 +5119,31 @@ class TabManager: ObservableObject {
         let hasManualPanelUnread = surfaceId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
         let hasRestoredPanelUnread = surfaceId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
         let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
-        let canDismissManualUnread = context == .terminalInteraction &&
-            (hasManualPanelUnread || hasRestoredPanelUnread || hasManualWorkspaceUnread)
+        let hasRestoredWorkspaceUnread = notificationStore.hasRestoredUnreadIndicator(forTabId: tabId)
+        let canDismissUnreadIndicator = context == .terminalInteraction &&
+            (hasManualPanelUnread || hasRestoredPanelUnread || hasManualWorkspaceUnread || hasRestoredWorkspaceUnread)
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissManualUnread else { return false }
+        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
         if hasUnreadNotification {
             notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
         }
-        var didDismissManualUnread = false
+        var didDismissUnreadIndicator = false
         if context == .terminalInteraction {
             if let panelId = surfaceId, hasManualPanelUnread {
                 workspace?.clearManualUnread(panelId: panelId)
-                didDismissManualUnread = true
+                didDismissUnreadIndicator = true
             }
             if let panelId = surfaceId, hasRestoredPanelUnread {
                 workspace?.clearRestoredUnreadIndicator(panelId: panelId)
-                didDismissManualUnread = true
+                didDismissUnreadIndicator = true
             }
             if hasManualWorkspaceUnread {
-                didDismissManualUnread = notificationStore.clearManualUnread(forTabId: tabId) || didDismissManualUnread
+                didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
+            }
+            if hasRestoredWorkspaceUnread {
+                didDismissUnreadIndicator = notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) ||
+                    didDismissUnreadIndicator
             }
         }
         notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
@@ -5146,7 +5151,7 @@ class TabManager: ObservableObject {
            let workspace {
             if hasUnreadNotification || hasFocusedIndicator {
                 workspace.triggerNotificationDismissFlash(panelId: panelId)
-            } else if didDismissManualUnread {
+            } else if didDismissUnreadIndicator {
                 workspace.triggerManualUnreadDismissFlash(panelId: panelId)
             }
         }

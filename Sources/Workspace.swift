@@ -213,7 +213,11 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
-        let isWorkspaceManuallyUnread = AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: id) ?? false
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
+        let hasWorkspaceUnreadIndicator = isWorkspaceManuallyUnread ||
+            (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
 
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
@@ -222,7 +226,7 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             isManuallyUnread: isWorkspaceManuallyUnread,
-            hasUnreadIndicator: isWorkspaceManuallyUnread,
+            hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -314,8 +318,15 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
-        let isWorkspaceManuallyUnread = snapshot.isManuallyUnread ?? (snapshot.hasUnreadIndicator == true)
+        let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
+        if !isWorkspaceManuallyUnread {
+            if snapshot.hasUnreadIndicator == true {
+                AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
+            } else {
+                AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
+            }
+        }
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
