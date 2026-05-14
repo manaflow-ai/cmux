@@ -207,6 +207,14 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## Dogfood merge gate
+
+For app, runtime, and UI changes, never merge a PR after checks or review alone. Build the tagged app, hand the tag to the user, and wait for the user to explicitly confirm that the dogfood build is OK to merge.
+
+This applies even when an earlier request said to iterate and merge. Once a tagged dogfood build is handed off, stop at ready-to-merge until the user approves merge after dogfooding. CI, review bots, screenshots, recordings, and self-verification do not replace user dogfood approval.
+
+Documentation-only, metadata-only, and workflow-only changes can merge as requested after checks pass if they do not change app/runtime behavior.
+
 ## Shared behavior policy
 
 - When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.

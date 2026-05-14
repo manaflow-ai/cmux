@@ -171,38 +171,19 @@ struct FileExternalOpenMenu: View {
                     isDisabled: isDisabled
                 )
             case .chrome:
-                Button {
-                    presentMenu(
-                        applications: applications,
-                        currentPrimaryApplication: primaryApplication,
-                        otherApplications: otherApplications
-                    )
-                } label: {
-                    label
-                }
-                .contentShape(Rectangle())
-                .disabled(isDisabled)
-                .help(helpText)
-                .accessibilityLabel(helpText)
+                FileExternalOpenChromeMenuButton(
+                    fileURL: fileURL,
+                    applications: applications,
+                    currentPrimaryApplication: primaryApplication,
+                    otherApplications: otherApplications,
+                    helpText: helpText,
+                    isDisabled: isDisabled
+                )
+                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
             }
         }
         .task(id: fileURL) {
             await refreshApplications()
-        }
-    }
-
-    @ViewBuilder
-    private var label: some View {
-        switch style {
-        case .header:
-            PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
-        case .chrome:
-            Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
-                .contentShape(Rectangle())
-                .accessibilityHidden(true)
         }
     }
 
@@ -231,36 +212,44 @@ struct FileExternalOpenMenu: View {
         guard !Task.isCancelled else { return }
         resolvedApplications = applications
     }
+}
 
-    private func presentMenu(
+private enum FileExternalOpenMenuBuilder {
+    static func primaryApplication(in applications: [FileExternalOpenApplication]) -> FileExternalOpenApplication? {
+        applications.first { $0.isDefault } ?? applications.first
+    }
+
+    static func normalizedApplications(
+        fileURL: URL,
         applications: [FileExternalOpenApplication],
         currentPrimaryApplication: FileExternalOpenApplication?,
         otherApplications: [FileExternalOpenApplication]
-    ) {
-        guard !isDisabled else { return }
+    ) -> (primary: FileExternalOpenApplication?, others: [FileExternalOpenApplication]) {
         let menuApplications: [FileExternalOpenApplication]
         if applications.isEmpty {
             menuApplications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
         } else {
             menuApplications = applications
         }
+
         let primary = primaryApplication(in: menuApplications) ?? currentPrimaryApplication
-        let others = menuApplications.filter { application in
-            application.id != primary?.id
-        } + otherApplications.filter { application in
-            application.id != primary?.id
-                && !menuApplications.contains(where: { $0.id == application.id })
+        var seenApplicationIDs = Set<String>()
+        if let primary {
+            seenApplicationIDs.insert(primary.id)
         }
-        let menu = makeMenu(primaryApplication: primary, otherApplications: others)
-        if let event = NSApp.currentEvent, let contentView = event.window?.contentView {
-            let point = contentView.convert(event.locationInWindow, from: nil)
-            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
-        } else {
-            menu.popUp(positioning: nil as NSMenuItem?, at: NSEvent.mouseLocation, in: nil as NSView?)
+
+        var others: [FileExternalOpenApplication] = []
+        for application in menuApplications + otherApplications {
+            guard application.id != primary?.id else { continue }
+            guard seenApplicationIDs.insert(application.id).inserted else { continue }
+            others.append(application)
         }
+
+        return (primary, others)
     }
 
-    private func makeMenu(
+    static func makeMenu(
+        fileURL: URL,
         primaryApplication: FileExternalOpenApplication?,
         otherApplications: [FileExternalOpenApplication]
     ) -> NSMenu {
@@ -269,6 +258,7 @@ struct FileExternalOpenMenu: View {
 
         if let primaryApplication {
             menu.addItem(menuItem(
+                fileURL: fileURL,
                 title: openInTitle(primaryApplication.displayName),
                 applicationURL: primaryApplication.url
             ))
@@ -279,6 +269,7 @@ struct FileExternalOpenMenu: View {
                 openWithMenu.autoenablesItems = false
                 for application in otherApplications {
                     openWithMenu.addItem(menuItem(
+                        fileURL: fileURL,
                         title: application.displayName,
                         applicationURL: application.url
                     ))
@@ -292,13 +283,17 @@ struct FileExternalOpenMenu: View {
                 menu.addItem(openWithItem)
             }
         } else {
-            menu.addItem(menuItem(title: FileExternalOpenText.openExternally, applicationURL: nil))
+            menu.addItem(menuItem(
+                fileURL: fileURL,
+                title: FileExternalOpenText.openExternally,
+                applicationURL: nil
+            ))
         }
 
         return menu
     }
 
-    private func menuItem(title: String, applicationURL: URL?) -> NSMenuItem {
+    static func menuItem(fileURL: URL, title: String, applicationURL: URL?) -> NSMenuItem {
         let item = NSMenuItem(
             title: title,
             action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
@@ -310,6 +305,185 @@ struct FileExternalOpenMenu: View {
             applicationURL: applicationURL
         )
         return item
+    }
+
+    private static func openInTitle(_ applicationName: String) -> String {
+        FileExternalOpenText.openInApplication(applicationName)
+    }
+}
+
+private struct FileExternalOpenChromeMenuButton: NSViewRepresentable {
+    let fileURL: URL
+    let applications: [FileExternalOpenApplication]
+    let currentPrimaryApplication: FileExternalOpenApplication?
+    let otherApplications: [FileExternalOpenApplication]
+    let helpText: String
+    let isDisabled: Bool
+
+    func makeNSView(context: Context) -> FileExternalOpenChromeMenuButtonView {
+        let view = FileExternalOpenChromeMenuButtonView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: FileExternalOpenChromeMenuButtonView, context: Context) {
+        nsView.configure(
+            fileURL: fileURL,
+            applications: applications,
+            currentPrimaryApplication: currentPrimaryApplication,
+            otherApplications: otherApplications,
+            helpText: helpText,
+            isDisabled: isDisabled
+        )
+    }
+}
+
+final class FileExternalOpenChromeMenuButtonView: NSControl {
+    private let hoverBackgroundView = NSView()
+    private let imageView = NSImageView()
+
+    private var fileURL: URL?
+    private var applications: [FileExternalOpenApplication] = []
+    private var currentPrimaryApplication: FileExternalOpenApplication?
+    private var otherApplications: [FileExternalOpenApplication] = []
+    private var trackingAreaToken: NSTrackingArea?
+    private var isHovered = false {
+        didSet { updateAppearance() }
+    }
+    private var isPressed = false {
+        didSet { updateAppearance() }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setUpViews()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setUpViews()
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 40, height: 40)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0.01, isEnabled, bounds.contains(point) else {
+            return nil
+        }
+        return self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaToken {
+            removeTrackingArea(trackingAreaToken)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        trackingAreaToken = trackingArea
+        addTrackingArea(trackingArea)
+    }
+
+    override func layout() {
+        super.layout()
+        hoverBackgroundView.frame = bounds.insetBy(dx: 4, dy: 4)
+        imageView.frame = NSRect(
+            x: floor((bounds.width - 19) / 2),
+            y: floor((bounds.height - 19) / 2),
+            width: 19,
+            height: 19
+        )
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        isPressed = false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled, let fileURL else { return }
+        isPressed = true
+        presentMenu(for: event, fileURL: fileURL)
+        isPressed = false
+    }
+
+    func configure(
+        fileURL: URL,
+        applications: [FileExternalOpenApplication],
+        currentPrimaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication],
+        helpText: String,
+        isDisabled: Bool
+    ) {
+        self.fileURL = fileURL
+        self.applications = applications
+        self.currentPrimaryApplication = currentPrimaryApplication
+        self.otherApplications = otherApplications
+        isEnabled = !isDisabled
+        toolTip = helpText
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(helpText)
+        updateAppearance()
+    }
+
+    private func setUpViews() {
+        wantsLayer = true
+
+        hoverBackgroundView.wantsLayer = true
+        hoverBackgroundView.layer?.cornerRadius = 16
+        hoverBackgroundView.layer?.cornerCurve = .continuous
+        addSubview(hoverBackgroundView)
+
+        imageView.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        addSubview(imageView)
+
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let isActive = isPressed || isHovered
+        hoverBackgroundView.isHidden = !isActive
+        hoverBackgroundView.layer?.backgroundColor = NSColor.white
+            .withAlphaComponent(isPressed ? 0.24 : 0.14)
+            .cgColor
+        imageView.contentTintColor = isEnabled
+            ? (isActive ? .labelColor : .secondaryLabelColor)
+            : .disabledControlTextColor
+        alphaValue = isEnabled ? 1 : 0.42
+    }
+
+    private func presentMenu(for event: NSEvent, fileURL: URL) {
+        let normalizedApplications = FileExternalOpenMenuBuilder.normalizedApplications(
+            fileURL: fileURL,
+            applications: applications,
+            currentPrimaryApplication: currentPrimaryApplication,
+            otherApplications: otherApplications
+        )
+        let menu = FileExternalOpenMenuBuilder.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: normalizedApplications.primary,
+            otherApplications: normalizedApplications.others
+        )
+        let localPoint = convert(event.locationInWindow, from: nil)
+        menu.popUp(positioning: nil as NSMenuItem?, at: localPoint, in: self)
     }
 }
 
@@ -349,51 +523,11 @@ private struct FileExternalOpenHeaderMenuButton: View {
     }
 
     private func makeMenu() -> NSMenu {
-        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
-        if let primaryApplication {
-            menu.addItem(menuItem(for: primaryApplication))
-            if !otherApplications.isEmpty {
-                menu.addItem(.separator())
-                let submenuItem = NSMenuItem(
-                    title: FileExternalOpenText.openWithMenu,
-                    action: nil,
-                    keyEquivalent: ""
-                )
-                let submenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-                otherApplications.forEach { application in
-                    submenu.addItem(menuItem(for: application))
-                }
-                submenuItem.submenu = submenu
-                menu.addItem(submenuItem)
-            }
-        } else {
-            let item = NSMenuItem(
-                title: FileExternalOpenText.openExternally,
-                action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
-                keyEquivalent: ""
-            )
-            item.target = FileExternalOpenMenuActionTarget.shared
-            item.representedObject = FileExternalOpenMenuActionPayload(
-                fileURL: fileURL,
-                applicationURL: nil
-            )
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    private func menuItem(for application: FileExternalOpenApplication) -> NSMenuItem {
-        let item = NSMenuItem(
-            title: FileExternalOpenText.openInApplication(application.displayName),
-            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
-            keyEquivalent: ""
-        )
-        item.target = FileExternalOpenMenuActionTarget.shared
-        item.representedObject = FileExternalOpenMenuActionPayload(
+        FileExternalOpenMenuBuilder.makeMenu(
             fileURL: fileURL,
-            applicationURL: application.url
+            primaryApplication: primaryApplication,
+            otherApplications: otherApplications
         )
-        return item
     }
 }
 
@@ -1881,30 +2015,21 @@ struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
 
     @ViewBuilder
     private func liquidGlassChrome(content: Content) -> some View {
-        #if compiler(>=6.3)
-        if #available(macOS 26.0, *) {
-            content
-                .buttonStyle(.borderless)
-                .controlSize(.regular)
-                .foregroundStyle(Color.secondary)
-                .glassEffect(.regular, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(Color.white.opacity(0.24), lineWidth: 0.85)
-                }
-                .shadow(color: Color.black.opacity(0.18), radius: 8, y: 1)
-        } else {
-            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
-        }
-        #else
-        materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
-        #endif
+        materialChrome(
+            content: content,
+            material: .regularMaterial,
+            strokeOpacity: 0.28,
+            fillOpacity: 0.86,
+            shadowOpacity: 0.18
+        )
     }
 
     private func materialChrome(
         content: Content,
         material: Material,
-        strokeOpacity: Double
+        strokeOpacity: Double,
+        fillOpacity: Double = 0.04,
+        shadowOpacity: Double = 0
     ) -> some View {
         content
             .buttonStyle(.borderless)
@@ -1914,12 +2039,13 @@ struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
                 Circle()
                     .fill(material)
                 Circle()
-                    .fill(Color.white.opacity(0.04))
+                    .fill(Color.white.opacity(fillOpacity))
             }
             .overlay {
                 Circle()
                     .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
             }
+            .shadow(color: Color.black.opacity(shadowOpacity), radius: 8, y: 1)
     }
 }
 
