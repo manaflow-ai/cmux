@@ -1990,6 +1990,13 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let claudeCodeStatusKey = "claude_code"
+
+    private static var allowedAgentLifecycleStatusKeys: Set<String> {
+        var keys = Set(agentDefs.map(\.statusKey))
+        keys.insert(claudeCodeStatusKey)
+        return keys
+    }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
         if client.hasUnfinishedOperationTelemetry() {
@@ -16733,15 +16740,15 @@ struct CMUXCLI {
                 )
             if shouldRegisterPID, let claudePid {
                 _ = try? sendV1Command(
-                    "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
             if isClearSessionStart {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-                setAgentLifecycle(
+                try setAgentLifecycle(
                     client: client,
-                    key: "claude_code",
+                    key: Self.claudeCodeStatusKey,
                     lifecycle: .running,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
@@ -16809,9 +16816,9 @@ struct CMUXCLI {
                     )
                 }
 
-                setAgentLifecycle(
+                try setAgentLifecycle(
                     client: client,
-                    key: "claude_code",
+                    key: Self.claudeCodeStatusKey,
                     lifecycle: .idle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
@@ -16889,9 +16896,9 @@ struct CMUXCLI {
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            setAgentLifecycle(
+            try setAgentLifecycle(
                 client: client,
-                key: "claude_code",
+                key: Self.claudeCodeStatusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
@@ -16959,9 +16966,9 @@ struct CMUXCLI {
                 )
             }
 
-            setAgentLifecycle(
+            try setAgentLifecycle(
                 client: client,
-                key: "claude_code",
+                key: Self.claudeCodeStatusKey,
                 lifecycle: .needsInput,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
@@ -17019,7 +17026,7 @@ struct CMUXCLI {
                 )
                 if shouldClearVisibleState {
                     _ = try? sendV1Command(
-                        "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                         client: client
                     )
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -17102,9 +17109,9 @@ struct CMUXCLI {
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            setAgentLifecycle(
+            try setAgentLifecycle(
                 client: client,
-                key: "claude_code",
+                key: Self.claudeCodeStatusKey,
                 lifecycle: .running,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
@@ -17185,7 +17192,7 @@ struct CMUXCLI {
         color: String,
         pid: Int? = nil
     ) throws {
-        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         if let pid {
             cmd += " --pid=\(pid)"
         }
@@ -17198,8 +17205,11 @@ struct CMUXCLI {
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
         surfaceId: String?
-    ) {
-        _ = try? sendV1Command(
+    ) throws {
+        guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
+            throw CLIError(message: "Unsupported agent lifecycle key: \(key)")
+        }
+        _ = try sendV1Command(
             "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
@@ -17222,10 +17232,15 @@ struct CMUXCLI {
             response = try sendV1Command("agent_hibernation off", client: client)
         case "set":
             var command = "agent_hibernation set"
-            if let idle = optionValue(rest, name: "--idle-seconds") ?? optionValue(rest, name: "--idleSeconds") {
+            let idle = optionValue(rest, name: "--idle-seconds") ?? optionValue(rest, name: "--idleSeconds")
+            let maxLive = optionValue(rest, name: "--max-live-terminals") ?? optionValue(rest, name: "--maxLiveTerminals")
+            if idle == nil && maxLive == nil {
+                throw CLIError(message: "Usage: cmux agent-hibernation set --idle-seconds <seconds> | --max-live-terminals <count>")
+            }
+            if let idle {
                 command += " --idle-seconds=\(idle)"
             }
-            if let maxLive = optionValue(rest, name: "--max-live-terminals") ?? optionValue(rest, name: "--maxLiveTerminals") {
+            if let maxLive {
                 command += " --max-live-terminals=\(maxLive)"
             }
             response = try sendV1Command(command, client: client)
@@ -17234,7 +17249,12 @@ struct CMUXCLI {
         }
 
         if jsonOutput {
-            print(jsonString(parseAgentHibernationStatus(response: response, fallback: ["ok": response == "OK"])))
+            let ok = response == "OK"
+            var fallback: [String: Any] = ["ok": ok]
+            if !ok {
+                fallback["message"] = response
+            }
+            print(jsonString(parseAgentHibernationStatus(response: response, fallback: fallback)))
         } else {
             print(response)
         }
@@ -20941,7 +20961,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             }
-            setAgentLifecycle(
+            try setAgentLifecycle(
                 client: client,
                 key: def.statusKey,
                 lifecycle: .unknown,
@@ -20984,7 +21004,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            setAgentLifecycle(
+            try setAgentLifecycle(
                 client: client,
                 key: def.statusKey,
                 lifecycle: .running,
@@ -21095,7 +21115,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
-                    setAgentLifecycle(
+                    try setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
                         lifecycle: .needsInput,
@@ -21108,7 +21128,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 } else {
                     let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
-                    setAgentLifecycle(
+                    try setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
                         lifecycle: .idle,

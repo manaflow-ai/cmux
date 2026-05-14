@@ -132,11 +132,11 @@ final class AgentHibernationController {
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
-            let settings = AgentHibernationSettings.values()
-            guard settings.enabled else { return }
-            let index = RestorableAgentSessionIndex.load()
             let now = Date()
             Task { @MainActor in
+                let settings = AgentHibernationSettings.values()
+                guard settings.enabled else { return }
+                let index = RestorableAgentSessionIndex.load()
                 AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
             }
         }

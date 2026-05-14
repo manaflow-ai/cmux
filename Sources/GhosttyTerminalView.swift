@@ -5670,8 +5670,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
         guard !text.isEmpty else { return }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
         guard let surface = surface else { return }
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
         var bufferedText = ""
         var previousWasCR = false
         for scalar in text.unicodeScalars {

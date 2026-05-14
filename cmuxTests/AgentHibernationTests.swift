@@ -149,6 +149,7 @@ final class AgentHibernationTests: XCTestCase {
             (.cursor, launch("cursor", "/usr/local/bin/cursor-agent", cwd: cwd)),
             (.gemini, launch("gemini", "/usr/local/bin/gemini", cwd: cwd)),
             (.rovodev, launch("rovodev", "/usr/local/bin/acli", arguments: ["/usr/local/bin/acli", "rovodev", "run"], cwd: cwd)),
+            (.hermesAgent, launch("hermes-agent", "/usr/local/bin/hermes", cwd: cwd)),
             (.copilot, launch("copilot", "/usr/local/bin/copilot", cwd: cwd)),
             (.codebuddy, launch("codebuddy", "/usr/local/bin/codebuddy", cwd: cwd)),
             (.factory, launch("factory", "/usr/local/bin/droid", cwd: cwd)),
@@ -191,13 +192,13 @@ final class AgentHibernationTests: XCTestCase {
     private func launch(
         _ launcher: String,
         _ executablePath: String,
-        arguments: [String]? = nil,
+        arguments: [String] = [],
         cwd: String
     ) -> AgentLaunchCommandSnapshot {
         AgentLaunchCommandSnapshot(
             launcher: launcher,
             executablePath: executablePath,
-            arguments: arguments ?? [executablePath],
+            arguments: arguments.isEmpty ? [executablePath] : arguments,
             workingDirectory: cwd,
             environment: nil,
             capturedAt: nil,

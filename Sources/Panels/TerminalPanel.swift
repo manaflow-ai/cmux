@@ -258,6 +258,12 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.sendInput(text)
     }
 
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> Bool {
+        guard !isAgentHibernated else { return false }
+        return surface.sendNamedKey(keyName)
+    }
+
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
         return surface.performBindingAction(action)

@@ -106345,7 +106345,7 @@
     "settings.terminal.agentHibernation.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Idle background agent terminals can be suspended when the live-terminal limit is exceeded." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Idle background agent terminals can be hibernated when the live-terminal limit is exceeded." } },
         "ja": { "stringUnit": { "state": "translated", "value": "ライブ端末数の上限を超えると、アイドル状態のバックグラウンドエージェント端末を休止できます。" } }
       }
     },
@@ -106359,7 +106359,7 @@
     "settings.terminal.agentHibernation.idleSeconds.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "A terminal must have no output and report an idle agent lifecycle for this long before it can be suspended." } },
+        "en": { "stringUnit": { "state": "translated", "value": "A terminal must have no output and report an idle agent lifecycle for this long before it can be hibernated." } },
         "ja": { "stringUnit": { "state": "translated", "value": "この時間だけ出力がなく、エージェントのライフサイクルがアイドルと報告された端末だけを休止できます。" } }
       }
     },

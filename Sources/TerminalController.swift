@@ -6900,7 +6900,7 @@ class TerminalController {
                 return
             }
             let surfaceWasReady = terminalPanel.surface.surface != nil
-            guard terminalPanel.surface.sendNamedKey(key) else {
+            guard terminalPanel.sendNamedKey(key) else {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
             }
@@ -15697,7 +15697,7 @@ class TerminalController {
                 return
             }
 
-            success = terminalPanel.surface.sendNamedKey(keyName)
+            success = terminalPanel.sendNamedKey(keyName)
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
@@ -15718,7 +15718,7 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            success = terminalPanel.surface.sendNamedKey(keyName)
+            success = terminalPanel.sendNamedKey(keyName)
         }
 
         if let error { return error }
