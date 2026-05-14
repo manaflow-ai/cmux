@@ -73,28 +73,29 @@ Input routing stays AppKit: a `RenderWidgetHostViewCocoa`-style `NSView` subclas
 
 Each milestone is a sequence of PRs, not a single PR. Each PR is mergeable on its own. Naming convention: branches `chromium/<phase>-<slug>`, PRs prefixed `[cmux-chromium]`.
 
-### P0 — Build host and toolchain (target: 1–2 weeks elapsed)
+### P0 — Build host and toolchain (target: 1–2 weeks elapsed) — ✅ DONE
 
-- [ ] Persistent volume layout on `cmux-aws-mac` (use `disk3s4`, 972 GB free, rename for clarity). Document remount procedure for the OS-update reset risk.
-- [ ] Install `depot_tools` on the persistent volume.
-- [ ] `fetch chromium` (4–12 hours, ~100 GB).
-- [ ] First clean release `chrome` build to validate Xcode + toolchain.
-- [ ] Wire build status notifications back into cmuxterm-hq via a `scripts/chromium-build.sh` that knows about Monitor signals.
+- [x] ~~Persistent volume layout~~ Rejected `disk3s4` (it's the macOS firmware update volume — see handoff ledger). Pivoted to `/Users/ec2-user` on the persistent data volume; 128 GB free margin after the 26 GB fetch.
+- [x] Install `depot_tools` at `/Users/ec2-user/depot_tools`, PATH wired through `~/.zshrc`.
+- [x] `fetch chromium` complete (26 GB, M148-base via `--depth=1 --shallow`).
+- [x] First clean release build to validate Xcode + toolchain — `:base` smoke (1m33s, 2192 steps, ✅ session 1) and `:content_shell` in flight session 2 (in-flight at session-2 close). Two patches needed to traverse the macOS 26 SDK forward-compat surface: `patches/0001-angle-metal-wrapper-resolve-via-xcrun.patch` and `patches/0002-webnn-coreml-handle-new-mlmultiarraydatatype.patch`.
+- [x] Build status notifications wired via `scripts/chromium-build-host.sh` (setup/remount/fetch/apply-patches/status/build) + the Monitor-friendly probe pattern used in each session's handoff entry.
 
-### P1 — Custom framework target (2–4 weeks elapsed)
+### P1 — Custom framework target (2–4 weeks elapsed) — in progress
 
-- [ ] Add a GN build target `//cmux:CmuxCore_framework` that produces `CmuxCore.framework` instead of `Chromium.app`. Strip browser UI; keep content/, components needed, ANGLE, V8, blink.
+- [ ] **GATING**: `manaflow-ai/cmux-chromium` fork repo must exist. Org-level repo creation needs user permission. Once it does, `embedder/` artifacts (`BUILD.gn`, `cmux_browser.h`, `CHANGELOG.md`) drop in as session 2's deliverable.
+- [ ] Add a GN build target `//cmux:cmux_core_framework` that produces `CmuxCore.framework`. Skeleton declared in `embedder/BUILD.gn` (session 2). Strip browser UI; keep content/, ANGLE, V8, blink.
 - [ ] Custom branding: bundle IDs `ai.manaflow.cmux.browser.helper*`, plist `CFBundleName = cmux Helper`, version string set to Chromium upstream + `.cmux.N`.
 - [ ] Build all four helper apps with the cmux bundle ID prefix.
 - [ ] Codesign with Developer ID Application identity, embed `embedded.provisionprofile`, notarize via `notarytool`. Helpers and framework signed before the host app.
 - [ ] Smoke test: `CmuxCore` loads in a minimal Swift host that calls `ChromeMain` with `--type=` flags and shuts down cleanly.
 
-### P2 — Embedding API (3–6 weeks elapsed)
+### P2 — Embedding API (3–6 weeks elapsed) — Swift surface DONE, C-side gated on fork repo
 
-- [ ] `//cmux/embedder/cmux_browser_view.{h,mm}` exports a C ABI. Initial surface: create/destroy view, load URL, can/go back/forward, reload, evaluate JS, attach script message handler, set delegate (navigation start/finish/fail, decidePolicyForNavigation, didReceiveAuthChallenge).
-- [ ] CALayerHost-backed `NSView` returned to the embedder by an `(NSView *)hostView` accessor.
-- [ ] Swift wrapper package `Packages/CmuxBrowserEngine`: `CmuxBrowserView`, `CmuxBrowserConfiguration`, `CmuxUserContentController`, `CmuxNavigationDelegate`, `CmuxUIDelegate`. API shape mirrors `WKWebView` modulo intentional translations.
-- [ ] Unit tests on the Swift wrapper using an in-process fake (`CmuxCoreTestStub`) that simulates the C ABI without spawning helpers — fast and reliable for CI.
+- [x] **C ABI design** (was P2 first item): `embedder/cmux_browser.h` exists with v1 surface frozen. Covers create/close view, load URL/HTML, back/forward/reload/stop, can-back/can-forward, url/title/is-loading/estimated-progress, page-zoom, evaluate-js, script-message handler, user scripts (add/remove-all), navigation-action callback, navigation-did-finish callback, snapshot. Profiles cover open/close, get/set/delete cookie, remove-data (typed mask). Session covers init/shutdown/run-once.
+- [ ] CALayerHost-backed `NSView` returned by `cmux_view_create`'s `out_ns_view` parameter. **Implementation lives in `cmux_layer_host.mm` of the fork** — gated on fork repo creation.
+- [x] **Swift wrapper package `Packages/CmuxBrowserEngine`**: COMPLETE for the surfaces cmux actually uses. Types implemented: `CmuxBrowserView`, `CmuxBrowserConfiguration`, `CmuxUserContentController`, `CmuxNavigationDelegate`, `CmuxUIDelegate`, `CmuxBrowserState` (Combine mirror), `CmuxDataStore`, `CmuxCookieStore`, `CmuxDownload` + delegate, `CmuxSnapshotConfiguration`. API shape mirrors `WKWebView` per `plans/wkwebview-surface-audit.md` (steps 1-4 + 6 done; step 5 inspector deferred-last).
+- [x] Unit tests on the Swift wrapper: 32 tests in 11 suites, all green under swift 6 strict concurrency, 0 warnings. Tests run against the WebKit backend today. **`CmuxCoreTestStub` (in-process C-ABI fake) for CI is deferred until the C ABI has any real impl** — testing against a stub before the stub matches reality just bakes in a mismatch.
 
 ### P3 — Swap `WKWebView` → `CmuxBrowserEngine` in cmux (4–8 weeks elapsed)
 
