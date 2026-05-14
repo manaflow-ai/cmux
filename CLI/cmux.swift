@@ -1075,10 +1075,10 @@ private enum CLISocketPathResolver {
         if name == "com.cmuxterm.app.dev.sock" || name.hasPrefix("com.cmuxterm.app.dev.") {
             return true
         }
-        if name == "com.cmuxterm.app.nightly.sock" || name.hasPrefix("com.cmuxterm.app.nightly-") {
+        if name == "com.cmuxterm.app.nightly.sock" || name.hasPrefix("com.cmuxterm.app.nightly.") {
             return true
         }
-        if name == "com.cmuxterm.app.staging.sock" || name.hasPrefix("com.cmuxterm.app.staging-") {
+        if name == "com.cmuxterm.app.staging.sock" || name.hasPrefix("com.cmuxterm.app.staging.") {
             return true
         }
         return false
