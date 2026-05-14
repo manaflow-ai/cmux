@@ -53,6 +53,7 @@ final class MainWindowFocusController {
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
+    private weak var globalSearchHost: GlobalSearchKeyboardFocusView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
 
@@ -109,10 +110,15 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock:
+        case .search, .sessions, .feed, .dock:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
+    }
+
+    func registerGlobalSearchHost(_ host: GlobalSearchKeyboardFocusView) {
+        globalSearchHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .search)
     }
 
     func registerFeedHost(_ host: FeedKeyboardFocusView) {
@@ -179,6 +185,9 @@ final class MainWindowFocusController {
         }
         if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
             fileSearchHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if globalSearchHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         if feedHost?.ownsKeyboardFocus(responder) == true {
@@ -631,7 +640,7 @@ final class MainWindowFocusController {
         switch mode {
         case .files:
             return .outline
-        case .find:
+        case .find, .search:
             return .searchField
         case .sessions:
             return .host
@@ -651,6 +660,8 @@ final class MainWindowFocusController {
             return fileExplorerHost?.focusOutline() == true
         case .find:
             return fileSearchHost?.focusSearchField() == true
+        case .search:
+            return globalSearchHost?.focusSearchFieldFromCoordinator() == true
         case .sessions:
             return false
         case .feed:
@@ -726,6 +737,9 @@ final class MainWindowFocusController {
         }
         if fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return .find
+        }
+        if globalSearchHost?.ownsKeyboardFocus(responder) == true {
+            return .search
         }
         if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
             return .feed

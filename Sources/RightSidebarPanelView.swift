@@ -12,6 +12,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
+    case search
     case sessions
     case feed
     case dock
@@ -20,6 +21,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
+        case .search: return String(localized: "rightSidebar.mode.search", defaultValue: "Search")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
@@ -30,6 +32,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return "folder"
         case .find: return "magnifyingglass"
+        case .search: return "magnifyingglass.circle"
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
@@ -40,6 +43,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
+        case .search: return .switchRightSidebarToSearch
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
@@ -48,7 +52,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .search, .sessions]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -63,6 +67,9 @@ extension RightSidebarMode {
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToFind).matches(event: event) {
             return .find
+        }
+        if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSearch).matches(event: event) {
+            return .search
         }
         if KeyboardShortcutSettings.shortcut(for: .switchRightSidebarToSessions).matches(event: event) {
             return .sessions
@@ -238,7 +245,8 @@ struct RightSidebarPanelView: View {
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
                         shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
-                        showsShortcutHint: showsModeShortcutHints
+                        showsShortcutHint: showsModeShortcutHints,
+                        showsLabel: availableModes.count <= 4
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                             mode: mode,
@@ -379,6 +387,8 @@ struct RightSidebarPanelView: View {
                 onOpenFilePreview: onOpenFilePreview,
                 presentation: .find
             )
+        case .search:
+            GlobalSearchSurfaceView(coordinator: .shared, placement: .rightSidebar)
         case .sessions:
             SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
                 .onAppear {
@@ -518,6 +528,7 @@ private struct ModeBarButton: View {
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
+    let showsLabel: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
@@ -527,10 +538,12 @@ private struct ModeBarButton: View {
             HStack(spacing: 4) {
                 Image(systemName: mode.symbolName)
                     .font(.system(size: 11, weight: .medium))
-                Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if showsLabel {
+                    Text(mode.label)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 if badgeCount > 0 {
                     pendingChip
                 }

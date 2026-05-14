@@ -35,7 +35,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertEqual(contributions.count, 5)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.search)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }
@@ -55,6 +56,17 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testCommandPaletteIncludesSearchPaneCommand() {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let searchDescriptor = descriptors.first { $0.mode == .search }
+
+        XCTAssertEqual(searchDescriptor?.commandId, "palette.openSearchPane")
+        XCTAssertEqual(
+            searchDescriptor?.title,
+            String(localized: "command.openSearchPane.title", defaultValue: "Open Search as Pane")
+        )
     }
 
     func testCommandPaletteUnreadDeferActionUsesConfigurableShortcutAction() {

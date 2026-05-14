@@ -1056,6 +1056,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .focusRightSidebar,
         .switchRightSidebarToFiles,
         .switchRightSidebarToFind,
+        .switchRightSidebarToSearch,
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
@@ -1107,6 +1108,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     func testModeShortcutActionsMatchModeSwitchingActions() {
         XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
+        XCTAssertEqual(RightSidebarMode.search.shortcutAction, .switchRightSidebarToSearch)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
@@ -1132,6 +1134,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .search
         )
     }
 
@@ -1189,6 +1195,10 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .search
         )
     }
 
