@@ -272,6 +272,33 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testCursorResumeDropsRemovedSystemCAFlagAndConfigDirectoryCwd() {
+        let cursor = SessionRestorableAgentSnapshot(
+            kind: .cursor,
+            sessionId: "DF1085A7-E46A-453E-8540-2CCF6365D35E",
+            workingDirectory: "/Users/example/.cursor",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "cursor",
+                executablePath: "/Users/example/.local/bin/agent",
+                arguments: [
+                    "/Users/example/.local/bin/agent",
+                    "--use-system-ca",
+                ],
+                workingDirectory: "/Users/example/.cursor",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/example/.codex-accounts/claude/_p1775010019397",
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            cursor.resumeCommand,
+            "'env' 'CLAUDE_CONFIG_DIR=/Users/example/.codex-accounts/claude/_p1775010019397' '/Users/example/.local/bin/agent' '--resume' 'DF1085A7-E46A-453E-8540-2CCF6365D35E'"
+        )
+    }
+
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {
         XCTAssertEqual(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
