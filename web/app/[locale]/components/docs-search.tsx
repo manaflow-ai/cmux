@@ -31,7 +31,7 @@ type PagefindModule = {
 
 const pagefindBundlePath = "/pagefind/pagefind.js";
 let pagefindPromise: Promise<PagefindModule> | null = null;
-let pagefindConfigured = false;
+let pagefindConfigurePromise: Promise<PagefindModule> | null = null;
 
 function importPagefind() {
   return import(
@@ -42,39 +42,37 @@ function importPagefind() {
 
 async function loadPagefind() {
   if (!pagefindPromise) {
-    pagefindPromise = importPagefind();
-  }
-
-  let pagefind: PagefindModule;
-  try {
-    pagefind = await pagefindPromise;
-  } catch (error) {
-    pagefindPromise = null;
-    pagefindConfigured = false;
-    throw error;
-  }
-
-  if (!pagefindConfigured) {
-    try {
-      await pagefind.options({
-        highlightParam: "highlight",
-        ranking: {
-          pageLength: 0.6,
-          termFrequency: 0.8,
-          metaWeights: {
-            title: 8,
-            section: 2,
-          },
-        },
-      });
-      await pagefind.init();
-      pagefindConfigured = true;
-    } catch (error) {
-      pagefindConfigured = false;
+    pagefindPromise = importPagefind().catch((error) => {
+      pagefindPromise = null;
       throw error;
-    }
+    });
   }
-  return pagefind;
+
+  if (!pagefindConfigurePromise) {
+    pagefindConfigurePromise = pagefindPromise
+      .then(async (pagefind) => {
+        await pagefind.options({
+          highlightParam: "highlight",
+          ranking: {
+            pageLength: 0.6,
+            termFrequency: 0.8,
+            metaWeights: {
+              title: 8,
+              section: 2,
+            },
+          },
+        });
+        await pagefind.init();
+        return pagefind;
+      })
+      .catch((error) => {
+        pagefindPromise = null;
+        pagefindConfigurePromise = null;
+        throw error;
+      });
+  }
+
+  return pagefindConfigurePromise;
 }
 
 type SearchStatus = "idle" | "loading" | "ready" | "error";
