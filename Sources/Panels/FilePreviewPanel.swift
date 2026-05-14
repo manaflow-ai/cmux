@@ -134,6 +134,15 @@ enum FileExternalOpenText {
 enum FileExternalOpenMenuStyle {
     case header
     case chrome
+
+    var buttonSize: CGSize {
+        switch self {
+        case .header:
+            return CGSize(width: 18, height: 18)
+        case .chrome:
+            return CGSize(width: 40, height: 40)
+        }
+    }
 }
 
 struct FileExternalOpenMenu: View {
@@ -162,15 +171,16 @@ struct FileExternalOpenMenu: View {
                     isDisabled: isDisabled
                 )
             case .chrome:
-                Menu {
-                    menuContent(primaryApplication: primaryApplication, otherApplications: otherApplications)
+                Button {
+                    presentMenu(
+                        applications: applications,
+                        currentPrimaryApplication: primaryApplication,
+                        otherApplications: otherApplications
+                    )
                 } label: {
                     label
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
+                .contentShape(Rectangle())
                 .disabled(isDisabled)
                 .help(helpText)
                 .accessibilityLabel(helpText)
@@ -182,32 +192,6 @@ struct FileExternalOpenMenu: View {
     }
 
     @ViewBuilder
-    private func menuContent(
-        primaryApplication: FileExternalOpenApplication?,
-        otherApplications: [FileExternalOpenApplication]
-    ) -> some View {
-        if let primaryApplication {
-            Button(openInTitle(primaryApplication.displayName)) {
-                FileExternalOpenAction.open(fileURL: fileURL, applicationURL: primaryApplication.url)
-            }
-            if !otherApplications.isEmpty {
-                Divider()
-                Menu(FileExternalOpenText.openWithMenu) {
-                    ForEach(otherApplications) { application in
-                        Button(application.displayName) {
-                            FileExternalOpenAction.open(fileURL: fileURL, applicationURL: application.url)
-                        }
-                    }
-                }
-            }
-        } else {
-            Button(FileExternalOpenText.openExternally) {
-                FileExternalOpenAction.openDefault(fileURL: fileURL)
-            }
-        }
-    }
-
-    @ViewBuilder
     private var label: some View {
         switch style {
         case .header:
@@ -215,7 +199,10 @@ struct FileExternalOpenMenu: View {
         case .chrome:
             Image(systemName: "square.and.arrow.up")
                 .font(.system(size: 16, weight: .semibold))
-                .frame(width: 42, height: 40)
+                .foregroundStyle(.secondary)
+                .frame(width: style.buttonSize.width, height: style.buttonSize.height)
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
         }
     }
 
@@ -244,6 +231,86 @@ struct FileExternalOpenMenu: View {
         guard !Task.isCancelled else { return }
         resolvedApplications = applications
     }
+
+    private func presentMenu(
+        applications: [FileExternalOpenApplication],
+        currentPrimaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) {
+        guard !isDisabled else { return }
+        let menuApplications: [FileExternalOpenApplication]
+        if applications.isEmpty {
+            menuApplications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
+        } else {
+            menuApplications = applications
+        }
+        let primary = primaryApplication(in: menuApplications) ?? currentPrimaryApplication
+        let others = menuApplications.filter { application in
+            application.id != primary?.id
+        } + otherApplications.filter { application in
+            application.id != primary?.id
+                && !menuApplications.contains(where: { $0.id == application.id })
+        }
+        let menu = makeMenu(primaryApplication: primary, otherApplications: others)
+        if let event = NSApp.currentEvent, let contentView = event.window?.contentView {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
+        } else {
+            menu.popUp(positioning: nil as NSMenuItem?, at: NSEvent.mouseLocation, in: nil as NSView?)
+        }
+    }
+
+    private func makeMenu(
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        if let primaryApplication {
+            menu.addItem(menuItem(
+                title: openInTitle(primaryApplication.displayName),
+                applicationURL: primaryApplication.url
+            ))
+
+            if !otherApplications.isEmpty {
+                menu.addItem(.separator())
+                let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+                openWithMenu.autoenablesItems = false
+                for application in otherApplications {
+                    openWithMenu.addItem(menuItem(
+                        title: application.displayName,
+                        applicationURL: application.url
+                    ))
+                }
+                let openWithItem = NSMenuItem(
+                    title: FileExternalOpenText.openWithMenu,
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                openWithItem.submenu = openWithMenu
+                menu.addItem(openWithItem)
+            }
+        } else {
+            menu.addItem(menuItem(title: FileExternalOpenText.openExternally, applicationURL: nil))
+        }
+
+        return menu
+    }
+
+    private func menuItem(title: String, applicationURL: URL?) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+            keyEquivalent: ""
+        )
+        item.target = FileExternalOpenMenuActionTarget.shared
+        item.representedObject = FileExternalOpenMenuActionPayload(
+            fileURL: fileURL,
+            applicationURL: applicationURL
+        )
+        return item
+    }
 }
 
 private struct FileExternalOpenHeaderMenuButton: View {
@@ -269,13 +336,13 @@ private struct FileExternalOpenHeaderMenuButton: View {
         if let event = NSApp.currentEvent,
            let contentView = event.window?.contentView {
             let point = contentView.convert(event.locationInWindow, from: nil)
-            menu.popUp(positioning: nil, at: point, in: contentView)
+            menu.popUp(positioning: nil as NSMenuItem?, at: point, in: contentView)
             return
         }
 
         guard let contentView = NSApp.keyWindow?.contentView else { return }
         menu.popUp(
-            positioning: nil,
+            positioning: nil as NSMenuItem?,
             at: NSPoint(x: contentView.bounds.maxX - 24, y: contentView.bounds.maxY - 32),
             in: contentView
         )
@@ -1125,12 +1192,12 @@ struct FilePreviewPanelView: View {
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
 
-    private var themeBackgroundColor: NSColor {
-        appearance.backgroundColor
-    }
-
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
+    }
+
+    private var contentBackgroundColor: NSColor {
+        appearance.contentBackgroundColor
     }
 
     var body: some View {
@@ -1142,7 +1209,7 @@ struct FilePreviewPanelView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clear)
+        .background(Color(nsColor: contentBackgroundColor))
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -1196,17 +1263,38 @@ struct FilePreviewPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: .clear,
-                    themeForegroundColor: themeForegroundColor
+                    themeBackgroundColor: contentBackgroundColor,
+                    themeForegroundColor: themeForegroundColor,
+                    drawsBackground: appearance.drawsContentBackground
                 )
             case .pdf:
-                FilePreviewPDFView(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewPDFView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             case .image:
-                FilePreviewImageView(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewImageView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             case .media:
-                FilePreviewMediaView(panel: panel, isVisibleInUI: isVisibleInUI)
+                FilePreviewMediaView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             case .quickLook:
-                QuickLookPreviewView(panel: panel, isVisibleInUI: isVisibleInUI)
+                QuickLookPreviewView(
+                    panel: panel,
+                    isVisibleInUI: isVisibleInUI,
+                    backgroundColor: contentBackgroundColor,
+                    drawsBackground: appearance.drawsContentBackground
+                )
             }
         }
     }
@@ -1260,10 +1348,13 @@ struct FilePreviewPanelView: View {
 private struct FilePreviewPDFView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeNSView(context: Context) -> FilePreviewPDFContainerView {
         let view = FilePreviewPDFContainerView()
         view.isHidden = !isVisibleInUI
+        view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
         view.setURL(panel.fileURL)
         return view
@@ -1271,6 +1362,7 @@ private struct FilePreviewPDFView: NSViewRepresentable {
 
     func updateNSView(_ nsView: FilePreviewPDFContainerView, context: Context) {
         nsView.isHidden = !isVisibleInUI
+        nsView.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         nsView.setPanel(panel)
         nsView.setURL(panel.fileURL)
     }
@@ -1496,7 +1588,7 @@ struct FilePreviewPDFZoomChromeView: View {
                 zoomButtons(includeDividers: false)
                 secondaryButtons(includeDividers: false)
                 if let fileURL {
-                    FileExternalOpenMenu(fileURL: fileURL)
+                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
                 }
             } label: {
                 Label(
@@ -1523,8 +1615,8 @@ struct FilePreviewPDFZoomChromeView: View {
                     HStack(spacing: 0) {
                         FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
                     }
-                    .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-                    .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
+                    .frame(width: 40, height: 40)
+                    .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
                 }
             }
         }
@@ -1696,6 +1788,7 @@ struct FilePreviewPDFChromeStyleModifier: ViewModifier {
             content
                 .buttonStyle(.borderless)
                 .controlSize(.regular)
+                .foregroundStyle(Color.secondary)
         }
     }
 
@@ -1755,6 +1848,76 @@ struct FilePreviewPDFChromeStyleModifier: ViewModifier {
             .background(material, in: Capsule())
             .overlay {
                 Capsule()
+                    .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
+            }
+    }
+}
+
+struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
+    let variant: FilePreviewPDFChromeStyleVariant
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch variant {
+        case .systemControlGroup:
+            content
+                .buttonStyle(.automatic)
+                .controlSize(.regular)
+        case .liquidGlass:
+            liquidGlassChrome(content: content)
+        case .materialCapsule:
+            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.5)
+        case .borderedCapsule:
+            materialChrome(content: content, material: .ultraThinMaterial, strokeOpacity: 0.55)
+        case .thinOutline:
+            materialChrome(content: content, material: .thinMaterial, strokeOpacity: 0.75)
+        case .plainToolbar:
+            content
+                .buttonStyle(.borderless)
+                .controlSize(.regular)
+                .foregroundStyle(Color.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func liquidGlassChrome(content: Content) -> some View {
+        #if compiler(>=6.3)
+        if #available(macOS 26.0, *) {
+            content
+                .buttonStyle(.borderless)
+                .controlSize(.regular)
+                .foregroundStyle(Color.secondary)
+                .glassEffect(.regular, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.24), lineWidth: 0.85)
+                }
+                .shadow(color: Color.black.opacity(0.18), radius: 8, y: 1)
+        } else {
+            materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
+        }
+        #else
+        materialChrome(content: content, material: .regularMaterial, strokeOpacity: 0.28)
+        #endif
+    }
+
+    private func materialChrome(
+        content: Content,
+        material: Material,
+        strokeOpacity: Double
+    ) -> some View {
+        content
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
+            .foregroundStyle(Color.secondary)
+            .background {
+                Circle()
+                    .fill(material)
+                Circle()
+                    .fill(Color.white.opacity(0.04))
+            }
+            .overlay {
+                Circle()
                     .stroke(Color(nsColor: .separatorColor).opacity(strokeOpacity), lineWidth: 0.5)
             }
     }
@@ -2150,7 +2313,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
-        static let floatingControlsWidth: CGFloat = 318
+        static let floatingControlsWidth: CGFloat = 344
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
@@ -2185,10 +2348,25 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var activePDFRegion: FilePreviewPanelFocusIntent?
     private weak var observedPDFClipView: NSClipView?
     private var rotationAccumulator: CGFloat = 0
+    private var previewBackgroundColor = NSColor.textBackgroundColor
+    private var drawsPreviewBackground = true
+    private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
     private static let documentLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.pdf-document-load",
         qos: .userInitiated
     )
+
+    private struct PDFScrollBackgroundAppearance {
+        let hostIdentifiers: Set<ObjectIdentifier>
+        let backgroundColor: NSColor
+        let drawsBackground: Bool
+
+        func matches(_ other: PDFScrollBackgroundAppearance) -> Bool {
+            hostIdentifiers == other.hostIdentifiers
+                && drawsBackground == other.drawsBackground
+                && backgroundColor.isEqual(other.backgroundColor)
+        }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2212,6 +2390,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     override func layout() {
         super.layout()
+        applyBackgroundAppearance()
         if !didSetInitialSidebarWidth, bounds.width > 0 {
             didSetInitialSidebarWidth = true
             let initialWidth = clampedSidebarWidth(lastSidebarWidth)
@@ -2234,6 +2413,14 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     func setPanel(_ panel: FilePreviewPanel) {
         self.panel = panel
         registerFocusEndpoint()
+    }
+
+    func setBackgroundAppearance(backgroundColor: NSColor, drawsBackground: Bool) {
+        guard previewBackgroundColor != backgroundColor || drawsPreviewBackground != drawsBackground else { return }
+        previewBackgroundColor = backgroundColor
+        drawsPreviewBackground = drawsBackground
+        invalidatePDFScrollBackgroundAppearance()
+        applyBackgroundAppearance()
     }
 
     func setURL(_ url: URL) {
@@ -2282,6 +2469,8 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         updateSidebarContent()
         applyPreferredSidebarWidthIfNeeded()
         updatePageControls(scrollThumbnailToVisible: false)
+        invalidatePDFScrollBackgroundAppearance()
+        applyBackgroundAppearance()
         refreshPDFSmartFitWithoutViewportRestore()
     }
 
@@ -2291,11 +2480,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         setupSidebar()
         setupPDFView()
         setupFloatingChrome()
+        applyBackgroundAppearance()
 
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.displaysPageBreaks = true
-        pdfView.backgroundColor = .textBackgroundColor
         pdfView.minScaleFactor = 0.1
         pdfView.maxScaleFactor = 8.0
         pdfView.onMagnify = { [weak self] event in
@@ -2419,7 +2608,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
     private func setupPDFView() {
         contentHost.wantsLayer = true
-        contentHost.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         pdfView.translatesAutoresizingMaskIntoConstraints = false
         pdfView.onFocusChanged = { [weak self] isActive in
             self?.setActivePDFRegion(isActive ? .pdfCanvas : nil)
@@ -2431,6 +2619,57 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             pdfView.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
             pdfView.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
         ])
+    }
+
+    private func applyBackgroundAppearance() {
+        FilePreviewNativeBackground.applyRootLayer(
+            to: self,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        FilePreviewNativeBackground.applyRootLayer(
+            to: contentHost,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        pdfView.backgroundColor = resolvedBackgroundColor
+        let scrollBackgroundAppearance = currentPDFScrollBackgroundAppearance(
+            resolvedBackgroundColor: resolvedBackgroundColor
+        )
+        guard shouldApplyPDFScrollBackground(scrollBackgroundAppearance) else { return }
+        FilePreviewNativeBackground.applyScrollBackgrounds(
+            in: pdfView,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        lastAppliedPDFScrollBackgroundAppearance = scrollBackgroundAppearance
+    }
+
+    private func invalidatePDFScrollBackgroundAppearance() {
+        lastAppliedPDFScrollBackgroundAppearance = nil
+    }
+
+    private func currentPDFScrollBackgroundAppearance(
+        resolvedBackgroundColor: NSColor
+    ) -> PDFScrollBackgroundAppearance {
+        var hostIdentifiers = FilePreviewNativeBackground.scrollBackgroundHostIdentifiers(in: pdfView)
+        if hostIdentifiers.isEmpty {
+            hostIdentifiers.insert(ObjectIdentifier(pdfView))
+        }
+        return PDFScrollBackgroundAppearance(
+            hostIdentifiers: hostIdentifiers,
+            backgroundColor: resolvedBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+    }
+
+    private func shouldApplyPDFScrollBackground(_ appearance: PDFScrollBackgroundAppearance) -> Bool {
+        guard let lastAppliedPDFScrollBackgroundAppearance else { return true }
+        return !lastAppliedPDFScrollBackgroundAppearance.matches(appearance)
     }
 
     private func setupFloatingChrome() {
@@ -2464,6 +2703,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         chromeHost.addSubview(titleStack)
 
+        let zoomWidthConstraint = zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth)
+        zoomWidthConstraint.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             sidebarChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             sidebarChromeHost.leadingAnchor.constraint(equalTo: chromeHost.leadingAnchor, constant: 10),
@@ -2472,7 +2714,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 
             zoomChromeHost.topAnchor.constraint(equalTo: chromeHost.topAnchor, constant: 10),
             zoomChromeHost.trailingAnchor.constraint(equalTo: chromeHost.trailingAnchor, constant: -10),
-            zoomChromeHost.widthAnchor.constraint(equalToConstant: Metrics.floatingControlsWidth),
+            zoomWidthConstraint,
             zoomChromeHost.heightAnchor.constraint(equalToConstant: Metrics.floatingChromeHeight),
 
             titleStack.leadingAnchor.constraint(equalTo: sidebarChromeHost.trailingAnchor, constant: 12),
@@ -3241,10 +3483,13 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
 private struct FilePreviewImageView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeNSView(context: Context) -> FilePreviewImageContainerView {
         let view = FilePreviewImageContainerView()
         view.isHidden = !isVisibleInUI
+        view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         view.setPanel(panel)
         view.setURL(panel.fileURL)
         return view
@@ -3252,6 +3497,7 @@ private struct FilePreviewImageView: NSViewRepresentable {
 
     func updateNSView(_ nsView: FilePreviewImageContainerView, context: Context) {
         nsView.isHidden = !isVisibleInUI
+        nsView.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
         nsView.setPanel(panel)
         nsView.setURL(panel.fileURL)
     }
@@ -3331,6 +3577,8 @@ private final class FilePreviewImageContainerView: NSView {
     private var isFitMode = true
     private var rotationDegrees = 0
     private var rotationAccumulator: CGFloat = 0
+    private var previewBackgroundColor = NSColor.textBackgroundColor
+    private var drawsPreviewBackground = true
     private static let imageLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.image-load",
         qos: .userInitiated
@@ -3355,6 +3603,7 @@ private final class FilePreviewImageContainerView: NSView {
 
     override func layout() {
         super.layout()
+        applyBackgroundAppearance()
         if isFitMode {
             scale = fitScale()
         }
@@ -3377,6 +3626,13 @@ private final class FilePreviewImageContainerView: NSView {
     func setPanel(_ panel: FilePreviewPanel) {
         self.panel = panel
         registerFocusEndpoint()
+    }
+
+    func setBackgroundAppearance(backgroundColor: NSColor, drawsBackground: Bool) {
+        guard previewBackgroundColor != backgroundColor || drawsPreviewBackground != drawsBackground else { return }
+        previewBackgroundColor = backgroundColor
+        drawsPreviewBackground = drawsBackground
+        applyBackgroundAppearance()
     }
 
     func setURL(_ url: URL) {
@@ -3435,8 +3691,6 @@ private final class FilePreviewImageContainerView: NSView {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
         scrollView.documentView = documentView
         scrollView.onMagnify = { [weak self] event in
             let factor = 1.0 + event.magnification
@@ -3476,6 +3730,23 @@ private final class FilePreviewImageContainerView: NSView {
             chromeHost.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
             chromeHost.heightAnchor.constraint(equalToConstant: 40),
         ])
+        applyBackgroundAppearance()
+    }
+
+    private func applyBackgroundAppearance() {
+        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        FilePreviewNativeBackground.applyRootLayer(
+            to: self,
+            backgroundColor: previewBackgroundColor,
+            drawsBackground: drawsPreviewBackground
+        )
+        scrollView.drawsBackground = drawsPreviewBackground
+        scrollView.backgroundColor = resolvedBackgroundColor
+        scrollView.contentView.drawsBackground = drawsPreviewBackground
+        scrollView.contentView.backgroundColor = resolvedBackgroundColor
     }
 
     @objc private func zoomOut() {
@@ -3954,6 +4225,8 @@ private final class FilePreviewMagnifyingImageView: NSImageView {
 private struct FilePreviewMediaView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -3965,6 +4238,11 @@ private struct FilePreviewMediaView: NSViewRepresentable {
         playerView.controlsStyle = .floating
         playerView.showsFullScreenToggleButton = true
         playerView.videoGravity = .resizeAspect
+        Self.applyBackgroundAppearance(
+            to: playerView,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
         panel.attachPreviewFocus(root: playerView, primaryResponder: playerView, intent: .mediaPlayer)
         context.coordinator.update(playerView: playerView, url: panel.fileURL)
         return playerView
@@ -3972,8 +4250,25 @@ private struct FilePreviewMediaView: NSViewRepresentable {
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.isHidden = !isVisibleInUI
+        Self.applyBackgroundAppearance(
+            to: nsView,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
         panel.attachPreviewFocus(root: nsView, primaryResponder: nsView, intent: .mediaPlayer)
         context.coordinator.update(playerView: nsView, url: panel.fileURL)
+    }
+
+    private static func applyBackgroundAppearance(
+        to playerView: AVPlayerView,
+        backgroundColor: NSColor,
+        drawsBackground: Bool
+    ) {
+        FilePreviewNativeBackground.applyRootLayer(
+            to: playerView,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     final class Coordinator {
@@ -3998,25 +4293,49 @@ private struct FilePreviewMediaView: NSViewRepresentable {
 private struct QuickLookPreviewView: NSViewRepresentable {
     let panel: FilePreviewPanel
     let isVisibleInUI: Bool
+    let backgroundColor: NSColor
+    let drawsBackground: Bool
 
     func makeNSView(context: Context) -> NSView {
         guard let previewView = QLPreviewView(frame: .zero, style: .normal) else {
             let view = NSView()
             view.isHidden = !isVisibleInUI
+            Self.applyBackgroundAppearance(
+                to: view,
+                backgroundColor: backgroundColor,
+                drawsBackground: drawsBackground
+            )
             return view
         }
         previewView.isHidden = !isVisibleInUI
         previewView.autostarts = true
         panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
         previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
+        Self.applyBackgroundAppearance(
+            to: previewView,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
         return previewView
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         nsView.isHidden = !isVisibleInUI
-        guard let previewView = nsView as? QLPreviewView else { return }
+        guard let previewView = nsView as? QLPreviewView else {
+            Self.applyBackgroundAppearance(
+                to: nsView,
+                backgroundColor: backgroundColor,
+                drawsBackground: drawsBackground
+            )
+            return
+        }
         panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
         previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
+        Self.applyBackgroundAppearance(
+            to: previewView,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -4029,6 +4348,18 @@ private struct QuickLookPreviewView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
+    }
+
+    private static func applyBackgroundAppearance(
+        to view: NSView,
+        backgroundColor: NSColor,
+        drawsBackground: Bool
+    ) {
+        FilePreviewNativeBackground.applyRootLayer(
+            to: view,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     final class Coordinator {
