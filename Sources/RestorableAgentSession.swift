@@ -417,7 +417,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         let decodeCommand = """
         cmux_agent_resume_script="$(printf '%s' \(shellSingleQuoted(encodedPath)) | base64 --decode 2>/dev/null || printf '%s' \(shellSingleQuoted(encodedPath)) | base64 -D 2>/dev/null)"; exec /bin/zsh "$cmux_agent_resume_script"
         """
-        let encodedInput = "/bin/zsh -lc \(shellSingleQuoted(decodeCommand))\n"
+        let encodedInput = "/bin/zsh -c \(shellSingleQuoted(decodeCommand))\n"
         return canUseInlineStartupInput(encodedInput) ? encodedInput : nil
     }
 

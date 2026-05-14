@@ -1820,7 +1820,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let input = try XCTUnwrap(snapshot.resumeStartupInput(temporaryDirectory: tempDir))
         XCTAssertLessThanOrEqual(input.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
         XCTAssertTrue(input.utf8.allSatisfy { $0 < 0x80 })
-        XCTAssertTrue(input.hasPrefix("/bin/zsh -lc '"))
+        XCTAssertTrue(input.hasPrefix("/bin/zsh -c '"))
         XCTAssertTrue(input.contains("base64"))
         XCTAssertFalse(input.contains(tempDir.path))
         XCTAssertFalse(input.contains(unicodeWorkingDirectory))
