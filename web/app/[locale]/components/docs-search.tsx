@@ -170,15 +170,14 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
     }
   }
 
-  const showResults = query.trim().length >= 2;
+  const showResults =
+    query.trim().length >= 2 && (status !== "loading" || results.length > 0);
   const statusMessage =
-    status === "loading"
-      ? t("loading")
-      : status === "error"
-        ? t("error")
-        : status === "ready" && results.length === 0
-          ? t("noResults")
-          : null;
+    status === "error"
+      ? t("error")
+      : status === "ready" && results.length === 0
+        ? t("noResults")
+        : null;
 
   return (
     <div className="pb-4" data-pagefind-ignore="all">
@@ -213,7 +212,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-activedescendant={
             activeIndex >= 0 ? `docs-search-result-${activeIndex}` : undefined
           }
-          className="w-full rounded-md border border-transparent bg-code-bg/60 py-1.5 pl-8 pr-3 text-[13px] transition-colors placeholder:text-muted/40 hover:bg-code-bg focus:border-border focus:bg-background focus:outline-none"
+          className="w-full rounded-md border border-transparent bg-code-bg/60 py-1.5 pl-8 pr-3 text-[13px] transition-colors placeholder:text-muted/40 hover:bg-code-bg focus:border-border focus:bg-code-bg focus:outline-none"
         />
       </div>
 
