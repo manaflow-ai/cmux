@@ -214,6 +214,7 @@
 		A5D41207A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */; };
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
 		A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */; };
+		A5D4120FA1B2C3D4E5F60718 /* CLILegacyHookInstallCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41210A1B2C3D4E5F60718 /* CLILegacyHookInstallCleanupTests.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
@@ -736,6 +737,7 @@
 		A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIGenericHookPersistenceTests.swift; sourceTree = "<group>"; };
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
 		A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookAliasTests.swift; sourceTree = "<group>"; };
+		A5D41210A1B2C3D4E5F60718 /* CLILegacyHookInstallCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookInstallCleanupTests.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		C0DE35530000000000000102 /* BundledCLILinkageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledCLILinkageTests.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
@@ -1527,6 +1529,7 @@
 					A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */,
 					A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */,
 					A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */,
+					A5D41210A1B2C3D4E5F60718 /* CLILegacyHookInstallCleanupTests.swift */,
 					A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */,
 					C0DE35530000000000000102 /* BundledCLILinkageTests.swift */,
 					C37800000000000000000002 /* VMSSHCommandTests.swift */,
@@ -2247,6 +2250,7 @@
 					A5D41207A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift in Sources */,
 					A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */,
 					A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */,
+					A5D4120FA1B2C3D4E5F60718 /* CLILegacyHookInstallCleanupTests.swift in Sources */,
 					A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
 					C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
 					C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,
