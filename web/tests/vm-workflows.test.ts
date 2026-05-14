@@ -404,6 +404,18 @@ describe("VM Effect workflows", () => {
     `;
     expect(oldVm?.status).toBe("destroyed");
     expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
+
+    const [{ destroyedUsageCount }] = await sql<{ destroyedUsageCount: string }[]>`
+      select count(*)::text as "destroyedUsageCount"
+      from cloud_vm_usage_events
+      where provider = 'freestyle'
+        and event_type = 'vm.destroyed'
+        and vm_id in (
+          select id from cloud_vms
+          where provider_vm_id = 'provider-vm-provider-deleted-old'
+        )
+    `;
+    expect(destroyedUsageCount).toBe("1");
   });
 
   dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {

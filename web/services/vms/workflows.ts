@@ -267,11 +267,23 @@ function refreshActiveLimitProviderStatuses(
         if (!providerStatus || providerStatus === "creating") return;
         const dbStatus = dbStatusFromProviderStatus(providerStatus);
         if (dbStatus === vm.status) return;
-        yield* repo.markProviderObservedStatus({
+        const didUpdate = yield* repo.markProviderObservedStatus({
           id: vm.id,
           providerVmId,
           status: dbStatus,
-        }).pipe(Effect.catchAll(() => Effect.void));
+        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (didUpdate && dbStatus === "destroyed") {
+          yield* repo.recordUsageEvent({
+            userId: vm.userId,
+            billingTeamId: vm.billingTeamId,
+            billingPlanId: vm.billingPlanId,
+            vmId: vm.id,
+            eventType: "vm.destroyed",
+            provider: vm.provider,
+            imageId: vm.imageId,
+            metadata: { source: "provider_status_refresh" },
+          }).pipe(Effect.catchAll(() => Effect.void));
+        }
       });
     }, { concurrency: "unbounded", discard: true });
   });
