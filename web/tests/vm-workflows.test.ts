@@ -16,6 +16,7 @@ import {
   VmCreateInProgressError,
   VmLimitExceededError,
   VmNotFoundError,
+  VmProviderOperationError,
 } from "../services/vms/errors";
 import {
   createVm,
@@ -336,6 +337,73 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-provider-paused-old'
     `;
     expect(oldVm?.status).toBe("paused");
+  });
+
+  dbTest("marks provider-deleted Freestyle rows destroyed before active limit enforcement", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-provider-deleted-old', 'team-workflow-provider-deleted', 'free', 'freestyle', 'provider-vm-provider-deleted-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-provider-deleted-new",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.suspend(() => {
+          statusCalls += 1;
+          const deleted = new Error(
+            "VM_DELETED: Vm provider-vm-provider-deleted-old is marked as deleted but still exists in the database",
+          );
+          deleted.name = "VmDeletedError";
+          return Effect.fail(new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "getStatus",
+            cause: deleted,
+          }));
+        }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-provider-deleted-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-deleted",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-deleted-new",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-provider-deleted-new");
+    expect(statusCalls).toBe(1);
+    expect(createCalls).toBe(1);
+
+    const [oldVm] = await sql<{ status: string; destroyedAt: Date | null }[]>`
+      select status, destroyed_at as "destroyedAt" from cloud_vms
+      where provider_vm_id = 'provider-vm-provider-deleted-old'
+    `;
+    expect(oldVm?.status).toBe("destroyed");
+    expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
   });
 
   dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {
