@@ -8698,6 +8698,18 @@ final class Workspace: Identifiable, ObservableObject {
                 shellState: state
             )
         }
+
+        // Bridge terminal shell activity to the tab-level loading indicator so
+        // renamed terminal tabs still show a spinner when a command is running.
+        if panels[panelId] is TerminalPanel,
+           let tabId = surfaceIdFromPanelId(panelId),
+           let existing = bonsplitController.tab(tabId) {
+            let isLoading = state == .commandRunning
+            if existing.isLoading != isLoading {
+                bonsplitController.updateTab(tabId, isLoading: isLoading)
+            }
+        }
+
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -13824,7 +13836,7 @@ extension Workspace: BonsplitDelegate {
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
                 kind: surfaceKind(for: panel),
-                isLoading: browserPanel?.isLoading ?? false,
+                isLoading: browserPanel?.isLoading ?? (panelShellActivityStates[panelId] == .commandRunning),
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
                 ttyName: surfaceTTYNames[panelId],
