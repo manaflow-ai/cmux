@@ -4,7 +4,7 @@ Read this first when starting any session on `feat-chromium-engine`. Append a ne
 
 ## Next steps (always current)
 
-- [ ] Confirm the `:base` smoke build finished green on `cmux-aws-mac` (started 2026-05-14 session 1). Check `cat ~/chromium-fork/build-base.log` and that `ninja: build stopped` is absent. If failed, debug toolchain (Xcode CLT path, sysroot) before proceeding.
+- [x] Confirm the `:base` smoke build finished green on `cmux-aws-mac`. ✅ 2026-05-14 session 1: `1m33.11s Build Succeeded: 2192 steps - 23.54/s` in `~/chromium-fork/build-base.log`. Toolchain validated end-to-end.
 - [ ] Build `content_shell` next: `./scripts/chromium-build-host.sh build content_shell`. Roughly 30-60 min on M1 Ultra at -j16. This is upstream's minimal embedder; if it builds, the fork's `cmux_core_framework` target will too.
 - [ ] Wire CmuxBrowserEngine into `GhosttyTabs.xcodeproj` so cmux's main target picks it up. Today the package compiles standalone but isn't a dependency. Pattern: see how `Packages/CMUXAuthCore` is referenced in `project.pbxproj`.
 - [ ] Continue Packages/CmuxBrowserEngine expansions from `plans/wkwebview-surface-audit.md` "Migration order recommended". DONE so far: KVO/Combine mirrors, pageZoom. NEXT: CmuxDataStore + CmuxCookieStore (wraps `WKWebsiteDataStore(forIdentifier:)` and `httpCookieStore` — see `Sources/Panels/BrowserPanel.swift:383-3010` for the cmux-specific profile/data-store dance that needs neutralizing).
@@ -85,9 +85,24 @@ User set `/goal i have reviewed it, use your best judgment and implement fully` 
 - Wrote `plans/cmux-embedder-c-abi.md` (C ABI sketch the cmux Chromium fork will export).
 - Kicked off `gclient sync` on `cmux-aws-mac`. First attempt died because macOS `nohup` doesn't support ssh-exec heredoc (no real tty). Fixed the script to use the subshell-then-background pattern, restarted. **Fetch completed: 26 GB, all runhooks ran, exit clean.**
 - Ran `gn gen out/cmux_release`: success, 27,361 targets parsed from 4,064 .gn files.
-- Kicked off `:base` smoke build via `autoninja` in a detached subshell; monitor armed. (Outcome captured in `~/chromium-fork/build-base.log`; check on session-2 entry.)
+- Kicked off `:base` smoke build via `autoninja` in a detached subshell. **Result: `1m33.11s Build Succeeded: 2192 steps - 23.54/s`.** Toolchain validated: Xcode CLT, sysroot, siso, ANGLE shaders, base/ all compile. Artifact `out/cmux_release/obj/base/...` confirmed.
 - **Did not** create `manaflow-ai/cmux-chromium` GitHub repo (needs user OK).
 - **Did not** wire CmuxBrowserEngine into `GhosttyTabs.xcodeproj` (pbxproj edits are touchy; deferred).
-- Pushed five commits to `feat-chromium-engine`; draft PR #4159 has them.
+- **Did not** implement the Chromium backend. `ChromiumBrowserBackend` is still the documented stub.
+- **Did not** take screenshots of Chromium-in-cmux (cannot — backend unimplemented, package unwired).
+- Pushed six commits to `feat-chromium-engine`; draft PR #4159 has them.
 
-Next session: see "Next steps" above. Start by verifying the `:base` build finished green.
+### What session 1 proved vs did not prove
+
+Proved:
+- Engine-neutral Swift wrapper compiles and tests pass against WebKit backend (19/19, 0 warnings, swift 6 strict).
+- Chromium toolchain on `cmux-aws-mac` is sound: fetch (26 GB) → `gn gen` (27,361 targets) → `autoninja :base` (clean build) all green.
+- The architectural seam (CmuxBrowserEngine package + backend protocol + Chromium stub) is shaped so a Chromium backend can drop in without touching cmux call sites.
+
+Did NOT prove:
+- The Chromium backend works. It's a `fatalError` stub.
+- CmuxBrowserEngine is reachable from cmux. `GhosttyTabs.xcodeproj` does not depend on the package yet.
+- Anything renders inside cmux from Chromium. No screenshots possible until P1-P3 land.
+- The fork repo exists. `manaflow-ai/cmux-chromium` is not created; the embedder C ABI is design-only.
+
+Next session: see "Next steps" above. Start with `content_shell` build to validate the wider Chromium target graph before the fork-specific `cmux_core_framework` target.
