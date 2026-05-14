@@ -181,7 +181,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           : null;
 
   return (
-    <div className="px-3 pb-4" data-pagefind-ignore="all">
+    <div className="pb-4" data-pagefind-ignore="all">
       <div className="relative">
         <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted/40">
           <svg
