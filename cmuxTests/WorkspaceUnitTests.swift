@@ -2468,6 +2468,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             cachedTitle: nil,
             customTitle: nil,
             manuallyUnread: false,
+            restoredUnread: false,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             agentRuntime: nil,
