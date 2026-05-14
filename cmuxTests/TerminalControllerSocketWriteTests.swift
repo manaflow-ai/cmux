@@ -77,3 +77,78 @@ final class TerminalControllerSocketWriteTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class CodexTranscriptMonitorSessionTests: XCTestCase {
+    func testTaskStartedWithoutTurnDoesNotClearAssistantMessageForMonitoredTurn() throws {
+        let transcriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-monitor-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: transcriptURL) }
+
+        let turnId = "turn-target"
+        try writeTranscript(
+            [
+                eventLine(type: "task_started", payload: ["turn_id": turnId]),
+                [
+                    "type": "response_item",
+                    "payload": [
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [["text": "done"]]
+                    ]
+                ],
+                eventLine(type: "task_started", payload: [:]),
+                eventLine(type: "task_complete", payload: ["turn_id": turnId])
+            ],
+            to: transcriptURL
+        )
+
+        let sessionId = "session-1"
+        var events: [CodexTranscriptMonitorEvent] = []
+        var finishedSessionIds: [String] = []
+        let session = CodexTranscriptMonitorSession(
+            request: CodexTranscriptMonitorRequest(
+                workspaceId: UUID(),
+                surfaceId: nil,
+                sessionId: sessionId,
+                turnId: turnId,
+                transcriptPath: transcriptURL.path,
+                codexHome: nil
+            ),
+            queue: DispatchQueue(label: "com.cmux.tests.codex-transcript-monitor"),
+            onEvent: { events.append($0) },
+            onFinish: { finishedSessionId, _ in finishedSessionIds.append(finishedSessionId) }
+        )
+        defer { session.cancel() }
+
+        session.start()
+
+        XCTAssertEqual(finishedSessionIds, [sessionId])
+        XCTAssertTrue(events.contains { event in
+            if case .completion = event {
+                return true
+            }
+            return false
+        })
+        XCTAssertFalse(events.contains { event in
+            if case .failure = event {
+                return true
+            }
+            return false
+        })
+    }
+
+    private static func eventLine(type: String, payload: [String: Any]) -> [String: Any] {
+        var eventPayload = payload
+        eventPayload["type"] = type
+        return ["type": "event_msg", "payload": eventPayload]
+    }
+
+    private func writeTranscript(_ objects: [[String: Any]], to url: URL) throws {
+        let lines = try objects.map { object in
+            let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            return try XCTUnwrap(String(data: data, encoding: .utf8))
+        }
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+}

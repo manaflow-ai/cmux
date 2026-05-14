@@ -240,8 +240,9 @@ final class CodexTranscriptMonitorSession {
 
         switch eventType {
         case "task_started":
-            updateRelevantTurn(payload: payload)
-            sawAssistantMessage = false
+            if updateRelevantTurn(payload: payload) {
+                sawAssistantMessage = false
+            }
 
         case "request_user_input":
             if let userInput = userInputEventCandidate(from: payload) {
@@ -289,18 +290,20 @@ final class CodexTranscriptMonitorSession {
         }
     }
 
-    private func updateRelevantTurn(payload: [String: Any], onlyWhenMatching: Bool = false) {
+    @discardableResult
+    private func updateRelevantTurn(payload: [String: Any], onlyWhenMatching: Bool = false) -> Bool {
         guard let requestTurnId = CodexTranscriptMonitorParser.normalizedValue(request.turnId) else {
             sawRelevantTurn = true
-            return
+            return true
         }
         guard let payloadTurnId = CodexTranscriptMonitorParser.firstString(in: payload, keys: ["turn_id", "turnId"]) else {
-            if !onlyWhenMatching {
-                sawRelevantTurn = false
-            }
-            return
+            return false
         }
-        sawRelevantTurn = payloadTurnId == requestTurnId
+        let matches = payloadTurnId == requestTurnId
+        if matches || !onlyWhenMatching {
+            sawRelevantTurn = matches
+        }
+        return matches
     }
 
     private func turnMatches(payload: [String: Any]) -> Bool {
