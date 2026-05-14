@@ -741,6 +741,51 @@ private final class ClaudeHookSessionStore {
         }
         return value
     }
+
+    /// Remove any Claude hook records bound to the same panel (workspaceId +
+    /// surfaceId) other than `keepSessionId`. Used after a `/clear` rotation
+    /// so the pre-clear session does not shadow the rotated one when session
+    /// autosave loads the index.
+    ///
+    /// Returns the session IDs that were removed (for telemetry / tests).
+    @discardableResult
+    func removePanelSiblings(
+        keepSessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws -> [String] {
+        let keep = normalizeSessionId(keepSessionId)
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        guard !keep.isEmpty, normalizedWorkspace != nil || normalizedSurface != nil else {
+            return []
+        }
+        return try withLockedState { state in
+            var removed: [String] = []
+            for (sid, record) in state.sessions {
+                guard sid != keep else { continue }
+                let recordWorkspace = normalizeOptional(record.workspaceId)
+                let recordSurface = normalizeOptional(record.surfaceId)
+                if let normalizedSurface, recordSurface != normalizedSurface {
+                    continue
+                }
+                if let normalizedWorkspace, recordWorkspace != normalizedWorkspace {
+                    continue
+                }
+                state.sessions.removeValue(forKey: sid)
+                removed.append(sid)
+            }
+            // If the active-session pointer still targets a removed record,
+            // clear it so later Stop/SessionEnd events cannot revive state
+            // that no longer has a matching session record.
+            if let normalizedWorkspace,
+               let active = state.activeSessionsByWorkspace[normalizedWorkspace],
+               removed.contains(active.sessionId) {
+                state.activeSessionsByWorkspace.removeValue(forKey: normalizedWorkspace)
+            }
+            return removed
+        }
+    }
 }
 
 private let codexHookWrapperProcessNames: Set<String> = [
@@ -16690,6 +16735,14 @@ struct CMUXCLI {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
+                //
+                // When it is a new active boundary (/clear or a stopped-session
+                // replacement), mark the record restorable immediately so
+                // session autosave can pick up the rotated sessionId before the
+                // first post-rotation turn writes a transcript. Otherwise the
+                // snapshot keeps pointing at the pre-clear session, which is
+                // exactly the one the user just abandoned, and
+                // `restore-session` resumes the wrong Claude transcript.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -16698,10 +16751,25 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     pid: claudePid,
                     launchCommand: launchCommand,
-                    isRestorable: false,
+                    isRestorable: shouldPromoteActiveSession ? true : false,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
+                if isClearSessionStart {
+                    // `/clear` abandons the previous session on the same panel.
+                    // Without pruning, both records linger with matching
+                    // (workspace, surface) and the older one can win on
+                    // autosave when updatedAt ordering flukes (e.g., a late
+                    // pre-clear Notification Stamp). Consume siblings on this
+                    // panel so only the rotated session remains restorable.
+                    pruneClaudeSessionSiblings(
+                        store: sessionStore,
+                        keepSessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        telemetry: telemetry
+                    )
+                }
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a
@@ -17198,6 +17266,41 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func pruneClaudeSessionSiblings(
+        store: ClaudeHookSessionStore,
+        keepSessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        do {
+            let removed = try store.removePanelSiblings(
+                keepSessionId: keepSessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
+            )
+            if !removed.isEmpty {
+                telemetry.breadcrumb(
+                    "claude-hook.clear.pruned-siblings",
+                    data: [
+                        "removed_count": removed.count,
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ]
+                )
+            }
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.clear.prune-siblings.error",
+                data: [
+                    "error": String(describing: error),
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                ]
+            )
+        }
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {

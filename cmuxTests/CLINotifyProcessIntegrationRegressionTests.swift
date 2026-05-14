@@ -73,6 +73,124 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeClearSessionStartMarksRotatedSessionRestorable() throws {
+        // Regression test: on `/clear`, Claude does not kill its process and
+        // does not emit `SessionEnd` for the pre-clear session. Without the
+        // fix, the rotated session is written to the hook store with
+        // `isRestorable=false`, so session autosave keeps pointing at the
+        // abandoned pre-clear session id and `restore-session` resumes the
+        // wrong Claude transcript. The rotated session must be immediately
+        // restorable so autosave can capture it before the first post-clear
+        // turn writes a transcript.
+        let context = try makeClaudeHookContext(name: "claude-clear-restorable")
+        defer { context.cleanup() }
+
+        let rotatedSessionId = "rotated-session"
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(rotatedSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let record = try readClaudeHookSession(rotatedSessionId, context: context)
+        XCTAssertEqual(
+            record["isRestorable"] as? Bool,
+            true,
+            "Clear SessionStart must be immediately restorable; otherwise autosave falls back to the pre-clear session id."
+        )
+    }
+
+    func testClaudeClearSessionStartPrunesPreClearSiblingOnSamePanel() throws {
+        // Regression test: `/clear` produces a new sessionId on the same panel.
+        // Without pruning, the pre-clear record lingers in the hook store, and
+        // because its transcript still exists on disk it stays restorable.
+        // Session autosave can then pick it over the rotated session if its
+        // `updatedAt` is fresher (e.g., a late pre-clear Stop/Notification
+        // hook). Pruning pre-clear siblings ensures the rotated session is
+        // the sole candidate for this panel.
+        let context = try makeClaudeHookContext(name: "claude-clear-prune")
+        defer { context.cleanup() }
+
+        let preClearSessionId = "pre-clear-session"
+        let rotatedSessionId = "post-clear-session"
+
+        let preClear = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(preClearSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(preClear.timedOut, preClear.stderr)
+        XCTAssertEqual(preClear.status, 0, preClear.stderr)
+
+        let rotated = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(rotatedSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(rotated.timedOut, rotated.stderr)
+        XCTAssertEqual(rotated.status, 0, rotated.stderr)
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNil(
+            savedSessions[preClearSessionId],
+            "Expected the pre-clear sibling on the same panel to be pruned, saw keys \(Array(savedSessions.keys))"
+        )
+        XCTAssertNotNil(
+            savedSessions[rotatedSessionId],
+            "Expected the rotated session to remain in the hook store"
+        )
+    }
+
+    func testClaudeClearSessionStartKeepsSiblingsOnDifferentPanels() throws {
+        // Pruning must be scoped to the panel the clear event targets.
+        // A sibling session bound to a *different* panel (e.g., another
+        // Claude tab in the same cmux window) must not be touched.
+        let context = try makeClaudeHookContext(name: "claude-clear-prune-scoped")
+        defer { context.cleanup() }
+
+        let otherPanelSessionId = "other-panel-session"
+        let otherSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let now = Date().timeIntervalSince1970
+        let seeded: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                otherPanelSessionId: [
+                    "sessionId": otherPanelSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": otherSurfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: seeded, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let rotatedSessionId = "rotated-session"
+        let rotated = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(rotatedSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(rotated.timedOut, rotated.stderr)
+        XCTAssertEqual(rotated.status, 0, rotated.stderr)
+
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNotNil(
+            savedSessions[otherPanelSessionId],
+            "Expected siblings on a different panel to survive a clear-rotation prune"
+        )
+        XCTAssertNotNil(savedSessions[rotatedSessionId])
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
