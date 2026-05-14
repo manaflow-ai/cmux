@@ -151,3 +151,18 @@ Continued under the same `/goal i have reviewed it, use your best judgment and i
 - `content_shell` itself building green end-to-end. Round 4 was in flight at session-2 close (last seen ~1252/20438 steps, no failures). Verify next session via `tail ~/chromium-fork/build-content-shell.log` and `ls ~/chromium-fork/src/out/cmux_release/Content\ Shell.app/Contents/MacOS/`. **If another forward-compat error fires**, follow the same patch-discipline: capture as a numbered patch under `patches/`, wire into `apply-patches`, restart.
 - CmuxBrowserEngine is still **not** linked into `GhosttyTabs.xcodeproj`. The package compiles in isolation but cmux's main target still uses raw WKWebView.
 - The Chromium backend is still a `fatalError` stub. No screenshots of "Chromium-in-cmux" possible until P1's impl files land in the fork.
+
+#### Strategic note for session 3
+
+The `patches/` directory grew from 1 entry (session 1's metal-toolchain xcrun-resolve) to 4 entries during session 2:
+
+  - 0001 metal-wrapper xcrun-resolve (ANGLE)
+  - 0002 webnn CoreML `MLMultiArrayDataType` default-branch
+  - 0003 ax inspect availability suppression (function-scoped)
+  - 0004 ax_platform_node_cocoa availability suppression (file-scoped)
+
+Patches 0002-0004 are all macOS-26-SDK forward-compat issues. The current checkout is at Chromium **main HEAD** (commit `72a51d14d794ce9211145ecc9b7464e222d40153`, a ChromeOS LKGM from 2026-04-16) — NOT at M148 stable (`refs/branch-heads/7204`) the build host script declares as its target branch.
+
+Hypothesis for session 3: **before chasing more SDK forward-compat patches, switch the checkout to `refs/branch-heads/7204` and re-run `gclient sync`.** M148 stable was tested against earlier SDKs and likely compiles cleanly under macOS 26.2 with only patch 0001 (the cryptex Metal-toolchain issue is OS-level, not chromium-version-specific). Cost: one git checkout + gclient sync (hours, but cached). Benefit: fewer patches to maintain across upstream rebases.
+
+If session 3 takes that path: `patches/0002`–`patches/0004` may be removable. Validate by attempting the build without them after the branch switch.

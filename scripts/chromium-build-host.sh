@@ -237,6 +237,36 @@ PYEOF
         echo "  applied: third_party/angle/.../metal_wrapper.py"
     fi
 
+    if [ -f "${patches_dir}/0004-ax-platform-node-cocoa-suppress-new-availability.patch" ]; then
+        local target="${REMOTE_CHROMIUM_ROOT}/src/ui/accessibility/platform/ax_platform_node_cocoa.mm"
+        echo ">> Applying ax_platform_node_cocoa file-scope availability suppression"
+        ssh -o BatchMode=yes "${REMOTE_HOST}" "python3 - <<'PY'
+import pathlib
+p = pathlib.Path('${target}')
+s = p.read_text()
+marker = '// cmux fork: macOS 26 SDK marks a number of NSAccessibility role'
+if marker in s:
+    print('already-applied (no-op)')
+else:
+    prefix = '''// cmux fork: macOS 26 SDK marks a number of NSAccessibility role and
+// attribute constants (WebAreaRole, BlockQuoteLevelAttribute,
+// VisitedAttribute, ...) as introduced in macOS 26.0. Chromium\\'s
+// deployment target is macOS 11.0, so they fire
+// -Werror,-Wunguarded-availability-new across this file. File-level
+// suppression is the pragmatic choice: this file is OS-level
+// accessibility plumbing and the new symbols just unblock the build.
+// Drop when upstream chromium @available-gates these references or
+// bumps the deployment target.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored \"-Wunguarded-availability-new\"
+
+'''
+    p.write_text(prefix + s + '\n#pragma clang diagnostic pop\n')
+    print('applied: ui/accessibility/platform/ax_platform_node_cocoa.mm')
+PY
+"
+    fi
+
     if [ -f "${patches_dir}/0003-ax-inspect-mac-suppress-new-availability.patch" ]; then
         local target="${REMOTE_CHROMIUM_ROOT}/src/ui/accessibility/platform/inspect/ax_inspect_utils_mac.mm"
         echo ">> Applying ax inspect availability-suppression patch"

@@ -28,3 +28,24 @@ Until the fork repo exists, the workflow is:
   suppresses `-Wunguarded-availability-new` in `IsValidAXAttribute`
   so the macOS 26-introduced `NSAccessibility*` attribute constants
   don't break the build when chromium's deployment target is 11.0.
+- `0004-ax-platform-node-cocoa-suppress-new-availability.patch` —
+  file-level suppression of the same diagnostic in
+  `ax_platform_node_cocoa.mm`, where ~6 spread-out usages would
+  require many per-function pragma pairs.
+
+## Strategic note for next session
+
+These availability-suppression patches (0003, 0004) and the SDK
+forward-compat patches (0001 metal, 0002 webnn) are accumulating
+because the current checkout is at Chromium **main HEAD** (commit
+`72a51d14d794ce9211145ecc9b7464e222d40153`, a ChromeOS LKGM from
+2026-04-16) rather than the **M148 stable branch** the build host
+script targets (`refs/branch-heads/7204`).
+
+The handoff plan was to repoint to `7204` once the fork repo lands.
+Doing it sooner — even before the fork repo exists — would likely
+eliminate most of the SDK-forward-compat noise because M148 stable
+was tested against earlier SDKs. The cost is one git checkout + a
+`gclient sync` (hours, but cached). The benefit is fewer patches to
+maintain. Worth investigating at the start of session 3 as an
+alternative to chasing every new failure.
