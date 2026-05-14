@@ -155,6 +155,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["opened"] as? Bool, true)
+        XCTAssertTrue(result["id"] is NSNull)
         XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
         XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
         XCTAssertEqual(result["is_read"] as? Bool, true)

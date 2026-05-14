@@ -21,6 +21,13 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+struct JumpToUnreadResult {
+    let notification: TerminalNotification?
+    let tabId: UUID
+    let surfaceId: UUID?
+    let isRead: Bool
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -10570,13 +10577,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
-    struct JumpToUnreadResult {
-        let notification: TerminalNotification?
-        let tabId: UUID
-        let surfaceId: UUID?
-        let isRead: Bool
-    }
-
     @discardableResult
     func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,
@@ -10624,7 +10624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return JumpToUnreadResult(
                     notification: nil,
                     tabId: tabId,
-                    surfaceId: manualUnreadJumpSurfaceId(forTabId: tabId) ?? surfaceId,
+                    surfaceId: surfaceId,
                     isRead: !notificationStore.hasManualUnread(forTabId: tabId)
                 )
             }
@@ -10651,8 +10651,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
         switch result {
-        case .deferredNotification(let notificationId):
-            return jumpToLatestUnread(excludingNotificationId: notificationId)
+        case .deferredNotification(let notificationId, let tabId):
+            return jumpToLatestUnread(
+                excludingNotificationId: notificationId,
+                excludingManualTabId: tabId
+            )
         case .markedWorkspaceWithoutNotification(let tabId):
             return jumpToLatestUnread(excludingManualTabId: tabId)
         }
@@ -10664,7 +10667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private enum FocusedNotificationMarkResult {
-        case deferredNotification(UUID)
+        case deferredNotification(notificationId: UUID, tabId: UUID)
         case markedWorkspaceWithoutNotification(UUID)
     }
 
@@ -10677,7 +10680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forTabId: target.tabId,
             surfaceId: target.surfaceId
         ) {
-            return .deferredNotification(notificationId)
+            return .deferredNotification(notificationId: notificationId, tabId: target.tabId)
         }
         return .markedWorkspaceWithoutNotification(target.tabId)
     }

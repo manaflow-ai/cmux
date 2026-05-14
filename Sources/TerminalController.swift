@@ -8207,7 +8207,7 @@ class TerminalController {
     }
 
     private func v2NotificationJumpToUnread() -> V2CallResult {
-        var jumpResult: AppDelegate.JumpToUnreadResult?
+        var jumpResult: JumpToUnreadResult?
         var payload: [String: Any] = [:]
         v2MainSync {
             jumpResult = AppDelegate.shared?.jumpToLatestUnreadTarget()
