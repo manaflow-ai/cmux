@@ -762,9 +762,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func scheduleExternalGeometrySynchronize() {
-        scheduleExternalGeometrySynchronize(
-            forceImmediate: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        )
+        scheduleExternalGeometrySynchronize(forceImmediate: true)
     }
 
     fileprivate func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
@@ -778,11 +776,26 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         hasExternalGeometrySyncScheduled = true
-        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || forceImmediate)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let performSync = {
-                if self.externalGeometrySyncGeneration != generation {
+                var shouldFlushLatestNow = forceImmediate
+                if !shouldFlushLatestNow {
+                    shouldFlushLatestNow = self.pendingExternalGeometrySyncRequiresImmediate
+                }
+                if !shouldFlushLatestNow {
+                    shouldFlushLatestNow = self.hostView.inLiveResize
+                }
+                if !shouldFlushLatestNow {
+                    shouldFlushLatestNow = self.window?.inLiveResize == true
+                }
+                if !shouldFlushLatestNow {
+                    shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+                }
+                // During sidebar/split drags, new geometry requests can arrive
+                // faster than this queued sync runs. Flush the latest visible
+                // frame instead of rescheduling behind the drag stream.
+                if self.externalGeometrySyncGeneration != generation, !shouldFlushLatestNow {
                     self.hasExternalGeometrySyncScheduled = false
                     let followUpRequiresImmediate = self.pendingExternalGeometrySyncRequiresImmediate
                     self.pendingExternalGeometrySyncRequiresImmediate = false
@@ -793,10 +806,23 @@ final class WindowTerminalPortal: NSObject {
                 self.pendingExternalGeometrySyncRequiresImmediate = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
             }
-            if requiresSettledLayout {
-                DispatchQueue.main.async(execute: performSync)
-            } else {
+            var shouldPerformNow = forceImmediate
+            if !shouldPerformNow {
+                shouldPerformNow = self.pendingExternalGeometrySyncRequiresImmediate
+            }
+            if !shouldPerformNow {
+                shouldPerformNow = self.hostView.inLiveResize
+            }
+            if !shouldPerformNow {
+                shouldPerformNow = self.window?.inLiveResize == true
+            }
+            if !shouldPerformNow {
+                shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+            }
+            if shouldPerformNow {
                 performSync()
+            } else {
+                DispatchQueue.main.async(execute: performSync)
             }
         }
     }
@@ -1199,9 +1225,7 @@ final class WindowTerminalPortal: NSObject {
         }
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
         // before the hosted view enters a window.
-        if !deferLayoutSynchronization {
-            hostedView.reconcileGeometryNow()
-        }
+        hostedView.reconcileGeometryNow()
 
         if hostedView.superview !== hostView {
 #if DEBUG
@@ -1229,9 +1253,11 @@ final class WindowTerminalPortal: NSObject {
 
         if deferLayoutSynchronization {
             // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
-            // must not force layout synchronously. Record the binding now and let
-            // the portal owner reconcile geometry after the current render turn.
-            scheduleExternalGeometrySynchronize(forceImmediate: false)
+            // must not force ancestor layout synchronously. Still reconcile the
+            // portal entry from already-current host geometry so resize/visibility
+            // does not lag until a later external observer turn.
+            synchronizeHostedView(withId: hostedId, syncLayout: false)
+            scheduleDeferredFullSynchronizeAll()
         } else {
             synchronizeHostedView(withId: hostedId)
             scheduleDeferredFullSynchronizeAll()
@@ -1239,20 +1265,24 @@ final class WindowTerminalPortal: NSObject {
         pruneDeadEntries()
     }
 
-    func synchronizeHostedViewForAnchor(_ anchorView: NSView) {
-        guard ensureInstalled() else { return }
-        synchronizeLayoutHierarchy()
+    func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
+        guard ensureInstalled(syncLayout: syncLayout) else { return }
+        if syncLayout {
+            synchronizeLayoutHierarchy()
+        } else {
+            _ = synchronizeHostFrameToReference()
+        }
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
         if let primaryHostedId {
-            synchronizeHostedView(withId: primaryHostedId)
+            synchronizeHostedView(withId: primaryHostedId, syncLayout: syncLayout)
         }
 
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        synchronizeAllHostedViews(excluding: primaryHostedId)
+        synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.anchorGeometrySync")
         scheduleDeferredFullSynchronizeAll()
     }
@@ -1279,14 +1309,18 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?) {
-        guard ensureInstalled() else { return }
-        synchronizeLayoutHierarchy()
+    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?, syncLayout: Bool = true) {
+        guard ensureInstalled(syncLayout: syncLayout) else { return }
+        if syncLayout {
+            synchronizeLayoutHierarchy()
+        } else {
+            _ = synchronizeHostFrameToReference()
+        }
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
-            synchronizeHostedView(withId: hostedId)
+            synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
         }
     }
 
@@ -1322,8 +1356,8 @@ final class WindowTerminalPortal: NSObject {
         return true
     }
 
-    private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
-        guard ensureInstalled() else { return }
+    private func synchronizeHostedView(withId hostedId: ObjectIdentifier, syncLayout: Bool = true) {
+        guard ensureInstalled(syncLayout: syncLayout) else { return }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2036,14 +2070,14 @@ enum TerminalWindowPortalRegistry {
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
     }
 
-    static func synchronizeForAnchor(_ anchorView: NSView) {
+    static func synchronizeForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
         guard let window = anchorView.window else { return }
-        let portal = portal(for: window)
-        portal.synchronizeHostedViewForAnchor(anchorView)
+        let portal = portal(for: window, syncLayout: syncLayout)
+        portal.synchronizeHostedViewForAnchor(anchorView, syncLayout: syncLayout)
     }
 
-    static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
-        existingPortal(for: window)?.scheduleExternalGeometrySynchronize()
+    static func scheduleExternalGeometrySynchronize(for window: NSWindow, forceImmediate: Bool = true) {
+        existingPortal(for: window)?.scheduleExternalGeometrySynchronize(forceImmediate: forceImmediate)
     }
 
     static func beginInteractiveGeometryResize() {
@@ -2054,19 +2088,23 @@ enum TerminalWindowPortalRegistry {
         interactiveGeometryResizeCount = max(0, interactiveGeometryResizeCount - 1)
     }
 
-    static func scheduleExternalGeometrySynchronizeForAllWindows() {
+    static func scheduleExternalGeometrySynchronizeForAllWindows(forceImmediate: Bool = true) {
         // Same latest-request-wins coalescing for callers that don't have a
         // concrete window handle yet.
         Self.externalGeometrySyncForAllWindowsGeneration &+= 1
         let generation = Self.externalGeometrySyncForAllWindowsGeneration
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
-        let isDragEvent = Self.isInteractiveGeometryResizeActive
+        let isDragEvent = forceImmediate || Self.isInteractiveGeometryResizeActive
         DispatchQueue.main.async {
             let performSync = {
-                if Self.externalGeometrySyncForAllWindowsGeneration != generation {
+                var shouldFlushLatestNow = isDragEvent
+                if !shouldFlushLatestNow {
+                    shouldFlushLatestNow = Self.isInteractiveGeometryResizeActive
+                }
+                if Self.externalGeometrySyncForAllWindowsGeneration != generation, !shouldFlushLatestNow {
                     Self.hasPendingExternalGeometrySyncForAllWindows = false
-                    Self.scheduleExternalGeometrySynchronizeForAllWindows()
+                    Self.scheduleExternalGeometrySynchronizeForAllWindows(forceImmediate: forceImmediate)
                     return
                 }
                 Self.hasPendingExternalGeometrySyncForAllWindows = false
@@ -2074,7 +2112,11 @@ enum TerminalWindowPortalRegistry {
                     portal.synchronizeAllEntriesFromExternalGeometryChange()
                 }
             }
-            if isDragEvent {
+            var shouldPerformNow = isDragEvent
+            if !shouldPerformNow {
+                shouldPerformNow = Self.isInteractiveGeometryResizeActive
+            }
+            if shouldPerformNow {
                 performSync()
             } else {
                 DispatchQueue.main.async(execute: performSync)

@@ -213,6 +213,11 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
+        let hasWorkspaceUnreadIndicator =
+            (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
+            (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
 
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
@@ -220,6 +225,8 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            isManuallyUnread: isWorkspaceManuallyUnread,
+            hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -310,6 +317,13 @@ extension Workspace {
             focusPanel(fallbackFocusedPanelId)
         } else {
             scheduleFocusReconcile()
+        }
+        let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
+        restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
+        if snapshot.hasUnreadIndicator == true {
+            AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
+        } else {
+            AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
     }
 
@@ -414,6 +428,9 @@ extension Workspace {
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
+        let hasUnreadIndicator =
+            restoredUnreadPanelIds.contains(panelId) ||
+            hasUnreadNotification(panelId: panelId)
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
@@ -429,6 +446,7 @@ extension Workspace {
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
+        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -469,6 +487,7 @@ extension Workspace {
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -484,18 +503,28 @@ extension Workspace {
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            rightSidebarToolSnapshot = nil
+        case .rightSidebarTool:
+            guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
         }
 
         return SessionPanelSnapshot(
@@ -506,13 +535,15 @@ extension Workspace {
             directory: directory,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
+            hasUnreadIndicator: hasUnreadIndicator,
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot,
-            filePreview: filePreviewSnapshot
+            filePreview: filePreviewSnapshot,
+            rightSidebarTool: rightSidebarToolSnapshot
         )
     }
 
@@ -843,6 +874,18 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: filePreviewPanel.id)
             return filePreviewPanel.id
+        case .rightSidebarTool:
+            guard let mode = snapshot.rightSidebarTool?.mode,
+                  mode.canOpenAsPane,
+                  let toolPanel = newRightSidebarToolSurface(
+                    inPane: paneId,
+                    mode: mode,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
+            return toolPanel.id
         }
     }
 
@@ -858,6 +901,11 @@ extension Workspace {
             markPanelUnread(panelId)
         } else {
             clearManualUnread(panelId: panelId)
+        }
+        if snapshot.hasUnreadIndicator == true {
+            restorePanelUnreadIndicator(panelId)
+        } else {
+            clearRestoredUnreadIndicator(panelId: panelId)
         }
 
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
@@ -895,6 +943,16 @@ extension Workspace {
                 _ = browserPanel.hideDeveloperTools()
             }
         }
+    }
+
+    private func restoreWorkspaceManualUnread(_ isManuallyUnread: Bool) {
+        guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
+        if isManuallyUnread {
+            notificationStore.markUnread(forTabId: id)
+        } else {
+            notificationStore.clearManualUnread(forTabId: id)
+        }
+        syncUnreadBadgeStateForAllPanels()
     }
 
     private func applySessionDividerPositions(
@@ -7176,6 +7234,30 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    func representativePanelIdForWorkspaceManualUnread() -> UUID? {
+        if let focusedPanelId, panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+
+        let selectedPanelsByPaneId = Dictionary(
+            uniqueKeysWithValues: bonsplitController.allPaneIds.compactMap { paneId -> (String, UUID)? in
+                guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+                      let panelId = panelIdFromSurfaceId(tabId),
+                      panels[panelId] != nil else {
+                    return nil
+                }
+                return (paneId.id.uuidString, panelId)
+            }
+        )
+
+        for paneId in SidebarBranchOrdering.orderedPaneIds(tree: bonsplitController.treeSnapshot()) {
+            guard let panelId = selectedPanelsByPaneId[paneId] else { continue }
+            return panelId
+        }
+
+        return sidebarOrderedPanelIds().first
+    }
+
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
@@ -7191,16 +7273,15 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     @Published var manualUnreadPanelIds: Set<UUID> = []
+    @Published private(set) var restoredUnreadPanelIds: Set<UUID> = []
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
-    nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
-    nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published private(set) var latestSubmittedMessage: String?
+    @Published private(set) var latestConversationMessage: String?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7289,7 +7370,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
-            sidebarObservationSignal($latestSubmittedMessage),
+            sidebarObservationSignal($latestConversationMessage),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -7369,6 +7450,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let browser = "browser"
         static let markdown = "markdown"
         static let filePreview = "filePreview"
+        static let rightSidebarTool = "rightSidebarTool"
     }
 
     enum PanelShellActivityState: String {
@@ -8019,6 +8101,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
+            guard let self, let browserPanel else { return }
+            guard self.panels[browserPanel.id] is BrowserPanel else { return }
+#if DEBUG
+            cmuxDebugLog(
+                "browser.close.requestedByPage ws=\(self.id.uuidString.prefix(5)) " +
+                "panel=\(browserPanel.id.uuidString.prefix(5))"
+            )
+#endif
+            _ = self.closePanel(browserPanel.id, force: true)
+        }
+    }
+
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
         tmuxWorkspaceFlashPanelId = panelId
         tmuxWorkspaceFlashReason = reason
@@ -8204,6 +8300,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.markdown
         case .filePreview:
             return SurfaceKind.filePreview
+        case .rightSidebarTool:
+            return SurfaceKind.rightSidebarTool
         }
     }
 
@@ -8240,7 +8338,8 @@ final class Workspace: Identifiable, ObservableObject {
         let notificationStore = AppDelegate.shared?.notificationStore
         let unreadPanelIDs = Set(
             panels.keys.filter {
-                notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: $0) ?? false
+                restoredUnreadPanelIds.contains($0) ||
+                    (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: $0) ?? false)
             }
         )
         return WorkspaceAttentionPersistentState(
@@ -8262,14 +8361,23 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let notificationStore = AppDelegate.shared?.notificationStore
         let shouldShowUnread = Self.shouldShowUnreadIndicator(
             hasUnreadNotification: hasUnreadNotification(panelId: panelId),
-            isManuallyUnread: manualUnreadPanelIds.contains(panelId)
+            hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
+            isWorkspaceManuallyUnread: notificationStore?.hasManualUnread(forTabId: id) ?? false,
+            isWorkspaceManualUnreadRepresentative: representativePanelIdForWorkspaceManualUnread() == panelId
         )
         if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
             return
         }
         bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
+    }
+
+    private func syncUnreadBadgeStateForAllPanels() {
+        for panelId in panels.keys {
+            syncUnreadBadgeStateForPanel(panelId)
+        }
     }
 
     private func normalizePinnedTabs(in paneId: PaneID) {
@@ -8407,7 +8515,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
-        guard manualUnreadPanelIds.insert(panelId).inserted else { return }
+        let didClearRestored = restoredUnreadPanelIds.remove(panelId) != nil
+        let didInsertManual = manualUnreadPanelIds.insert(panelId).inserted
+        guard didInsertManual || didClearRestored else { return }
         manualUnreadMarkedAt[panelId] = Date()
         syncUnreadBadgeStateForPanel(panelId)
     }
@@ -8415,36 +8525,53 @@ final class Workspace: Identifiable, ObservableObject {
     func markPanelRead(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
-        clearManualUnread(panelId: panelId)
+        _ = clearManualUnreadState(panelId: panelId)
+        _ = clearRestoredUnreadIndicatorState(panelId: panelId)
+        syncUnreadBadgeStateForPanel(panelId)
     }
 
     func clearManualUnread(panelId: UUID) {
+        let didRemoveManual = clearManualUnreadState(panelId: panelId)
+        let didRemoveRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
+        guard didRemoveManual || didRemoveRestored else { return }
+        syncUnreadBadgeStateForPanel(panelId)
+    }
+
+    private func clearManualUnreadState(panelId: UUID) -> Bool {
         let didRemoveUnread = manualUnreadPanelIds.remove(panelId) != nil
         manualUnreadMarkedAt.removeValue(forKey: panelId)
+        return didRemoveUnread
+    }
+
+    func restorePanelUnreadIndicator(_ panelId: UUID) {
+        guard panels[panelId] != nil else { return }
+        guard restoredUnreadPanelIds.insert(panelId).inserted else { return }
+        syncUnreadBadgeStateForPanel(panelId)
+    }
+
+    func clearRestoredUnreadIndicator(panelId: UUID) {
+        let didRemoveUnread = clearRestoredUnreadIndicatorState(panelId: panelId)
         guard didRemoveUnread else { return }
         syncUnreadBadgeStateForPanel(panelId)
     }
 
-    static func shouldClearManualUnread(
-        previousFocusedPanelId: UUID?,
-        nextFocusedPanelId: UUID,
-        isManuallyUnread: Bool,
-        markedAt: Date?,
-        now: Date = Date(),
-        sameTabGraceInterval: TimeInterval = manualUnreadFocusGraceInterval
-    ) -> Bool {
-        guard isManuallyUnread else { return false }
-
-        if let previousFocusedPanelId, previousFocusedPanelId != nextFocusedPanelId {
-            return true
-        }
-
-        guard let markedAt else { return true }
-        return now.timeIntervalSince(markedAt) >= sameTabGraceInterval
+    func hasRestoredUnreadIndicator(panelId: UUID) -> Bool {
+        restoredUnreadPanelIds.contains(panelId)
     }
 
-    static func shouldShowUnreadIndicator(hasUnreadNotification: Bool, isManuallyUnread: Bool) -> Bool {
-        hasUnreadNotification || isManuallyUnread
+    private func clearRestoredUnreadIndicatorState(panelId: UUID) -> Bool {
+        restoredUnreadPanelIds.remove(panelId) != nil
+    }
+
+    static func shouldShowUnreadIndicator(
+        hasUnreadNotification: Bool,
+        hasPanelUnreadIndicator: Bool,
+        isWorkspaceManuallyUnread: Bool = false,
+        isWorkspaceManualUnreadRepresentative: Bool = false
+    ) -> Bool {
+        hasUnreadNotification ||
+            hasPanelUnreadIndicator ||
+            (isWorkspaceManuallyUnread && isWorkspaceManualUnreadRepresentative)
     }
 
     // MARK: - Title Management
@@ -8746,7 +8873,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
-        latestSubmittedMessage = nil
+        latestConversationMessage = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -8843,6 +8970,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
+        restoredUnreadPanelIds = restoredUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
@@ -9056,11 +9184,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
-        guard let preview = Self.submittedMessagePreview(from: message) else { return false }
-        guard latestSubmittedMessage != preview else { return false }
-        latestSubmittedMessage = preview
+    func recordConversationMessage(_ message: String?) -> Bool {
+        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
+        guard latestConversationMessage != preview else { return false }
+        latestConversationMessage = preview
         return true
+    }
+
+    @discardableResult
+    func recordSubmittedMessage(_ message: String?) -> Bool {
+        recordConversationMessage(message)
     }
 
     var isRemoteWorkspace: Bool {
@@ -10245,6 +10378,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
+        configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -10338,6 +10472,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
+        configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -10436,6 +10571,11 @@ final class Workspace: Identifiable, ObservableObject {
                 return md
             }
         }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+        }
+
         return newMarkdownSplit(
             from: panelId,
             orientation: .horizontal,
@@ -10559,6 +10699,26 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusMarkdownSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool = true
+    ) -> MarkdownPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let markdownPanel = panel as? MarkdownPanel else { continue }
+            if (markdownPanel.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if focus {
+                    focusPanel(existingId)
+                }
+                return markdownPanel
+            }
+        }
+
+        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+    }
+
+    @discardableResult
     func splitPaneWithMarkdown(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -10620,6 +10780,33 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusFilePreviewSplit(
+        from panelId: UUID,
+        filePath: String
+    ) -> FilePreviewPanel? {
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        for (existingId, panel) in panels {
+            guard let preview = panel as? FilePreviewPanel else { continue }
+            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+                focusPanel(existingId)
+                return preview
+            }
+        }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+        }
+
+        guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
+        return splitPaneWithFilePreview(
+            targetPane: sourcePaneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: filePath
+        )
+    }
+
+    @discardableResult
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
@@ -10668,6 +10855,75 @@ final class Workspace: Identifiable, ObservableObject {
 
         installFilePreviewPanelSubscription(filePreviewPanel)
         return filePreviewPanel
+    }
+
+    @discardableResult
+    func openOrFocusRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool = true
+    ) -> RightSidebarToolPanel? {
+        guard mode.canOpenAsPane else { return nil }
+        for (existingId, panel) in panels {
+            guard let toolPanel = panel as? RightSidebarToolPanel,
+                  toolPanel.mode == mode else {
+                continue
+            }
+            if focus {
+                focusPanel(existingId)
+            }
+            return toolPanel
+        }
+        return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
+    }
+
+    @discardableResult
+    func newRightSidebarToolSurface(
+        inPane paneId: PaneID,
+        mode: RightSidebarMode,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> RightSidebarToolPanel? {
+        guard mode.canOpenAsPane else { return nil }
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let toolPanel = RightSidebarToolPanel(workspace: self, mode: mode)
+        panels[toolPanel.id] = toolPanel
+        panelTitles[toolPanel.id] = toolPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: toolPanel.displayTitle,
+            icon: toolPanel.displayIcon,
+            kind: SurfaceKind.rightSidebarTool,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: toolPanel.id)
+            panelTitles.removeValue(forKey: toolPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = toolPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(toolPanel.id, paneId: paneId, kind: "right_sidebar_tool", origin: "right_sidebar_tool_tab", focused: shouldFocusNewTab)
+
+        if shouldFocusNewTab {
+            focusPanel(toolPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: toolPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return toolPanel
     }
 
     @discardableResult
@@ -10840,10 +11096,10 @@ final class Workspace: Identifiable, ObservableObject {
         return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
     }
 
-    /// Returns the nearest right-side sibling pane for browser placement.
+    /// Returns the nearest right-side sibling pane for browser/file-preview placement.
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
-    func preferredBrowserTargetPane(fromPanelId panelId: UUID) -> PaneID? {
+    func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
         let sourcePaneId = sourcePane.id.uuidString
         let tree = bonsplitController.treeSnapshot()
@@ -11277,6 +11533,11 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
         }
+        if detached.restoredUnread {
+            restoredUnreadPanelIds.insert(detached.panelId)
+        } else {
+            restoredUnreadPanelIds.remove(detached.panelId)
+        }
 
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -11298,6 +11559,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
+            restoredUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
 #if DEBUG
@@ -11321,7 +11583,10 @@ final class Workspace: Identifiable, ObservableObject {
                 proxyEndpoint: remoteProxyEndpoint,
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
+            configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
+            rightSidebarToolPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
@@ -11563,6 +11828,9 @@ final class Workspace: Identifiable, ObservableObject {
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
+        if currentlyFocusedPanelId != panelId {
+            syncUnreadBadgeStateForAllPanels()
+        }
 
         if let browserPanel = panels[panelId] as? BrowserPanel {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
@@ -11766,6 +12034,11 @@ final class Workspace: Identifiable, ObservableObject {
     func triggerNotificationDismissFlash(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
         requestAttentionFlash(panelId: panelId, reason: .notificationDismiss)
+    }
+
+    func triggerManualUnreadDismissFlash(panelId: UUID) {
+        guard terminalPanel(for: panelId) != nil else { return }
+        requestAttentionFlash(panelId: panelId, reason: .manualUnreadDismiss)
     }
 
     func triggerDebugFlash(panelId: UUID) {
@@ -13243,7 +13516,11 @@ extension Workspace: BonsplitDelegate {
         let panelId = effectiveFocusedPanelId
 
         syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
-        syncUnreadBadgeStateForPanel(selectedPanelId)
+        if previousFocusedPanelId != panelId {
+            syncUnreadBadgeStateForAllPanels()
+        } else {
+            syncUnreadBadgeStateForPanel(selectedPanelId)
+        }
 
         // Unfocus all other panels
         for (id, p) in panels where id != effectiveFocusedPanelId {
@@ -13280,24 +13557,6 @@ extension Workspace: BonsplitDelegate {
         }
         if let terminalPanel = panel as? TerminalPanel {
             rememberTerminalConfigInheritanceSource(terminalPanel)
-        }
-        let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
-        let markedAt = manualUnreadMarkedAt[panelId]
-        if Self.shouldClearManualUnread(
-            previousFocusedPanelId: previousFocusedPanelId,
-            nextFocusedPanelId: panelId,
-            isManuallyUnread: isManuallyUnread,
-            markedAt: markedAt
-        ) {
-            triggerFocusFlash(panelId: panelId)
-            let clearDelay = Self.manualUnreadClearDelayAfterFocusFlash
-            if clearDelay <= 0 {
-                clearManualUnread(panelId: panelId)
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + clearDelay) { [weak self] in
-                    self?.clearManualUnread(panelId: panelId)
-                }
-            }
         }
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
@@ -13653,6 +13912,7 @@ extension Workspace: BonsplitDelegate {
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
+                restoredUnread: restoredUnreadPanelIds.contains(panelId),
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 agentRuntime: agentRuntime,
@@ -14237,7 +14497,7 @@ extension Workspace: BonsplitDelegate {
             setPanelPinned(panelId: panelId, pinned: shouldPin)
         case .markAsRead:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            clearManualUnread(panelId: panelId)
+            markPanelRead(panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
