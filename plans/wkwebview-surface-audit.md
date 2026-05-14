@@ -118,7 +118,7 @@ Driven by what unblocks the largest BrowserPanel callsite groups first:
 2. ✅ **`pageZoom`** — unblocks 5 sites. Done in session 1: `CmuxBrowserView.pageZoom` getter/setter, mirrored on `state.pageZoom`.
 3. ✅ **`CmuxDataStore` + `CmuxCookieStore`** — unblocks ~25 sites across config and cookie reads. Done in session 2: factories (`.default()`, `.nonPersistent()`, `.forIdentifier(_:)`), `removeData(ofTypes:modifiedSince:)`, cookie store with get/set/delete/observer. `CmuxBrowserConfiguration.dataStore` is plumbed.
 4. ✅ **`CmuxDownload` + `CmuxDownloadDelegate`** — unblocks the download flow. Done in session 2: per-WKDownload shim with strong refs cleared in terminal callbacks; `CmuxNavigationDelegate.didBecome download` extensions for both nav-action and nav-response.
-5. ⏳ **`CmuxInspector` + the `cmuxInspector*` extensions** — last because the inspector is its own subsystem. NOT done.
+5. 🟡 **`CmuxInspector` + the `cmuxInspector*` extensions** — partially done. `CmuxBrowserConfiguration.isInspectable` shipped (mirrors `WKWebView.isInspectable`, the most common call site at `BrowserPanel.swift:2648`). The deeper SPI surface (`_inspector`, `inspectorWebView`, `WebViewInspectorTeardown.closeAllInspectors`) stays WebKit-only because it walks WebKit's `_inspector` object via `NSSelectorFromString` and has no direct Chromium analogue. cmux's inspector teardown code should gate on `configuration.engineKind == .webKit` rather than expand the wrapper.
 6. ✅ **`CmuxSnapshotConfiguration`** — for high-DPI snapshots used by `cmux browser screenshot`. Done in session 2: rect/snapshotWidth/afterScreenUpdates bridged to `WKSnapshotConfiguration`.
 
 ## Non-Browser callsites of WKWebView

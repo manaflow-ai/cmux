@@ -426,6 +426,38 @@ struct CmuxDownloadSuite {
     }
 }
 
+@Suite("CmuxBrowserConfiguration.isInspectable")
+@MainActor
+struct CmuxInspectableSuite {
+    @Test("isInspectable defaults to false")
+    func testDefault() {
+        #expect(CmuxBrowserConfiguration().isInspectable == false)
+    }
+
+    @Test("WebKit backend honors isInspectable=true")
+    func testWebKitApplies() {
+        let c = CmuxBrowserConfiguration()
+        c.engineKind = .webKit
+        c.isInspectable = true
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 50, height: 50),
+                                   configuration: c)
+        let backend = view.backend as? WebKitBrowserBackend
+        #expect(backend?.webView.isInspectable == true)
+    }
+
+    @Test("WebKit backend leaves isInspectable=false when unset")
+    func testWebKitDefaultsFalse() {
+        let c = CmuxBrowserConfiguration()
+        c.engineKind = .webKit
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 50, height: 50),
+                                   configuration: c)
+        let backend = view.backend as? WebKitBrowserBackend
+        // We never set isInspectable in init when the flag is off,
+        // so WKWebView's default (false on macOS 13.3+) wins.
+        #expect(backend?.webView.isInspectable == false)
+    }
+}
+
 @Suite("CmuxSnapshotConfiguration")
 @MainActor
 struct CmuxSnapshotConfigurationSuite {

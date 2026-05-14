@@ -55,6 +55,15 @@ public final class CmuxBrowserConfiguration: @unchecked Sendable {
     /// the page has finished loading. Almost always `false`.
     public var suppressesIncrementalRendering: Bool = false
 
+    /// Whether the view should expose itself to a web inspector / dev
+    /// tools. WebKit: `WKWebView.isInspectable` (macOS 13.3+).
+    /// Chromium: enables the inspector frontend for this WebContents.
+    ///
+    /// Mutating after the view is constructed has no effect; pass
+    /// through the configuration at construction time. cmux call sites
+    /// in `BrowserPanel.swift` toggle this in DEBUG builds.
+    public var isInspectable: Bool = false
+
     /// Set of URL schemes the host registers custom handlers for, mapped
     /// to the handler instance. Engine-specific scheme handling lives in
     /// the backend.

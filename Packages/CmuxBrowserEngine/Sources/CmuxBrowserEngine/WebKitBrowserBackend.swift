@@ -74,6 +74,11 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
         if let ua = configuration.customUserAgent {
             self.webView.customUserAgent = ua
         }
+        if configuration.isInspectable {
+            // macOS 13.3+. Safe to set unconditionally — the package
+            // already requires macOS 14.
+            self.webView.isInspectable = true
+        }
         self.webView.navigationDelegate = navigationBridge
         self.webView.uiDelegate = uiBridge
         installStateObservations()
