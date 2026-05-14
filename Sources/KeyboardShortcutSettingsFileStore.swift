@@ -381,6 +381,11 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SurfacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
+            snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
+        } else if section.keys.contains("workspaceInheritWorkingDirectory") {
+            logInvalid("app.workspaceInheritWorkingDirectory", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
@@ -393,6 +398,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
+        }
+        if let value = jsonBool(section["openSupportedFilesInCmux"]) {
+            snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
             snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
@@ -478,6 +486,9 @@ final class CmuxSettingsFileStore {
     ) {
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
+        }
+        if let value = jsonBool(section["showWorkspaceDescription"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey] = .bool(value)
         }
         if let raw = jsonString(section["branchLayout"]) {
             switch raw {
