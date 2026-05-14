@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
 import { navItems, isSection, type NavLink } from "./docs-nav-items";
+import { DocsSearch } from "./docs-search";
 
 function SidebarLink({
   item,
@@ -40,37 +41,40 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const t = useTranslations("docs.navItems");
 
   return (
-    <nav className="space-y-0.5">
-      {navItems.map((entry) => {
-        if (isSection(entry)) {
-          return (
-            <div key={entry.sectionKey} className="pt-5 pb-2 first:pt-0">
-              <div className="px-3 pb-1 text-[12px] font-medium text-muted tracking-wider">
-                {t(entry.sectionKey)}
+    <>
+      <DocsSearch onNavigate={onNavigate} />
+      <nav className="space-y-0.5" data-pagefind-ignore="all">
+        {navItems.map((entry) => {
+          if (isSection(entry)) {
+            return (
+              <div key={entry.sectionKey} className="pt-5 pb-2 first:pt-0">
+                <div className="px-3 pb-1 text-[12px] font-medium text-muted tracking-wider">
+                  {t(entry.sectionKey)}
+                </div>
+                {entry.children.map((child) => (
+                  <SidebarLink
+                    key={child.href}
+                    item={child}
+                    pathname={pathname}
+                    onNavigate={onNavigate}
+                    indent
+                    t={t}
+                  />
+                ))}
               </div>
-              {entry.children.map((child) => (
-                <SidebarLink
-                  key={child.href}
-                  item={child}
-                  pathname={pathname}
-                  onNavigate={onNavigate}
-                  indent
-                  t={t}
-                />
-              ))}
-            </div>
+            );
+          }
+          return (
+            <SidebarLink
+              key={entry.href}
+              item={entry}
+              pathname={pathname}
+              onNavigate={onNavigate}
+              t={t}
+            />
           );
-        }
-        return (
-          <SidebarLink
-            key={entry.href}
-            item={entry}
-            pathname={pathname}
-            onNavigate={onNavigate}
-            t={t}
-          />
-        );
-      })}
-    </nav>
+        })}
+      </nav>
+    </>
   );
 }
