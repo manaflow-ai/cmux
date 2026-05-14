@@ -24,3 +24,7 @@ Until the fork repo exists, the workflow is:
   default branch to `GetDataTypeByteSize` so the macOS 26.2 SDK's
   new `MLMultiArrayDataType` values (Int8, UInt8, …) don't trip
   `-Werror,-Wswitch`. Drop when upstream lands the proper fix.
+- `0003-ax-inspect-mac-suppress-new-availability.patch` — locally
+  suppresses `-Wunguarded-availability-new` in `IsValidAXAttribute`
+  so the macOS 26-introduced `NSAccessibility*` attribute constants
+  don't break the build when chromium's deployment target is 11.0.

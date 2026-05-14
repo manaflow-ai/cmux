@@ -237,6 +237,37 @@ PYEOF
         echo "  applied: third_party/angle/.../metal_wrapper.py"
     fi
 
+    if [ -f "${patches_dir}/0003-ax-inspect-mac-suppress-new-availability.patch" ]; then
+        local target="${REMOTE_CHROMIUM_ROOT}/src/ui/accessibility/platform/inspect/ax_inspect_utils_mac.mm"
+        echo ">> Applying ax inspect availability-suppression patch"
+        ssh -o BatchMode=yes "${REMOTE_HOST}" "python3 - <<'PY'
+import pathlib
+p = pathlib.Path('${target}')
+s = p.read_text()
+old = 'bool IsValidAXAttribute(const std::string& attribute) {\n  static NSSet<NSString*>* valid_attributes = [NSSet setWithArray:@['
+new = '''// cmux fork: macOS 26 SDK marks some NSAccessibility* constants as
+// introduced in macOS 26.0 only, but chromium's deployment target is
+// macOS 11.0. Since this function is dev-tools/inspection plumbing
+// gated by content_shell flags (not on cmux's critical path), suppress
+// the -Wunguarded-availability-new diagnostic locally. Drop when
+// upstream chromium bumps its deployment target or @available-gates
+// these entries.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored \"-Wunguarded-availability-new\"
+bool IsValidAXAttribute(const std::string& attribute) {
+  static NSSet<NSString*>* valid_attributes = [NSSet setWithArray:@['''
+if old in s and '#pragma clang diagnostic push' not in s.split('IsValidAXAttribute', 1)[0]:
+    s = s.replace(old, new)
+    anchor = '  return [valid_attributes containsObject:base::SysUTF8ToNSString(attribute)];\n}'
+    s = s.replace(anchor, anchor + '\n#pragma clang diagnostic pop', 1)
+    p.write_text(s)
+    print('applied: ui/accessibility/platform/inspect/ax_inspect_utils_mac.mm')
+else:
+    print('already-applied-or-mismatched (no-op)')
+PY
+"
+    fi
+
     if [ -f "${patches_dir}/0002-webnn-coreml-handle-new-mlmultiarraydatatype.patch" ]; then
         local target="${REMOTE_CHROMIUM_ROOT}/src/services/webnn/coreml/utils_coreml.mm"
         echo ">> Applying webnn CoreML MLMultiArrayDataType default-branch patch"
