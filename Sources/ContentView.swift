@@ -1330,6 +1330,8 @@ struct ContentView: View {
         let contentView = window.contentView
 
         let unreadRects: [CGRect]
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
         if let layoutSnapshot, let contentView {
             unreadRects = layoutSnapshot.panes.compactMap { pane in
                 guard let selectedTabId = pane.selectedTabId,
@@ -1344,7 +1346,10 @@ struct ContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panelId
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
+                        workspace.restoredUnreadPanelIds.contains(panelId),
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
                 )
                 guard shouldShowUnread else { return nil }
 
@@ -1470,6 +1475,7 @@ struct ContentView: View {
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
         static let browserDisabled = "browser.disabled"
+        static let supportedFileRoutingDisabled = "filePreview.supportedFileRoutingDisabled"
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
@@ -5838,7 +5844,7 @@ struct ContentView: View {
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
-            return ["file", "preview", "text", "pdf", "image"]
+            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
         }
@@ -6003,6 +6009,10 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(
+            CommandPaletteContextKeys.supportedFileRoutingDisabled,
+            !CmdClickSupportedFileRouteSettings.isEnabled()
+        )
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -6049,7 +6059,9 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
-            let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) || notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
+            let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
+                workspace.restoredUnreadPanelIds.contains(panelId) ||
+                notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
 
             if panelIsTerminal {
@@ -6316,6 +6328,20 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.markOldestUnreadAndJumpNext",
+                title: constant(
+                    String(
+                        localized: "command.markOldestUnreadAndJumpNext.title",
+                        defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
+                    )
+                ),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openSettings",
                 title: constant(String(localized: "command.openSettings.title", defaultValue: "Open Settings")),
                 subtitle: constant(String(localized: "command.openSettings.subtitle", defaultValue: "Global")),
@@ -6382,6 +6408,25 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.disableSupportedFileRouting",
+                title: constant(String(localized: "command.disableSupportedFileRouting.title", defaultValue: "Disable Cmd-click File Previews")),
+                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
+                keywords: ["file", "preview", "disable", "external", "editor", "pdf", "image", "audio", "video"],
+                when: { !$0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.enableSupportedFileRouting",
+                title: constant(String(localized: "command.enableSupportedFileRouting.title", defaultValue: "Enable Cmd-click File Previews")),
+                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
+                keywords: ["file", "preview", "enable", "cmux", "pdf", "image", "audio", "video"],
+                when: { $0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
+            )
+        )
+        contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7175,6 +7220,11 @@ struct ContentView: View {
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
         }
+        registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
+            AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+                preferredWindow: observedWindow
+            )
+        }
         registry.register(commandId: "palette.openSettings") {
 #if DEBUG
             cmuxDebugLog("palette.openSettings.invoke")
@@ -7212,6 +7262,13 @@ struct ContentView: View {
         registry.register(commandId: "palette.enableBrowser") {
             BrowserAvailabilitySettings.setDisabled(false)
         }
+        registry.register(commandId: "palette.disableSupportedFileRouting") {
+            CmdClickSupportedFileRouteSettings.setEnabled(false)
+        }
+        registry.register(commandId: "palette.enableSupportedFileRouting") {
+            CmdClickSupportedFileRouteSettings.setEnabled(true)
+        }
+        registerSettingsToggleCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
@@ -7333,8 +7390,9 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId)
-                || notificationStore.hasUnreadNotification(forTabId: panelContext.workspace.id, surfaceId: panelContext.panelId)
+            let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
+                panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
+                notificationStore.hasUnreadNotification(forTabId: panelContext.workspace.id, surfaceId: panelContext.panelId)
             if hasUnread {
                 panelContext.workspace.markPanelRead(panelContext.panelId)
             } else {
@@ -9012,11 +9070,26 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     }
 }
 
-private struct SidebarTabItemPresentationSnapshot: Equatable {
+struct SidebarTabItemPresentationSnapshot: Equatable {
     let tabId: UUID
     let unreadCount: Int
     let latestNotificationText: String?
     let showsModifierShortcutHints: Bool
+}
+
+struct SidebarTabItemPresentationResolutionPolicy {
+    static func resolved(
+        live: SidebarTabItemPresentationSnapshot,
+        frozen: SidebarTabItemPresentationSnapshot?
+    ) -> SidebarTabItemPresentationSnapshot {
+        guard let frozen, frozen.tabId == live.tabId else { return live }
+        return SidebarTabItemPresentationSnapshot(
+            tabId: live.tabId,
+            unreadCount: live.unreadCount,
+            latestNotificationText: live.latestNotificationText,
+            showsModifierShortcutHints: frozen.showsModifierShortcutHints
+        )
+    }
 }
 
 struct VerticalTabsSidebar: View {
@@ -9100,10 +9173,21 @@ struct VerticalTabsSidebar: View {
         from oldWorkspaceIds: [UUID],
         to newWorkspaceIds: [UUID]
     ) -> Bool {
-        guard let selectedWorkspaceId = tabManager.selectedTabId else {
-            return false
+        SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: tabManager.selectedTabId,
+            oldWorkspaceIds: oldWorkspaceIds,
+            newWorkspaceIds: newWorkspaceIds
+        )
+    }
+
+    private func requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(_ notification: Notification) {
+        guard let manager = notification.object as? TabManager, manager === tabManager else {
+            return
         }
-        return !oldWorkspaceIds.contains(selectedWorkspaceId) && newWorkspaceIds.contains(selectedWorkspaceId)
+        guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
+        let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
+        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
     private struct WorkspaceListRenderContext {
@@ -9338,8 +9422,14 @@ struct VerticalTabsSidebar: View {
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
-                    ) else { return }
+                    ) else {
+                        flushPendingSelectedWorkspaceScroll(scrollProxy)
+                        return
+                    }
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+                    requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
                 .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
                     laidOutWorkspaceRowIds = rowIds
@@ -9491,6 +9581,10 @@ struct VerticalTabsSidebar: View {
         let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
             ? frozenTabItemPresentation
             : nil
+        let resolvedPresentation = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: livePresentation,
+            frozen: frozenPresentation
+        )
 
         return TabItemView(
             tabManager: tabManager,
@@ -9505,13 +9599,13 @@ struct VerticalTabsSidebar: View {
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: frozenPresentation?.unreadCount ?? liveUnreadCount,
-            latestNotificationText: frozenPresentation?.latestNotificationText ?? liveLatestNotificationText,
+            unreadCount: resolvedPresentation.unreadCount,
+            latestNotificationText: resolvedPresentation.latestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: frozenPresentation?.showsModifierShortcutHints ?? liveShowsModifierShortcutHints,
+            showsModifierShortcutHints: resolvedPresentation.showsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
             draggedTabId: $draggedTabId,
             dropIndicator: $dropIndicator,
@@ -9894,7 +9988,9 @@ private enum FeedbackComposerClient {
             if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let errorMessage = payload["error"] as? String,
                errorMessage.isEmpty == false {
+                #if DEBUG
                 NSLog("feedback.submit.rejected status=%@ error=%@", String(httpResponse.statusCode), errorMessage)
+                #endif
             }
             throw FeedbackComposerSubmissionError.rejected(statusCode: httpResponse.statusCode)
         }
@@ -11897,7 +11993,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
         let copyableSidebarSSHError: String?
-        let latestSubmittedMessage: String?
+        let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
@@ -12234,12 +12330,12 @@ private struct TabItemView: View, Equatable {
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
-        let submittedMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestSubmittedMessage?
+        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
+            ? workspaceSnapshot.latestConversationMessage?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .nilIfEmpty
             : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? submittedMessageSubtitle
+        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: 4) {
@@ -13240,7 +13336,7 @@ private struct TabItemView: View, Equatable {
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
-            latestSubmittedMessage: tab.latestSubmittedMessage,
+            latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
