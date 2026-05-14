@@ -2359,6 +2359,54 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(textView.font?.pointSize ?? 0, ViewZoomControl.textEditorFontSize(for: panel.viewZoomFactor), accuracy: 0.001)
     }
 
+    func testSavingTextViewFontSizeTracksViewZoomBounds() async throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView()
+        textView.panel = panel
+        panel.attachTextView(textView)
+
+        let zoomOutEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "-",
+            charactersIgnoringModifiers: "-",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Minus)
+        ))
+        for _ in 0..<10 {
+            XCTAssertTrue(textView.performKeyEquivalent(with: zoomOutEvent))
+        }
+        XCTAssertEqual(panel.viewZoomFactor, ViewZoomControl.minimumFactor, accuracy: 0.001)
+        XCTAssertEqual(textView.font?.pointSize ?? 0, ViewZoomControl.textEditorFontSize(for: ViewZoomControl.minimumFactor), accuracy: 0.001)
+
+        let zoomInEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "+",
+            charactersIgnoringModifiers: "=",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Equal)
+        ))
+        for _ in 0..<40 {
+            XCTAssertTrue(textView.performKeyEquivalent(with: zoomInEvent))
+        }
+        XCTAssertEqual(panel.viewZoomFactor, ViewZoomControl.maximumFactor, accuracy: 0.001)
+        XCTAssertEqual(textView.font?.pointSize ?? 0, ViewZoomControl.textEditorFontSize(for: ViewZoomControl.maximumFactor), accuracy: 0.001)
+    }
+
     func testFilePreviewViewZoomOnlyHandlesTextMode() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

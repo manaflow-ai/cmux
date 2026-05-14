@@ -141,9 +141,6 @@ extension NSTextView {
 }
 
 final class SavingTextView: NSTextView {
-    private static let minimumPreviewFontSize: CGFloat = 8
-    private static let maximumPreviewFontSize: CGFloat = 36
-
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = ViewZoomControl.textEditorDefaultFontSize
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
@@ -219,7 +216,7 @@ final class SavingTextView: NSTextView {
 
     private static func clampedFontSize(_ fontSize: CGFloat) -> CGFloat {
         guard fontSize.isFinite else { return ViewZoomControl.textEditorDefaultFontSize }
-        return min(max(fontSize, minimumPreviewFontSize), maximumPreviewFontSize)
+        return ViewZoomControl.textEditorFontSize(for: ViewZoomControl.textEditorZoomFactor(forFontSize: fontSize))
     }
 
     private func saveShortcutMatch(for event: NSEvent) -> Bool? {
