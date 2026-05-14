@@ -8207,17 +8207,27 @@ class TerminalController {
     }
 
     private func v2NotificationJumpToUnread() -> V2CallResult {
-        var openedNotification: TerminalNotification?
+        var jumpResult: JumpToUnreadResult?
         var payload: [String: Any] = [:]
         v2MainSync {
-            openedNotification = AppDelegate.shared?.jumpToLatestUnread()
-            if let openedNotification {
+            jumpResult = AppDelegate.shared?.jumpToLatestUnreadTarget()
+            if let openedNotification = jumpResult?.notification {
                 let store = TerminalNotificationStore.shared
                 let current = store.notifications.first(where: { $0.id == openedNotification.id }) ?? openedNotification
                 payload = notificationPayload(current, opened: true, includeReadState: true)
+            } else if let jumpResult {
+                payload = [
+                    "id": NSNull(),
+                    "opened": true,
+                    "workspace_id": jumpResult.tabId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: jumpResult.tabId),
+                    "surface_id": v2OrNull(jumpResult.surfaceId?.uuidString),
+                    "surface_ref": v2Ref(kind: .surface, uuid: jumpResult.surfaceId),
+                    "is_read": jumpResult.isRead,
+                ]
             }
         }
-        guard openedNotification != nil else {
+        guard jumpResult != nil else {
             return .ok(["opened": false])
         }
         return .ok(payload)

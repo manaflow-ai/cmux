@@ -701,8 +701,7 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
-            let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
-            if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
+            refreshNotificationMenuSnapshot()
             refreshDockBadge()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
@@ -710,7 +709,12 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     // Workspace-level manual unread drives sidebar workspace badges; pane-level
     // manual unread remains owned by Workspace.manualUnreadPanelIds.
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
+    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet {
+            refreshNotificationMenuSnapshot()
+            refreshDockBadge()
+        }
+    }
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
@@ -759,6 +763,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
+    private var manualUnreadWorkspaceMarkedAt: [UUID: Date] = [:]
 
     private init() {
         indexes = Self.buildIndexes(for: notifications)
@@ -799,9 +804,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var unreadCount: Int {
-        // Global badges count only notification-backed unread items. Per-workspace
-        // badges use unreadCount(forTabId:) and include manualUnreadWorkspaceIds.
-        indexes.unreadCount
+        indexes.unreadCount + manualUnreadOnlyCount
     }
 
     private func logAuthorization(_ message: String) {
@@ -902,8 +905,14 @@ final class TerminalNotificationStore: ObservableObject {
         let didChange: Bool
         if isUnread {
             didChange = nextIds.insert(tabId).inserted
+            if didChange {
+                manualUnreadWorkspaceMarkedAt[tabId] = Date()
+            }
         } else {
             didChange = nextIds.remove(tabId) != nil
+            if didChange {
+                manualUnreadWorkspaceMarkedAt.removeValue(forKey: tabId)
+            }
         }
         guard didChange else { return false }
         manualUnreadWorkspaceIds = nextIds
@@ -912,6 +921,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func clearWorkspaceManualUnread() {
         guard !manualUnreadWorkspaceIds.isEmpty else { return }
+        manualUnreadWorkspaceMarkedAt.removeAll()
         manualUnreadWorkspaceIds = []
     }
 
@@ -962,6 +972,19 @@ final class TerminalNotificationStore: ObservableObject {
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         indexes.latestByTabId[tabId]
+    }
+
+    func manualUnreadWorkspaceIdsMostRecentFirst(excluding excludedTabId: UUID? = nil) -> [UUID] {
+        manualUnreadWorkspaceIds
+            .filter { $0 != excludedTabId }
+            .sorted { lhs, rhs in
+                let lhsDate = manualUnreadWorkspaceMarkedAt[lhs] ?? .distantPast
+                let rhsDate = manualUnreadWorkspaceMarkedAt[rhs] ?? .distantPast
+                if lhsDate != rhsDate {
+                    return lhsDate > rhsDate
+                }
+                return lhs.uuidString < rhs.uuidString
+            }
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -1926,6 +1949,24 @@ final class TerminalNotificationStore: ObservableObject {
         focusedReadIndicatorByTabId.removeAll()
     }
 #endif
+
+    private var manualUnreadOnlyCount: Int {
+        manualUnreadWorkspaceIds.reduce(into: 0) { count, tabId in
+            if (indexes.unreadCountByTabId[tabId] ?? 0) == 0 {
+                count += 1
+            }
+        }
+    }
+
+    private func refreshNotificationMenuSnapshot() {
+        let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notifications,
+            manualUnreadCount: manualUnreadOnlyCount
+        )
+        if notificationMenuSnapshot != nextMenuSnapshot {
+            notificationMenuSnapshot = nextMenuSnapshot
+        }
+    }
 
     private func refreshDockBadge() {
         let label = Self.dockBadgeLabel(

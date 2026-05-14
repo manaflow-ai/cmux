@@ -141,7 +141,7 @@ struct NotificationsPage: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.unreadCount > 0
     }
 }
 
