@@ -191,6 +191,165 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(savedSessions[rotatedSessionId])
     }
 
+    func testClaudeClearSessionStartPrunesAllPreClearSiblingsOnSamePanel() throws {
+        // Hook stores in the wild can accumulate more than one stale record
+        // per panel — the bug this fix targets has been latent long enough
+        // that a single prune pass must sweep every sibling, not just the
+        // most recent one. Seed three pre-clear records bound to the panel
+        // and assert the rotation removes all of them.
+        let context = try makeClaudeHookContext(name: "claude-clear-prune-many")
+        defer { context.cleanup() }
+
+        let staleIds = ["stale-1", "stale-2", "stale-3"]
+        let now = Date().timeIntervalSince1970
+        var seededSessions: [String: Any] = [:]
+        for (offset, sid) in staleIds.enumerated() {
+            seededSessions[sid] = [
+                "sessionId": sid,
+                "workspaceId": context.workspaceId,
+                "surfaceId": context.surfaceId,
+                "cwd": context.root.path,
+                "startedAt": now - TimeInterval(60 * (offset + 1)),
+                "updatedAt": now - TimeInterval(60 * (offset + 1)),
+            ] as [String: Any]
+        }
+        let seeded: [String: Any] = ["version": 1, "sessions": seededSessions]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: seeded, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let rotatedSessionId = "rotated-session"
+        let rotated = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(rotatedSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(rotated.timedOut, rotated.stderr)
+        XCTAssertEqual(rotated.status, 0, rotated.stderr)
+
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        for staleId in staleIds {
+            XCTAssertNil(
+                savedSessions[staleId],
+                "Expected stale record \(staleId) to be pruned, remaining keys: \(Array(savedSessions.keys))"
+            )
+        }
+        XCTAssertNotNil(savedSessions[rotatedSessionId])
+    }
+
+    func testClaudeReplacementOfStoppedSessionMarksNewSessionRestorable() throws {
+        // The same `shouldPromoteActiveSession` boundary that flips
+        // `isRestorable=true` for `/clear` also covers the
+        // "user opens a fresh session after the previous one stopped" case.
+        // Without this, opening a new Claude session on the same workspace
+        // after Stop would resume the stopped session on cmux relaunch
+        // before the new session writes its first turn.
+        //
+        // The exact flow that triggers this is:
+        //   1. session-start old (no source)
+        //   2. prompt-submit old turn-1  → marks old active
+        //   3. stop old turn-1            → upserts old with
+        //                                   allowsNewSessionReplacement=true
+        //   4. session-start new source=startup → must mark new restorable
+        //      because the active owner allows replacement.
+        let context = try makeClaudeHookContext(name: "claude-replacement-restorable")
+        defer { context.cleanup() }
+
+        let oldStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
+        XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+
+        let oldPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let oldStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished"}"#
+        )
+        XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
+        XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
+
+        let newStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"new-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(newStart.timedOut, newStart.stderr)
+        XCTAssertEqual(newStart.status, 0, newStart.stderr)
+
+        let newRecord = try readClaudeHookSession("new-session", context: context)
+        XCTAssertEqual(
+            newRecord["isRestorable"] as? Bool,
+            true,
+            "Replacement of a stopped owner is a new active boundary; the new session must be immediately restorable so autosave does not roll back to the stopped one."
+        )
+    }
+
+    func testClaudeReplacementOfStoppedSessionDoesNotPruneStoppedRecord() throws {
+        // Pruning is intentionally scoped to `/clear` only. The
+        // replacement-of-stopped-owner path is a softer boundary: the user
+        // didn't abandon the previous session, it just wound down. We still
+        // promote the new session to active+restorable so autosave catches
+        // it, but the stopped record stays in the store so its lookup data
+        // (subtitle, body, transcriptPath) remains available to the
+        // sidebar/feed. This test pins that asymmetry: only the clear path
+        // prunes siblings.
+        let context = try makeClaudeHookContext(name: "claude-replacement-keeps-old")
+        defer { context.cleanup() }
+
+        let oldStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
+        XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
+
+        let oldPrompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
+        )
+        XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
+        XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
+
+        let oldStop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished"}"#
+        )
+        XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
+        XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
+
+        let newStart = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"new-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(newStart.timedOut, newStart.stderr)
+        XCTAssertEqual(newStart.status, 0, newStart.stderr)
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNotNil(
+            savedSessions["old-session"],
+            "Replacement-of-stopped-owner must not prune the stopped record; the sidebar still uses its lookup data. Pruning is /clear-only."
+        )
+        XCTAssertNotNil(savedSessions["new-session"])
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
