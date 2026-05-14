@@ -100,15 +100,20 @@ final class WindowGlassEffectTests: XCTestCase {
 
         WindowGlassEffect.apply(to: window, tintColor: .black, style: .regular)
 
-        guard let nativeGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
+        guard let regularGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
             XCTFail("Expected native NSGlassEffectView")
             return
         }
-        XCTAssertEqual(Self.nativeGlassStyleRawValue(nativeGlassView), 0)
+        XCTAssertEqual(Self.nativeGlassStyleRawValue(regularGlassView), 0)
 
         WindowGlassEffect.apply(to: window, tintColor: .black, style: .clear)
 
-        XCTAssertEqual(Self.nativeGlassStyleRawValue(nativeGlassView), 1)
+        guard let clearGlassView = Self.nativeGlassEffectView(in: window.contentView) else {
+            XCTFail("Expected native NSGlassEffectView after style update")
+            return
+        }
+        XCTAssertTrue(clearGlassView === regularGlassView)
+        XCTAssertEqual(Self.nativeGlassStyleRawValue(clearGlassView), 1)
     }
 
     func testWindowBackdropControllerAppliesRegularGlassAtWindowRoot() throws {
