@@ -10604,10 +10604,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .filter { seenWindowIds.insert($0.windowId).inserted }
 
         for context in orderedContexts {
-            guard let workspace = context.tabManager.tabs.first(where: { unreadWorkspaceIds.contains($0.id) }) else {
-                continue
+            for workspace in context.tabManager.tabs where unreadWorkspaceIds.contains(workspace.id) {
+                if openWorkspaceUnread(workspace, in: context) {
+                    return true
+                }
             }
-            return openWorkspaceUnread(workspace, in: context)
         }
 
         guard let tabManager,

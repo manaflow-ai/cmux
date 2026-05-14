@@ -8565,7 +8565,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func clearAllPanelUnreadIndicatorsForWorkspaceRead() -> Bool {
-        let affectedPanelIds = manualUnreadPanelIds.union(restoredUnreadPanelIds)
+        let hadLocalUnreadIndicators = !manualUnreadPanelIds.isEmpty || !restoredUnreadPanelIds.isEmpty
+        let affectedPanelIds = Set(panels.keys)
+            .union(manualUnreadPanelIds)
+            .union(restoredUnreadPanelIds)
         guard !affectedPanelIds.isEmpty else { return false }
         manualUnreadPanelIds.removeAll()
         restoredUnreadPanelIds.removeAll()
@@ -8573,7 +8576,7 @@ final class Workspace: Identifiable, ObservableObject {
         for panelId in affectedPanelIds {
             syncUnreadBadgeStateForPanel(panelId)
         }
-        return true
+        return hadLocalUnreadIndicators
     }
 
     private func clearManualUnreadState(panelId: UUID) -> Bool {
