@@ -333,10 +333,14 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 
 func claudeNodeOptionsRestoreDir() (string, error) {
 	configDir, err := os.UserConfigDir()
+	if err == nil && strings.TrimSpace(configDir) != "" {
+		return filepath.Join(configDir, "cmux", "node-options"), nil
+	}
+	fallbackDir, err := os.MkdirTemp(os.TempDir(), "cmux-node-options.")
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, "cmux", "node-options"), nil
+	return filepath.Join(fallbackDir, "cmux", "node-options"), nil
 }
 
 // --- Focused context ---
@@ -553,7 +557,12 @@ func nodeOptionsTokens(raw string) []string {
 	for _, r := range raw {
 		if quote != 0 {
 			if escaping {
-				current.WriteRune(r)
+				if r == '\\' || r == quote {
+					current.WriteRune(r)
+				} else {
+					current.WriteRune('\\')
+					current.WriteRune(r)
+				}
 				escaping = false
 				continue
 			}

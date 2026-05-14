@@ -39,7 +39,12 @@ public enum NodeOptionsSupport {
         for character in rawValue {
             if let activeQuote = quote {
                 if escaping {
-                    current.append(character)
+                    if character == "\\" || character == activeQuote {
+                        current.append(character)
+                    } else {
+                        current.append("\\")
+                        current.append(character)
+                    }
                     escaping = false
                     continue
                 }

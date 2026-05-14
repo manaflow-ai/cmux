@@ -278,8 +278,18 @@ node_options_restore_dir() {
     fi
 
     local home="${HOME:-}"
-    [[ -n "$home" ]] || return 1
-    printf '%s' "${home%/}/Library/Application Support/cmux/node-options"
+    if [[ -n "$home" ]]; then
+        printf '%s' "${home%/}/Library/Application Support/cmux/node-options"
+        return 0
+    fi
+
+    local fallback_root="${TMPDIR:-/tmp}"
+    while [[ "$fallback_root" == */ && "$fallback_root" != "/" ]]; do
+        fallback_root="${fallback_root%/}"
+    done
+    local fallback_dir
+    fallback_dir="$(mktemp -d "$fallback_root/cmux-node-options.XXXXXX")" || return 1
+    printf '%s' "$fallback_dir/cmux/node-options"
 }
 
 node_options_split() {
@@ -295,7 +305,11 @@ node_options_split() {
         ch="${raw:i:1}"
         if [[ -n "$quote" ]]; then
             if (( escaping )); then
-                current+="$ch"
+                if [[ "$ch" == "\\" || "$ch" == "$quote" ]]; then
+                    current+="$ch"
+                else
+                    current+="\\$ch"
+                fi
                 escaping=0
                 continue
             fi

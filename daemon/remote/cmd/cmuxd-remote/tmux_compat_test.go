@@ -434,6 +434,11 @@ func TestMergeNodeOptions(t *testing.T) {
 		t.Fatalf("mergeNodeOptions should preserve unquoted backslashes in existing options = %q", got)
 	}
 
+	quotedBackslashExisting := `"--require=/tmp/foo\bar/preload.cjs" --trace-warnings`
+	if got := mergeNodeOptions(quotedBackslashExisting, restoreModulePath); got != expectedBackslashExisting {
+		t.Fatalf("mergeNodeOptions should preserve quoted literal backslashes in existing options = %q", got)
+	}
+
 	existingQuotedRequire := "--require=\"/Users/example/Library/Application Support/--max-old-space-size 2048/restore-node-options.cjs\" --trace-warnings"
 	expectedQuotedRequire := "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 \"--require=/Users/example/Library/Application Support/--max-old-space-size 2048/restore-node-options.cjs\" --trace-warnings"
 	if got := mergeNodeOptions(existingQuotedRequire, restoreModulePath); got != expectedQuotedRequire {
@@ -468,6 +473,25 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 	if got := originalNodeOptionsForRestore("--max-old-space-size 2048 --trace-warnings"); got != "--max-old-space-size=2048 --trace-warnings" {
 		t.Fatalf("originalNodeOptionsForRestore should normalize space-separated heap flags = %q", got)
+	}
+}
+
+func TestClaudeNodeOptionsRestoreDirFallsBackWhenUserConfigDirUnavailable(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("TMPDIR", tempDir)
+
+	got, err := claudeNodeOptionsRestoreDir()
+	if err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should not fail without HOME: %v", err)
+	}
+
+	if !strings.HasPrefix(got, tempDir+string(os.PathSeparator)) {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback = %q, want under %q", got, tempDir)
+	}
+	if !strings.HasSuffix(got, filepath.Join("cmux", "node-options")) {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback = %q, want sanitizer-visible suffix", got)
 	}
 }
 
