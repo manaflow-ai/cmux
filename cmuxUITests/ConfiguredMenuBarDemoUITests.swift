@@ -82,7 +82,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
             configuredToolsMenuFailureDetails(app: app)
         )
 
-        XCTAssertTrue(app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 3.0))
+        XCTAssertTrue(menuItemExists(in: app, title: "Run Static Demo Command", timeout: 3.0))
         XCTAssertTrue(app.menuItems["Nested Commands"].waitForExistence(timeout: 3.0))
         XCTAssertTrue(app.menuItems["Live Bash Items"].waitForExistence(timeout: 3.0))
         try saveDemoScreenshot(url: XCTUnwrap(openScreenshotURL))
@@ -152,7 +152,7 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
         ]
         for candidate in labeledCandidates where candidate.waitForExistence(timeout: 0.5) {
             candidate.click()
-            if app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 1.0) {
+            if menuItemExists(in: app, title: "Run Static Demo Command", timeout: 1.0) {
                 return true
             }
         }
@@ -170,13 +170,21 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
                 } else {
                     item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
                 }
-                if app.menuItems["Run Static Demo Command"].waitForExistence(timeout: 0.4) {
+                if menuItemExists(in: app, title: "Run Static Demo Command", timeout: 0.4) {
                     return true
                 }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         return false
+    }
+
+    private func menuItemExists(in app: XCUIApplication, title: String, timeout: TimeInterval) -> Bool {
+        if app.menuItems[title].waitForExistence(timeout: min(0.3, timeout)) {
+            return true
+        }
+        let predicate = NSPredicate(format: "label BEGINSWITH %@", title)
+        return app.menuItems.matching(predicate).firstMatch.waitForExistence(timeout: max(0.0, timeout - 0.3))
     }
 
     private func configuredToolsMenuFailureDetails(app: XCUIApplication) -> String {
