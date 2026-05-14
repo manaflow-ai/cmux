@@ -92,7 +92,7 @@ nonisolated struct CmuxEventsClientHelper {
         }
     }
 
-    static func readCursor(from path: String) throws -> Int64? {
+    fileprivate static func readCursor(from path: String) throws -> Int64? {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
@@ -110,7 +110,7 @@ nonisolated struct CmuxEventsClientHelper {
         return sequence
     }
 
-    static func writeCursor(_ seq: Int64, to path: String) throws {
+    fileprivate static func writeCursor(_ seq: Int64, to path: String) throws {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
