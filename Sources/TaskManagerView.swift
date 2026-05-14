@@ -27,7 +27,7 @@ struct CmuxTaskManagerView: View {
             Text(String(localized: "taskManager.title", defaultValue: "Task Manager"))
                 .font(.title3.weight(.semibold))
 
-            if model.isRefreshing {
+            if model.isRefreshing || model.isInitialLoading {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel(String(localized: "taskManager.refreshing", defaultValue: "Refreshing"))
@@ -88,14 +88,30 @@ struct CmuxTaskManagerView: View {
 
     private var tableHeader: some View {
         HStack(spacing: 8) {
-            Text(String(localized: "taskManager.column.name", defaultValue: "Name"))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(String(localized: "taskManager.column.cpu", defaultValue: "CPU"))
-                .frame(width: 82, alignment: .trailing)
-            Text(String(localized: "taskManager.column.memory", defaultValue: "Memory"))
-                .frame(width: 96, alignment: .trailing)
-            Text(String(localized: "taskManager.column.processes", defaultValue: "Proc"))
-                .frame(width: 58, alignment: .trailing)
+            sortHeader(
+                title: String(localized: "taskManager.column.name", defaultValue: "Name"),
+                column: .name,
+                maxWidth: .infinity,
+                alignment: .leading
+            )
+            sortHeader(
+                title: String(localized: "taskManager.column.cpu", defaultValue: "CPU"),
+                column: .cpu,
+                width: 82,
+                alignment: .trailing
+            )
+            sortHeader(
+                title: String(localized: "taskManager.column.memory", defaultValue: "Memory"),
+                column: .memory,
+                width: 96,
+                alignment: .trailing
+            )
+            sortHeader(
+                title: String(localized: "taskManager.column.processes", defaultValue: "Proc"),
+                column: .processes,
+                width: 70,
+                alignment: .trailing
+            )
         }
         .font(.system(size: 11, weight: .semibold))
         .foregroundStyle(.secondary)
@@ -103,14 +119,54 @@ struct CmuxTaskManagerView: View {
         .padding(.vertical, 5)
     }
 
+    private func sortHeader(
+        title: String,
+        column: CmuxTaskManagerSortOrder.Column,
+        width: CGFloat? = nil,
+        maxWidth: CGFloat? = nil,
+        alignment: Alignment
+    ) -> some View {
+        Button {
+            model.sort(by: column)
+        } label: {
+            HStack(spacing: 3) {
+                Text(title)
+                    .lineLimit(1)
+                sortIndicator(for: column)
+            }
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(model.sortOrder.column == column ? .primary : .secondary)
+        .frame(width: width, alignment: alignment)
+        .frame(maxWidth: maxWidth, alignment: alignment)
+        .accessibilityLabel(title)
+    }
+
+    private func sortIndicator(for column: CmuxTaskManagerSortOrder.Column) -> some View {
+        let isActive = model.sortOrder.column == column
+        let imageName = model.sortOrder.direction == .ascending ? "chevron.up" : "chevron.down"
+        return Image(systemName: imageName)
+            .font(.system(size: 8, weight: .bold))
+            .opacity(isActive ? 1 : 0)
+            .frame(width: 8)
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private var tableBody: some View {
+        let rows = model.sortedRows
+        let agentRows = model.sortedAgentRows
+        let aggregateRows = model.sortedAggregateRows
         if let errorMessage = model.errorMessage {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.error.title", defaultValue: "Unable to load resource usage"),
                 detail: errorMessage
             )
-        } else if model.snapshot.rows.isEmpty {
+        } else if model.isInitialLoading {
+            CmuxTaskManagerLoadingView()
+        } else if rows.isEmpty && agentRows.isEmpty && aggregateRows.isEmpty {
             CmuxTaskManagerMessageView(
                 title: String(localized: "taskManager.empty.title", defaultValue: "No resource usage"),
                 detail: String(localized: "taskManager.empty.detail", defaultValue: "Open a workspace, terminal, or browser surface to see it here.")
@@ -118,7 +174,48 @@ struct CmuxTaskManagerView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(model.snapshot.rows) { row in
+                    if !agentRows.isEmpty {
+                        CmuxTaskManagerSectionHeaderView(
+                            title: String(localized: "taskManager.section.codingAgents", defaultValue: "Coding Agents")
+                        )
+                        ForEach(agentRows) { row in
+                            CmuxTaskManagerRowView(
+                                row: row,
+                                onViewWorkspace: {},
+                                onViewTerminal: {},
+                                onKillProcess: {
+                                    model.killProcess(for: row)
+                                },
+                                onActivate: {}
+                            )
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                    if !aggregateRows.isEmpty {
+                        CmuxTaskManagerSectionHeaderView(
+                            title: String(localized: "taskManager.section.programTotals", defaultValue: "Program Totals")
+                        )
+                        ForEach(aggregateRows) { row in
+                            CmuxTaskManagerRowView(
+                                row: row,
+                                onViewWorkspace: {},
+                                onViewTerminal: {},
+                                onKillProcess: {
+                                    model.killProcess(for: row)
+                                },
+                                onActivate: {}
+                            )
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                    if !rows.isEmpty && (!agentRows.isEmpty || !aggregateRows.isEmpty) {
+                        CmuxTaskManagerSectionHeaderView(
+                            title: String(localized: "taskManager.section.hierarchy", defaultValue: "Hierarchy")
+                        )
+                    }
+                    ForEach(rows) { row in
                         CmuxTaskManagerRowView(
                             row: row,
                             onViewWorkspace: {
@@ -140,6 +237,35 @@ struct CmuxTaskManagerView: View {
                 }
             }
         }
+    }
+}
+
+private struct CmuxTaskManagerSectionHeaderView: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+    }
+}
+
+private struct CmuxTaskManagerLoadingView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+                .accessibilityLabel(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
+            Text(String(localized: "taskManager.loading.title", defaultValue: "Loading resource usage"))
+                .font(.headline)
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
     }
 }
 
@@ -170,10 +296,16 @@ private struct CmuxTaskManagerRowView: View {
     let onActivate: () -> Void
 
     var body: some View {
-        Button(action: onActivate) {
-            rowContent
+        Group {
+            if row.canViewWorkspace || row.canViewTerminal {
+                Button(action: onActivate) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
         }
-        .buttonStyle(.plain)
         .contextMenu {
             if row.canViewWorkspace {
                 Button {
@@ -196,7 +328,9 @@ private struct CmuxTaskManagerRowView: View {
                 }
             }
             if row.canKillProcess {
-                Divider()
+                if row.canViewWorkspace || row.canViewTerminal {
+                    Divider()
+                }
                 Button {
                     onKillProcess()
                 } label: {
@@ -234,7 +368,7 @@ private struct CmuxTaskManagerRowView: View {
             Text(CmuxTaskManagerFormat.bytes(row.resources.residentBytes))
                 .frame(width: 96, alignment: .trailing)
             Text("\(row.resources.processCount)")
-                .frame(width: 58, alignment: .trailing)
+                .frame(width: 70, alignment: .trailing)
         }
         .font(.system(size: 12.5, design: .default))
         .monospacedDigit()
