@@ -56,7 +56,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() throws {
+    func testClaudeResumeCommandPinsSnapshotConfigDirectory() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -76,7 +76,8 @@ final class SessionIndexViewTests: XCTestCase {
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: transcriptURL
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
@@ -85,7 +86,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandUsesNearestProjectsDirectory() throws {
+    func testClaudeResumeCommandUsesSnapshotConfigDirectoryWithNestedProjectsPath() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -107,7 +108,8 @@ final class SessionIndexViewTests: XCTestCase {
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: transcriptURL
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
@@ -265,7 +267,8 @@ final class SessionIndexViewTests: XCTestCase {
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        claudeConfigDirectoryForResume: String? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
@@ -277,7 +280,9 @@ final class SessionIndexViewTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: agent.defaultSpecificsForTesting
+            specifics: agent.defaultSpecificsForTesting(
+                claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
+            )
         )
     }
 
@@ -360,10 +365,16 @@ final class SessionIndexViewTests: XCTestCase {
 }
 
 private extension SessionAgent {
-    var defaultSpecificsForTesting: AgentSpecifics {
+    func defaultSpecificsForTesting(
+        claudeConfigDirectoryForResume: String? = nil
+    ) -> AgentSpecifics {
         switch self {
         case .claude:
-            return .claude(model: nil, permissionMode: nil)
+            return .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: claudeConfigDirectoryForResume
+            )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
         case .opencode:

@@ -1733,7 +1733,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: transcriptURL,
-            specifics: .claude(model: nil, permissionMode: nil)
+            specifics: .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: nil
+            )
         )
 
         XCTAssertEqual(

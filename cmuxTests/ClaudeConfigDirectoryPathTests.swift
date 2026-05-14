@@ -53,6 +53,7 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             at: transcriptURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        XCTAssertNil(ClaudeConfigurationRoot.configuredResumeDirectory(root.appendingPathComponent(".claude").path))
 
         let command = try XCTUnwrap(
             makeClaudeSessionEntry(fileURL: transcriptURL).resumeCommand
@@ -82,16 +83,23 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         let stateURL = configDir.appendingPathComponent(".claude.json", isDirectory: false)
         try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
             .write(to: stateURL)
+        let resumeConfigDir = try XCTUnwrap(ClaudeConfigurationRoot.configuredResumeDirectory(configDir.path))
 
         let command = try XCTUnwrap(
-            makeClaudeSessionEntry(fileURL: transcriptURL).resumeCommand
+            makeClaudeSessionEntry(
+                fileURL: transcriptURL,
+                configDirectoryForResume: resumeConfigDir
+            ).resumeCommand
         )
 
         XCTAssertTrue(command.contains("CLAUDE_CONFIG_DIR=\(configDir.path)"))
         XCTAssertTrue(command.contains("claude --resume session-123"))
     }
 
-    private func makeClaudeSessionEntry(fileURL: URL) -> SessionEntry {
+    private func makeClaudeSessionEntry(
+        fileURL: URL,
+        configDirectoryForResume: String? = nil
+    ) -> SessionEntry {
         SessionEntry(
             id: "claude-session-123",
             agent: .claude,
@@ -102,7 +110,11 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             pullRequest: nil,
             modified: .now,
             fileURL: fileURL,
-            specifics: .claude(model: "claude-opus-4-7", permissionMode: "default")
+            specifics: .claude(
+                model: "claude-opus-4-7",
+                permissionMode: "default",
+                configDirectoryForResume: configDirectoryForResume
+            )
         )
     }
 }
