@@ -2070,13 +2070,9 @@ struct CMUXCLI {
         return normalized
     }
 
-    private static func isFlagToken(_ value: String) -> Bool {
-        value.hasPrefix("-") && value != "-"
-    }
+    private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
 
-    private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool {
-        isFlagToken(value) && !allowedShortFlags.contains(value)
-    }
+    private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
 
     private static func vmCreateIdempotencyStoreURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
