@@ -382,6 +382,15 @@ struct CmuxCookieStoreSuite {
     }
 }
 
+/// Coverage gap (intentionally undocumented in code, recorded here):
+/// the live WKDownload → DownloadShim → host CmuxDownloadDelegate
+/// path is **not** exercised by these tests. Driving a real WKDownload
+/// from a unit test requires hosting a server that streams an
+/// attachment, and WK has no synthetic-download API. The shim's
+/// `@MainActor @Sendable` closure-box bridging is exercised at compile
+/// time but runtime is only proven during dogfood. If you hit a
+/// crash inside `MainActor.assumeIsolated` from the download path,
+/// suspect the box conversion first.
 @Suite("CmuxDownload")
 @MainActor
 struct CmuxDownloadSuite {
