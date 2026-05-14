@@ -2383,8 +2383,12 @@ final class CmuxConfigStore: ObservableObject {
 
     func shortcutActions() -> [CmuxResolvedConfigAction] {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
+        let menuBarActions = menuBarShortcutActions()
+        let menuBarActionIDs = Set(menuBarActions.map(\.id))
         let configuredActions = loadedActions.filter { action in
-            action.shortcut != nil && (builtInIDs.contains(action.id) || action.actionSourcePath != nil)
+            action.shortcut != nil &&
+                !menuBarActionIDs.contains(action.id) &&
+                (builtInIDs.contains(action.id) || action.actionSourcePath != nil)
         }.sorted { lhs, rhs in
             let lhsPriority = builtInIDs.contains(lhs.id) ? 0 : 1
             let rhsPriority = builtInIDs.contains(rhs.id) ? 0 : 1
@@ -2393,32 +2397,36 @@ final class CmuxConfigStore: ObservableObject {
             }
             return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
         }
-        return configuredActions + menuBarShortcutActions()
+        return menuBarActions + configuredActions
     }
 
     private func menuBarShortcutActions() -> [CmuxResolvedConfigAction] {
         var actions: [CmuxResolvedConfigAction] = []
+        var seen = Set<String>()
         for menu in menuBarMenus {
-            appendMenuBarShortcutActions(from: menu.items, to: &actions)
+            appendMenuBarShortcutActions(from: menu.items, to: &actions, seen: &seen)
         }
         for menuExtension in menuBarExtensions {
-            appendMenuBarShortcutActions(from: menuExtension.items, to: &actions)
+            appendMenuBarShortcutActions(from: menuExtension.items, to: &actions, seen: &seen)
         }
         return actions
     }
 
     private func appendMenuBarShortcutActions(
         from items: [CmuxResolvedMenuBarItem],
-        to actions: inout [CmuxResolvedConfigAction]
+        to actions: inout [CmuxResolvedConfigAction],
+        seen: inout Set<String>
     ) {
         for item in items {
             switch item {
             case .action(let menuAction):
-                if menuAction.action.shortcut != nil {
+                if let shortcut = menuAction.action.shortcut {
+                    let key = "\(menuAction.action.id)\u{1F}\(shortcut.configIdentifier)"
+                    guard seen.insert(key).inserted else { continue }
                     actions.append(menuAction.action)
                 }
             case .submenu(let submenu):
-                appendMenuBarShortcutActions(from: submenu.items, to: &actions)
+                appendMenuBarShortcutActions(from: submenu.items, to: &actions, seen: &seen)
             case .dynamicSource, .separator:
                 continue
             }

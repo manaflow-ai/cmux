@@ -718,9 +718,18 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertEqual(lint.action.shortcut, StoredShortcut.parseConfig(strokes: ["ctrl+b", "l"]))
 
         let shortcutActions = store.shortcutActions()
+        let runTestsShortcut = try XCTUnwrap(StoredShortcut.parseConfig("cmd+shift+r"))
+        let originalRunTestsShortcut = try XCTUnwrap(StoredShortcut.parseConfig("cmd+shift+t"))
+        XCTAssertEqual(
+            shortcutActions.filter { $0.id == "run-tests" }.compactMap(\.shortcut),
+            [runTestsShortcut]
+        )
+        XCTAssertFalse(shortcutActions.contains { action in
+            action.id == "run-tests" && action.shortcut == originalRunTestsShortcut
+        })
         XCTAssertTrue(shortcutActions.contains { action in
             action.terminalCommand == "npm test" &&
-                action.shortcut == StoredShortcut.parseConfig("cmd+shift+r")
+                action.shortcut == runTestsShortcut
         })
         XCTAssertTrue(shortcutActions.contains { action in
             action.terminalCommand == "npm run lint" &&
