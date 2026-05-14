@@ -643,14 +643,14 @@ final class CmuxSettingsFileStore {
         for (rawStatus, rawValue) in rawColors {
             guard let status = FileExplorerGitStatusColorSettings.normalizedStatusName(rawStatus) else {
                 Self.logger.warning(
-                    "Ignoring unknown file explorer git status '\(rawStatus, privacy: .public)' in \(sourcePath, privacy: .public)"
+                    "Ignoring unknown file explorer git status '\(rawStatus, privacy: .public)' in \(sourcePath, privacy: .private)"
                 )
                 continue
             }
             guard let rawHex = jsonString(rawValue),
                   let hex = WorkspaceTabColorSettings.normalizedHex(rawHex) else {
                 Self.logger.warning(
-                    "Ignoring invalid file explorer git status color '\(rawStatus, privacy: .public)' in \(sourcePath, privacy: .public)"
+                    "Ignoring invalid file explorer git status color '\(rawStatus, privacy: .public)' in \(sourcePath, privacy: .private)"
                 )
                 continue
             }
@@ -1251,7 +1251,9 @@ final class CmuxSettingsFileStore {
                 TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
             if notifyFileExplorerGitStatusColors {
-                FileExplorerGitStatusColorSettings.reloadSharedPaletteOnMainThread()
+                MainActor.assumeIsolated {
+                    FileExplorerGitStatusColorSettings.reloadSharedPaletteOnMainThread()
+                }
                 notificationCenter.post(name: .fileExplorerStyleDidChange, object: nil)
             }
 

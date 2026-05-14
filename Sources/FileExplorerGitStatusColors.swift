@@ -22,11 +22,9 @@ enum FileExplorerGitStatusColorSettings {
     // Settings file application mutates UserDefaults synchronously, then refreshes this
     // cache before row-reload observers consume the shared File Explorer repaint signal.
     // The palette intentionally does not observe that broad UI notification itself.
+    @MainActor
     static func reloadSharedPaletteOnMainThread() {
-        precondition(Thread.isMainThread, "File Explorer git status color palette reload must run on the main thread")
-        MainActor.assumeIsolated {
-            FileExplorerGitStatusColorPalette.shared.reload()
-        }
+        FileExplorerGitStatusColorPalette.shared.reload()
     }
 }
 
