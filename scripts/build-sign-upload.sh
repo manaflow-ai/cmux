@@ -50,11 +50,17 @@ SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
 APP_PATH="build/Build/Products/Release/cmux.app"
 GHOSTTYKIT_CRASH_REPORT_SUBDIR="cmux/crash"
+ZIG_BIN="${CMUX_ZIG:-zig}"
 
 # --- Pre-flight ---
 source ~/.secrets/cmuxterm.env
 export SPARKLE_PRIVATE_KEY
-for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
+if [[ "$ZIG_BIN" == */* ]]; then
+  [[ -x "$ZIG_BIN" ]] || { echo "MISSING: $ZIG_BIN" >&2; exit 1; }
+else
+  command -v "$ZIG_BIN" >/dev/null || { echo "MISSING: $ZIG_BIN" >&2; exit 1; }
+fi
+for tool in xcodebuild create-dmg xcrun codesign ditto gh; do
   command -v "$tool" >/dev/null || { echo "MISSING: $tool" >&2; exit 1; }
 done
 echo "Pre-flight checks passed"
@@ -64,7 +70,7 @@ echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
 (
   cd ghostty
-  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  "$ZIG_BIN" build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 )
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 

@@ -16,10 +16,16 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
+ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
 UNIVERSAL="false"
+
+zig_version() {
+  local zig_path="$1"
+  "$zig_path" version 2>/dev/null || true
+}
 
 zig_binary_arch() {
   local zig_path="$1"
@@ -43,6 +49,12 @@ select_zig_for_target() {
       echo "error: CMUX_ZIG is not executable: $CMUX_ZIG" >&2
       return 1
     fi
+    local cmux_zig_version
+    cmux_zig_version="$(zig_version "$CMUX_ZIG")"
+    if [[ "$cmux_zig_version" != "$ZIG_REQUIRED" ]]; then
+      echo "error: CMUX_ZIG must point to Zig $ZIG_REQUIRED, got ${cmux_zig_version:-unknown} at $CMUX_ZIG" >&2
+      return 1
+    fi
     echo "$CMUX_ZIG"
     return 0
   fi
@@ -51,18 +63,25 @@ select_zig_for_target() {
   local path_zig=""
   path_zig="$(command -v zig 2>/dev/null || true)"
   [[ -n "$path_zig" ]] && candidates+=("$path_zig")
-  candidates+=("/opt/homebrew/bin/zig" "/usr/local/bin/zig")
+  candidates+=("/usr/local/bin/zig" "/opt/homebrew/bin/zig")
 
   local fallback=""
+  local -a rejected=()
   local seen=" "
   local candidate=""
   local canonical=""
   local arch=""
+  local version=""
   for candidate in "${candidates[@]}"; do
     [[ -x "$candidate" ]] || continue
     canonical="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
     [[ "$seen" == *" $canonical "* ]] && continue
     seen="${seen}${canonical} "
+    version="$(zig_version "$canonical")"
+    if [[ "$version" != "$ZIG_REQUIRED" ]]; then
+      rejected+=("$canonical (${version:-unknown})")
+      continue
+    fi
     [[ -z "$fallback" ]] && fallback="$canonical"
     if [[ -n "$desired_arch" ]]; then
       arch="$(zig_binary_arch "$canonical")"
@@ -78,7 +97,11 @@ select_zig_for_target() {
     return 0
   fi
 
-  echo "error: zig is required to build the Ghostty CLI helper" >&2
+  echo "error: Zig $ZIG_REQUIRED is required to build the Ghostty CLI helper" >&2
+  if [[ "${#rejected[@]}" -gt 0 ]]; then
+    printf 'rejected zig candidates:\n' >&2
+    printf '  %s\n' "${rejected[@]}" >&2
+  fi
   return 1
 }
 

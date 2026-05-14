@@ -7,9 +7,22 @@ export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
 
+publish_zig_path() {
+  local zig_path="$1"
+  local zig_dir
+  zig_dir="$(cd "$(dirname "$zig_path")" && pwd)"
+  if [[ -n "${GITHUB_PATH:-}" ]]; then
+    echo "$zig_dir" >> "$GITHUB_PATH"
+  fi
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    echo "CMUX_ZIG=$zig_path" >> "$GITHUB_ENV"
+  fi
+}
+
 if command -v zig >/dev/null 2>&1; then
   INSTALLED_ZIG_VERSION="$(zig version 2>/dev/null || true)"
   if [ "$INSTALLED_ZIG_VERSION" = "$ZIG_REQUIRED" ]; then
+    publish_zig_path "$(command -v zig)"
     echo "zig ${ZIG_REQUIRED} already installed"
     exit 0
   fi
@@ -74,6 +87,12 @@ tar xf "$ZIG_TAR" -C /tmp
 sudo mkdir -p /usr/local/bin /usr/local/lib
 sudo rm -rf /usr/local/lib/zig
 sudo mkdir -p /usr/local/lib/zig
-sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
+sudo install -m 755 "${ZIG_DIR}/zig" /usr/local/bin/zig
 sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-zig version
+INSTALLED_ZIG_VERSION="$(/usr/local/bin/zig version 2>/dev/null || true)"
+if [ "$INSTALLED_ZIG_VERSION" != "$ZIG_REQUIRED" ]; then
+  echo "Installed /usr/local/bin/zig reported '$INSTALLED_ZIG_VERSION', expected '$ZIG_REQUIRED'" >&2
+  exit 1
+fi
+publish_zig_path /usr/local/bin/zig
+/usr/local/bin/zig version
