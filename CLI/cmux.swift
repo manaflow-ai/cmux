@@ -17207,7 +17207,7 @@ struct CMUXCLI {
         surfaceId: String?
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
-            fputs("Warning: unsupported agent lifecycle key '\(key)'\n", stderr)
+            fputs("Warning: unsupported agent lifecycle key\n", stderr)
             return
         }
         do {
@@ -17216,7 +17216,7 @@ struct CMUXCLI {
                 client: client
             )
         } catch {
-            fputs("Warning: failed to set \(key) lifecycle to \(lifecycle.rawValue): \(error)\n", stderr)
+            fputs("Warning: failed to set agent lifecycle\n", stderr)
         }
     }
 
@@ -17240,7 +17240,7 @@ struct CMUXCLI {
             let idle = optionValue(rest, name: "--idle-seconds") ?? optionValue(rest, name: "--idleSeconds")
             let maxLive = optionValue(rest, name: "--max-live-terminals") ?? optionValue(rest, name: "--maxLiveTerminals")
             if idle == nil && maxLive == nil {
-                throw CLIError(message: "Usage: cmux agent-hibernation set --idle-seconds <seconds> | --max-live-terminals <count>")
+                throw CLIError(message: "Set agent hibernation parameters by providing at least one of --idle-seconds and/or --max-live-terminals. Example: cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12")
             }
             if let idle {
                 command += " --idle-seconds=\(idle)"
@@ -17250,7 +17250,7 @@ struct CMUXCLI {
             }
             response = try sendV1Command(command, client: client)
         default:
-            throw CLIError(message: "Usage: cmux agent-hibernation <status|on|off|set> [--idle-seconds <seconds>] [--max-live-terminals <count>]")
+            throw CLIError(message: "Manage agent hibernation state with one of: status, on, off, or set. Example: cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12")
         }
 
         if jsonOutput {
