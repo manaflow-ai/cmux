@@ -29,6 +29,11 @@ an org-level repo. Until then, the canonical copies live here so:
   here; the file's contents are the parent BUILD).
 - `CHANGELOG.md` — ABI version history. Bump
   `CMUX_EMBEDDER_ABI_VERSION` on any breaking change.
+- `branding/cmux_core_framework-Info.plist` — Info.plist template for
+  `CmuxCore.framework`. Lands at `src/cmux/branding/`.
+- `branding/cmux_helper-Info.plist` — Info.plist template for the four
+  helpers (main/renderer/gpu/plugin); per-helper substitutions come
+  from `//cmux/BUILD.gn`. Lands at `src/cmux/branding/`.
 
 ## How this maps to the fork
 
