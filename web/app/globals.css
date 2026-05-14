@@ -116,6 +116,45 @@ body {
     font-family: var(--font-geist-mono);
   }
 
+  .docs-content .docs-heading {
+    position: relative;
+    scroll-margin-top: 6rem;
+  }
+
+  .docs-content .docs-heading-compact {
+    margin: 0;
+    padding: 0 0 8px;
+  }
+
+  .docs-content .docs-heading-anchor {
+    color: var(--muted);
+    display: inline-block;
+    font-family: var(--font-geist-mono);
+    font-weight: 500;
+    margin-left: -1.45rem;
+    margin-right: 0.2rem;
+    opacity: 0;
+    text-decoration: none;
+    transition: opacity 120ms ease, color 120ms ease;
+    user-select: none;
+    width: 1rem;
+  }
+
+  .docs-content .docs-heading:hover > .docs-heading-anchor,
+  .docs-content .docs-heading:focus-within > .docs-heading-anchor {
+    opacity: 1;
+  }
+
+  .docs-content .docs-heading-anchor:hover {
+    color: var(--foreground);
+  }
+
+  .docs-content .docs-heading-anchor:focus-visible {
+    border-radius: 0.25rem;
+    outline: 2px solid color-mix(in srgb, var(--foreground) 35%, transparent);
+    outline-offset: 2px;
+  }
+
   .docs-content > p {
     line-height: 1.7;
     padding-bottom: 1rem;
@@ -182,6 +221,13 @@ body {
     font-family: inherit;
     overflow-wrap: normal;
     white-space: inherit;
+  }
+
+  .docs-search-excerpt mark {
+    background: color-mix(in srgb, var(--foreground) 14%, transparent);
+    color: var(--foreground);
+    border-radius: 0.1875rem;
+    padding: 0.0625rem 0.125rem;
   }
 }
 

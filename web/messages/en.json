@@ -255,6 +255,17 @@
   },
   "docs": {
     "layoutTitle": "cmux docs",
+    "search": {
+      "placeholder": "Search docs...",
+      "label": "Search documentation",
+      "resultsLabel": "Search results",
+      "noResults": "No results",
+      "error": "Search unavailable",
+      "resultsCount": "{count, plural, one {# result} other {# results}}"
+    },
+    "headingAnchors": {
+      "link": "Link to section"
+    },
     "gettingStarted": {
       "title": "Getting Started",
       "metaTitle": "Getting Started",
