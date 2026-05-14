@@ -87,7 +87,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         context.coordinator.isApplyingPanelUpdate = false
     }
 
-    private static func applyTheme(
+    static func applyTheme(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
         foregroundColor: NSColor,
@@ -104,6 +104,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
         }
+    }
+
+    static func shouldDrawBackground(for backgroundColor: NSColor) -> Bool {
+        backgroundColor.alphaComponent > 0.001
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

@@ -896,7 +896,8 @@ final class TerminalNotificationStore: ObservableObject {
         refreshAuthorizationStatus()
     }
 
-    private func setWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) {
+    @discardableResult
+    private func setWorkspaceManualUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
         var nextIds = manualUnreadWorkspaceIds
         let didChange: Bool
         if isUnread {
@@ -904,13 +905,23 @@ final class TerminalNotificationStore: ObservableObject {
         } else {
             didChange = nextIds.remove(tabId) != nil
         }
-        guard didChange else { return }
+        guard didChange else { return false }
         manualUnreadWorkspaceIds = nextIds
+        return true
     }
 
     private func clearWorkspaceManualUnread() {
         guard !manualUnreadWorkspaceIds.isEmpty else { return }
         manualUnreadWorkspaceIds = []
+    }
+
+    func hasManualUnread(forTabId tabId: UUID) -> Bool {
+        manualUnreadWorkspaceIds.contains(tabId)
+    }
+
+    @discardableResult
+    func clearManualUnread(forTabId tabId: UUID) -> Bool {
+        setWorkspaceManualUnread(false, forTabId: tabId)
     }
 
     // Per-workspace badges treat manualUnreadWorkspaceIds as "has unread
@@ -1350,7 +1361,6 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
-        setWorkspaceManualUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -1359,20 +1369,37 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markUnread(forTabId tabId: UUID) {
+        setWorkspaceManualUnread(true, forTabId: tabId)
+    }
+
+    @discardableResult
+    func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
         var updated = notifications
-        var didChange = false
-        for index in updated.indices {
-            if updated[index].tabId == tabId, updated[index].isRead {
-                updated[index].isRead = false
-                didChange = true
+        guard let index = latestNotificationIndex(forTabId: tabId, surfaceId: surfaceId, in: updated) else {
+            if !workspaceIsUnread(forTabId: tabId) {
+                setWorkspaceManualUnread(true, forTabId: tabId)
             }
+            return nil
         }
-        if didChange {
-            setWorkspaceManualUnread(false, forTabId: tabId)
-            notifications = updated
-        } else if !workspaceIsUnread(forTabId: tabId) {
-            setWorkspaceManualUnread(true, forTabId: tabId)
+
+        var notification = updated.remove(at: index)
+        notification.isRead = false
+        let insertionIndex = updated.lastIndex(where: { !$0.isRead }).map { $0 + 1 } ?? updated.endIndex
+        updated.insert(notification, at: insertionIndex)
+        setWorkspaceManualUnread(false, forTabId: tabId)
+        notifications = updated
+        return notification.id
+    }
+
+    private func latestNotificationIndex(forTabId tabId: UUID, surfaceId: UUID?, in notifications: [TerminalNotification]) -> Int? {
+        if let exactIndex = notifications.firstIndex(where: { $0.tabId == tabId && $0.surfaceId == surfaceId }) {
+            return exactIndex
         }
+        if surfaceId != nil,
+           let workspaceIndex = notifications.firstIndex(where: { $0.tabId == tabId && $0.surfaceId == nil }) {
+            return workspaceIndex
+        }
+        return notifications.firstIndex(where: { $0.tabId == tabId })
     }
 
     func setFocusedReadIndicator(forTabId tabId: UUID, surfaceId: UUID?) {
