@@ -650,6 +650,15 @@ final class TerminalOSC7LocationTests: XCTestCase {
         XCTAssertEqual(location.displayDirectory, "deploy@server:/home/george/cmux")
     }
 
+    func testOSC7DecodesEscapedHostColonAsAuthorityByte() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://deploy%3A2222/home/george/cmux")
+        )
+
+        XCTAssertEqual(location.remoteHost, "deploy:2222")
+        XCTAssertEqual(location.displayDirectory, "deploy:2222:/home/george/cmux")
+    }
+
     func testPersistedLocalOSC7HostNormalizesToNil() throws {
         let location = try XCTUnwrap(
             TerminalLocation.parseReportedDirectory("file://localhost/Users/foo/work")

@@ -245,7 +245,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(NSTemporaryDirectory())",
                 "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR=\(NSTemporaryDirectory())",
-                "CMUX_REMOTE_HOST=remote host/frag?x#y@deploy;semi",
+                "CMUX_REMOTE_HOST=remote host/frag?x#y@deploy;semi:2222",
                 "CMUX_REMOTE_DISABLE_GIT=1",
                 "/bin/bash",
                 "-c",
@@ -257,7 +257,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(
-            result.stdout.contains("\u{1B}]7;file://remote%20host%2Ffrag%3Fx%23y%40deploy%3Bsemi/"),
+            result.stdout.contains("\u{1B}]7;file://remote%20host%2Ffrag%3Fx%23y%40deploy%3Bsemi%3A2222/"),
             result.stdout.debugDescription
         )
     }
