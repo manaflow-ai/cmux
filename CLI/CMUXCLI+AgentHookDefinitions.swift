@@ -319,18 +319,4 @@ extension CMUXCLI {
         }
         return body.split(whereSeparator: { $0 == " " || $0 == "\t" })
     }
-
-    static func hookMarkers(for def: AgentHookDef) -> [String] {
-        // Includes the legacy `cmux <agent>-hook` marker for every agent so
-        // older installs are recognized on reinstall, not just codex.
-        [def.hookMarker, "cmux \(def.name)-hook"]
-    }
-
-    /// Marker substrings used when removing / upgrading our own Feed bridge
-    /// entries on reinstall or uninstall. The legacy `cmux feed-hook
-    /// --source <agent>` shape applies to every agent that wrote a Feed
-    /// bridge entry, not just codex.
-    static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        ["cmux hooks feed --source", "cmux feed-hook --source"]
-    }
 }

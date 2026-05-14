@@ -3885,10 +3885,6 @@ struct CMUXCLI {
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
-        case let legacy where Self.legacyAgentDef(forLegacyAgentHookCommand: legacy) != nil: // Backwards compatibility for older `cmux <agent>-hook <sub>` installs. Hidden from help.
-            guard let def = Self.legacyAgentDef(forLegacyAgentHookCommand: legacy) else { print("{}"); return }
-            cliTelemetry.breadcrumb("hooks.\(def.name).legacy-alias.dispatch")
-            try runGenericAgentHook(def: def, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 
@@ -3989,8 +3985,17 @@ struct CMUXCLI {
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
-            print(usage())
-            throw CLIError(message: "Unknown command: \(command)")
+            // Backwards compatibility for older `cmux <agent>-hook <sub>` hook
+            // installs (e.g. `cmux cursor-hook shell-exec`). The dedicated
+            // `codex-hook` and `feed-hook` cases above handle their own legacy
+            // names; everything else maps through the agent registry.
+            if let legacyDef = Self.legacyAgentDef(forLegacyAgentHookCommand: command) {
+                cliTelemetry.breadcrumb("hooks.\(legacyDef.name).legacy-alias.dispatch")
+                try runGenericAgentHook(def: legacyDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            } else {
+                print(usage())
+                throw CLIError(message: "Unknown command: \(command)")
+            }
         }
         } catch {
             if !capturesSocketErrorsInsideCommand {
