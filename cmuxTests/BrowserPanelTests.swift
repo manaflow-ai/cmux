@@ -91,6 +91,46 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 @MainActor
 final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
     func testShowOpenFilePickerIsInstalledInBrowserPages() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.evaluateJavaScript("typeof window.showOpenFilePicker")
+        XCTAssertEqual(result as? String, "function")
+    }
+
+    func testShowOpenFilePickerRejectsWhenWindowFocusReturnsWithoutCancelEvent() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.evaluateJavaScript(
+            """
+            new Promise((resolve) => {
+              const inputCount = () => document.querySelectorAll("input[type='file']").length;
+              const originalClick = HTMLInputElement.prototype.click;
+              HTMLInputElement.prototype.click = function() {};
+              const pickerPromise = window.showOpenFilePicker();
+              HTMLInputElement.prototype.click = originalClick;
+
+              pickerPromise.then(
+                () => resolve({ status: "resolved", inputCount: inputCount() }),
+                (error) => resolve({
+                  status: "rejected",
+                  name: error && error.name,
+                  inputCount: inputCount(),
+                })
+              );
+
+              window.dispatchEvent(new Event("focus"));
+              setTimeout(() => resolve({ status: "pending", inputCount: inputCount() }), 100);
+            })
+            """
+        )
+        let dictionary = try XCTUnwrap(result as? [String: Any])
+        let inputCount = try XCTUnwrap(dictionary["inputCount"] as? NSNumber)
+        XCTAssertEqual(dictionary["status"] as? String, "rejected")
+        XCTAssertEqual(dictionary["name"] as? String, "AbortError")
+        XCTAssertEqual(inputCount.intValue, 0)
+    }
+
+    private func loadFilePickerTestPage() async throws -> BrowserPanel {
         let panel = BrowserPanel(workspaceId: UUID())
         let baseURL = try XCTUnwrap(URL(string: "https://example.test/file-picker"))
         let loaded = expectation(description: "browser panel test page loaded")
@@ -107,9 +147,7 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
         if let error = loadDelegate.error {
             throw error
         }
-
-        let result = try await panel.evaluateJavaScript("typeof window.showOpenFilePicker")
-        XCTAssertEqual(result as? String, "function")
+        return panel
     }
 }
 
