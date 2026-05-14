@@ -13779,11 +13779,12 @@ private struct TabItemView: View, Equatable {
 
     // Candidates for the inline-mode directory line, longest → shortest. When
     // viewport-aware truncation is off, returns a single element with each
-    // panel directory shortened via `~/`. When on, builds one joined entry per
-    // shrink level (level 0 = all full; level k = each path uses its k-th
-    // pathCandidate, falling back to its shortest form if shallower). Adjacent
-    // duplicates are dropped so ViewThatFits never measures identical
-    // alternatives.
+    // panel directory shortened via `~/`. When on, walks per-path candidate
+    // indices, bumping the leftmost path that can still shrink at each step.
+    // Each emitted candidate differs from the previous by exactly one path
+    // collapsing one level, so ViewThatFits sees a strictly monotone gradient
+    // (`full|full`, `mid|full`, `leaf|full`, `leaf|mid`, `leaf|leaf`) instead
+    // of jumping straight to all-paths-collapsed.
     private func compactDirectoryCandidatesList(orderedPanelIds: [UUID]) -> [String] {
         let home = SidebarPathFormatter.homeDirectoryPath
         let directories = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
@@ -13802,17 +13803,20 @@ private struct TabItemView: View, Equatable {
             .filter { !$0.isEmpty }
         guard !perDirectoryCandidates.isEmpty else { return [] }
 
-        let maxLevels = perDirectoryCandidates.map(\.count).max() ?? 0
+        var indices = Array(repeating: 0, count: perDirectoryCandidates.count)
         var result: [String] = []
-        for level in 0..<maxLevels {
-            let pieces = perDirectoryCandidates.map { candidates -> String in
-                candidates[min(level, candidates.count - 1)]
+        while true {
+            let pieces = zip(indices, perDirectoryCandidates).map { idx, candidates in
+                candidates[idx]
             }
             let joined = pieces.joined(separator: " | ")
-            guard !joined.isEmpty else { continue }
-            if result.last != joined {
+            if !joined.isEmpty, result.last != joined {
                 result.append(joined)
             }
+            guard let bumpIdx = indices.indices.first(where: { indices[$0] < perDirectoryCandidates[$0].count - 1 }) else {
+                break
+            }
+            indices[bumpIdx] += 1
         }
         return result
     }
