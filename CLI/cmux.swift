@@ -2606,7 +2606,8 @@ struct CMUXCLI {
             }
         }
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
-        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+        if (command == "codex-hook" || command == "feed-hook" || Self.legacyAgentDef(forLegacyAgentHookCommand: command) != nil),
+           processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
@@ -2712,7 +2713,8 @@ struct CMUXCLI {
             }
         }
 
-        let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
+        let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command)
+            || Self.legacyAgentDef(forLegacyAgentHookCommand: command) != nil // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
         case "ping":
@@ -3883,6 +3885,10 @@ struct CMUXCLI {
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+        case let legacy where Self.legacyAgentDef(forLegacyAgentHookCommand: legacy) != nil: // Backwards compatibility for older `cmux <agent>-hook <sub>` installs. Hidden from help.
+            guard let def = Self.legacyAgentDef(forLegacyAgentHookCommand: legacy) else { print("{}"); return }
+            cliTelemetry.breadcrumb("hooks.\(def.name).legacy-alias.dispatch")
+            try runGenericAgentHook(def: def, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
 

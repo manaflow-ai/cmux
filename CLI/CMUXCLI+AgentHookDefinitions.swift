@@ -245,6 +245,21 @@ extension CMUXCLI {
         return agentDefs.first { $0.name == normalized || $0.aliases.contains(normalized) }
     }
 
+    /// Maps the legacy `cmux <agent>-hook` command name (e.g. `cursor-hook`,
+    /// `gemini-hook`) to its agent definition for backwards-compatible
+    /// dispatch. Returns nil for `codex-hook` and `feed-hook` since those
+    /// are handled by their own dedicated cases, and nil for anything that
+    /// doesn't match a registered agent so unknown commands keep falling
+    /// through to the usual error path.
+    static func legacyAgentDef(forLegacyAgentHookCommand command: String) -> AgentHookDef? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmed.hasSuffix("-hook"), trimmed != "codex-hook", trimmed != "feed-hook", trimmed != "claude-hook" else {
+            return nil
+        }
+        let agentName = String(trimmed.dropLast("-hook".count))
+        return agentDef(named: agentName)
+    }
+
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
     }
@@ -263,10 +278,13 @@ extension CMUXCLI {
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
-        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
-        guard def.name == "codex" else {
-            return false
-        }
+        // Older `cmux hooks setup` runs wrote `cmux <agent>-hook <sub>` and
+        // `cmux feed-hook --source <agent>` into per-agent hooks files. Both
+        // shapes were renamed under `cmux hooks <agent> <sub>` and
+        // `cmux hooks feed --source <agent> --event <event>`. Recognize the
+        // legacy shapes so reinstall removes them instead of stacking the
+        // new entries next to the old ones (which then fail at runtime and
+        // break the host agent's hook chain).
         let tokens = legacyCmuxCommandTokens(from: command, for: def)
         guard !tokens.isEmpty,
               URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
@@ -274,7 +292,7 @@ extension CMUXCLI {
             return false
         }
 
-        if tokens.count >= 2, tokens[1] == "codex-hook" {
+        if tokens.count >= 2, tokens[1] == "\(def.name)-hook" {
             return true
         }
         if tokens.count >= 4, tokens[1] == "feed-hook", tokens[2] == "--source", tokens[3] == def.name {
@@ -303,20 +321,16 @@ extension CMUXCLI {
     }
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = [def.hookMarker]
-        if def.name == "codex" {
-            markers.append("cmux codex-hook")
-        }
-        return markers
+        // Includes the legacy `cmux <agent>-hook` marker for every agent so
+        // older installs are recognized on reinstall, not just codex.
+        [def.hookMarker, "cmux \(def.name)-hook"]
     }
 
     /// Marker substrings used when removing / upgrading our own Feed bridge
-    /// entries on reinstall or uninstall.
+    /// entries on reinstall or uninstall. The legacy `cmux feed-hook
+    /// --source <agent>` shape applies to every agent that wrote a Feed
+    /// bridge entry, not just codex.
     static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = ["cmux hooks feed --source"]
-        if def.name == "codex" {
-            markers.append("cmux feed-hook --source")
-        }
-        return markers
+        ["cmux hooks feed --source", "cmux feed-hook --source"]
     }
 }
