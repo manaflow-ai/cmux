@@ -261,6 +261,12 @@ jobs:
       - run:
           name: Validate Swift warning budget
           command: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+      - run:
+          name: Run leak smoke test
+          no_output_timeout: 10m
+          command: scripts/leak-smoke-ci.sh
+      - store_artifacts:
+          path: /tmp/cmux-leak-smoke
       - save-swift-package-cache:
           prefix: debug-build
       - save-zig-cache
