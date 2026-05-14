@@ -632,7 +632,10 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 		if err := json.Unmarshal(data, &config); err != nil {
 			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userJsonPath)
 		}
-	} else {
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: check file permissions and retry", userJsonPath)
+	}
+	if config == nil {
 		config = map[string]any{}
 	}
 
@@ -738,7 +741,11 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	// Rebuild the shadow config from the user's source config on every run so
 	// a previous --model overlay cannot persist into a later bare `cmux omo`.
 	if data, err := os.ReadFile(userOmoConfig); err == nil {
-		json.Unmarshal(data, &omoConfig)
+		if err := json.Unmarshal(data, &omoConfig); err != nil {
+			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userOmoConfig)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: check file permissions and retry", userOmoConfig)
 	}
 	if omoConfig == nil {
 		omoConfig = map[string]any{}

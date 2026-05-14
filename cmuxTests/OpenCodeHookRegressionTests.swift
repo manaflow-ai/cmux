@@ -196,6 +196,54 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         }
     }
 
+    func testOMORejectsInvalidOhMyOpenCodeConfig() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-omo-invalid-config-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent(".config/opencode", isDirectory: true)
+        let nodeModulesDir = configDir.appendingPathComponent("node_modules/oh-my-opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: nodeModulesDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try #"{"plugin":[]}"#.write(
+            to: configDir.appendingPathComponent("opencode.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "{".write(
+            to: configDir.appendingPathComponent("oh-my-opencode.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["PWD"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["omo", "run", "hello"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Failed to parse"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("oh-my-opencode.json"), result.stderr)
+        let shadowOmoConfig = root
+            .appendingPathComponent(".cmuxterm/omo-config", isDirectory: true)
+            .appendingPathComponent("oh-my-opencode.json", isDirectory: false)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shadowOmoConfig.path))
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

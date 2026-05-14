@@ -15004,7 +15004,13 @@ struct CMUXCLI {
         let shadowJsonURL = shadowDir.appendingPathComponent("opencode.json")
 
         var config: [String: Any]
-        if let data = try? Data(contentsOf: userJsonURL) {
+        if fm.fileExists(atPath: userJsonURL.path) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: userJsonURL)
+            } catch {
+                throw CLIError(message: "Failed to read \(userJsonURL.path). Check file permissions and retry.")
+            }
             guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
             }
@@ -15097,9 +15103,23 @@ struct CMUXCLI {
         // Rebuild the shadow config from the user's source config on every run so
         // a previous --model overlay cannot persist into a later bare `cmux omo`.
         var omoConfig: [String: Any]
-        if let data = try? Data(contentsOf: userOmoConfig),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            omoConfig = existing
+        if fm.fileExists(atPath: userOmoConfig.path) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: userOmoConfig)
+            } catch {
+                throw CLIError(message: "Failed to read \(userOmoConfig.path). Check file permissions and retry.")
+            }
+            do {
+                guard let existing = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw CLIError(message: "\(userOmoConfig.path) must contain a JSON object.")
+                }
+                omoConfig = existing
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError(message: "Failed to parse \(userOmoConfig.path). Fix the JSON syntax and retry.")
+            }
         } else {
             omoConfig = [:]
         }

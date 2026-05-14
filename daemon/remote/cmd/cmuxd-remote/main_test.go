@@ -96,6 +96,35 @@ func TestOMORequestedModelHonorsTerminator(t *testing.T) {
 	}
 }
 
+func TestOMOEnsurePluginRejectsInvalidUserConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	userDir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(filepath.Join(userDir, "node_modules", "oh-my-opencode"), 0755); err != nil {
+		t.Fatalf("create fake plugin package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userDir, "opencode.json"), []byte(`{"plugin":[]}`), 0644); err != nil {
+		t.Fatalf("write opencode config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(userDir, "oh-my-opencode.json"), []byte("{"), 0644); err != nil {
+		t.Fatalf("write invalid OMO config: %v", err)
+	}
+
+	err := omoEnsurePlugin("", "")
+	if err == nil {
+		t.Fatal("omoEnsurePlugin should reject invalid oh-my-opencode.json")
+	}
+	if !strings.Contains(err.Error(), "failed to parse") || !strings.Contains(err.Error(), "oh-my-opencode.json") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	shadowOmoConfig := filepath.Join(home, ".cmuxterm", "omo-config", "oh-my-opencode.json")
+	if _, statErr := os.Stat(shadowOmoConfig); !os.IsNotExist(statErr) {
+		t.Fatalf("shadow OMO config should not be written after invalid user config, stat err=%v", statErr)
+	}
+}
+
 func TestWrapperBinaryDispatchesIntoCLI(t *testing.T) {
 	if os.Getenv("CMUXD_REMOTE_MAIN_HELPER") == "1" {
 		separator := 0
