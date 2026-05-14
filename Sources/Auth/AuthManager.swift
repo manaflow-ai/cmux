@@ -8,11 +8,6 @@ import StackAuth
 import Security
 #endif
 
-nonisolated private let authLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
-    category: "AuthManager"
-)
-
 private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
     static let shared = AuthPresentationContext()
 
@@ -68,6 +63,8 @@ protocol StackAuthTokenStoreProtocol: TokenStoreProtocol, Sendable {
     func clear() async
     func currentAccessToken() async -> String?
     func currentRefreshToken() async -> String?
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool
 }
 
 extension StackAuthTokenStoreProtocol {
@@ -86,6 +83,34 @@ extension StackAuthTokenStoreProtocol {
     func currentRefreshToken() async -> String? {
         await getStoredRefreshToken()
     }
+
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+        let storedAccessToken = await currentAccessToken()
+        let storedRefreshToken = await currentRefreshToken()
+        guard authTokenSnapshotMatches(
+            currentAccessToken: storedAccessToken,
+            currentRefreshToken: storedRefreshToken,
+            expectedAccessToken: accessToken,
+            expectedRefreshToken: refreshToken
+        ) else {
+            return false
+        }
+        await clear()
+        return true
+    }
+}
+
+private func authTokenSnapshotMatches(
+    currentAccessToken: String?,
+    currentRefreshToken: String?,
+    expectedAccessToken: String?,
+    expectedRefreshToken: String?
+) -> Bool {
+    if let expectedRefreshToken {
+        return currentRefreshToken == expectedRefreshToken
+    }
+    return currentRefreshToken == nil && currentAccessToken == expectedAccessToken
 }
 
 protocol AuthClientProtocol: Sendable {
@@ -151,7 +176,6 @@ final class AuthManager: ObservableObject {
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let settingsStore: AuthSettingsStore
     private let urlOpener: (URL) -> Void
-    private let usesSystemWebAuthenticationSession: () -> Bool
 
     /// Resolves when the on-launch session restoration finishes (success or failure).
     /// Any probe that needs a definitive `isAuthenticated` value must `await` this
@@ -164,16 +188,12 @@ final class AuthManager: ObservableObject {
         client: (any AuthClientProtocol)? = nil,
         tokenStore: any StackAuthTokenStoreProtocol = KeychainStackTokenStore(),
         settingsStore: AuthSettingsStore = AuthSettingsStore(),
-        urlOpener: ((URL) -> Void)? = nil,
-        usesSystemWebAuthenticationSession: (() -> Bool)? = nil
+        urlOpener: ((URL) -> Void)? = nil
     ) {
         self.tokenStore = tokenStore
         self.settingsStore = settingsStore
         self.client = client ?? Self.makeDefaultClient(tokenStore: tokenStore)
         self.urlOpener = urlOpener ?? Self.defaultURLOpener
-        self.usesSystemWebAuthenticationSession = usesSystemWebAuthenticationSession ?? {
-            Self.shouldUseSystemWebAuthenticationSession()
-        }
         let cachedUser = settingsStore.cachedUser()
         self.currentUser = cachedUser
         self.selectedTeamID = settingsStore.selectedTeamID
@@ -193,52 +213,32 @@ final class AuthManager: ObservableObject {
         await bootstrapTask.value
     }
 
+    private var loginPollTask: Task<Void, Never>?
     private var webAuthSession: ASWebAuthenticationSession?
+    private var nextBrowserSignInAttemptID: UInt64 = 0
+    private var activeBrowserSignInAttemptID: UInt64?
+    private var signOutCancelledBrowserSignInAttemptID: UInt64?
+    private var authMutationGeneration: UInt64 = 0
+    private var currentAuthMutationKind: AuthMutationKind?
+
+    private enum AuthMutationKind {
+        case restore
+        case signIn
+        case signOut
+    }
+
+    #if DEBUG
+    func markBrowserSignInLoadingForTesting() {
+        _ = startBrowserSignInAttempt()
+    }
+    #endif
 
     func beginSignIn() {
-        beginSignIn(keepLoadingForExternalBrowser: false)
-    }
-
-    private func beginSignIn(keepLoadingForExternalBrowser: Bool) {
+        loginPollTask?.cancel()
         webAuthSession?.cancel()
         webAuthSession = nil
+        let attemptID = startBrowserSignInAttempt()
 
-        if usesSystemWebAuthenticationSession() {
-            isLoading = true
-            beginSystemWebAuthenticationSession()
-            return
-        }
-
-        let signInURL = AuthEnvironment.signInURL()
-        authLog("beginSignIn: opening external browser url=\(signInURL.absoluteString)")
-        urlOpener(signInURL)
-
-        if keepLoadingForExternalBrowser {
-            isLoading = true
-        } else if isLoading {
-            isLoading = false
-        }
-    }
-
-    static func shouldUseSystemWebAuthenticationSession(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        let value = environment["CMUX_AUTH_USE_ASWEB_AUTH_SESSION"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        switch value {
-        case "0", "false", "no":
-            return false
-        case "1", "true", "yes":
-            return true
-        default:
-            // ASWebAuthenticationSession scopes callbacks to the initiating
-            // session even when parallel debug apps share the same URL scheme.
-            return true
-        }
-    }
-
-    private func beginSystemWebAuthenticationSession() {
         let signInURL = AuthEnvironment.signInURL()
         let callbackScheme = AuthEnvironment.callbackScheme
 
@@ -248,19 +248,32 @@ final class AuthManager: ObservableObject {
         ) { [weak self] callbackURL, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.isCurrentBrowserSignInAttempt(attemptID) else { return }
                 defer {
-                    self.isLoading = false
-                    self.webAuthSession = nil
+                    self.finishBrowserSignInAttempt(attemptID)
                 }
                 if let error {
-                    authLogger.error("ASWebAuthenticationSession failed: \(String(describing: error), privacy: .private)")
+                    self.authLog("auth.webauth failed: \(error)")
                     return
                 }
                 guard let callbackURL else { return }
+                let callbackPayload = AuthCallbackRouter.callbackPayload(from: callbackURL)
                 do {
                     try await self.handleCallbackURL(callbackURL)
+                    if self.signOutCancelledBrowserSignInAttemptID == attemptID,
+                       self.activeBrowserSignInAttemptID == nil,
+                       let callbackPayload {
+                        let didClear = await self.tokenStore.clearTokensIfCurrent(
+                            accessToken: callbackPayload.accessToken,
+                            refreshToken: callbackPayload.refreshToken
+                        )
+                        if didClear {
+                            self.clearSessionState(clearSelectedTeam: true)
+                        }
+                        self.signOutCancelledBrowserSignInAttemptID = nil
+                    }
                 } catch {
-                    authLogger.error("ASWebAuthenticationSession callback failed: \(String(describing: error), privacy: .private)")
+                    self.authLog("auth.webauth callback failed: \(error)")
                 }
             }
         }
@@ -270,24 +283,20 @@ final class AuthManager: ObservableObject {
         if session.start() {
             webAuthSession = session
         } else {
-            authLogger.warning("ASWebAuthenticationSession start returned false")
-            isLoading = false
+            authLog("auth.webauth: session.start() returned false")
+            finishBrowserSignInAttempt(attemptID)
         }
     }
 
-    /// Starts sign-in and awaits the user's
+    /// Starts the ASWebAuthenticationSession popup and awaits the user's
     /// completion by observing isAuthenticated AND isLoading. Resolves when
-    /// authenticated, when the sign-in attempt settles unsuccessfully
-    /// (popup dismissed/cancelled/error), or when the deadline elapses. No polling
+    /// authenticated, when the sign-in attempt settles unsuccessfully (popup
+    /// dismissed/cancelled/error), or when the deadline elapses. No polling
     /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn(keepLoadingForExternalBrowser: true)
-        let signedIn = await waitForSignInSettled(timeout: timeout)
-        if !signedIn && isLoading && !isAuthenticated {
-            isLoading = false
-        }
-        return signedIn
+        beginSignIn()
+        return await waitForSignInSettled(timeout: timeout)
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -449,12 +458,8 @@ final class AuthManager: ObservableObject {
         guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
             throw AuthManagerError.invalidCallback
         }
+        let mutationGeneration = beginAuthMutation(.signIn)
 
-        // System web-auth callbacks arrive from the session completion handler,
-        // so there is no active presentation to cancel on this shared callback path.
-        // The external-browser path never creates an ASWebAuthenticationSession.
-        webAuthSession = nil
-        lastKnownAccessToken = nil
         isLoading = true
         defer { isLoading = false }
 
@@ -462,8 +467,31 @@ final class AuthManager: ObservableObject {
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken
         )
-        try await refreshSession()
+        guard await keepAuthMutationIfCurrent(
+            mutationGeneration,
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken
+        ) else {
+            return
+        }
         lastKnownAccessToken = payload.accessToken
+        do {
+            try await refreshSession(expectedAuthMutation: mutationGeneration)
+        } catch AuthManagerError.invalidCallback where !isCurrentAuthMutation(mutationGeneration) {
+            _ = await keepAuthMutationIfCurrent(
+                mutationGeneration,
+                accessToken: payload.accessToken,
+                refreshToken: payload.refreshToken
+            )
+            return
+        }
+        guard await keepAuthMutationIfCurrent(
+            mutationGeneration,
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken
+        ) else {
+            return
+        }
         didCompleteBrowserSignIn = true
     }
 
@@ -489,6 +517,7 @@ final class AuthManager: ObservableObject {
         }
 
         await tokenStore.setTokens(accessToken: resolvedAccess, refreshToken: refreshToken)
+        lastKnownAccessToken = resolvedAccess
         do {
             try await refreshSession()
             authLog("seedTokensFromCLI: success user=\(currentUser?.primaryEmail ?? "nil")")
@@ -584,6 +613,7 @@ final class AuthManager: ObservableObject {
             throw AuthManagerError.invalidCallback
         }
         await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        lastKnownAccessToken = accessToken
 
         // Fetch user info directly with the access token
         let userJSON = try await Self.stackAPIRequest(
@@ -631,21 +661,34 @@ final class AuthManager: ObservableObject {
     }
 
     func signOut() async {
-        webAuthSession?.cancel()
-        webAuthSession = nil
-        isLoading = false
-        lastKnownAccessToken = nil
+        let signOutGeneration = beginAuthMutation(.signOut)
+        cancelBrowserSignInForSignOut()
+        let accessTokenAtSignOut = await tokenStore.currentAccessToken()
+        let refreshTokenAtSignOut = await tokenStore.currentRefreshToken()
         try? await client.signOut()
-        await tokenStore.clear()
+        guard isCurrentAuthMutation(signOutGeneration) else { return }
+        await tokenStore.clearTokensIfCurrent(
+            accessToken: accessTokenAtSignOut,
+            refreshToken: refreshTokenAtSignOut
+        )
+        guard isCurrentAuthMutation(signOutGeneration) else { return }
         clearSessionState(clearSelectedTeam: true)
     }
 
-    /// Cached access token for fast synchronous reads (no actor hops).
+    /// Cached access token for fast reads after sign-in or session restoration.
     private var lastKnownAccessToken: String?
 
     func getAccessToken() async throws -> String {
+        await awaitBootstrapped()
+        guard isAuthenticated else {
+            throw AuthManagerError.missingAccessToken
+        }
         if let cached = lastKnownAccessToken, !cached.isEmpty {
             return cached
+        }
+        if let stored = await tokenStore.currentAccessToken(), !stored.isEmpty {
+            lastKnownAccessToken = stored
+            return stored
         }
         throw AuthManagerError.missingAccessToken
     }
@@ -672,6 +715,7 @@ final class AuthManager: ObservableObject {
     }
 
     private func restoreStoredSessionIfNeeded() async {
+        let mutationGeneration = beginAuthMutation(.restore)
         let accessToken = await tokenStore.currentAccessToken()
         let refreshToken = await tokenStore.currentRefreshToken()
         let hasAccessToken = accessToken != nil && !(accessToken?.isEmpty ?? true)
@@ -688,7 +732,7 @@ final class AuthManager: ObservableObject {
         defer { isRestoringSession = false }
 
         do {
-            try await refreshSession()
+            try await refreshSession(expectedAuthMutation: mutationGeneration)
             authLog("restore: success user=\(currentUser?.primaryEmail ?? "nil") auth=\(isAuthenticated)")
         } catch {
             authLog("restore: failed error=\(error)")
@@ -699,14 +743,14 @@ final class AuthManager: ObservableObject {
     }
 
     /// DEBUG-only append to /tmp/cmux-auth-debug.log. In Release builds this
-    /// is a no-op so token-derived material and user emails never land in a
-    /// world-traversable file. Call sites still pass PII-bearing strings
-    /// because redacting at the call site is a lot of churn; keeping the
-    /// #if DEBUG guard here is the single bottleneck that makes that safe.
+    /// mirrors the sanitized unified log entry so token-derived material and
+    /// user emails never land in a world-traversable file.
     nonisolated static func authLog(_ message: String) {
+        let redactedMessage = redactedAuthLogMessage(message)
+        authLogger.log(level: authLogType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
         #if DEBUG
-        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(message)\n"
-        let path = "/tmp/cmux-auth-debug.log"
+        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(redactedMessage)\n"
+        let path = authDebugLogPath
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()
             handle.write(line.data(using: .utf8)!)
@@ -714,8 +758,48 @@ final class AuthManager: ObservableObject {
         } else {
             FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
         }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
         #endif
     }
+
+    private nonisolated static let authLogger = Logger(subsystem: "com.cmuxterm.app", category: "auth")
+    private nonisolated static let authDebugLogPath = "/tmp/cmux-auth-debug.log"
+
+    private nonisolated static func authLogType(for message: String) -> OSLogType {
+        let lowercased = message.lowercased()
+        if lowercased.contains("failed")
+            || lowercased.contains("error")
+            || lowercased.contains("invalid")
+            || lowercased.contains("status=") {
+            return .error
+        }
+        return .debug
+    }
+
+    private nonisolated static func redactedAuthLogMessage(_ message: String) -> String {
+        var redacted = message
+        let replacements: [(pattern: String, replacement: String)] = [
+            (#"(?i)\b(stack_access|stack_refresh|access_token|refresh_token|id_token|token|login_code|polling_code|code|state)=([^\s&#,)]+)"#, "$1=<redacted>"),
+            (#"(?i)\b(access|refresh)=([^\s,;)]+)"#, "$1=<redacted>"),
+            (#"(?i)\b(authorization|x-stack-access-token|x-stack-refresh-token)\s*[:=]\s*(?:Bearer\s+)?([^\s,;)]+)"#, "$1=<redacted>"),
+            (#"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"#, "<email>"),
+            (#"[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"#, "<jwt>"),
+        ]
+        for replacement in replacements {
+            redacted = redacted.replacingOccurrences(
+                of: replacement.pattern,
+                with: replacement.replacement,
+                options: .regularExpression
+            )
+        }
+        return redacted
+    }
+
+    #if DEBUG
+    nonisolated static func redactedAuthLogMessageForTesting(_ message: String) -> String {
+        redactedAuthLogMessage(message)
+    }
+    #endif
 
     // ISO8601DateFormatter is expensive to construct (calendar + locale +
     // time zone). Reuse one instance across the high-frequency authLog path.
@@ -729,7 +813,7 @@ final class AuthManager: ObservableObject {
         Self.authLog(message)
     }
 
-    private func refreshSession() async throws {
+    private func refreshSession(expectedAuthMutation: UInt64? = nil) async throws {
         let user: CMUXAuthUser?
         do {
             user = try await client.currentUser()
@@ -745,7 +829,13 @@ final class AuthManager: ObservableObject {
             throw error
         }
         let hasRefreshToken = await tokenStore.currentRefreshToken() != nil
+        try requireCurrentAuthMutation(expectedAuthMutation)
         authLog("refreshSession: user=\(user?.primaryEmail ?? "nil") teams=\(teams.count) hasRefresh=\(hasRefreshToken)")
+        if let accessToken = await tokenStore.currentAccessToken(), !accessToken.isEmpty {
+            try requireCurrentAuthMutation(expectedAuthMutation)
+            lastKnownAccessToken = accessToken
+        }
+        try requireCurrentAuthMutation(expectedAuthMutation)
         currentUser = user
         settingsStore.saveCachedUser(user)
         availableTeams = teams
@@ -754,6 +844,7 @@ final class AuthManager: ObservableObject {
     }
 
     private func clearSessionState(clearSelectedTeam: Bool) {
+        lastKnownAccessToken = nil
         availableTeams = []
         currentUser = nil
         isAuthenticated = false
@@ -762,6 +853,79 @@ final class AuthManager: ObservableObject {
             selectedTeamID = nil
         }
         settingsStore.saveCachedUser(nil)
+    }
+
+    @discardableResult
+    private func beginAuthMutation(_ kind: AuthMutationKind) -> UInt64 {
+        authMutationGeneration &+= 1
+        currentAuthMutationKind = kind
+        return authMutationGeneration
+    }
+
+    private func isCurrentAuthMutation(_ generation: UInt64) -> Bool {
+        authMutationGeneration == generation
+    }
+
+    private func requireCurrentAuthMutation(_ generation: UInt64?) throws {
+        guard let generation else { return }
+        guard isCurrentAuthMutation(generation) else {
+            throw AuthManagerError.invalidCallback
+        }
+    }
+
+    private func keepAuthMutationIfCurrent(
+        _ generation: UInt64,
+        accessToken: String,
+        refreshToken: String? = nil
+    ) async -> Bool {
+        guard !isCurrentAuthMutation(generation) else {
+            return true
+        }
+        let cachedMatches = lastKnownAccessToken == accessToken
+        let storedCleared = await tokenStore.clearTokensIfCurrent(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+        if cachedMatches || storedCleared || currentAuthMutationKind == .signOut {
+            clearSessionState(clearSelectedTeam: true)
+        }
+        return false
+    }
+
+    private func startBrowserSignInAttempt() -> UInt64 {
+        nextBrowserSignInAttemptID &+= 1
+        let attemptID = nextBrowserSignInAttemptID
+        activeBrowserSignInAttemptID = attemptID
+        if signOutCancelledBrowserSignInAttemptID == attemptID {
+            signOutCancelledBrowserSignInAttemptID = nil
+        }
+        isLoading = true
+        return attemptID
+    }
+
+    private func isCurrentBrowserSignInAttempt(_ attemptID: UInt64) -> Bool {
+        activeBrowserSignInAttemptID == attemptID
+            && signOutCancelledBrowserSignInAttemptID != attemptID
+    }
+
+    private func finishBrowserSignInAttempt(_ attemptID: UInt64) {
+        guard activeBrowserSignInAttemptID == attemptID else { return }
+        isLoading = false
+        webAuthSession = nil
+        activeBrowserSignInAttemptID = nil
+        if signOutCancelledBrowserSignInAttemptID == attemptID {
+            signOutCancelledBrowserSignInAttemptID = nil
+        }
+    }
+
+    private func cancelBrowserSignInForSignOut() {
+        if let attemptID = activeBrowserSignInAttemptID {
+            signOutCancelledBrowserSignInAttemptID = attemptID
+        }
+        activeBrowserSignInAttemptID = nil
+        webAuthSession?.cancel()
+        webAuthSession = nil
+        isLoading = false
     }
 
     private static func makeDefaultClient(
@@ -875,6 +1039,16 @@ private actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         await file.clearTokens()
     }
 
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+        if keychainWorks {
+            let keychainCleared = await keychain.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+            let fileCleared = await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+            return keychainCleared || fileCleared
+        }
+        return await file.clearTokensIfCurrent(accessToken: accessToken, refreshToken: refreshToken)
+    }
+
     func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
@@ -941,6 +1115,23 @@ private actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     func clearTokens() async {
         AuthManager.authLog("clearTokens called")
         write(Snapshot(accessToken: nil, refreshToken: nil))
+    }
+
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+        let snapshot = loadIfNeeded()
+        guard authTokenSnapshotMatches(
+            currentAccessToken: snapshot.accessToken,
+            currentRefreshToken: snapshot.refreshToken,
+            expectedAccessToken: accessToken,
+            expectedRefreshToken: refreshToken
+        ) else {
+            AuthManager.authLog("file.clearTokensIfCurrent: skipped stale clear")
+            return false
+        }
+        AuthManager.authLog("file.clearTokensIfCurrent: cleared matching tokens")
+        write(Snapshot(accessToken: nil, refreshToken: nil))
+        return true
     }
 
     func compareAndSet(
@@ -1048,6 +1239,24 @@ private actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         cachedRefreshToken = nil
         keychainDelete(account: Self.accessTokenAccount)
         keychainDelete(account: Self.refreshTokenAccount)
+    }
+
+    @discardableResult
+    func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
+        let currentAccessToken = keychainRead(account: Self.accessTokenAccount)
+        let currentRefreshToken = keychainRead(account: Self.refreshTokenAccount)
+        guard authTokenSnapshotMatches(
+            currentAccessToken: currentAccessToken,
+            currentRefreshToken: currentRefreshToken,
+            expectedAccessToken: accessToken,
+            expectedRefreshToken: refreshToken
+        ) else {
+            AuthManager.authLog("keychain.clearTokensIfCurrent: skipped stale clear")
+            return false
+        }
+        AuthManager.authLog("keychain.clearTokensIfCurrent: cleared matching tokens")
+        await clearTokens()
+        return true
     }
 
     func compareAndSet(

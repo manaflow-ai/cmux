@@ -253,7 +253,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_billing_team_not_found",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("team");
+    expect(payload.action).toContain("cmux auth login");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -310,7 +316,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "vm_billing_team_required" });
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_billing_team_required",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("team");
+    expect(payload.action).toContain("Select a team");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -335,7 +347,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "vm_billing_team_required" });
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_billing_team_required",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("team");
+    expect(payload.action).toContain("Select a team");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -442,6 +460,53 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("returns actionable validation errors from VM exec route", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+
+    const response = await execRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/exec", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ command: "   " }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_invalid_command",
+      details: { field: "command" },
+    });
+    expect(payload.message).toContain("command");
+    expect(payload.action).toContain("cmux vm exec");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("does not echo unsupported VM service override values", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "aws" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_invalid_provider",
+      details: { field: "provider" },
+    });
+    expect(JSON.stringify(payload)).not.toContain("aws");
+    expect(payload.message).toContain("Cloud VM service");
+    expect(payload.action).toContain("default Cloud VM service");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("allows native bearer mutations without browser CSRF headers", async () => {
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
@@ -482,10 +547,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      provider: "freestyle",
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.message).toContain("disabled");
+    expect(payload.action).toContain("enable Cloud VM creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -502,10 +570,12 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      provider: "e2b",
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("enable Cloud VM creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -523,11 +593,15 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       error: "vm_image_config_error",
-      provider: "freestyle",
-      image: "unknown-snapshot",
+      details: {
+        imageRequested: true,
+      },
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("supported image");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -548,9 +622,12 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(503);
     expect(payload).toMatchObject({
       error: "vm_image_config_error",
-      provider: "freestyle",
-      envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
+      details: {
+        imageRequested: false,
+      },
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("default Cloud VM image");
     expect(payload).not.toHaveProperty("image");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
@@ -609,4 +686,10 @@ function authedStackUser() {
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
     }],
   };
+}
+
+function expectNoCloudVmImplementationLeaks(payload: unknown): void {
+  expect(JSON.stringify(payload)).not.toMatch(
+    /Stack Auth|Freestyle|E2B|freestyle|e2b|CMUX_VM_|FREESTYLE_|E2B_|billingTeamId|itemId|billingCustomerId|manifest|snapshot|database|migration|\bsh-[a-z0-9]{8,24}\b|\bteam-[a-z0-9-]+\b/,
+  );
 }

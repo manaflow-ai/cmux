@@ -55,6 +55,9 @@ commands:
           name: Install zig
           no_output_timeout: 35m
           command: |
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            export HOMEBREW_NO_INSTALL_CLEANUP=1
+            export HOMEBREW_NO_ENV_HINTS=1
             ./scripts/install-zig-ci.sh
 
   print-xcode:
@@ -223,6 +226,7 @@ jobs:
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+            CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
       - save-swift-package-cache:
           prefix: unit
       - save-zig-cache

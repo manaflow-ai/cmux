@@ -2,6 +2,12 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
+    // Issue #4093 is specifically Korean 2-Set. Other Korean layouts should be
+    // validated separately before this allow-list is broadened.
+    private static let korean2SetInputSourceIDs: Set<String> = [
+        "com.apple.inputmethod.Korean.2SetKorean",
+    ]
+
     /// Clamps AppKit's marked-text selection into the active preedit buffer.
     func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
         guard markedLength > 0 else {
@@ -53,27 +59,41 @@ extension GhosttyNSView {
         }
 
         if before.selection != after.selection {
-            return true
+            return !shouldForwardMarkedSelectionCommandToTerminal(
+                event: event,
+                inputSourceId: inputSourceId
+            )
         }
 
         guard let event, isInputMethodSource(inputSourceId) else {
             return false
         }
+        guard !shouldForwardMarkedSelectionCommandToTerminal(
+            event: event,
+            inputSourceId: inputSourceId
+        ) else {
+            return false
+        }
         return shouldKeepIMECompositionCommandInsideTextInput(event)
     }
 
-    func isInputMethodSource(_ sourceId: String?) -> Bool {
-        IMECommandPolicy(inputSourceId: sourceId).isInputMethod
+    private func isInputMethodSource(_ inputSourceId: String?) -> Bool {
+        IMECommandPolicy(inputSourceId: inputSourceId).isInputMethod
     }
 
-    func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        return flags.isEmpty || flags == [.shift]
+    private func shouldForwardMarkedSelectionCommandToTerminal(
+        event: NSEvent?,
+        inputSourceId: String?
+    ) -> Bool {
+        guard let event else { return false }
+        return IMECommandPolicy(inputSourceId: inputSourceId)
+            .forwardsMarkedSelectionCommandToTerminal(event)
     }
 
-    func shouldKeepNoMarkedIMECommandInsideTextInput(_ event: NSEvent?, inputSourceId: String?) -> Bool {
+    private func shouldKeepNoMarkedIMECommandInsideTextInput(
+        _ event: NSEvent?,
+        inputSourceId: String?
+    ) -> Bool {
         guard let event else { return false }
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
@@ -88,7 +108,10 @@ extension GhosttyNSView {
         shouldRouteTextInputKeyEquivalentToKeyDown(event, inputSourceId: nil)
     }
 
-    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent, inputSourceId: String?) -> Bool {
+    func shouldRouteTextInputKeyEquivalentToKeyDown(
+        _ event: NSEvent,
+        inputSourceId: String?
+    ) -> Bool {
         guard event.type == .keyDown else { return false }
         let resolvedInputSourceId = inputSourceId ?? KeyboardLayout.id
         if hasMarkedText() {
@@ -103,7 +126,7 @@ extension GhosttyNSView {
 
     /// Returns true for active-composition command keys that belong to AppKit's
     /// text input manager even when marked text itself does not change.
-    func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
+    private func shouldKeepIMECompositionCommandInsideTextInput(_ event: NSEvent) -> Bool {
         guard hasOnlyTextInputCommandModifiers(event) else { return false }
 
         switch Int(event.keyCode) {
@@ -117,11 +140,24 @@ extension GhosttyNSView {
         }
     }
 
+    private func hasOnlyTextInputCommandModifiers(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return flags.isEmpty || flags == [.shift]
+    }
+
+    func shouldBufferBopomofoInsertedPreedit(_ text: String, inputSourceId: String? = nil) -> Bool {
+        IMECommandPolicy(inputSourceId: inputSourceId ?? KeyboardLayout.id)
+            .buffersInsertedPreedit(text)
+    }
+
     private enum IMECommandPolicy {
         case nonInputMethod
         case otherInputMethod
         case bopomofoCandidate
         case applePinyinCandidate
+        case korean2Set
 
         init(inputSourceId: String?) {
             guard let inputSourceId else {
@@ -129,8 +165,14 @@ extension GhosttyNSView {
                 return
             }
 
-            if inputSourceId.localizedCaseInsensitiveContains("Zhuyin")
-                || inputSourceId.localizedCaseInsensitiveContains("Bopomofo") {
+            if GhosttyNSView.korean2SetInputSourceIDs.contains(inputSourceId) {
+                self = .korean2Set
+                return
+            }
+
+            let comparisonLocale = Locale(identifier: "en_US_POSIX")
+            if inputSourceId.range(of: "Zhuyin", options: .caseInsensitive, locale: comparisonLocale) != nil
+                || inputSourceId.range(of: "Bopomofo", options: .caseInsensitive, locale: comparisonLocale) != nil {
                 self = .bopomofoCandidate
                 return
             }
@@ -141,7 +183,11 @@ extension GhosttyNSView {
                 return
             }
 
-            if inputSourceId.localizedCaseInsensitiveContains("inputmethod") {
+            if inputSourceId.range(
+                of: ".inputmethod.",
+                options: .caseInsensitive,
+                locale: comparisonLocale
+            ) != nil {
                 self = .otherInputMethod
                 return
             }
@@ -151,7 +197,7 @@ extension GhosttyNSView {
 
         var isInputMethod: Bool {
             switch self {
-            case .bopomofoCandidate, .applePinyinCandidate, .otherInputMethod:
+            case .bopomofoCandidate, .applePinyinCandidate, .korean2Set, .otherInputMethod:
                 return true
             case .nonInputMethod:
                 return false
@@ -160,7 +206,7 @@ extension GhosttyNSView {
 
         func keepsNoMarkedHandledCommandInsideTextInput(keyCode: Int) -> Bool {
             switch self {
-            case .nonInputMethod, .otherInputMethod:
+            case .nonInputMethod, .otherInputMethod, .korean2Set:
                 return false
             case .bopomofoCandidate:
                 switch keyCode {
@@ -178,6 +224,42 @@ extension GhosttyNSView {
                 default:
                     return false
                 }
+            }
+        }
+
+        func forwardsMarkedSelectionCommandToTerminal(_ event: NSEvent) -> Bool {
+            guard case .korean2Set = self else { return false }
+            guard Self.hasOnlyPlainTextInputModifiers(event) else { return false }
+
+            switch Int(event.keyCode) {
+            case kVK_LeftArrow, kVK_RightArrow:
+                return true
+            default:
+                return false
+            }
+        }
+
+        func buffersInsertedPreedit(_ text: String) -> Bool {
+            guard case .bopomofoCandidate = self else { return false }
+            guard !text.isEmpty else { return false }
+            return text.unicodeScalars.allSatisfy(Self.isBopomofoPreeditScalar)
+        }
+
+        private static func hasOnlyPlainTextInputModifiers(_ event: NSEvent) -> Bool {
+            let flags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            return flags.isEmpty
+        }
+
+        private static func isBopomofoPreeditScalar(_ scalar: UnicodeScalar) -> Bool {
+            switch scalar.value {
+            case 0x3100...0x312F, 0x31A0...0x31BF:
+                return true
+            case 0x02C7, 0x02C9, 0x02CA, 0x02CB, 0x02D9:
+                return true
+            default:
+                return false
             }
         }
     }
