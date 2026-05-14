@@ -112256,8 +112256,8 @@
     "globalSearch.palette.placeholder": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+        "en": { "stringUnit": { "state": "translated", "value": "Search all terminals, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのターミナル、パネル、ブラウザタブを検索..." } }
       }
     },
     "globalSearch.empty.prompt": {
@@ -112272,6 +112272,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "No results" } },
         "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Searching..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索中..." } }
       }
     },
     "globalSearch.empty.noOpenPanels": {
@@ -112295,11 +112302,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
       }
     },
+    "globalSearch.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
     "globalSearch.kind.title": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Title" } },
         "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.terminal.lineLocation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Line %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 行目" } }
+      }
+    },
+    "globalSearch.terminal.lineRangeLocation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lines %lld-%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld-%lld 行目" } }
       }
     },
     "globalSearch.untitled": {

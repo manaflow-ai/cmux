@@ -77,7 +77,7 @@ private struct GlobalSearchPaletteView: View {
                 TextField(
                     String(
                         localized: "globalSearch.palette.placeholder",
-                        defaultValue: "Search all windows, panels, browser tabs..."
+                        defaultValue: "Search all terminals, panels, browser tabs..."
                     ),
                     text: $query
                 )
@@ -92,7 +92,9 @@ private struct GlobalSearchPaletteView: View {
 
             if results.isEmpty {
                 GlobalSearchEmptyStateView(
-                    title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    title: isSearching
+                        ? String(localized: "globalSearch.empty.searching", defaultValue: "Searching...")
+                        : query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? String(localized: "globalSearch.empty.noOpenPanels", defaultValue: "No open panels")
                         : String(localized: "globalSearch.empty.noResults", defaultValue: "No results")
                 )
@@ -360,6 +362,8 @@ private struct GlobalSearchResultRow: Identifiable, Equatable {
             return "globe"
         case .markdown:
             return "doc.richtext"
+        case .terminal:
+            return "terminal"
         case .title:
             return "rectangle.stack"
         }

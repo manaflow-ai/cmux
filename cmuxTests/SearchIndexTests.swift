@@ -58,6 +58,113 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(markdownHits.first?.panelID, markdownPanelID)
     }
 
+    func testSearchFindsTerminalScrollbackChunks() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let terminalPanelID = UUID()
+        let documentID = SearchIndexDocument.terminalLineChunkStableID(
+            panelID: terminalPanelID,
+            startLineNumber: 42
+        )
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: documentID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: terminalPanelID,
+                kind: .terminal,
+                title: "Build",
+                location: "Window > Workspace > Build > Line 42",
+                anchor: "line:42",
+                text: "swift build failed with orchardtoken in terminal scrollback",
+                timestamp: Date(timeIntervalSince1970: 300)
+            )
+        )
+
+        let hits = try await index.search("orchardtoken", limit: 10)
+        XCTAssertEqual(hits.map(\.id), [documentID])
+        XCTAssertEqual(hits.first?.kind, .terminal)
+        XCTAssertEqual(hits.first?.panelID, terminalPanelID)
+        XCTAssertEqual(hits.first?.anchor, "line:42")
+    }
+
+    func testSearchUsesFuzzySubsequenceFallback() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let terminalPanelID = UUID()
+        let documentID = SearchIndexDocument.terminalLineChunkStableID(
+            panelID: terminalPanelID,
+            startLineNumber: 9
+        )
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: documentID,
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: terminalPanelID,
+                kind: .terminal,
+                title: "Deploy",
+                location: "Window > Deploy > Line 9",
+                anchor: "line:9",
+                text: "deployment configuration loaded from scrollback"
+            )
+        )
+
+        let hits = try await index.search("dplcfg", limit: 10)
+        XCTAssertEqual(hits.map(\.id), [documentID])
+        XCTAssertEqual(hits.first?.kind, .terminal)
+    }
+
+    func testSearchCentersFuzzySnippetOnTightMatch() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let documentID = SearchIndexDocument.terminalLineChunkStableID(
+            panelID: UUID(),
+            startLineNumber: 1
+        )
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: documentID,
+                windowID: UUID(),
+                workspaceID: UUID(),
+                panelID: UUID(),
+                kind: .terminal,
+                title: "Terminal",
+                location: "Window > Terminal > Line 1",
+                anchor: "line:1",
+                text: [
+                    "The default interactive shell is now zsh.",
+                    "For more details, please visit support.",
+                    "SCROLLBACK_FUZZY_NEEDLE_7391 finished from terminal one"
+                ].joined(separator: "\n")
+            )
+        )
+
+        let hits = try await index.search("sbn7391", limit: 10)
+        XCTAssertEqual(hits.map(\.id), [documentID])
+        XCTAssertTrue(hits[0].snippet.contains("SCROLLBACK_FUZZY_NEEDLE_7391"))
+        XCTAssertTrue(hits[0].snippet.hasPrefix("...SCROLLBACK_FUZZY_NEEDLE_7391"), hits[0].snippet)
+    }
+
+    func testTerminalScrollbackNormalizationSplitsCarriageReturnsAndDropsControlSequences() {
+        let lines = GlobalSearchDocuments.normalizedTerminalScrollbackLines(
+            "\u{1B}]10;rgb:00/00/00\u{1B}\\first\rsecond\r\n\u{1B}[31mthird"
+        )
+
+        XCTAssertEqual(lines, ["first", "second", "third"])
+    }
+
     func testUpsertReplacesExistingDocumentText() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
@@ -224,6 +331,27 @@ final class SearchIndexTests: XCTestCase {
         )
     }
 
+    func testInlineNeedleUsesFuzzyMatchedSnippetSpan() {
+        let hit = SearchIndexHit(
+            id: "terminal-doc",
+            windowID: UUID(),
+            workspaceID: UUID(),
+            panelID: UUID(),
+            kind: .terminal,
+            title: "Build",
+            location: "Window > Workspace > Build > Lines 1-4",
+            anchor: "line:1",
+            snippet: "SCROLLBACK_FUZZY_NEEDLE_7391 finished",
+            rank: 10_000,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(
+            GlobalSearchInlineSearch.needle(for: "sfn7391", hit: hit),
+            "SCROLLBACK_FUZZY_NEEDLE_7391"
+        )
+    }
+
     func testDeletePanelRemovesIndexedDocuments() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
@@ -300,6 +428,79 @@ final class SearchIndexTests: XCTestCase {
         XCTAssertEqual(staleDocumentHits, [])
 
         let titleHits = try await index.search("stabletitlekeyword", limit: 10)
+        XCTAssertEqual(titleHits.map(\.id), [titleID])
+    }
+
+    func testReplacePanelTerminalDocumentsKeepsTitleDocument() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let titleID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .title)
+        let staleTerminalID = SearchIndexDocument.terminalLineChunkStableID(
+            panelID: panelID,
+            startLineNumber: 1
+        )
+        let freshTerminalID = SearchIndexDocument.terminalLineChunkStableID(
+            panelID: panelID,
+            startLineNumber: 5
+        )
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: titleID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                kind: .title,
+                title: "Terminal Title",
+                location: "Window > Workspace",
+                anchor: "title",
+                text: "persistenttitlekeyword"
+            )
+        )
+        try await index.upsert(
+            SearchIndexDocument(
+                id: staleTerminalID,
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                kind: .terminal,
+                title: "Terminal Title",
+                location: "Window > Workspace > Line 1",
+                anchor: "line:1",
+                text: "stalebufferkeyword"
+            )
+        )
+
+        try await index.replacePanelDocuments(
+            panelID: panelID,
+            kind: .terminal,
+            with: [
+                SearchIndexDocument(
+                    id: freshTerminalID,
+                    windowID: windowID,
+                    workspaceID: workspaceID,
+                    panelID: panelID,
+                    kind: .terminal,
+                    title: "Terminal Title",
+                    location: "Window > Workspace > Line 5",
+                    anchor: "line:5",
+                    text: "freshbufferkeyword"
+                )
+            ]
+        )
+
+        let staleHits = try await index.search("stalebufferkeyword", limit: 10)
+        XCTAssertEqual(staleHits, [])
+
+        let freshHits = try await index.search("freshbufferkeyword", limit: 10)
+        XCTAssertEqual(freshHits.map(\.id), [freshTerminalID])
+
+        let titleHits = try await index.search("persistenttitlekeyword", limit: 10)
         XCTAssertEqual(titleHits.map(\.id), [titleID])
     }
 
