@@ -68,6 +68,9 @@ extension TerminalController {
             windows[index]["top_level_pids"] = windowTopLevelPIDs.sorted()
             windows[index]["foreground_pgids"] = windowForegroundProcessGroupIDs.sorted()
             windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs, rootPIDs: appProcessPIDs)
+            windows[index]["processes"] = includeProcesses
+                ? processSnapshot.processTreePayload(for: appProcessPIDs, rootPIDs: appProcessPIDs)
+                : []
             allPIDs.formUnion(windowPIDs)
         }
         return allPIDs

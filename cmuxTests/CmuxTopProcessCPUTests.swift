@@ -67,6 +67,52 @@ final class CmuxTopProcessCPUTests: XCTestCase {
         XCTAssertGreaterThan(fixedWindowPercentages[key] ?? 0, 0)
     }
 
+    func testExitedChildCPUPercentCarriesIntoActiveParentForOneSample() {
+        let parentKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_100,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let childKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_101,
+            startSeconds: 1_000,
+            startMicroseconds: 1
+        )
+        let activeParentAndChild: Set<CmuxTopProcessScopeCacheKey> = [parentKey, childKey]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 10_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 10_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 10_000_000_000
+        )
+        let activePercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 11_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000_001_000, sampledAtNanoseconds: 11_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 11_000_000_000
+        )
+
+        XCTAssertGreaterThan(activePercentages[childKey] ?? 0, 0)
+
+        let parentOnlyPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 12_000_000_000),
+            ],
+            activeKeys: [parentKey],
+            sampledAtNanoseconds: 12_000_000_000
+        )
+
+        XCTAssertGreaterThan(parentOnlyPercentages[parentKey] ?? 0, 0)
+        XCTAssertNil(parentOnlyPercentages[childKey])
+    }
+
     func testBusyChildProcessReportsNonZeroCPUPercent() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

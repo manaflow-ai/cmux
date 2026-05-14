@@ -5,6 +5,7 @@ private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 nonisolated struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
+    var memoryBytes: Int64 = 0
     var residentBytes: Int64 = 0
     var virtualBytes: Int64 = 0
     var processCount: Int = 0
@@ -14,6 +15,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     func payload() -> [String: Any] {
         [
             "cpu_percent": cpuPercent,
+            "memory_bytes": memoryBytes,
             "resident_bytes": residentBytes,
             "virtual_bytes": virtualBytes,
             "process_count": processCount,
@@ -26,6 +28,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
         guard occurrenceCount > 1 else { return payload() }
         var attributed = self
         attributed.cpuPercent /= Double(occurrenceCount)
+        attributed.memoryBytes = attributed.memoryBytes / Int64(occurrenceCount)
         attributed.residentBytes = attributed.residentBytes / Int64(occurrenceCount)
         attributed.virtualBytes = attributed.virtualBytes / Int64(occurrenceCount)
         return attributed.payload()
@@ -43,6 +46,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
     var cpuPercent: Double
+    let memoryBytes: Int64
     let residentBytes: Int64
     let virtualBytes: Int64
     let threadCount: Int
@@ -102,7 +106,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
-            "memory_source": "proc_pidinfo.PROC_PIDTASKINFO",
+            "memory_source": "proc_pid_rusage.RUSAGE_INFO_V2.ri_phys_footprint",
+            "resident_memory_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size",
             "process_details": includesProcessDetails
         ]
     }
@@ -151,6 +156,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         for pid in sortedPIDs {
             guard let process = processesByPID[pid] else { continue }
             summary.cpuPercent += process.cpuPercent
+            summary.memoryBytes = Self.clampedAdd(summary.memoryBytes, process.memoryBytes)
             summary.residentBytes = Self.clampedAdd(summary.residentBytes, process.residentBytes)
             summary.virtualBytes = Self.clampedAdd(summary.virtualBytes, process.virtualBytes)
             summary.processCount += 1
@@ -262,6 +268,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let id: String
         let title: String
         var cpuPercent: Double = 0
+        var memoryBytes: Int64 = 0
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
         var seenProcessIds: Set<Int> = []
@@ -269,6 +276,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
             cpuPercent += process.cpuPercent
+            memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
             residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
             processIds.append(process.pid)
         }
@@ -280,6 +288,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 "name": title,
                 "resources": CmuxTopResourceSummary(
                     cpuPercent: cpuPercent,
+                    memoryBytes: memoryBytes,
                     residentBytes: residentBytes,
                     processCount: sortedProcessIds.count,
                     pids: sortedProcessIds
@@ -291,6 +300,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private struct CmuxCodingAgentProcessAggregate {
         let definition: CmuxTaskManagerCodingAgentDefinition
         var cpuPercent: Double = 0
+        var memoryBytes: Int64 = 0
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
         var seenProcessIds: Set<Int> = []
@@ -298,6 +308,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
             cpuPercent += process.cpuPercent
+            memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
             residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
             processIds.append(process.pid)
         }
@@ -310,6 +321,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 "asset_name": definition.assetName ?? NSNull(),
                 "resources": CmuxTopResourceSummary(
                     cpuPercent: cpuPercent,
+                    memoryBytes: memoryBytes,
                     residentBytes: residentBytes,
                     processCount: sortedProcessIds.count,
                     pids: sortedProcessIds
@@ -393,7 +405,20 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             if result == 0 {
                 let count = min(processes.count, length / stride)
                 let sampledProcesses = Array(processes.prefix(count))
-                let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
+                let scopeKeyByPID = Dictionary(
+                    uniqueKeysWithValues: sampledProcesses.map { process in
+                        (Int(process.kp_proc.p_pid), scopeCacheKey(from: process))
+                    }
+                )
+                let activeScopeKeys = Set(scopeKeyByPID.values)
+                let parentScopeKeys = Dictionary(
+                    uniqueKeysWithValues: sampledProcesses.compactMap { process in
+                        let key = scopeCacheKey(from: process)
+                        let parentPID = Int(process.kp_eproc.e_ppid)
+                        guard let parentKey = scopeKeyByPID[parentPID] else { return nil }
+                        return (key, parentKey)
+                    }
+                )
                 let sampledAtNanoseconds = cpuSampleClockNanoseconds()
                 var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
                 var processRecords: [(info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)] = []
@@ -412,6 +437,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 let cpuPercentages = cpuPercentages(
                     for: currentCPUSamples,
                     activeKeys: activeScopeKeys,
+                    parentKeysByKey: parentScopeKeys,
                     sampledAtNanoseconds: sampledAtNanoseconds
                 )
                 for index in processRecords.indices {
@@ -440,6 +466,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         guard pid > 0 else { return nil }
 
         let taskInfo = taskInfo(for: pid)
+        let resourceUsage = resourceUsage(for: pid)
         let cacheKey = scopeCacheKey(from: kinfo)
         let fallbackName = fixedString(kinfo.kp_proc.p_comm)
         let name = includeProcessDetails ? processName(pid: pid, fallback: fallbackName) : fallbackName
@@ -471,6 +498,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: 0,
+            memoryBytes: int64Clamped(resourceUsage?.ri_phys_footprint ?? taskInfo?.pti_resident_size ?? 0),
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
@@ -509,6 +537,12 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let expectedSize = MemoryLayout<proc_taskinfo>.stride
         let size = proc_pidinfo(pid_t(pid), PROC_PIDTASKINFO, 0, &info, Int32(expectedSize))
         return size == expectedSize ? info : nil
+    }
+
+    private static func resourceUsage(for pid: Int) -> rusage_info_v2? {
+        var info = rusage_info_v2()
+        let result = proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, &info)
+        return result == 0 ? info : nil
     }
 
     private static func processName(pid: Int, fallback: String) -> String {

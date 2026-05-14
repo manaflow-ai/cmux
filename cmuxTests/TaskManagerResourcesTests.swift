@@ -13,6 +13,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         let payload = summary.attributedPayload(sharedAcross: 2)
 
         XCTAssertEqual(double(payload["cpu_percent"]), 21)
+        XCTAssertEqual(int64(payload["memory_bytes"]), 1500)
         XCTAssertEqual(int64(payload["resident_bytes"]), 500)
         XCTAssertEqual(int64(payload["virtual_bytes"]), 1000)
         XCTAssertEqual(int(payload["process_count"]), 1)
@@ -41,6 +42,7 @@ final class TaskManagerResourcesTests: XCTestCase {
     func testParsesTypedIntPIDArrayFromSummaryPayload() {
         let payload: [String: Any] = [
             "cpu_percent": 3.5,
+            "memory_bytes": 8192,
             "resident_bytes": 4096,
             "process_count": 2,
             "pids": [101, 202],
@@ -48,7 +50,20 @@ final class TaskManagerResourcesTests: XCTestCase {
 
         let resources = CmuxTaskManagerResources(payload)
 
+        XCTAssertEqual(resources.memoryBytes, 8192)
+        XCTAssertEqual(resources.residentBytes, 4096)
         XCTAssertEqual(resources.processIds, [101, 202])
+    }
+
+    func testResourceMemoryFallsBackToResidentBytesForLegacyPayloads() {
+        let resources = CmuxTaskManagerResources([
+            "cpu_percent": 3.5,
+            "resident_bytes": 4096,
+            "process_count": 2,
+        ])
+
+        XCTAssertEqual(resources.memoryBytes, 4096)
+        XCTAssertEqual(resources.residentBytes, 4096)
     }
 
     func testParsesAnyPIDArrayFromPayload() {
@@ -100,8 +115,8 @@ final class TaskManagerResourcesTests: XCTestCase {
     func testSortOrderSortsMemoryAndProcessColumnsDescending() {
         let rows = [
             taskManagerRow("window", level: 0),
-            taskManagerRow("small-many", level: 1, residentBytes: 1_000, processCount: 9),
-            taskManagerRow("large-few", level: 1, residentBytes: 4_000, processCount: 2),
+            taskManagerRow("small-many", level: 1, residentBytes: 4_000, memoryBytes: 1_000, processCount: 9),
+            taskManagerRow("large-few", level: 1, residentBytes: 1_000, memoryBytes: 4_000, processCount: 2),
         ]
 
         let memorySortedRows = CmuxTaskManagerSortOrder(
@@ -526,6 +541,7 @@ final class TaskManagerResourcesTests: XCTestCase {
     private func resourceSummary() -> CmuxTopResourceSummary {
         var summary = CmuxTopResourceSummary()
         summary.cpuPercent = 42
+        summary.memoryBytes = 3001
         summary.residentBytes = 1001
         summary.virtualBytes = 2001
         summary.processCount = 1
@@ -541,6 +557,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         title: String? = nil,
         cpuPercent: Double = 0,
         residentBytes: Int64 = 0,
+        memoryBytes: Int64? = nil,
         processCount: Int = 0,
         processId: Int? = nil
     ) -> CmuxTaskManagerRow {
@@ -554,6 +571,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             resources: CmuxTaskManagerResources(
                 cpuPercent: cpuPercent,
                 residentBytes: residentBytes,
+                memoryBytes: memoryBytes,
                 processCount: processCount,
                 processIds: processIds
             ),
@@ -574,6 +592,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertEqual(double(payload["cpu_percent"]), 42, file: file, line: line)
+        XCTAssertEqual(int64(payload["memory_bytes"]), 3001, file: file, line: line)
         XCTAssertEqual(int64(payload["resident_bytes"]), 1001, file: file, line: line)
         XCTAssertEqual(int64(payload["virtual_bytes"]), 2001, file: file, line: line)
         XCTAssertEqual(int(payload["process_count"]), 1, file: file, line: line)

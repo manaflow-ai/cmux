@@ -230,9 +230,10 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         let processes = try XCTUnwrap(windows[0]["processes"] as? [[String: Any]])
         let rootProcess = try XCTUnwrap(processes.first)
+        let rootResources = try XCTUnwrap(rootProcess["resources"] as? [String: Any])
 
         XCTAssertEqual(int(rootProcess["pid"]), fixture.parentPID)
-        XCTAssertEqual(intArray(rootProcess["resources"].flatMap { ($0 as? [String: Any])?["pids"] }), [fixture.parentPID])
+        XCTAssertEqual(intArray(rootResources["pids"]), [fixture.parentPID])
     }
 
     func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() throws {
