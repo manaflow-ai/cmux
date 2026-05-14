@@ -1190,6 +1190,13 @@ import Testing
     )
 }
 
+@Test func terminalLandscapeCameraEdgeFollowsWindowOrientation() {
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeLeft) == .trailing)
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight) == .leading)
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
+}
+
 @Test func terminalInputAccessoryMatchesZigReferenceMetrics() {
     #expect(TerminalInputAccessoryVisualMetrics.barHeight == 44)
     #expect(TerminalInputAccessoryVisualMetrics.horizontalInset == 16)
@@ -1202,7 +1209,8 @@ import Testing
 
 @Test func terminalBottomBarOnlyExpandsBottomSafeAreaWhenKeyboardIsHidden() {
     #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: false))
-    #expect(!MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true))
+    #expect(MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true, softwareKeyboardOverlap: 0))
+    #expect(!MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(isKeyboardVisible: true, softwareKeyboardOverlap: 240))
     #expect(MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: false))
     #expect(MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: true))
     #expect(

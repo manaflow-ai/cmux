@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import XCTest
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,6 +8,35 @@ import XCTest
 
 @MainActor
 final class MobileHostAuthorizationTests: XCTestCase {
+    func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
+        let store = MobileAttachTicketStore()
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        let now = Date()
+
+        let first = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 3600,
+            now: now
+        )
+        let second = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 3600,
+            now: now.addingTimeInterval(1)
+        )
+
+        XCTAssertNotEqual(first.authToken, second.authToken)
+        XCTAssertTrue(store.containsValidTicket(authToken: first.authToken, now: now.addingTimeInterval(2)))
+        XCTAssertTrue(store.containsValidTicket(authToken: second.authToken, now: now.addingTimeInterval(2)))
+    }
+
     func testMobileWorkspaceRPCRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "workspace-list",

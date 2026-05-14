@@ -15,7 +15,7 @@ final class MobileAttachTicketStore {
         let issuedAt: Date
     }
 
-    private var records: [String: Record] = [:]
+    private var recordsByAuthToken: [String: Record] = [:]
 
     func createTicket(
         workspaceID: String,
@@ -38,10 +38,9 @@ final class MobileAttachTicketStore {
             expiresAt: now.addingTimeInterval(max(30, ttl)),
             authToken: Self.randomBearerToken()
         )
-        records[key(workspaceID: workspaceID, terminalID: terminalID)] = Record(
-            ticket: ticket,
-            issuedAt: now
-        )
+        if let authToken = ticket.authToken {
+            recordsByAuthToken[authToken] = Record(ticket: ticket, issuedAt: now)
+        }
         return ticket
     }
 
@@ -60,9 +59,8 @@ final class MobileAttachTicketStore {
               !authToken.isEmpty else {
             return false
         }
-        return records.values.contains { record in
-            record.ticket.authToken == authToken && record.ticket.expiresAt > now
-        }
+        guard let record = recordsByAuthToken[authToken] else { return false }
+        return record.ticket.expiresAt > now
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
@@ -77,11 +75,7 @@ final class MobileAttachTicketStore {
     }
 
     private func pruneExpired(now: Date) {
-        records = records.filter { $0.value.ticket.expiresAt > now }
-    }
-
-    private func key(workspaceID: String, terminalID: String?) -> String {
-        "\(workspaceID):\(terminalID ?? "*")"
+        recordsByAuthToken = recordsByAuthToken.filter { $0.value.ticket.expiresAt > now }
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {

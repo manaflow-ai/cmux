@@ -339,6 +339,12 @@ public final class CMUXMobileShellStore {
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
 
+    public func resumeForegroundRefresh() {
+        guard remoteClient != nil, connectionState == .connected else { return }
+        startTerminalRefreshPolling()
+        scheduleSelectedTerminalSnapshotRefresh()
+    }
+
     public func connectPreviewHost() {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {

@@ -5506,7 +5506,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
         guard let surface else {
-            hostedView.setMobileViewportBorder(size: nil, isVisible: false)
+            hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return false
         }
         let size = ghostty_surface_size(surface)
@@ -5528,17 +5528,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
         mobileViewportPixelLimit = (width: targetWidth, height: targetHeight)
         let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
         let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
-        let appliedWidth = targetWidth
-        let appliedHeight = targetHeight
+        let appliedWidth = min(targetWidth, baseWidth)
+        let appliedHeight = min(targetHeight, baseHeight)
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
-        let hostIsLimiting = targetWidth >= baseWidth || targetHeight >= baseHeight
+        let drawRightBorder = targetWidth < baseWidth
+        let drawBottomBorder = targetHeight < baseHeight
         let borderScale = hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         hostedView.setMobileViewportBorder(
             size: CGSize(
                 width: CGFloat(appliedWidth) / max(1, borderScale),
                 height: CGFloat(appliedHeight) / max(1, borderScale)
             ),
-            isVisible: !hostIsLimiting
+            drawRight: drawRightBorder,
+            drawBottom: drawBottomBorder
         )
 
         #if DEBUG
@@ -5561,7 +5563,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func clearMobileViewportLimit(reason: String) -> Bool {
         mobileViewportPixelLimit = nil
-        hostedView.setMobileViewportBorder(size: nil, isVisible: false)
+        hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
         let uncappedWidth = lastUncappedPixelWidth
         let uncappedHeight = lastUncappedPixelHeight
@@ -5596,7 +5598,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let mobileViewportPixelLimit else {
             return (width, height)
         }
-        return mobileViewportPixelLimit
+        return (
+            width: min(width, mobileViewportPixelLimit.width),
+            height: min(height, mobileViewportPixelLimit.height)
+        )
     }
 
     /// Force a full size recalculation and surface redraw.
@@ -9904,6 +9909,12 @@ private final class TerminalViewportBorderOverlayView: NSView {
     var drawsVisibleAreaBorder = false {
         didSet { needsDisplay = true }
     }
+    var drawsVisibleAreaRightBorder = false {
+        didSet { needsDisplay = true }
+    }
+    var drawsVisibleAreaBottomBorder = false {
+        didSet { needsDisplay = true }
+    }
 
     override var acceptsFirstResponder: Bool { false }
     override var isFlipped: Bool { true }
@@ -9922,7 +9933,7 @@ private final class TerminalViewportBorderOverlayView: NSView {
         }
 
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let lineWidth = 1 / max(1, scale)
+        let lineWidth = max(2 / max(1, scale), 1)
         let width = min(effectiveSize.width, bounds.width)
         let height = min(effectiveSize.height, bounds.height)
         guard width > lineWidth, height > lineWidth else { return }
@@ -9931,10 +9942,15 @@ private final class TerminalViewportBorderOverlayView: NSView {
         path.lineWidth = lineWidth
         let x = width - lineWidth / 2
         let y = height - lineWidth / 2
-        path.move(to: NSPoint(x: x, y: 0))
-        path.line(to: NSPoint(x: x, y: y))
-        path.line(to: NSPoint(x: 0, y: y))
-        NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
+        if drawsVisibleAreaRightBorder {
+            path.move(to: NSPoint(x: x, y: 0))
+            path.line(to: NSPoint(x: x, y: y))
+        }
+        if drawsVisibleAreaBottomBorder {
+            path.move(to: NSPoint(x: 0, y: y))
+            path.line(to: NSPoint(x: x, y: y))
+        }
+        NSColor.separatorColor.withAlphaComponent(0.95).setStroke()
         path.stroke()
     }
 }
@@ -10708,9 +10724,12 @@ final class GhosttySurfaceScrollView: NSView {
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
-    func setMobileViewportBorder(size: CGSize?, isVisible: Bool) {
+    func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
+        let isVisible = drawRight || drawBottom
         mobileViewportBorderOverlayView.effectiveSize = size
         mobileViewportBorderOverlayView.drawsVisibleAreaBorder = isVisible
+        mobileViewportBorderOverlayView.drawsVisibleAreaRightBorder = drawRight
+        mobileViewportBorderOverlayView.drawsVisibleAreaBottomBorder = drawBottom
         mobileViewportBorderOverlayView.isHidden = !isVisible
     }
 
