@@ -322,7 +322,7 @@ struct cmuxApp: App {
                     defaultValue: "Browser Engine"
                 )) {
                     ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
-                        let isCurrent = browserEngineRaw == kind.rawValue
+                        let isCurrent = BrowserEngineKind.current == kind
                         let isAvailable = (kind != .cef) || BrowserEngineKind.canSelectCEF
                         Button(action: {
                             if kind == .cef {
@@ -337,9 +337,13 @@ struct cmuxApp: App {
                             }
                         }) {
                             HStack {
-                                Image(systemName: "checkmark")
-                                    .opacity(isCurrent ? 1 : 0)
-                                    .frame(width: 16)
+                                if isCurrent {
+                                    Image(systemName: "checkmark")
+                                        .frame(width: 16)
+                                } else {
+                                    Color.clear
+                                        .frame(width: 16, height: 1)
+                                }
                                 if kind == .cef, let status = cefRuntimeInstaller.menuStatusText {
                                     Text("\(kind.displayLabel) (\(status))")
                                 } else {
