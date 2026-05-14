@@ -1,4 +1,12 @@
 enum SidebarWorkspaceDetailDefaults {
+    static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
+    static let showPullRequestsKey = "sidebarShowPullRequest"
+    static let showSSHKey = "sidebarShowSSH"
+    static let showPortsKey = "sidebarShowPorts"
+    static let showLogKey = "sidebarShowLog"
+    static let showProgressKey = "sidebarShowProgress"
+    static let showCustomMetadataKey = "sidebarShowStatusPills"
+
     static let showBranchDirectory = true
     static let showPullRequests = true
     static let showSSH = true

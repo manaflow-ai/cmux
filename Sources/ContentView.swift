@@ -6423,6 +6423,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
             )
         )
+        contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7264,6 +7265,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.enableSupportedFileRouting") {
             CmdClickSupportedFileRouteSettings.setEnabled(true)
         }
+        registerSettingsToggleCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
