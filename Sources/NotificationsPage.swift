@@ -74,7 +74,7 @@ struct NotificationsPage: View {
 
             Spacer()
 
-            if !notificationStore.notifications.isEmpty {
+            if notificationStore.notificationMenuSnapshot.hasNotifications {
                 jumpToUnreadButton
 
                 Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
@@ -141,7 +141,7 @@ struct NotificationsPage: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 }
 

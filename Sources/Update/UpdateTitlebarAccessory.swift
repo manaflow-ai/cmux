@@ -1637,7 +1637,7 @@ private struct NotificationsPopoverView: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("notificationsPopover.clearAll")
-                .disabled(notificationStore.notifications.isEmpty)
+                .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1686,7 +1686,7 @@ private struct NotificationsPopoverView: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 
     private func jumpToLatestUnread() {

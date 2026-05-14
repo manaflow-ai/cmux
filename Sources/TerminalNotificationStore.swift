@@ -701,18 +701,22 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
-            let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
-            if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
-            refreshDockBadge()
+            refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
-    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = []
-    @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = []
+    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
+    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
+    @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
@@ -801,9 +805,28 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var unreadCount: Int {
-        // Global badges count only notification-backed unread items. Per-workspace
-        // badges use unreadCount(forTabId:) and include workspace indicators.
-        indexes.unreadCount
+        indexes.unreadCount + workspaceUnreadIndicatorCount
+    }
+
+    var workspaceUnreadIndicatorIds: Set<UUID> {
+        manualUnreadWorkspaceIds
+            .union(panelDerivedUnreadWorkspaceIds)
+            .union(restoredUnreadWorkspaceIds)
+    }
+
+    private var workspaceUnreadIndicatorCount: Int {
+        workspaceUnreadIndicatorIds.count
+    }
+
+    private func refreshUnreadPresentation() {
+        let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notifications,
+            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount
+        )
+        if notificationMenuSnapshot != nextMenuSnapshot {
+            notificationMenuSnapshot = nextMenuSnapshot
+        }
+        refreshDockBadge()
     }
 
     private func logAuthorization(_ message: String) {
