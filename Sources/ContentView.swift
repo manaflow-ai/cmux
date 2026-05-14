@@ -13780,11 +13780,12 @@ private struct TabItemView: View, Equatable {
     // Candidates for the inline-mode directory line, longest → shortest. When
     // viewport-aware truncation is off, returns a single element with each
     // panel directory shortened via `~/`. When on, walks per-path candidate
-    // indices, bumping the leftmost path that can still shrink at each step.
+    // indices, bumping the rightmost path that can still shrink at each step.
     // Each emitted candidate differs from the previous by exactly one path
     // collapsing one level, so ViewThatFits sees a strictly monotone gradient
-    // (`full|full`, `mid|full`, `leaf|full`, `leaf|mid`, `leaf|leaf`) instead
-    // of jumping straight to all-paths-collapsed.
+    // (`full|full`, `full|mid`, `full|leaf`, `mid|leaf`, `leaf|leaf`) — later
+    // panels shrink before earlier ones, preserving the leading workspace dir
+    // as long as the row width allows.
     private func compactDirectoryCandidatesList(orderedPanelIds: [UUID]) -> [String] {
         let home = SidebarPathFormatter.homeDirectoryPath
         let directories = tab.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
@@ -13813,7 +13814,7 @@ private struct TabItemView: View, Equatable {
             if !joined.isEmpty, result.last != joined {
                 result.append(joined)
             }
-            guard let bumpIdx = indices.indices.first(where: { indices[$0] < perDirectoryCandidates[$0].count - 1 }) else {
+            guard let bumpIdx = indices.indices.last(where: { indices[$0] < perDirectoryCandidates[$0].count - 1 }) else {
                 break
             }
             indices[bumpIdx] += 1
