@@ -2606,7 +2606,7 @@ struct CMUXCLI {
             }
         }
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
-        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+        if Self.legacyAgentNameFromHookCommand(command) != nil, processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
@@ -2712,7 +2712,7 @@ struct CMUXCLI {
             }
         }
 
-        let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
+        let capturesSocketErrorsInsideCommand = ["claude-hook", "feed-hook", "hooks"].contains(command) || Self.legacyAgentNameFromHookCommand(command) != nil // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
         case "ping":
@@ -3878,9 +3878,6 @@ struct CMUXCLI {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "claude_hook_dispatch", error: error, client: client)
                 throw error
             }
-        case "codex-hook": // Backwards compatibility for older installed Codex hooks. Hidden from help.
-            guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
-            try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
@@ -3983,6 +3980,27 @@ struct CMUXCLI {
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
+            // Backwards compatibility for legacy `cmux <agent>-hook ...` commands
+            // (e.g. `cmux cursor-hook shell-exec`). The legacy names were removed
+            // in commit 6beb3dbe1 ("Namespace agent hook commands"), but stale
+            // entries in user hook config files keep invoking them. Without this
+            // shim the unknown-command path prints CLI usage to stdout and exits
+            // non-zero, which combines with the `|| echo '{}'` fallback in the
+            // installed hook command to yield "usage text + {}". Cursor agent
+            // rejects that as invalid JSON and blocks every shell execution.
+            if let agentName = Self.legacyAgentNameFromHookCommand(command),
+               let def = Self.agentDef(named: agentName) {
+                cliTelemetry.breadcrumb("\(agentName)-hook.dispatch.legacy")
+                do {
+                    try runGenericAgentHook(def: def, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                    cliTelemetry.breadcrumb("\(agentName)-hook.completed")
+                } catch {
+                    cliTelemetry.breadcrumb("\(agentName)-hook.failure")
+                    captureSocketTransportError(telemetry: cliTelemetry, stage: "\(agentName)_hook_dispatch", error: error, client: client)
+                    throw error
+                }
+                break
+            }
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
         }
