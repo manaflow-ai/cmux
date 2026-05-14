@@ -410,12 +410,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        // Escape single quotes in path for shell safety
-        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
         let lsFlags = showHidden ? "-1paFA" : "-1paF"
         let output = try await runSSHCommand(
             connection: connection,
-            command: "ls \(lsFlags) '\(escapedPath)' 2>/dev/null"
+            command: "ls \(lsFlags) \(shellSingleQuoted(path)) 2>/dev/null"
         )
 
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
@@ -449,7 +447,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             remotePath: remotePath,
             isDirectory: isDirectory,
             connection: connection,
-            localDirectory: target.localDirectory
+            localDestinationPath: target.path
         )
         let result = try await runSCPCommand(arguments: args, timeout: 30 * 60)
         guard result.terminationStatus == 0 else {
@@ -461,7 +459,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private struct DownloadTarget {
-        let localDirectory: String
         let path: String
     }
 
@@ -488,17 +485,18 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             throw FileExplorerError.downloadFailed(detail)
         }
 
-        return DownloadTarget(localDirectory: normalizedDirectory, path: targetPath)
+        return DownloadTarget(path: targetPath)
     }
 
     private static func scpDownloadArguments(
         remotePath: String,
         isDirectory: Bool,
         connection: SSHFileExplorerConnection,
-        localDirectory: String
+        localDestinationPath: String
     ) -> [String] {
         var args: [String] = [
             "-q",
+            "-O",
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
@@ -524,10 +522,15 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         args += [
-            "\(scpRemoteDestination(connection.destination)):\(remotePath)",
-            localDirectory,
+            "\(scpRemoteDestination(connection.destination)):\(shellSingleQuoted(remotePath))",
+            localDestinationPath,
         ]
         return args
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        let escapedValue = value.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escapedValue)'"
     }
 
     private static func bestErrorLine(stderr: String, stdout: String) -> String? {
@@ -622,13 +625,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         remotePath: String,
         isDirectory: Bool,
         connection: SSHFileExplorerConnection,
-        localDirectory: String
+        localDestinationPath: String
     ) -> [String] {
         scpDownloadArguments(
             remotePath: remotePath,
             isDirectory: isDirectory,
             connection: connection,
-            localDirectory: localDirectory
+            localDestinationPath: localDestinationPath
         )
     }
 #endif

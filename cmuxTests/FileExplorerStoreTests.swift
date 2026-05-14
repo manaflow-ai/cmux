@@ -323,7 +323,7 @@ final class FileExplorerStoreTests: XCTestCase {
                 identityFile: "/Users/alice/.ssh/id_ed25519",
                 sshOptions: ["UserKnownHostsFile=/dev/null"]
             ),
-            localDirectory: "/Users/alice/Downloads"
+            localDestinationPath: "/Users/alice/Downloads/Quarterly Report's.pdf"
         )
 
         XCTAssertTrue(args.contains("-r"))
@@ -336,7 +336,7 @@ final class FileExplorerStoreTests: XCTestCase {
             Array(args.suffix(2)),
             [
                 "dev@[2001:db8::1]:'/home/dev/Quarterly Report'\\''s.pdf'",
-                "/Users/alice/Downloads",
+                "/Users/alice/Downloads/Quarterly Report's.pdf",
             ]
         )
     }
@@ -356,7 +356,7 @@ final class FileExplorerStoreTests: XCTestCase {
                     "StrictHostKeyChecking=no",
                 ]
             ),
-            localDirectory: "/Users/alice/Downloads"
+            localDestinationPath: "/Users/alice/Downloads/report.txt"
         )
 
         XCTAssertFalse(args.contains("ControlMaster=auto"))
