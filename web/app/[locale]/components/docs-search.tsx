@@ -32,30 +32,47 @@ type PagefindModule = {
 const pagefindBundlePath = "/pagefind/pagefind.js";
 let pagefindPromise: Promise<PagefindModule> | null = null;
 let pagefindConfigured = false;
-const browserImport = new Function("path", "return import(path)") as (
-  path: string,
-) => Promise<PagefindModule>;
+
+function importPagefind() {
+  return import(
+    /* webpackIgnore: true */
+    pagefindBundlePath
+  ) as Promise<PagefindModule>;
+}
 
 async function loadPagefind() {
   if (!pagefindPromise) {
-    pagefindPromise = browserImport(pagefindBundlePath);
+    pagefindPromise = importPagefind();
   }
 
-  const pagefind = await pagefindPromise;
+  let pagefind: PagefindModule;
+  try {
+    pagefind = await pagefindPromise;
+  } catch (error) {
+    pagefindPromise = null;
+    pagefindConfigured = false;
+    throw error;
+  }
+
   if (!pagefindConfigured) {
-    await pagefind.options({
-      highlightParam: "highlight",
-      ranking: {
-        pageLength: 0.6,
-        termFrequency: 0.8,
-        metaWeights: {
-          title: 8,
-          section: 2,
+    try {
+      await pagefind.options({
+        highlightParam: "highlight",
+        ranking: {
+          pageLength: 0.6,
+          termFrequency: 0.8,
+          metaWeights: {
+            title: 8,
+            section: 2,
+          },
         },
-      },
-    });
-    await pagefind.init();
-    pagefindConfigured = true;
+      });
+      await pagefind.init();
+      pagefindConfigured = true;
+    } catch (error) {
+      pagefindConfigured = false;
+      throw error;
+    }
   }
   return pagefind;
 }
@@ -122,6 +139,8 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+
     const currentQuery = event.currentTarget.value;
     const isUnsyncedQuery = currentQuery !== query;
 
@@ -220,6 +239,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
         <div
           id="docs-search-results"
           role="listbox"
+          aria-label={t("resultsLabel")}
           className="pt-2"
           aria-live="polite"
         >

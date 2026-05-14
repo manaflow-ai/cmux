@@ -252,7 +252,7 @@ export default function ChangelogPage() {
 
   return (
     <div className="max-w-[640px] overflow-hidden">
-      <DocsHeading level={1} id="title" style={{ margin: 0, padding: 0, paddingBottom: 8 }}>{t("title")}</DocsHeading>
+      <DocsHeading level={1} id="title" className="docs-heading-compact">{t("title")}</DocsHeading>
 
       <div style={{ paddingTop: 16 }}>
         {versions.map((v, vi) => {

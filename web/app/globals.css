@@ -121,6 +121,11 @@ body {
     scroll-margin-top: 6rem;
   }
 
+  .docs-content .docs-heading-compact {
+    margin: 0;
+    padding: 0 0 8px;
+  }
+
   .docs-content .docs-heading-anchor {
     color: var(--muted);
     display: inline-block;

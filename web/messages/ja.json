@@ -188,6 +188,7 @@
     "search": {
       "placeholder": "ドキュメントを検索...",
       "label": "ドキュメントを検索",
+      "resultsLabel": "検索結果",
       "loading": "検索中...",
       "noResults": "結果がありません",
       "error": "検索を利用できません",

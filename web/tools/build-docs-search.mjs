@@ -44,6 +44,10 @@ const searchAliases = {
   ssh: ["remote sessions", "SSH relay", "scp uploads"],
 };
 
+const docsPageMessageKeys = {
+  apiReference: "api",
+};
+
 export function docsSearchRoutes() {
   const links = flatNavItems(navItems);
   return routing.locales.flatMap((locale) =>
@@ -80,7 +84,7 @@ async function main() {
   }
 }
 
-async function docsSearchPages() {
+export async function docsSearchPages() {
   const contentByHref = await docsContentByHref();
   const changelogText = await changelogSearchText();
   const routes = docsSearchRoutes();
@@ -89,7 +93,9 @@ async function docsSearchPages() {
   for (const route of routes) {
     const messages = await messagesForLocale(route.locale);
     const docsMessages = getObject(messages, ["docs"]);
-    const pageMessages = getObject(docsMessages, [route.navItem.titleKey]);
+    const pageMessages = getObject(docsMessages, [
+      docsPageMessageKeys[route.navItem.titleKey] ?? route.navItem.titleKey,
+    ]);
     const navMessages = getObject(docsMessages, ["navItems"]);
     const navTitle = getString(navMessages, [route.navItem.titleKey]);
     const title = getString(pageMessages, ["title"]) || navTitle;
@@ -196,27 +202,29 @@ function docsSearchSections({
 
 async function messagesForLocale(locale) {
   if (!mergedMessagesCache.has(locale)) {
-    mergedMessagesCache.set(
-      locale,
-      (async () => {
-        const defaultMessages = await readMessages(routing.defaultLocale);
-        if (locale === routing.defaultLocale) return defaultMessages;
-        return deepMerge(defaultMessages, await readMessages(locale));
-      })(),
-    );
+    const promise = (async () => {
+      const defaultMessages = await readMessages(routing.defaultLocale);
+      if (locale === routing.defaultLocale) return defaultMessages;
+      return deepMerge(defaultMessages, await readMessages(locale));
+    })();
+    mergedMessagesCache.set(locale, promise);
+    promise.catch(() => {
+      mergedMessagesCache.delete(locale);
+    });
   }
   return mergedMessagesCache.get(locale);
 }
 
 async function readMessages(locale) {
   if (!rawMessagesCache.has(locale)) {
-    rawMessagesCache.set(
-      locale,
-      (async () => {
-        const filePath = path.join(projectRoot, "messages", `${locale}.json`);
-        return JSON.parse(await readFile(filePath, "utf8"));
-      })(),
-    );
+    const promise = (async () => {
+      const filePath = path.join(projectRoot, "messages", `${locale}.json`);
+      return JSON.parse(await readFile(filePath, "utf8"));
+    })();
+    rawMessagesCache.set(locale, promise);
+    promise.catch(() => {
+      rawMessagesCache.delete(locale);
+    });
   }
   return rawMessagesCache.get(locale);
 }
@@ -285,7 +293,7 @@ function extractDocsContent(sourceText) {
       if (tagName === "DocsHeading") {
         const id = stringAttributeValue(node.openingElement, "id");
         const level = numberAttributeValue(node.openingElement, "level") ?? 2;
-        const text = headingText(node.children);
+        const text = headingText(node.children, sourceFile, constants);
         if (id && (text.key || text.text)) {
           headings.push({
             id,
@@ -345,6 +353,23 @@ function collectStringConstants(sourceFile) {
     ) {
       const value = expressionLiteralText(node.initializer, sourceFile, constants);
       if (value) constants.set(node.name.text, value);
+      if (ts.isObjectLiteralExpression(node.initializer)) {
+        for (const property of node.initializer.properties) {
+          if (
+            ts.isPropertyAssignment(property) &&
+            (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+          ) {
+            const propertyValue = expressionLiteralText(
+              property.initializer,
+              sourceFile,
+              constants,
+            );
+            if (propertyValue) {
+              constants.set(`${node.name.text}.${property.name.text}`, propertyValue);
+            }
+          }
+        }
+      }
     }
 
     ts.forEachChild(node, visit);
@@ -479,7 +504,7 @@ function numberAttributeValue(openingElement, name) {
   return ts.isNumericLiteral(expression) ? Number(expression.text) : undefined;
 }
 
-function headingText(children) {
+function headingText(children, sourceFile, constants) {
   for (const child of children) {
     if (ts.isJsxText(child)) {
       const text = normalizeSearchText(child.text);
@@ -488,11 +513,11 @@ function headingText(children) {
     if (ts.isJsxExpression(child) && child.expression) {
       const key = translationKey(child.expression);
       if (key) return { key };
-      const text = expressionLiteralText(child.expression);
+      const text = expressionLiteralText(child.expression, sourceFile, constants);
       if (text) return { text };
     }
     if (ts.isJsxElement(child)) {
-      const nested = headingText(child.children);
+      const nested = headingText(child.children, sourceFile, constants);
       if (nested.key || nested.text) return nested;
     }
   }
@@ -516,14 +541,28 @@ function expressionLiteralText(expression, sourceFile, constants) {
   if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
     return expression.text;
   }
-  if (constants && ts.isIdentifier(expression)) {
-    return constants.get(expression.text) ?? "";
+  const constantText = expressionConstantText(expression, sourceFile, constants);
+  if (constantText) {
+    return constantText;
   }
   if (sourceFile && ts.isTemplateExpression(expression)) {
-    return expression
-      .getText(sourceFile)
-      .slice(1, -1)
-      .replace(/\$\{[^}]+\}/g, " ");
+    let text = expression.head.text;
+    for (const span of expression.templateSpans) {
+      text += expressionConstantText(span.expression, sourceFile, constants) || " ";
+      text += span.literal.text;
+    }
+    return normalizeSearchText(text);
+  }
+  return "";
+}
+
+function expressionConstantText(expression, sourceFile, constants) {
+  if (!constants) return "";
+  if (ts.isIdentifier(expression)) {
+    return constants.get(expression.text) ?? "";
+  }
+  if (sourceFile && ts.isPropertyAccessExpression(expression)) {
+    return constants.get(expression.getText(sourceFile)) ?? "";
   }
   return "";
 }
