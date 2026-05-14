@@ -2,6 +2,28 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.6] - 2026-05-14
+
+### Added
+- Command palette toggles for boolean Settings rows, including iMessage Mode ([f85cc56a](https://github.com/manaflow-ai/cmux/commit/f85cc56ae99c235c61ea6ef091e88ccca6d4171d))
+
+### Changed
+- Improve Cloud VM error guidance with sign-in steps, unknown-flag suggestions, and usage examples ([#4094](https://github.com/manaflow-ai/cmux/pull/4094))
+- Use transparent backgrounds for file preview panels so previews follow the active Ghostty theme opacity ([#4088](https://github.com/manaflow-ai/cmux/pull/4088))
+
+### Fixed
+- Fix `cmux ssh` dropping keystrokes after connecting — the backgrounded ssh inside the startup wrapper now inherits the wrapper's stdin so typing reaches the remote shell ([#4135](https://github.com/manaflow-ai/cmux/pull/4135)) -- thanks @kays0x for the fix, @kenfdev and @liudp1988 for the reports!
+- Keep the selected workspace visible after sidebar reorders ([#4083](https://github.com/manaflow-ai/cmux/pull/4083))
+- Fix Pi Vault icon and JSONL session titles ([#4120](https://github.com/manaflow-ai/cmux/pull/4120))
+
+### Thanks to 5 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@kays0x](https://github.com/kays0x)
+- [@kenfdev](https://github.com/kenfdev)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@liudp1988](https://github.com/liudp1988)
+
 ## [0.64.5] - 2026-05-13
 
 ### Added
