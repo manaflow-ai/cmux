@@ -7110,7 +7110,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 continue
             }
 
-            var paragraph = cleaned
+            let lineIndent = line.prefix(while: { $0 == " " })
+            let indentedCleaned = lineIndent.isEmpty ? cleaned : String(lineIndent) + cleaned
+            var paragraph = indentedCleaned
             let startIndent = line.prefix(while: { $0 == " " }).count
             let isURL = Self.startsWithURL(paragraph)
             while i + 1 < lines.count {
