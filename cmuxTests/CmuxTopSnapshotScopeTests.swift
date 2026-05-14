@@ -205,6 +205,54 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(intArray(windows[1]["app_process_pids"]), [])
     }
 
+    @MainActor
+    func testApplicationProcessTreeIsExposedAtWindowLevel() throws {
+        let fixture = try SpawnedProcessTree.start()
+        defer { fixture.terminate() }
+
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        var windows: [[String: Any]] = [[
+            "kind": "window",
+            "id": UUID().uuidString,
+            "index": 0,
+            "key": true,
+            "visible": true,
+            "app_process_pids": [fixture.parentPID],
+            "workspaces": []
+        ]]
+
+        _ = TerminalController.shared.v2AnnotateTopWindows(
+            &windows,
+            processSnapshot: snapshot,
+            browserPIDOccurrences: [:],
+            includeProcesses: true
+        )
+
+        let processes = try XCTUnwrap(windows[0]["processes"] as? [[String: Any]])
+        let rootProcess = try XCTUnwrap(processes.first)
+
+        XCTAssertEqual(int(rootProcess["pid"]), fixture.parentPID)
+        XCTAssertEqual(intArray(rootProcess["resources"].flatMap { ($0 as? [String: Any])?["pids"] }), [fixture.parentPID])
+    }
+
+    func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() throws {
+        let pid = Int(Darwin.getpid())
+        let expectedFootprintBytes = try XCTUnwrap(
+            physicalFootprintBytes(for: pid),
+            "proc_pid_rusage did not return physical footprint for current process"
+        )
+
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let payload = snapshot.summaryPayload(for: [pid])
+        let memoryBytes = int64(payload["memory_bytes"])
+
+        XCTAssertGreaterThan(memoryBytes, 0)
+        XCTAssertLessThanOrEqual(
+            abs(memoryBytes - expectedFootprintBytes),
+            max(16 * 1024 * 1024, expectedFootprintBytes / 5)
+        )
+    }
+
     func testKernProcArgsWorkspaceID() {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let bytes = kernProcArgs(environment: [
@@ -440,6 +488,13 @@ while allocations:
         return String(data: data, encoding: .utf8) ?? ""
     }
 
+    private func physicalFootprintBytes(for pid: Int) -> Int64? {
+        var info = rusage_info_v2()
+        let result = proc_pid_rusage(pid_t(pid), RUSAGE_INFO_V2, &info)
+        guard result == 0 else { return nil }
+        return int64Clamped(info.ri_phys_footprint)
+    }
+
     private func sharedWebViewSurface(pid: Int) -> [String: Any] {
         let surfaceID = UUID().uuidString
         return [
@@ -474,6 +529,17 @@ while allocations:
         if let value = raw as? Int { return Int64(value) }
         if let value = raw as? NSNumber { return value.int64Value }
         return 0
+    }
+
+    private func int(_ raw: Any?) -> Int? {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        if let value = raw as? String { return Int(value) }
+        return nil
+    }
+
+    private func int64Clamped(_ value: UInt64) -> Int64 {
+        value > UInt64(Int64.max) ? Int64.max : Int64(value)
     }
 
     private func intArray(_ raw: Any?) -> [Int] {

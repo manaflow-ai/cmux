@@ -316,6 +316,46 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
+    func testTopCommandOutputsWindowLevelProcessRows() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("top-proc")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let payload: [String: Any] = [
+            "windows": [
+                topNode(ref: "window:1", cpu: 2, rss: 2_000, processCount: 1, extra: [
+                    "processes": [
+                        [
+                            "pid": 4129,
+                            "name": "cmux",
+                            "resources": topResources(cpu: 2, rss: 2_000, processCount: 1),
+                            "children": [],
+                        ] as [String: Any],
+                    ],
+                ]),
+            ],
+        ]
+        let serverHandled = startTopMockServer(listenerFD: listenerFD, payload: payload)
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["top", "--processes", "--format", "tsv"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(outputLines(result.stdout), [
+            "2.0\t2000\t1\twindow\twindow:1\ttotal\t",
+            "2.0\t2000\t1\tprocess\t4129\twindow:1\tcmux",
+        ])
+    }
+
     func testTopCommandSortsFlatTSVSiblingsByMemory() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-tsv-sort")

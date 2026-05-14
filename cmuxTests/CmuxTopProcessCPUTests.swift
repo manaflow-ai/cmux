@@ -21,6 +21,52 @@ final class CmuxTopProcessCPUTests: XCTestCase {
         XCTAssertEqual(CmuxTopProcessSnapshot.cpuPercent(current: current, previous: previous), 0)
     }
 
+    func testCPUPercentagesHoldPreviousValueUntilFixedWindowElapses() {
+        let key = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_001,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let activeKeys: Set<CmuxTopProcessScopeCacheKey> = [key]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000,
+                    sampledAtNanoseconds: 1_000_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 1_000_000_000
+        )
+
+        let rapidPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000_001_000,
+                    sampledAtNanoseconds: 1_100_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 1_100_000_000
+        )
+
+        XCTAssertEqual(rapidPercentages[key], 0)
+
+        let fixedWindowPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000_002_000,
+                    sampledAtNanoseconds: 2_000_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 2_000_000_000
+        )
+
+        XCTAssertGreaterThan(fixedWindowPercentages[key] ?? 0, 0)
+    }
+
     func testBusyChildProcessReportsNonZeroCPUPercent() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
