@@ -17,6 +17,8 @@ struct CommandPaletteResolvedSearchMatch: Sendable {
 }
 
 enum CommandPaletteSearchOrchestrator {
+    private static let synchronousSeedCorpusLimit = 256
+
     static let resolvedResultLimit = 100
 
     static func resolvedSearchMatches(
@@ -157,9 +159,10 @@ enum CommandPaletteSearchOrchestrator {
 
     static func shouldSynchronouslySeedResults(
         hasVisibleResultsForScope: Bool,
-        hasSearchIndex: Bool
+        hasSearchIndex: Bool,
+        corpusCount: Int
     ) -> Bool {
-        !hasVisibleResultsForScope && hasSearchIndex
+        !hasVisibleResultsForScope && (hasSearchIndex || corpusCount <= synchronousSeedCorpusLimit)
     }
 
     static func shouldPreserveEmptyStateWhileSearchPending(

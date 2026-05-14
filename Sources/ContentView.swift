@@ -5142,7 +5142,8 @@ struct ContentView: View {
         cancelCommandPaletteSearch()
         if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
             hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
-            hasSearchIndex: searchIndex != nil
+            hasSearchIndex: searchIndex != nil,
+            corpusCount: searchCorpus.count
         ) {
             let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,

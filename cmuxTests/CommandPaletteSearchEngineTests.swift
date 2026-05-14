@@ -633,19 +633,29 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertTrue(
             CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: false,
-                hasSearchIndex: true
+                hasSearchIndex: true,
+                corpusCount: 5_000
+            )
+        )
+        XCTAssertTrue(
+            CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
+                hasVisibleResultsForScope: false,
+                hasSearchIndex: false,
+                corpusCount: 256
             )
         )
         XCTAssertFalse(
             CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: false,
-                hasSearchIndex: false
+                hasSearchIndex: false,
+                corpusCount: 257
             )
         )
         XCTAssertFalse(
             CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: true,
-                hasSearchIndex: true
+                hasSearchIndex: true,
+                corpusCount: 5_000
             )
         )
     }
