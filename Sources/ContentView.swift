@@ -12748,7 +12748,6 @@ private struct TabItemView: View, Equatable {
     ) -> some View {
         content
             .safeHelp(workspaceSnapshot.title)
-            .focusable()
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(accessibilityTitle))
