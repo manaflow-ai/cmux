@@ -189,11 +189,15 @@ def _default_socket_path() -> str:
 
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
-        if os.path.exists(override) and _can_connect(override):
-            return override
+        variant, _ = _socket_variant()
+        stable_defaults = {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}
+        is_stale_stable_default = variant != "stable" and override in stable_defaults
         # Treat stable defaults as implicit so old env values still migrate cleanly.
-        if not os.path.exists(override) and override not in {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}:
-            return override
+        if not is_stale_stable_default:
+            if os.path.exists(override) and _can_connect(override):
+                return override
+            if not os.path.exists(override):
+                return override
 
     last_socket = _read_last_socket_path()
     if last_socket:
