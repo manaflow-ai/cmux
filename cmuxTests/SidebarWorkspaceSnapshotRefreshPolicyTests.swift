@@ -174,8 +174,8 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
         )
     }
 
-    func testSkipsScrollWhenAnotherReorderOnlyShiftsSelectedWorkspaceIndex() {
-        XCTAssertFalse(
+    func testRequestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        XCTAssertTrue(
             SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
                 selectedWorkspaceId: "b",
                 oldWorkspaceIds: ["a", "b", "c"],
