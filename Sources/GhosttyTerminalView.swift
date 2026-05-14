@@ -4850,6 +4850,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         portalLifecycleState == .live
     }
 
+    private var hasDeferredStartupWork: Bool {
+        initialCommand != nil ||
+            tmuxStartCommand != nil ||
+            initialInput != nil ||
+            pendingSocketInputBytes > 0
+    }
+
+    func hasDeferredStartupWorkForBackgroundStart() -> Bool {
+        hasDeferredStartupWork
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
