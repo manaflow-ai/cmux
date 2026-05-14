@@ -552,7 +552,13 @@ except OSError as exc:
     raise SystemExit(f"error: run xcodebuild: {exc}")
 
 elapsed = int(time.monotonic() - build_start)
-msg = f"==> xcodebuild build completed in {elapsed}s\n"
+if completed.returncode == 0:
+    msg = f"==> xcodebuild build completed in {elapsed}s\n"
+elif completed.returncode < 0:
+    signal_number = abs(completed.returncode)
+    msg = f"==> xcodebuild build terminated by signal {signal_number} after {elapsed}s\n"
+else:
+    msg = f"==> xcodebuild build failed with exit code {completed.returncode} after {elapsed}s\n"
 try:
     os.write(1, msg.encode())
 except OSError:
