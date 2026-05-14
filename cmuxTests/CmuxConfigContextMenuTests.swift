@@ -152,6 +152,7 @@ final class CmuxConfigContextMenuTests: XCTestCase {
           "title": "Lint",
           "icon": { "type": "symbol", "name": "sparkles" },
           "tooltip": "Run lint",
+          "shortcut": "cmd+shift+l",
           "command": "npm run lint",
           "target": "currentTerminal"
         }
@@ -164,8 +165,25 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         let icon = try XCTUnwrap(object["icon"] as? [String: Any])
         XCTAssertEqual(icon["type"] as? String, "symbol")
         XCTAssertEqual(icon["name"] as? String, "sparkles")
+        XCTAssertEqual(object["shortcut"] as? String, "cmd+shift+l")
         XCTAssertEqual(object["command"] as? String, "npm run lint")
         XCTAssertEqual(object["target"] as? String, "currentTerminal")
+    }
+
+    func testEncodeMenuBarActionReferencePreservesShortcut() throws {
+        let item = try JSONDecoder().decode(CmuxConfigMenuBarItem.self, from: Data("""
+        {
+          "action": "run-tests",
+          "title": "Run Tests",
+          "shortcut": ["ctrl+b", "t"]
+        }
+        """.utf8))
+
+        let data = try JSONEncoder().encode(item)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["action"] as? String, "run-tests")
+        XCTAssertEqual(object["title"] as? String, "Run Tests")
+        XCTAssertEqual(object["shortcut"] as? [String], ["ctrl+b", "t"])
     }
 
     func testDecodeMenuBarAcceptsArrayShorthand() throws {
@@ -651,6 +669,63 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         XCTAssertEqual(nested.title, "Lint")
         XCTAssertEqual(nested.action.terminalCommand, "npm run lint")
         XCTAssertEqual(nested.action.terminalCommandTarget, .currentTerminal)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testResolvedMenuBarAppliesShortcutsAndIncludesInlineMenuActionsInShortcutActions() throws {
+        let store = try loadStore(localJSON: """
+        {
+          "actions": {
+            "run-tests": {
+              "type": "command",
+              "title": "Run Tests",
+              "command": "npm test",
+              "shortcut": "cmd+shift+t"
+            }
+          },
+          "ui": {
+            "menuBar": [
+              {
+                "title": "Project",
+                "items": [
+                  {
+                    "action": "run-tests",
+                    "title": "Run Visible Tests",
+                    "shortcut": "cmd+shift+r"
+                  },
+                  {
+                    "title": "Lint",
+                    "command": "npm run lint",
+                    "target": "currentTerminal",
+                    "shortcut": ["ctrl+b", "l"]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """)
+
+        let menu = try XCTUnwrap(store.menuBarMenus.first)
+        guard case .action(let runTests) = menu.items[0],
+              case .action(let lint) = menu.items[1] else {
+            return XCTFail("Expected resolved menu actions.")
+        }
+
+        XCTAssertEqual(runTests.title, "Run Visible Tests")
+        XCTAssertEqual(runTests.action.shortcut, StoredShortcut.parseConfig("cmd+shift+r"))
+        XCTAssertEqual(lint.action.shortcut, StoredShortcut.parseConfig(strokes: ["ctrl+b", "l"]))
+
+        let shortcutActions = store.shortcutActions()
+        XCTAssertTrue(shortcutActions.contains { action in
+            action.terminalCommand == "npm test" &&
+                action.shortcut == StoredShortcut.parseConfig("cmd+shift+r")
+        })
+        XCTAssertTrue(shortcutActions.contains { action in
+            action.terminalCommand == "npm run lint" &&
+                action.shortcut == StoredShortcut.parseConfig(strokes: ["ctrl+b", "l"])
+        })
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 

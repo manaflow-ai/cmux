@@ -668,6 +668,7 @@ final class ConfiguredMenuBarController: NSObject {
                 item.representedObject = box
                 item.toolTip = menuAction.tooltip
                 item.image = menuImage(for: menuAction.icon ?? menuAction.action.icon)
+                applyShortcut(menuAction.action.shortcut, to: item)
                 nsItems.append(item)
             }
         }
@@ -676,6 +677,16 @@ final class ConfiguredMenuBarController: NSObject {
             nsItems.removeLast()
         }
         return nsItems
+    }
+
+    private func applyShortcut(_ shortcut: StoredShortcut?, to item: NSMenuItem) {
+        guard let keyEquivalent = shortcut?.menuItemKeyEquivalent else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut?.modifierFlags ?? []
     }
 
     private func menuImage(for icon: CmuxButtonIcon?) -> NSImage? {

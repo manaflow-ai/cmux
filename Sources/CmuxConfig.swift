@@ -2383,7 +2383,7 @@ final class CmuxConfigStore: ObservableObject {
 
     func shortcutActions() -> [CmuxResolvedConfigAction] {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
-        return loadedActions.filter { action in
+        let configuredActions = loadedActions.filter { action in
             action.shortcut != nil && (builtInIDs.contains(action.id) || action.actionSourcePath != nil)
         }.sorted { lhs, rhs in
             let lhsPriority = builtInIDs.contains(lhs.id) ? 0 : 1
@@ -2392,6 +2392,36 @@ final class CmuxConfigStore: ObservableObject {
                 return lhsPriority < rhsPriority
             }
             return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+        }
+        return configuredActions + menuBarShortcutActions()
+    }
+
+    private func menuBarShortcutActions() -> [CmuxResolvedConfigAction] {
+        var actions: [CmuxResolvedConfigAction] = []
+        for menu in menuBarMenus {
+            appendMenuBarShortcutActions(from: menu.items, to: &actions)
+        }
+        for menuExtension in menuBarExtensions {
+            appendMenuBarShortcutActions(from: menuExtension.items, to: &actions)
+        }
+        return actions
+    }
+
+    private func appendMenuBarShortcutActions(
+        from items: [CmuxResolvedMenuBarItem],
+        to actions: inout [CmuxResolvedConfigAction]
+    ) {
+        for item in items {
+            switch item {
+            case .action(let menuAction):
+                if menuAction.action.shortcut != nil {
+                    actions.append(menuAction.action)
+                }
+            case .submenu(let submenu):
+                appendMenuBarShortcutActions(from: submenu.items, to: &actions)
+            case .dynamicSource, .separator:
+                continue
+            }
         }
     }
 
@@ -2742,7 +2772,8 @@ final class CmuxConfigStore: ObservableObject {
                     issues.append(issue)
                     continue
                 }
-                guard let action = resolved.action else { continue }
+                guard var action = resolved.action else { continue }
+                action.shortcut = item.shortcut ?? action.shortcut
                 resolvedItems.append(
                     .action(
                         CmuxResolvedConfigMenuAction(

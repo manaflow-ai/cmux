@@ -950,6 +950,10 @@
               "type": "string",
               "description": "Action id from actions, built-in cmux action id, or generated command id."
             },
+            "shortcut": {
+              "$ref": "#/$defs/shortcutBinding",
+              "description": "Keyboard shortcut for this menu item. Single-stroke shortcuts render as native macOS menu hints. Chords work while cmux has focus but macOS menus only show one-stroke hints."
+            },
             "command": {
               "type": "string",
               "description": "Inline shell command. cmux inserts it into the selected terminal or a new terminal tab based on target."

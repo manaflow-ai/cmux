@@ -85,7 +85,7 @@ const settingsFileExample = `{
   //       "items": [
   //         "run-tests",
   //         { "type": "separator" },
-  //         { "title": "Lint", "command": "npm run lint", "target": "currentTerminal" },
+  //         { "title": "Lint", "command": "npm run lint", "target": "currentTerminal", "shortcut": "cmd+shift+l" },
   //         {
   //           "title": "Deploy",
   //           "items": [
@@ -387,7 +387,9 @@ working-directory = ~/code`}</CodeBlock>
                   <code>extends</code> when you want to append to an existing menu. Custom menus
                   appear in array order by default, and top-level menus can use <code>before</code>{" "}
                   or <code>after</code> to place themselves around built-in menus or another custom
-                  menu <code>id</code>.
+                  menu <code>id</code>. Add <code>shortcut</code> to a menu action to bind it from
+                  the keyboard. Single-stroke shortcuts render as native macOS menu hints; chord
+                  shortcuts still trigger while cmux has focus.
                 </p>
                 <p>
                   Dynamic menu sources run Bash and read a JSON array from stdout. They run on
@@ -412,7 +414,7 @@ working-directory = ~/code`}</CodeBlock>
         "items": [
           "run-tests",
           { "type": "separator" },
-          { "title": "Lint", "command": "npm run lint", "target": "currentTerminal" },
+          { "title": "Lint", "command": "npm run lint", "target": "currentTerminal", "shortcut": "cmd+shift+l" },
           {
             "title": "Recent Branches",
             "source": {

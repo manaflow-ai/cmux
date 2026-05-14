@@ -318,6 +318,7 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
     var title: String?
     var icon: CmuxButtonIcon?
     var tooltip: String?
+    var shortcut: StoredShortcut?
 
     private enum CodingKeys: String, CodingKey {
         case action
@@ -344,26 +345,30 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
         action: String,
         title: String? = nil,
         icon: CmuxButtonIcon? = nil,
-        tooltip: String? = nil
+        tooltip: String? = nil,
+        shortcut: StoredShortcut? = nil
     ) {
         self.action = action
         self.inlineAction = nil
         self.title = title
         self.icon = icon
         self.tooltip = tooltip
+        self.shortcut = shortcut
     }
 
     init(
         inlineAction: CmuxConfigActionDefinition,
         title: String? = nil,
         icon: CmuxButtonIcon? = nil,
-        tooltip: String? = nil
+        tooltip: String? = nil,
+        shortcut: StoredShortcut? = nil
     ) {
         self.action = nil
         self.inlineAction = inlineAction
         self.title = title
         self.icon = icon
         self.tooltip = tooltip
+        self.shortcut = shortcut ?? inlineAction.shortcut
     }
 
     init(from decoder: Decoder) throws {
@@ -371,6 +376,7 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
         title = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
         icon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
         tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
+        shortcut = try Self.decodeShortcut(forKey: .shortcut, in: container)
 
         let actionReference = try Self.trimmedString(forKey: .action, in: container)
         let hasInlineAction = [
@@ -408,6 +414,7 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
             }
             action = nil
             inlineAction = definition
+            shortcut = shortcut ?? definition.shortcut
             return
         }
 
@@ -426,10 +433,15 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
             try container.encodeIfPresent(title, forKey: .title)
             try container.encodeIfPresent(icon, forKey: .icon)
             try container.encodeIfPresent(tooltip, forKey: .tooltip)
+            try Self.encodeShortcut(shortcut, forKey: .shortcut, in: &container)
             return
         }
 
-        try inlineAction?.encode(to: encoder)
+        var encodedInlineAction = inlineAction
+        if let shortcut {
+            encodedInlineAction?.shortcut = shortcut
+        }
+        try encodedInlineAction?.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(title, forKey: .title)
         try container.encodeIfPresent(icon, forKey: .icon)
@@ -453,6 +465,58 @@ struct CmuxConfigMenuBarActionItem: Codable, Sendable, Hashable {
             )
         }
         return trimmed
+    }
+
+    private static func decodeShortcut(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> StoredShortcut? {
+        guard container.contains(key) else { return nil }
+        if let rawShortcut = try? container.decode(String.self, forKey: key) {
+            guard let shortcut = StoredShortcut.parseConfig(rawShortcut) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t' or be empty to unbind"
+                )
+            }
+            return shortcut
+        }
+        if let rawShortcut = try? container.decode([String].self, forKey: key) {
+            guard let shortcut = StoredShortcut.parseConfig(strokes: rawShortcut) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "shortcut chords must be one or two non-empty strokes"
+                )
+            }
+            return shortcut
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: container,
+            debugDescription: "shortcut must be a string or array of one or two strings"
+        )
+    }
+
+    private static func encodeShortcut(
+        _ shortcut: StoredShortcut?,
+        forKey key: CodingKeys,
+        in container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        guard let shortcut else { return }
+        if shortcut.isUnbound {
+            try container.encode("", forKey: key)
+            return
+        }
+        if let secondStroke = shortcut.secondStroke {
+            try container.encode(
+                [shortcut.firstStroke.configString(), secondStroke.configString()],
+                forKey: key
+            )
+        } else {
+            try container.encode(shortcut.firstStroke.configString(), forKey: key)
+        }
     }
 }
 

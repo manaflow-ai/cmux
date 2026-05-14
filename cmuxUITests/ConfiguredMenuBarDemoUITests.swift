@@ -113,7 +113,8 @@ final class ConfiguredMenuBarDemoUITests: XCTestCase {
                   {
                     "title": "Run Static Demo Command",
                     "command": "printf 'static menu action from cmux.json\\\\n'",
-                    "target": "currentTerminal"
+                    "target": "currentTerminal",
+                    "shortcut": "cmd+shift+y"
                   },
                   { "type": "separator" },
                   {
