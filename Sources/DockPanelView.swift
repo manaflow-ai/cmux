@@ -381,6 +381,7 @@ final class DockControlRuntime: ObservableObject, Identifiable {
             cachedTitle: preserved?.cachedTitle,
             customTitle: preserved?.customTitle,
             manuallyUnread: preserved?.manuallyUnread ?? false,
+            restoredUnread: preserved?.restoredUnread ?? false,
             restorableAgent: preserved?.restorableAgent,
             restorableAgentResumeState: preserved?.restorableAgentResumeState,
             agentRuntime: preserved?.agentRuntime,
@@ -490,6 +491,8 @@ final class DockControlRuntime: ObservableObject, Identifiable {
             return Workspace.SurfaceKind.markdown
         case .filePreview:
             return Workspace.SurfaceKind.filePreview
+        case .rightSidebarTool:
+            return Workspace.SurfaceKind.rightSidebarTool
         }
     }
 
