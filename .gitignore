@@ -45,6 +45,10 @@ node_modules/
 tests/visual_output/
 tests/visual_report.html
 
+# Generated docs search index
+web/.pagefind-site/
+web/public/pagefind/
+
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
