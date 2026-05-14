@@ -417,47 +417,22 @@ func mergeNodeOptions(existing string, restoreModulePath string) string {
 	return requireFlag + " " + memoryFlag + " " + cleaned
 }
 
+type nodeOptionsHeapMode int
+
+const (
+	nodeOptionsStripHeapCap nodeOptionsHeapMode = iota
+	nodeOptionsNormalizeHeapCap
+)
+
 func cleanedNodeOptions(existing string) string {
-	tokens := strings.Fields(existing)
-	if len(tokens) == 0 {
-		return ""
-	}
-
-	filtered := make([]string, 0, len(tokens))
-	dropInjectedHeapCap := false
-	for i := 0; i < len(tokens); i++ {
-		token := tokens[i]
-		if dropInjectedHeapCap && isInjectedNodeHeapCap(tokens, i) {
-			i += nodeHeapCapWidth(tokens, i) - 1
-			dropInjectedHeapCap = false
-			continue
-		}
-		dropInjectedHeapCap = false
-
-		if isRequireOption(token) && i+1 < len(tokens) && isCmuxNodeOptionsRestoreModulePath(tokens[i+1]) {
-			i++
-			dropInjectedHeapCap = true
-			continue
-		}
-		if path, ok := inlineRequireOptionPath(token); ok && isCmuxNodeOptionsRestoreModulePath(path) {
-			dropInjectedHeapCap = true
-			continue
-		}
-		if token == "--max-old-space-size" {
-			if i+1 < len(tokens) {
-				i++
-			}
-			continue
-		}
-		if strings.HasPrefix(token, "--max-old-space-size=") {
-			continue
-		}
-		filtered = append(filtered, token)
-	}
-	return strings.Join(filtered, " ")
+	return walkNodeOptions(existing, nodeOptionsStripHeapCap)
 }
 
 func nodeOptionsForRestore(existing string) string {
+	return walkNodeOptions(existing, nodeOptionsNormalizeHeapCap)
+}
+
+func walkNodeOptions(existing string, heapMode nodeOptionsHeapMode) string {
 	tokens := strings.Fields(existing)
 	if len(tokens) == 0 {
 		return ""
@@ -483,10 +458,23 @@ func nodeOptionsForRestore(existing string) string {
 			dropInjectedHeapCap = true
 			continue
 		}
-		if token == "--max-old-space-size" && i+1 < len(tokens) {
-			filtered = append(filtered, "--max-old-space-size="+tokens[i+1])
-			i++
-			continue
+		switch heapMode {
+		case nodeOptionsStripHeapCap:
+			if token == "--max-old-space-size" {
+				if i+1 < len(tokens) {
+					i++
+				}
+				continue
+			}
+			if strings.HasPrefix(token, "--max-old-space-size=") {
+				continue
+			}
+		case nodeOptionsNormalizeHeapCap:
+			if token == "--max-old-space-size" && i+1 < len(tokens) {
+				filtered = append(filtered, "--max-old-space-size="+tokens[i+1])
+				i++
+				continue
+			}
 		}
 		filtered = append(filtered, token)
 	}
