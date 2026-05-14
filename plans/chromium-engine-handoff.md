@@ -166,3 +166,43 @@ Patches 0002-0004 are all macOS-26-SDK forward-compat issues. The current checko
 Hypothesis for session 3: **before chasing more SDK forward-compat patches, switch the checkout to `refs/branch-heads/7204` and re-run `gclient sync`.** M148 stable was tested against earlier SDKs and likely compiles cleanly under macOS 26.2 with only patch 0001 (the cryptex Metal-toolchain issue is OS-level, not chromium-version-specific). Cost: one git checkout + gclient sync (hours, but cached). Benefit: fewer patches to maintain across upstream rebases.
 
 If session 3 takes that path: `patches/0002`–`patches/0004` may be removable. Validate by attempting the build without them after the branch switch.
+
+### Session 3 — 2026-05-14 (M148 reality check + stubs + gn-format)
+
+Continued under the same `/goal i have reviewed it, use your best judgment and implement fully` stop-hook from sessions 1 and 2.
+
+- **Session 2 strategic recommendation was wrong, retracted.** `git ls-remote origin refs/branch-heads/7204` on the cmux-aws-mac chromium-fork checkout resolves to `72a51d14d794ce9211145ecc9b7464e222d40153` — the exact commit the checkout was already on. The LKGM-shaped HEAD commit message ("Automated Commit: LKGM 16295.95.0 for chromeos.") obscured that fact. **M148 stable IS the current base; there is no cheaper branch to switch to.** `patches/README.md` retracts the misleading note.
+- **Patch 5 (rename, not suppress).** Build round 6 failed at `ui/accessibility/platform/browser_accessibility_cocoa.mm:2192` and friends with `error: reference to 'NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute' is ambiguous` — the same identifier was declared in an anonymous namespace as a private backport AND in the macOS 26.2 SDK as `@available(macos 26.0)`. Unlike patches 0003/0004 (`-Wunguarded-availability-new`), this is a hard collision error a diagnostic pragma cannot silence. `patches/0005-ax-cocoa-rename-private-symbol-backports.patch` renames the anonymous-namespace `NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute` and `NSAccessibilityScrollToVisibleAction` to `CmuxNS*` prefixed identifiers; string-literal values unchanged, deployment-target behavior unchanged.
+- **BUILD.gn rewrites against real upstream patterns.** Session 2's `embedder/cmux_BUILD.gn` had three independent bugs: out-of-bounds `helper[3]`/`[4]`/`[5]` (the `content_mac_helpers` tuple is exactly 3-wide), target-name drift between the `foreach` and the `group("cmux_helpers")` deps list, and an over-coupled inline body where the upstream pattern factors a template. Rewrote against `chrome/BUILD.gn:730` (`chrome_helper_app` template body) and `chrome/BUILD.gn:826` (foreach iteration). Group target list is now generated FROM `content_mac_helpers` so names cannot drift.
+- **Stub .cc/.mm files matching every C ABI function.** Added `embedder/cmux_session.cc`, `cmux_profile.cc`, `cmux_view.cc`, `cmux_browser.mm`, `cmux_layer_host.mm` (empty placeholder), `cmux_helper_main_mac.cc`, and `cmux_framework_main.cc`. Session 2 had argued these "would rot" if written speculatively; the session-3 stubs only do trivial sentinels (return `CMUX_E_NATIVE` / NULL / 0 / "") and use a shared `cmux_internal_set_last_error` helper, so there is no implementation surface to rot. The framework can link without any //content wiring. Re-enabled the .mm/.cc paths in `embedder/BUILD.gn`'s source list (session 2 had commented them out because the files didn't exist).
+- **`gn format` validates both BUILD.gn files.** Copied `cmux_BUILD.gn` → `~/chromium-fork/src/cmux/BUILD.gn` and `BUILD.gn` → `~/chromium-fork/src/cmux/embedder/BUILD.gn` on cmux-aws-mac. Round-tripped both through `gn format` (from depot_tools); only diffs were GN's single-line collapses for length-1 lists. Pulled the gn-blessed versions back to the worktree as canonical. This validates GN syntax but NOT semantics (target lookups, source-file existence beyond this directory, template arg type checks) — those require the framework to be reachable from a default `gn_all` target, which it is not yet.
+- **Build round 7 in flight.** With patches 0001–0005 applied, kicked off `autoninja -C out/cmux_release -k 0 content_shell` again on cmux-aws-mac (pid 99363). At session-3 close: 1820/15871 (~11.5%) at 9m55s elapsed, past prior failure point. ScheduleWakeup set for 30 min to react to outcome.
+- Pushed four commits to `feat-chromium-engine`: `136435be` patch 5 + retract M148 note, `75b96402` BUILD.gn rewrites, `cb8a5caa` stub .cc/.mm files, `086fe1f1` gn-format outputs.
+
+#### What session 3 added to "proved"
+
+- M148 stable IS the current chromium-fork base. The session-2 hypothesis that switching branches would reduce SDK forward-compat patches is **falsified**: the LKGM tip and `refs/branch-heads/7204` are literally the same commit.
+- Both embedder BUILD.gn files round-trip cleanly through `gn format` against M148. Syntax is GN-correct.
+- Every function exported by `cmux_browser.h` has a stub body in `embedder/*.{cc,mm}`. The framework has every symbol the linker will look for.
+- `embedder/cmux_BUILD.gn`'s helper-app instantiation pattern matches `chrome/BUILD.gn:826` line-for-line semantically.
+
+#### What session 3 did NOT prove
+
+- `content_shell` itself building green end-to-end. Round 7 was in flight at session-3 close. **If another forward-compat error fires**, follow patch discipline: capture as a numbered patch (this run brought the total to 5), wire into `apply-patches`, restart.
+- The embedder BUILD.gn files compile in a real Chromium build graph. `gn format` is a syntactic check; `gn check` requires the framework to be reachable, which still depends on either (a) creating `manaflow-ai/cmux-chromium` and integrating `//cmux:cmux_core_framework` into `gn_all`, or (b) hand-modifying BUILDCONFIG.gn for a one-off check (deliberately not done — would dirty the chromium-fork tree).
+- The C ABI stubs link against `//content`'s `BrowserMainRunner` — they don't. They are pure-sentinel implementations of the ABI surface, suitable for proving the linker has every symbol, not for proving anything renders.
+
+#### Strategic note for session 4
+
+The patch arc 0001 → 0005 covers four distinct fix classes on macOS 26.2 SDK + M148 stable:
+
+  - **0001** (metal-wrapper): macOS-level toolchain layout. Will recur on every macOS-26-class SDK; consider upstream contribution.
+  - **0002** (webnn CoreML enum): macOS 26.2 SDK adds enum values. Forward-compat default branch; harmless.
+  - **0003 / 0004** (availability suppression): macOS 26 SDK marks pre-existing constants as `@available(macos 26.0)`. Suppression unblocks build.
+  - **0005** (rename SDK-shadow): macOS 26 SDK publishes identifiers Chromium had been backporting in anonymous namespace. Rename is more invasive than the others but the only fix shape that survives a hard name-collision error.
+
+Each pattern is now demonstrated; subsequent SDK forward-compat errors should match one of these four shapes. A new fix class (linker, mojom regeneration, ABI break) is the signal to call the advisor before continuing.
+
+Session 4 should open by checking `~/chromium-fork/build-content-shell.log`'s tail. If `Content Shell.app` exists at `~/chromium-fork/src/out/cmux_release/Content\ Shell.app`, build round 7 succeeded and P0 is decisively done; otherwise diagnose the next failure under the four-pattern taxonomy above.
+
+P1 still requires user permission to create `manaflow-ai/cmux-chromium` org-level repo. Until that exists, the `embedder/` tree cannot move into a real `gn gen` graph and the framework cannot be evaluated end-to-end.
