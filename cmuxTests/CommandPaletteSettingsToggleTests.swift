@@ -112,6 +112,22 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testUnavailableCommandDoesNotToggleStoredValue() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.openSidebarPortLinksInCmuxBrowser"
+                )
+            )
+            defaults.set(false, forKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey)
+            defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPortsKey)
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertFalse(defaults.bool(forKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey))
+        }
+    }
+
     func testSettingsToggleContributionsIncludeEveryDescriptor() {
         let descriptorIds = Set(CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId))
         let contributionIds = Set(ContentView.commandPaletteSettingsToggleCommandContributions().map(\.commandId))

@@ -78,6 +78,7 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         defaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default
     ) {
+        guard isAvailable(defaults) else { return }
         setOn(!isOn(defaults), defaults, notificationCenter)
     }
 }
@@ -676,7 +677,7 @@ extension SidebarWorkspaceDetailDefaults {
 }
 
 extension ContentView {
-    static func commandPaletteSettingsToggleCommandContributions() -> [CommandPaletteCommandContribution] {
+    nonisolated static func commandPaletteSettingsToggleCommandContributions() -> [CommandPaletteCommandContribution] {
         CommandPaletteSettingsToggleCommands.descriptors.map { descriptor in
             CommandPaletteCommandContribution(
                 commandId: descriptor.commandId,
