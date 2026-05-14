@@ -313,7 +313,7 @@ final class FileExplorerStoreTests: XCTestCase {
         }
     }
 
-    func testRemoteDownloadSCPArgumentsPreserveRemotePathAndBracketIPv6() {
+    func testRemoteDownloadSCPArgumentsShellQuoteRemotePathAndBracketIPv6() {
         let args = ProcessSSHFileExplorerTransport.scpDownloadArgumentsForTesting(
             remotePath: "/home/dev/Quarterly Report's.pdf",
             isDirectory: true,
@@ -327,6 +327,7 @@ final class FileExplorerStoreTests: XCTestCase {
         )
 
         XCTAssertTrue(args.contains("-r"))
+        XCTAssertTrue(args.contains("-O"))
         XCTAssertTrue(args.contains("-P"))
         XCTAssertTrue(args.contains("2222"))
         XCTAssertTrue(args.contains("-i"))
@@ -334,7 +335,7 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertEqual(
             Array(args.suffix(2)),
             [
-                "dev@[2001:db8::1]:/home/dev/Quarterly Report's.pdf",
+                "dev@[2001:db8::1]:'/home/dev/Quarterly Report'\\''s.pdf'",
                 "/Users/alice/Downloads",
             ]
         )
