@@ -46,9 +46,13 @@ enum AgentResumeCommandBuilder {
         commandParts.append(contentsOf: argv)
 
         var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
-            ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let cwd = resumeWorkingDirectory(
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: customRegistration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
         if let cwd {
             shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
         }
@@ -350,6 +354,57 @@ enum AgentResumeCommandBuilder {
             ?? fallbackExecutable
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
+    }
+
+    private static func resumeWorkingDirectory(
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        includeWorkingDirectoryPrefix: Bool
+    ) -> String? {
+        guard includeWorkingDirectoryPrefix, customRegistration?.cwd != .ignore else {
+            return nil
+        }
+
+        let fallback = normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        guard kind == .cursor else {
+            return fallback
+        }
+
+        let workspace = cursorWorkspaceDirectory(from: launchCommand?.arguments)
+        guard let fallback else {
+            return workspace
+        }
+
+        return isCursorConfigDirectory(fallback) ? workspace : fallback
+    }
+
+    private static func cursorWorkspaceDirectory(from arguments: [String]?) -> String? {
+        guard let arguments, !arguments.isEmpty else {
+            return nil
+        }
+
+        var index = 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--workspace" {
+                guard index + 1 < arguments.count else {
+                    return nil
+                }
+                return normalized(arguments[index + 1])
+            }
+            if argument.hasPrefix("--workspace=") {
+                return normalized(String(argument.dropFirst("--workspace=".count)))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private static func isCursorConfigDirectory(_ path: String) -> Bool {
+        let expanded = (path as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded).standardizedFileURL.lastPathComponent == ".cursor"
     }
 
     private static func normalized(_ value: String?) -> String? {

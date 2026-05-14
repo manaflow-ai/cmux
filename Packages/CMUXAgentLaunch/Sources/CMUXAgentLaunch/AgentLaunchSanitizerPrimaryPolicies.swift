@@ -392,6 +392,7 @@ extension AgentLaunchSanitizer {
             "--header",
             "--continue",
             "--resume",
+            "--use-system-ca",
             "--workspace",
             "-w",
             "--worktree",
@@ -403,6 +404,7 @@ extension AgentLaunchSanitizer {
             "--header=",
             "-H=",
             "--resume=",
+            "--use-system-ca=",
             "--workspace=",
             "--worktree=",
             "--worktree-base="
