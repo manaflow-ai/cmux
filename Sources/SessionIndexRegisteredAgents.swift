@@ -9,6 +9,7 @@ extension SessionIndexStore {
         var sessionId: String?
     }
 
+    @concurrent
     nonisolated static func loadRegisteredAgentEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,

@@ -1139,6 +1139,7 @@ final class SessionIndexStore: ObservableObject {
     ///   set; we only parse files that actually contain the needle.
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
     ///   Foundation enumeration + 64 KB head + 32 KB tail substring scan.
+    @concurrent
     nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
@@ -1306,6 +1307,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
     /// Codex installs, or non-default config). Same shape as the original loader.
+    @concurrent
     nonisolated private static func loadCodexEntriesFromDisk(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {

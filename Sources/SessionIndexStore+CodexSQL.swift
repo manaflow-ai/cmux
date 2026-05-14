@@ -214,6 +214,7 @@ extension SessionIndexStore {
         return (root as NSString).standardizingPath
     }
 
+    @concurrent
     nonisolated private static func codexRolloutPathsMatchingNeedle(
         _ needle: String,
         sessionsRoot: String
