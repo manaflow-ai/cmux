@@ -2280,6 +2280,12 @@ struct ContentView: View {
                     debugSource: "titlebar.fullscreenNewWorkspace"
                 )
             },
+            onFocusHistoryBack: {
+                tabManager.navigateBack()
+            },
+            onFocusHistoryForward: {
+                tabManager.navigateForward()
+            },
             visibilityMode: .alwaysVisible
         )
     }
@@ -9398,7 +9404,13 @@ struct VerticalTabsSidebar: View {
                                     anchorView: anchorView
                                 )
                             },
-                            onNewTab: onNewTab
+                            onNewTab: onNewTab,
+                            onFocusHistoryBack: {
+                                tabManager.navigateBack()
+                            },
+                            onFocusHistoryForward: {
+                                tabManager.navigateForward()
+                            }
                         )
                             .padding(
                                 .leading,

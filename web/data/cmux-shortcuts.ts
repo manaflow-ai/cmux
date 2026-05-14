@@ -84,6 +84,13 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "nextSidebarTab", combos: [["⌃", "⌘", "]"]], description: { en: "Next workspace", ja: "次のワークスペース" } },
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
+      {
+        id: "focusHistoryBack",
+        combos: [["⌘", "["]],
+        description: { en: "Focus back", ja: "フォーカスを戻る" },
+        note: { en: "Unbind Focus Back/Forward in Settings to let Ghostty handle Cmd+[ and Cmd+].", ja: "Ghostty で Cmd+[ と Cmd+] を使うには、設定で Focus Back/Forward の割り当てを解除します。" },
+      },
+      { id: "focusHistoryForward", combos: [["⌘", "]"]], description: { en: "Focus forward", ja: "フォーカスを進む" } },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },

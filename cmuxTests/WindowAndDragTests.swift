@@ -482,8 +482,8 @@ final class FocusFlashPatternTests: XCTestCase {
         XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
         XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
-        XCTAssertEqual(FocusFlashPattern.ringInset, 6, accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, 10, accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
     func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
@@ -2842,17 +2842,27 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         XCTAssertEqual(model.flashReason, .navigation)
     }
 
-    func testNavigationFlashUsesNonNotificationPresentation() {
-        XCTAssertNotEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation),
-            WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
-        )
+    func testAllFlashReasonsUseNotificationRingAccent() {
+        let reasons: [WorkspaceAttentionFlashReason] = [
+            .navigation,
+            .notificationArrival,
+            .notificationDismiss,
+            .manualUnreadDismiss,
+            .debug,
+        ]
+
+        for reason in reasons {
+            XCTAssertEqual(
+                WorkspaceAttentionCoordinator.flashStyle(for: reason).accent,
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+            )
+        }
     }
 
-    func testNavigationFlashUsesNonNeutralAccent() {
+    func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent,
-            .navigationTeal
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
         )
     }
 

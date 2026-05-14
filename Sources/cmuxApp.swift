@@ -628,6 +628,21 @@ struct cmuxApp: App {
     }
 
     @CommandsBuilder
+    private var historyCommands: some Commands {
+        CommandMenu(String(localized: "menu.history.title", defaultValue: "History")) {
+            splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
+                activeTabManager.navigateBack()
+            }
+            .disabled(!canNavigateFocusHistoryBack)
+
+            splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"), shortcut: menuShortcut(for: .focusHistoryForward)) {
+                activeTabManager.navigateForward()
+            }
+            .disabled(!canNavigateFocusHistoryForward)
+        }
+    }
+
+    @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
@@ -635,6 +650,7 @@ struct cmuxApp: App {
             }
         }
         helpCommands
+        historyCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -858,6 +874,18 @@ struct cmuxApp: App {
         AppDelegate.shared?.activeTabManagerForCommands(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
+    }
+
+    private var canNavigateFocusHistoryBack: Bool {
+        let manager = activeTabManager
+        let _ = manager.focusHistoryRevision
+        return manager.canNavigateBack
+    }
+
+    private var canNavigateFocusHistoryForward: Bool {
+        let manager = activeTabManager
+        let _ = manager.focusHistoryRevision
+        return manager.canNavigateForward
     }
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)

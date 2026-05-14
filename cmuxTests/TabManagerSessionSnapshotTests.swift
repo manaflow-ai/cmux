@@ -34,6 +34,52 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        workspace.focusPanel(firstPanelId)
+        workspace.focusPanel(secondPanelId)
+
+        XCTAssertTrue(manager.canNavigateBack)
+
+        manager.navigateBack()
+
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+        XCTAssertTrue(manager.canNavigateForward)
+    }
+
+    func testFocusHistoryNavigatesBetweenFreshWorkspaces() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertTrue(manager.canNavigateForward)
+        NotificationCenter.default.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: firstWorkspace.id,
+                GhosttyNotificationKey.surfaceId: try XCTUnwrap(firstWorkspace.focusedPanelId),
+            ]
+        )
+        drainMainQueue()
+        XCTAssertTrue(manager.canNavigateForward)
+
+        manager.navigateForward()
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(

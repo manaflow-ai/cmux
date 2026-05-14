@@ -799,6 +799,8 @@
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "focusHistoryBack",
+              "focusHistoryForward",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",

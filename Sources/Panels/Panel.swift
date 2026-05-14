@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import SwiftUI
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -75,14 +76,11 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
-    case navigationTeal
 
     var strokeColor: NSColor {
         switch self {
         case .notificationBlue:
             return .systemBlue
-        case .navigationTeal:
-            return .systemTeal
         }
     }
 }
@@ -118,20 +116,22 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 }
 
 enum WorkspaceAttentionCoordinator {
+    static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.35,
+        glowRadius: 3
+    )
+
+    static let flashRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.6,
+        glowRadius: 6
+    )
+
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation:
-            return WorkspaceAttentionFlashPresentation(
-                accent: .navigationTeal,
-                glowOpacity: 0.14,
-                glowRadius: 3
-            )
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
-            return WorkspaceAttentionFlashPresentation(
-                accent: .notificationBlue,
-                glowOpacity: 0.6,
-                glowRadius: 6
-            )
+        case .navigation, .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+            return flashRingStyle
         }
     }
 
@@ -251,6 +251,25 @@ enum FocusFlashPattern {
             let inverse = 1 - progress
             return 1 - (inverse * inverse)
         }
+    }
+}
+
+struct WorkspaceAttentionFlashRingView: View {
+    let opacity: Double
+    var reason: WorkspaceAttentionFlashReason = .navigation
+
+    var body: some View {
+        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
+        let color = Color(nsColor: presentation.accent.strokeColor)
+
+        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+            .stroke(color.opacity(opacity), lineWidth: PanelOverlayRingMetrics.lineWidth)
+            .shadow(
+                color: color.opacity(opacity * presentation.glowOpacity),
+                radius: presentation.glowRadius
+            )
+            .padding(FocusFlashPattern.ringInset)
+            .allowsHitTesting(false)
     }
 }
 
