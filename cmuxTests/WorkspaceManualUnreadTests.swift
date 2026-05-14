@@ -448,6 +448,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         func resetUnreadState() {
             store.replaceNotificationsForTesting([])
+            store.clearFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+            store.markRead(forTabId: workspace.id)
             workspace.clearManualUnread(panelId: panelId)
             workspace.clearRestoredUnreadIndicator(panelId: panelId)
         }
@@ -490,7 +492,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(
             Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: true,
-                isManuallyUnread: false
+                hasPanelUnreadIndicator: false
             )
         )
     }
@@ -499,7 +501,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(
             Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
-                isManuallyUnread: true
+                hasPanelUnreadIndicator: true
             )
         )
     }
@@ -508,7 +510,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(
             Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
-                isManuallyUnread: false,
+                hasPanelUnreadIndicator: false,
                 isWorkspaceManuallyUnread: true,
                 isWorkspaceManualUnreadRepresentative: true
             )
@@ -519,7 +521,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(
             Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
-                isManuallyUnread: false,
+                hasPanelUnreadIndicator: false,
                 isWorkspaceManuallyUnread: true,
                 isWorkspaceManualUnreadRepresentative: false
             )
@@ -530,7 +532,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(
             Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
-                isManuallyUnread: false
+                hasPanelUnreadIndicator: false
             )
         )
     }

@@ -1346,7 +1346,7 @@ struct ContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panelId
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId) ||
+                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
                         workspace.restoredUnreadPanelIds.contains(panelId),
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId

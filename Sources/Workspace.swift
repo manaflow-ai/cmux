@@ -8353,7 +8353,7 @@ final class Workspace: Identifiable, ObservableObject {
         let notificationStore = AppDelegate.shared?.notificationStore
         let shouldShowUnread = Self.shouldShowUnreadIndicator(
             hasUnreadNotification: hasUnreadNotification(panelId: panelId),
-            isManuallyUnread: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
+            hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
             isWorkspaceManuallyUnread: notificationStore?.hasManualUnread(forTabId: id) ?? false,
             isWorkspaceManualUnreadRepresentative: representativePanelIdForWorkspaceManualUnread() == panelId
         )
@@ -8514,15 +8514,15 @@ final class Workspace: Identifiable, ObservableObject {
     func markPanelRead(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
-        let didClearManual = clearManualUnreadState(panelId: panelId)
-        let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
-        guard didClearManual || didClearRestored else { return }
+        _ = clearManualUnreadState(panelId: panelId)
+        _ = clearRestoredUnreadIndicatorState(panelId: panelId)
         syncUnreadBadgeStateForPanel(panelId)
     }
 
     func clearManualUnread(panelId: UUID) {
-        let didRemoveUnread = clearManualUnreadState(panelId: panelId)
-        guard didRemoveUnread else { return }
+        let didRemoveManual = clearManualUnreadState(panelId: panelId)
+        let didRemoveRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
+        guard didRemoveManual || didRemoveRestored else { return }
         syncUnreadBadgeStateForPanel(panelId)
     }
 
@@ -8554,12 +8554,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     static func shouldShowUnreadIndicator(
         hasUnreadNotification: Bool,
-        isManuallyUnread: Bool,
+        hasPanelUnreadIndicator: Bool,
         isWorkspaceManuallyUnread: Bool = false,
         isWorkspaceManualUnreadRepresentative: Bool = false
     ) -> Bool {
         hasUnreadNotification ||
-            isManuallyUnread ||
+            hasPanelUnreadIndicator ||
             (isWorkspaceManuallyUnread && isWorkspaceManualUnreadRepresentative)
     }
 
