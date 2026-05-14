@@ -73,6 +73,19 @@ public final class CmuxBrowserView: NSView {
         set { backend.setCustomUserAgent(newValue) }
     }
 
+    /// Page zoom factor. 1.0 = no zoom. Reads and writes go through
+    /// the backend. State is mirrored on `state.pageZoom` for Combine
+    /// observers.
+    public var pageZoom: CGFloat {
+        get { backend.pageZoom }
+        set { backend.pageZoom = newValue }
+    }
+
+    /// Observable mirror of engine load state. Use this to subscribe
+    /// via Combine instead of polling the view, e.g.
+    /// `view.state.$url.sink { ... }`.
+    public var state: CmuxBrowserState { backend.state }
+
     /// Diagnostic string identifying the active backend ("WebKit 622..."
     /// or "Chromium (not yet built) — ..."). Used in About dialogs and
     /// crash reports.

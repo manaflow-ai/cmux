@@ -135,8 +135,18 @@ git checkout FETCH_HEAD
 
 cd ..
 echo "  running gclient sync (this is hours)"
-exec nohup gclient sync --no-history --shallow -j 16 > "${REMOTE_CHROMIUM_ROOT}/gclient-sync.log" 2>&1 &
-echo "  fetch pid: \$!"
+# Detach via subshell-then-background so the gclient process is
+# orphaned cleanly when this SSH session exits. macOS's nohup needs
+# a real tty for ioctl and breaks under ssh exec heredocs; setsid
+# isn't installed. The subshell-background pattern is the macOS
+# idiom that survives ssh disconnect.
+( cd "${REMOTE_CHROMIUM_ROOT}" && \
+  export PATH="${REMOTE_DEPOT_TOOLS}:\$PATH" && \
+  gclient sync --no-history --shallow -j 16 \
+    > "${REMOTE_CHROMIUM_ROOT}/gclient-sync.log" 2>&1 < /dev/null & )
+sleep 2
+pid=\$(pgrep -f "gclient.py sync" | head -1)
+echo "  fetch pid: \${pid:-unknown}"
 echo "  log: ${REMOTE_CHROMIUM_ROOT}/gclient-sync.log"
 EOS
 }

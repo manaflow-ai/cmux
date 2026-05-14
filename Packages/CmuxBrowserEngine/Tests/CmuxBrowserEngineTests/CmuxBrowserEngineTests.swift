@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import Testing
 import WebKit
@@ -196,6 +197,58 @@ struct CmuxBrowserViewWebKitSuite {
             if let s = value as? String, s == "42" { break }
         }
         #expect(value as? String == "42")
+    }
+}
+
+@Suite("CmuxBrowserState mirrors")
+@MainActor
+struct CmuxBrowserStateSuite {
+    private func webKitConfig() -> CmuxBrowserConfiguration {
+        let c = CmuxBrowserConfiguration()
+        c.engineKind = .webKit
+        return c
+    }
+
+    @Test("WebKit backend pushes title to state.title when navigation finishes")
+    func testTitleMirror() async throws {
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                   configuration: webKitConfig())
+        _ = view.loadHTMLString("<html><head><title>cmux-title-fixture</title></head><body>x</body></html>", baseURL: nil)
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            if view.state.title == "cmux-title-fixture" { break }
+        }
+        #expect(view.state.title == "cmux-title-fixture")
+    }
+
+    @Test("pageZoom round-trips through CmuxBrowserView")
+    func testPageZoom() {
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                   configuration: webKitConfig())
+        #expect(view.pageZoom == 1.0)
+        view.pageZoom = 1.5
+        #expect(view.pageZoom == 1.5)
+        #expect(view.state.pageZoom == 1.5)
+    }
+
+    @Test("state.url emits via Combine when WKWebView loads")
+    func testCombinePublisher() async throws {
+        let view = CmuxBrowserView(frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                   configuration: webKitConfig())
+        // Subscribe before the load to catch the transition.
+        var received: [URL?] = []
+        let cancellable = view.state.$url.sink { url in received.append(url) }
+        defer { cancellable.cancel() }
+
+        let target = URL(string: "data:text/html,<html></html>")!
+        _ = view.load(target)
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            if received.contains(where: { $0 != nil }) { break }
+        }
+        #expect(received.contains(where: { $0 != nil }))
     }
 }
 

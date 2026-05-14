@@ -18,6 +18,7 @@ final class ChromiumBrowserBackend: NSObject, CmuxBrowserBackend {
     }
 
     let placeholder: NSView
+    let state = CmuxBrowserState()
 
     init(configuration: CmuxBrowserConfiguration) {
         let v = NSView()
@@ -39,6 +40,10 @@ final class ChromiumBrowserBackend: NSObject, CmuxBrowserBackend {
     var canGoBack: Bool { false }
     var canGoForward: Bool { false }
     var customUserAgent: String? { nil }
+    var pageZoom: CGFloat {
+        get { 1.0 }
+        set { _ = newValue }
+    }
 
     private func unavailable() -> Never {
         fatalError(

@@ -41,6 +41,13 @@ protocol CmuxBrowserBackend: AnyObject {
     func setCustomUserAgent(_ userAgent: String?)
     var customUserAgent: String? { get }
 
+    /// Live state mirror. Backends push updates here as the engine
+    /// emits them (KVO in WebKit, delegate callbacks in Chromium).
+    var state: CmuxBrowserState { get }
+
+    /// Page zoom factor. 1.0 = no zoom.
+    var pageZoom: CGFloat { get set }
+
     /// Snapshot the current visible region as a `CGImage`.
     func takeSnapshot(completionHandler: @escaping (CGImage?, Error?) -> Void)
 }

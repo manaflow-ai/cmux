@@ -21,12 +21,16 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
     let webView: WKWebView
     var navigationDelegate: CmuxNavigationDelegate?
     var uiDelegate: CmuxUIDelegate?
+    let state = CmuxBrowserState()
 
     /// Maps the engine's underlying `WKNavigation` (whose identity we
     /// can't observe directly across the delegate methods) to a stable
     /// `CmuxNavigation` UUID. Strong references; entries cleared in
     /// the terminal delegate methods.
     private var navigationMap: [ObjectIdentifier: CmuxNavigation] = [:]
+
+    /// KVO tokens. Retained for the lifetime of the backend.
+    private var observations: [NSKeyValueObservation] = []
 
     private lazy var navigationBridge = NavigationBridge(owner: self)
     private lazy var uiBridge = UIBridge(owner: self)
@@ -54,6 +58,43 @@ final class WebKitBrowserBackend: NSObject, CmuxBrowserBackend {
         }
         self.webView.navigationDelegate = navigationBridge
         self.webView.uiDelegate = uiBridge
+        installStateObservations()
+    }
+
+    private func installStateObservations() {
+        let state = self.state
+        // KVO observations push WKWebView state into CmuxBrowserState
+        // synchronously on the main actor (KVO callbacks fire on the
+        // calling thread, which for these properties is always main).
+        observations = [
+            webView.observe(\.url, options: [.initial, .new]) { [state] wv, _ in
+                MainActor.assumeIsolated { state.url = wv.url }
+            },
+            webView.observe(\.title, options: [.initial, .new]) { [state] wv, _ in
+                MainActor.assumeIsolated { state.title = wv.title }
+            },
+            webView.observe(\.isLoading, options: [.initial, .new]) { [state] wv, _ in
+                MainActor.assumeIsolated { state.isLoading = wv.isLoading }
+            },
+            webView.observe(\.estimatedProgress, options: [.initial, .new]) { [state] wv, _ in
+                MainActor.assumeIsolated { state.estimatedProgress = wv.estimatedProgress }
+            },
+            webView.observe(\.canGoBack, options: [.initial, .new]) { [state] wv, _ in
+                MainActor.assumeIsolated { state.canGoBack = wv.canGoBack }
+            },
+            webView.observe(\.canGoForward, options: [.initial, .new]) { [state] wv, _ in
+                MainActor.assumeIsolated { state.canGoForward = wv.canGoForward }
+            },
+        ]
+        state.pageZoom = webView.pageZoom
+    }
+
+    var pageZoom: CGFloat {
+        get { webView.pageZoom }
+        set {
+            webView.pageZoom = newValue
+            state.pageZoom = newValue
+        }
     }
 
     var nsView: NSView { webView }
