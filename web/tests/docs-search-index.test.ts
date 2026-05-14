@@ -2,7 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { routing } from "../i18n/routing";
 import { docsSearchPages, docsSearchRoutes } from "../tools/build-docs-search.mjs";
 
-const pagesPromise = docsSearchPages();
+type DocsSearchPage = {
+  locale: string;
+  href: string;
+  path: string;
+  title: string;
+  description: string;
+  sections: Array<{
+    texts: string[];
+  }>;
+};
+
+const pagesPromise = docsSearchPages() as Promise<DocsSearchPage[]>;
 
 describe("docs search index", () => {
   test("builds a searchable page for every locale and docs route", async () => {
