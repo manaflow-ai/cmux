@@ -11,26 +11,28 @@ struct MarkdownWebTheme: Equatable {
     let mutedBorder: String
 
     static func resolve(backgroundColor: NSColor) -> MarkdownWebTheme {
-        let isDark = !backgroundColor.isLightColor
-        let muted = backgroundColor.markdownThemeBlend(
+        let base = backgroundColor.markdownOpaqueSRGB
+        let isDark = !base.isLightColor
+        let overlayColor: NSColor = isDark ? .white : .black
+        let muted = base.markdownThemeOverlay(
             targetContrast: isDark ? 1.09 : 1.06,
-            of: isDark ? .white : .black
+            of: overlayColor
         )
-        let neutralMuted = backgroundColor.markdownThemeBlend(
+        let neutralMuted = base.markdownThemeOverlay(
             targetContrast: isDark ? 1.35 : 1.20,
-            of: isDark ? .white : .black
-        ).withAlphaComponent(0.35)
-        let border = backgroundColor.markdownThemeBlend(
+            of: overlayColor
+        )
+        let border = base.markdownThemeOverlay(
             targetContrast: isDark ? 1.92 : 1.43,
-            of: isDark ? .white : .black
+            of: overlayColor
         )
         return MarkdownWebTheme(
             isDark: isDark,
-            background: backgroundColor.markdownCSSColor,
+            background: "transparent",
             mutedBackground: muted.markdownCSSColor,
             neutralMutedBackground: neutralMuted.markdownCSSColor,
             border: border.markdownCSSColor,
-            mutedBorder: border.withAlphaComponent(0.70).markdownCSSColor
+            mutedBorder: border.withAlphaComponent(border.alphaComponent * 0.70).markdownCSSColor
         )
     }
 }
@@ -38,6 +40,7 @@ struct MarkdownWebTheme: Equatable {
 struct MarkdownWebRenderer: NSViewRepresentable {
     let markdown: String
     let theme: MarkdownWebTheme
+    let backgroundColor: NSColor
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
@@ -63,6 +66,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
         webView.setValue(false, forKey: "drawsBackground")
+        applyBackground(to: webView)
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
@@ -89,6 +93,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.workspaceId = workspaceId
         context.coordinator.filePath = filePath
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
@@ -111,6 +116,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         if webView.appearance !== appearance {
             webView.appearance = appearance
         }
+    }
+
+    private func applyBackground(to webView: WKWebView) {
+        webView.underPageBackgroundColor = backgroundColor
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = backgroundColor.cgColor
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     @MainActor
@@ -520,7 +532,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 }
 
-private extension NSColor {
+extension NSColor {
+    var markdownOpaqueSRGB: NSColor {
+        (usingColorSpace(.sRGB) ?? self).withAlphaComponent(1)
+    }
+
     var markdownCSSColor: String {
         let color = usingColorSpace(.sRGB) ?? self
         var red: CGFloat = 0
@@ -535,32 +551,25 @@ private extension NSColor {
         return String(format: "rgba(%d, %d, %d, %.3f)", r, g, b, Double(a))
     }
 
-    func markdownThemeBlend(withFraction fraction: CGFloat, of color: NSColor) -> NSColor {
-        let base = (usingColorSpace(.sRGB) ?? self)
-        let alpha = base.alphaComponent
-        return (base.withAlphaComponent(1).blended(withFraction: fraction, of: color) ?? base)
-            .withAlphaComponent(alpha)
-    }
-
-    func markdownThemeBlend(targetContrast: CGFloat, of color: NSColor) -> NSColor {
-        let base = usingColorSpace(.sRGB) ?? self
-        let alpha = base.alphaComponent
+    func markdownThemeOverlay(targetContrast: CGFloat, of color: NSColor) -> NSColor {
+        let base = markdownOpaqueSRGB
+        let overlay = color.markdownOpaqueSRGB
         var low: CGFloat = 0
         var high: CGFloat = 1
-        var result = base.withAlphaComponent(1)
+        var result: CGFloat = 1
 
         for _ in 0..<18 {
             let mid = (low + high) / 2
-            let candidate = base.markdownThemeBlend(withFraction: mid, of: color).withAlphaComponent(1)
+            let candidate = base.blended(withFraction: mid, of: overlay) ?? base
             if candidate.markdownContrastRatio(with: base) < Double(targetContrast) {
                 low = mid
             } else {
                 high = mid
-                result = candidate
+                result = mid
             }
         }
 
-        return result.withAlphaComponent(alpha)
+        return overlay.withAlphaComponent(result)
     }
 
     var markdownRelativeLuminance: Double {
