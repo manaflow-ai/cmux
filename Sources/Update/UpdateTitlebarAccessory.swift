@@ -5,6 +5,8 @@ import SwiftUI
 
 final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
     override var mouseDownCanMoveWindow: Bool { false }
+    override var canBecomeKeyView: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
 }
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
@@ -386,6 +388,7 @@ struct TitlebarControlButton<Content: View>: View {
             .frame(width: config.buttonSize, height: config.buttonSize)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier(accessibilityIdentifier)
             .accessibilityLabel(accessibilityLabel)
             .focusable()

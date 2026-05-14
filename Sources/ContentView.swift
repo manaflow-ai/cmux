@@ -11391,6 +11391,7 @@ private struct SidebarHelpMenuButton: View {
             helpPopover
         })
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .safeHelp(helpTitle)
         .accessibilityLabel(helpTitle)
         .accessibilityIdentifier("SidebarHelpMenuButton")
