@@ -108217,6 +108217,40 @@
         }
       }
     },
+    "dock.error.browserUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock browser entries require the embedded browser to be enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockブラウザ項目には内蔵ブラウザを有効にする必要があります。"
+          }
+        }
+      }
+    },
+    "dock.error.browserWorkspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock browser entry could not find its workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockブラウザ項目のワークスペースが見つかりません。"
+          }
+        }
+      }
+    },
     "dock.error.title": {
       "extractionState": "manual",
       "localizations": {

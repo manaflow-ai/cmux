@@ -208,6 +208,26 @@ struct DockTrustRequest: Identifiable {
     let configPath: String
 }
 
+private enum DockControlRuntimeError: LocalizedError {
+    case browserUnavailable
+    case browserWorkspaceUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .browserUnavailable:
+            return String(
+                localized: "dock.error.browserUnavailable",
+                defaultValue: "Dock browser entries require the embedded browser to be enabled."
+            )
+        case .browserWorkspaceUnavailable:
+            return String(
+                localized: "dock.error.browserWorkspaceUnavailable",
+                defaultValue: "Dock browser entry could not find its workspace."
+            )
+        }
+    }
+}
+
 @MainActor
 final class DockControlRuntime: ObservableObject, Identifiable {
     let id: String
@@ -218,14 +238,14 @@ final class DockControlRuntime: ObservableObject, Identifiable {
     let paneId: PaneID
     @Published private(set) var panel: any Panel
 
-    init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) {
+    init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) throws {
         self.id = definition.id
         self.definition = definition
         self.detachedTransfer = nil
         self.baseDirectory = baseDirectory
         self.workspaceId = workspaceId
         self.paneId = PaneID(id: UUID())
-        self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
+        self.panel = try Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
     }
 
     init(detached transfer: Workspace.DetachedSurfaceTransfer, baseDirectory: String, workspaceId: UUID) {
@@ -296,10 +316,10 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         }
     }
 
-    func restart() {
+    func restart() throws {
         guard let definition else { return }
         let oldPanel = panel
-        panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
+        panel = try Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
         oldPanel.close()
     }
 
@@ -382,7 +402,7 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         definition: DockControlDefinition,
         baseDirectory: String,
         workspaceId: UUID
-    ) -> any Panel {
+    ) throws -> any Panel {
         switch definition.kind {
         case .terminal(let command, let cwd, let env):
             var environment = env
@@ -402,20 +422,24 @@ final class DockControlRuntime: ObservableObject, Identifiable {
                 focusPlacement: .rightSidebarDock
             )
         case .browser(let url, let profile):
-            if let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            guard let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
                 .tabs
-                .first(where: { $0.id == workspaceId }),
-               let panel = workspace.newDockBrowserPanel(
+                .first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+                cmuxDebugLog("dock.browser.create.blocked id=\(definition.id) reason=missing_workspace")
+#endif
+                throw DockControlRuntimeError.browserWorkspaceUnavailable
+            }
+            guard let panel = workspace.newDockBrowserPanel(
                 url: url,
                 preferredProfileID: browserProfileID(for: profile)
-               ) {
-                return panel
+            ) else {
+#if DEBUG
+                cmuxDebugLog("dock.browser.create.blocked id=\(definition.id) reason=browser_unavailable")
+#endif
+                throw DockControlRuntimeError.browserUnavailable
             }
-            return BrowserPanel(
-                workspaceId: workspaceId,
-                profileID: browserProfileID(for: profile),
-                initialURL: url
-            )
+            return panel
         }
     }
 
@@ -574,23 +598,40 @@ struct DockSurfaceDragEntry {
 final class DockSurfaceDragRegistry {
     static let shared = DockSurfaceDragRegistry()
 
-    private var pending: [UUID: DockSurfaceDragEntry] = [:]
+    private struct PendingDrag {
+        let entry: DockSurfaceDragEntry
+        let expirationTimer: Timer
+    }
+
+    private let entryLifetime: TimeInterval = 60
+    private var pending: [UUID: PendingDrag] = [:]
 
     func register(
         transfer: Workspace.DetachedSurfaceTransfer,
         onAttached: @escaping @MainActor () -> Void
     ) -> UUID {
         let id = UUID()
-        pending[id] = DockSurfaceDragEntry(transfer: transfer, onAttached: onAttached)
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(60))
-            self?.pending.removeValue(forKey: id)
+        let timer = Timer(timeInterval: entryLifetime, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.expire(id: id)
+            }
         }
+        pending[id] = PendingDrag(
+            entry: DockSurfaceDragEntry(transfer: transfer, onAttached: onAttached),
+            expirationTimer: timer
+        )
+        RunLoop.main.add(timer, forMode: .common)
         return id
     }
 
     func consume(id: UUID) -> DockSurfaceDragEntry? {
-        pending.removeValue(forKey: id)
+        guard let drag = pending.removeValue(forKey: id) else { return nil }
+        drag.expirationTimer.invalidate()
+        return drag.entry
+    }
+
+    private func expire(id: UUID) {
+        pending.removeValue(forKey: id)?.expirationTimer.invalidate()
     }
 }
 
@@ -666,8 +707,8 @@ final class DockControlsStore: ObservableObject {
                 trustRequest = request
                 return
             }
-            let resolvedControls = resolution.controls.map {
-                DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
+            let resolvedControls = try resolution.controls.map {
+                try DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
             }
             replaceControls(with: resolvedControls)
             sourceLabel = Self.sourceLabel(for: resolution)
@@ -718,14 +759,18 @@ final class DockControlsStore: ObservableObject {
         guard let index = controls.firstIndex(where: { $0.id == id }) else { return }
         let oldControl = controls[index]
         guard let definition = oldControl.definition else { return }
-        let newControl = DockControlRuntime(
-            definition: definition,
-            baseDirectory: oldControl.baseDirectory,
-            workspaceId: oldControl.workspaceId
-        )
-        controls[index] = newControl
-        newControl.setVisibleInUI(controlsVisibleInUI)
-        oldControl.close()
+        do {
+            let newControl = try DockControlRuntime(
+                definition: definition,
+                baseDirectory: oldControl.baseDirectory,
+                workspaceId: oldControl.workspaceId
+            )
+            controls[index] = newControl
+            newControl.setVisibleInUI(controlsVisibleInUI)
+            oldControl.close()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
@@ -748,11 +793,17 @@ final class DockControlsStore: ObservableObject {
             height: 240,
             env: [:]
         )
-        appendControl(DockControlRuntime(
-            definition: definition,
-            baseDirectory: currentBaseDirectory(),
-            workspaceId: workspaceId
-        ))
+        do {
+            let control = try DockControlRuntime(
+                definition: definition,
+                baseDirectory: currentBaseDirectory(),
+                workspaceId: workspaceId
+            )
+            errorMessage = nil
+            appendControl(control)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func addBrowser() {
@@ -765,11 +816,17 @@ final class DockControlsStore: ObservableObject {
             profile: nil,
             height: 320
         )
-        appendControl(DockControlRuntime(
-            definition: definition,
-            baseDirectory: currentBaseDirectory(),
-            workspaceId: workspaceId
-        ))
+        do {
+            let control = try DockControlRuntime(
+                definition: definition,
+                baseDirectory: currentBaseDirectory(),
+                workspaceId: workspaceId
+            )
+            errorMessage = nil
+            appendControl(control)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     @discardableResult
