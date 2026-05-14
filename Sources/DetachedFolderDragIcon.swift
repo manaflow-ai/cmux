@@ -4,277 +4,15 @@ import SwiftUI
 struct DetachedFolderDragIcon: NSViewRepresentable {
     let directory: String
 
-    func makeNSView(context: Context) -> DetachedFolderDragIconHostView {
-        DetachedFolderDragIconHostView(directory: directory)
+    func makeNSView(context: Context) -> DraggableFolderNSView {
+        DraggableFolderNSView(directory: directory)
     }
 
-    func updateNSView(_ nsView: DetachedFolderDragIconHostView, context: Context) {
-        nsView.directory = directory
-        nsView.syncDetachedIcon()
-    }
-}
-
-@MainActor
-final class DetachedFolderDragIconHostView: NSView {
-    var directory: String
-    private var childWindow: NSPanel?
-    private var iconView: DraggableFolderNSView?
-    private var observers: [NSObjectProtocol] = []
-    private var ancestorViewObservers: [NSObjectProtocol] = []
-    private var ancestorViewNotificationStates: [AncestorViewNotificationState] = []
-    private var observedAncestorViewIds: [ObjectIdentifier] = []
-    private var hasScheduledFrameSync = false
-    private weak var observedParentWindow: NSWindow?
-
-    init(directory: String) {
-        self.directory = directory
-        super.init(frame: NSRect(origin: .zero, size: TitlebarFolderIconMetrics.iconFrameSize))
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        MainActor.assumeIsolated {
-            tearDownDetachedIcon()
+    func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
+        if nsView.directory != directory {
+            nsView.directory = directory
+            nsView.updateIcon()
         }
-    }
-
-    override var intrinsicContentSize: NSSize {
-        TitlebarFolderIconMetrics.iconFrameSize
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override var frame: NSRect {
-        didSet {
-            syncDetachedIconFrame()
-        }
-    }
-
-    override func setFrameOrigin(_ newOrigin: NSPoint) {
-        super.setFrameOrigin(newOrigin)
-        syncDetachedIconFrame()
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        syncDetachedIconFrame()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        installAncestorViewObservers()
-        syncDetachedIcon()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        installAncestorViewObservers()
-        syncDetachedIcon()
-    }
-
-    override func layout() {
-        super.layout()
-        syncDetachedIconFrame()
-    }
-
-    func syncDetachedIcon() {
-        guard let parentWindow = window else {
-            tearDownDetachedIcon()
-            return
-        }
-
-        let child = childWindow ?? makeDetachedIconWindow(parentWindow: parentWindow)
-        if child.parent !== parentWindow {
-            child.parent?.removeChildWindow(child)
-            parentWindow.addChildWindow(child, ordered: .above)
-            installParentWindowObservers(parentWindow)
-        }
-
-        if iconView?.directory != directory {
-            iconView?.directory = directory
-            iconView?.updateIcon()
-        }
-
-        child.orderFront(nil)
-        syncDetachedIconFrame()
-    }
-
-    #if DEBUG
-    var detachedIconFrameForTesting: NSRect? {
-        childWindow?.frame
-    }
-    #endif
-
-    private func makeDetachedIconWindow(parentWindow: NSWindow) -> NSPanel {
-        let iconView = DraggableFolderNSView(directory: directory)
-        iconView.frame = NSRect(origin: .zero, size: TitlebarFolderIconMetrics.iconFrameSize)
-
-        let panel = NSPanel(
-            contentRect: iconView.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.contentView = iconView
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = false
-        panel.isMovable = false
-        panel.isMovableByWindowBackground = false
-        panel.collectionBehavior = [.fullScreenAuxiliary]
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.folderDragIcon")
-        parentWindow.addChildWindow(panel, ordered: .above)
-        self.childWindow = panel
-        self.iconView = iconView
-        installParentWindowObservers(parentWindow)
-        return panel
-    }
-
-    private func installParentWindowObservers(_ parentWindow: NSWindow) {
-        guard observedParentWindow !== parentWindow || observers.isEmpty else { return }
-        removeParentWindowObservers()
-
-        // The child panel frame is derived from this host view in the parent
-        // window. AppKit does not call layout() when only the parent window
-        // moves, resizes, or changes miniaturized state, so observe those
-        // window events and recompute the panel's screen-space frame.
-        let center = NotificationCenter.default
-        let names: [Notification.Name] = [
-            NSWindow.didMoveNotification,
-            NSWindow.didResizeNotification,
-            NSWindow.didMiniaturizeNotification,
-            NSWindow.didDeminiaturizeNotification,
-        ]
-        observers = names.map { name in
-            center.addObserver(forName: name, object: parentWindow, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.syncDetachedIconFrame()
-                }
-            }
-        }
-        observedParentWindow = parentWindow
-    }
-
-    private func syncDetachedIconFrame() {
-        installAncestorViewObservers()
-        guard let parentWindow = window,
-              let childWindow else { return }
-        let localRect = bounds.isEmpty
-            ? NSRect(origin: .zero, size: TitlebarFolderIconMetrics.iconFrameSize)
-            : bounds
-        let rectInWindow = convert(localRect, to: nil)
-        let rectOnScreen = parentWindow.convertToScreen(rectInWindow)
-        if childWindow.frame.origin != rectOnScreen.origin || childWindow.frame.size != rectOnScreen.size {
-            childWindow.setFrame(rectOnScreen, display: true)
-        }
-    }
-
-    private func installAncestorViewObservers() {
-        var ancestors: [NSView] = []
-        var ancestor = superview
-        while let view = ancestor {
-            ancestors.append(view)
-            ancestor = view.superview
-        }
-
-        let ancestorIds = ancestors.map { ObjectIdentifier($0) }
-        guard ancestorIds != observedAncestorViewIds else { return }
-
-        removeAncestorViewObservers()
-        guard !ancestors.isEmpty else { return }
-
-        let center = NotificationCenter.default
-        for ancestor in ancestors {
-            // SwiftUI may keep this host's local frame stable while moving an
-            // enclosing titlebar/content view, such as when the left sidebar
-            // opens. Observe the ancestor chain so the detached panel follows
-            // the host's converted window rect, not just its local frame.
-            ancestorViewNotificationStates.append(AncestorViewNotificationState(
-                view: ancestor,
-                postsFrameChangedNotifications: ancestor.postsFrameChangedNotifications,
-                postsBoundsChangedNotifications: ancestor.postsBoundsChangedNotifications
-            ))
-            ancestor.postsFrameChangedNotifications = true
-            ancestor.postsBoundsChangedNotifications = true
-            ancestorViewObservers.append(center.addObserver(
-                forName: NSView.frameDidChangeNotification,
-                object: ancestor,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.scheduleDetachedIconFrameSync()
-                }
-            })
-            ancestorViewObservers.append(center.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: ancestor,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.scheduleDetachedIconFrameSync()
-                }
-            })
-        }
-        observedAncestorViewIds = ancestorIds
-    }
-
-    private func scheduleDetachedIconFrameSync() {
-        guard !hasScheduledFrameSync else { return }
-        hasScheduledFrameSync = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.hasScheduledFrameSync = false
-                self.syncDetachedIconFrame()
-            }
-        }
-    }
-
-    private func removeAncestorViewObservers() {
-        for observer in ancestorViewObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        for state in ancestorViewNotificationStates {
-            state.view?.postsFrameChangedNotifications = state.postsFrameChangedNotifications
-            state.view?.postsBoundsChangedNotifications = state.postsBoundsChangedNotifications
-        }
-        ancestorViewObservers.removeAll()
-        ancestorViewNotificationStates.removeAll()
-        observedAncestorViewIds.removeAll()
-        hasScheduledFrameSync = false
-    }
-
-    private func removeParentWindowObservers() {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observers.removeAll()
-        observedParentWindow = nil
-    }
-
-    private func tearDownDetachedIcon() {
-        // Observer lifetime is tied to the derived child panel: once this host
-        // leaves its parent window or deinitializes, remove both so no stale
-        // panel keeps tracking an old parent window.
-        removeParentWindowObservers()
-        removeAncestorViewObservers()
-        if let childWindow {
-            childWindow.parent?.removeChildWindow(childWindow)
-            childWindow.orderOut(nil)
-        }
-        childWindow = nil
-        iconView = nil
-    }
-
-    private struct AncestorViewNotificationState {
-        weak var view: NSView?
-        let postsFrameChangedNotifications: Bool
-        let postsBoundsChangedNotifications: Bool
     }
 }
 
@@ -297,6 +35,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     init(directory: String) {
         self.directory = directory
         super.init(frame: .zero)
+        identifier = NSUserInterfaceItemIdentifier("cmux.folderDragIcon")
         setupImageView()
     }
 
@@ -305,7 +44,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     override var intrinsicContentSize: NSSize {
-        TitlebarFolderIconMetrics.iconFrameSize
+        NSSize(width: 16, height: 16)
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -320,8 +59,8 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: TitlebarFolderIconMetrics.iconSize),
-            imageView.heightAnchor.constraint(equalToConstant: TitlebarFolderIconMetrics.iconSize),
+            imageView.widthAnchor.constraint(equalToConstant: 16),
+            imageView.heightAnchor.constraint(equalToConstant: 16),
         ])
         let dragHint = String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app")
         toolTip = dragHint
@@ -335,7 +74,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         #endif
 
         let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = TitlebarFolderIconMetrics.iconFrameSize
+        icon.size = NSSize(width: 16, height: 16)
         imageView.image = icon
     }
 
@@ -454,7 +193,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
             let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = TitlebarFolderIconMetrics.iconFrameSize
+            icon.size = NSSize(width: 16, height: 16)
 
             let displayName: String
             if pathURL.path == "/" {
@@ -478,7 +217,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Add computer name at the bottom (like native proxy icon)
         let computerName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
         let computerIcon = NSImage(named: NSImage.computerName) ?? NSImage()
-        computerIcon.size = TitlebarFolderIconMetrics.iconFrameSize
+        computerIcon.size = NSSize(width: 16, height: 16)
 
         let computerItem = NSMenuItem(title: computerName, action: #selector(openComputer(_:)), keyEquivalent: "")
         computerItem.target = self
@@ -497,5 +236,4 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Open the root filesystem entry represented by the bottom path item.
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
     }
-
 }

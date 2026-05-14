@@ -132,40 +132,6 @@ final class WindowAccessorTests: XCTestCase {
 }
 
 @MainActor
-final class CmuxMainWindowTitlebarProxyIconTests: XCTestCase {
-    func testMainWindowSuppressesNativeRepresentedURLProxyIcon() {
-        _ = NSApplication.shared
-        let window = CmuxMainWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
-
-        let workspaceDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        window.representedURL = workspaceDirectory
-
-        XCTAssertNil(
-            window.representedURL,
-            "cmux main windows render the workspace folder icon inside the custom titlebar, so AppKit must not keep a native proxy icon at an independent titlebar position."
-        )
-        XCTAssertTrue(
-            window.representedFilename.isEmpty,
-            "Clearing the native proxy URL should also leave the legacy represented filename empty."
-        )
-
-        window.representedFilename = workspaceDirectory.path
-
-        XCTAssertTrue(
-            window.representedFilename.isEmpty,
-            "cmux main windows must also reject the legacy represented filename proxy icon path."
-        )
-        XCTAssertNil(window.representedURL)
-    }
-}
-
-@MainActor
 final class MainWindowFocusRedrawTests: XCTestCase {
     func testKeyRegainInvalidatesRootContentView() {
         _ = NSApplication.shared
@@ -1585,147 +1551,6 @@ final class WindowDragHandleHitTests: XCTestCase {
 
 @MainActor
 final class DraggableFolderHitTests: XCTestCase {
-    func testDetachedFolderPanelFollowsHostFrameChanges() {
-        _ = NSApplication.shared
-        let window = NSWindow(
-            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
-        window.contentView = container
-
-        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
-        hostView.frame = NSRect(
-            x: 24,
-            y: 120,
-            width: TitlebarFolderIconMetrics.iconSize,
-            height: TitlebarFolderIconMetrics.iconSize
-        )
-        container.addSubview(hostView)
-        defer { hostView.removeFromSuperview() }
-
-        hostView.syncDetachedIcon()
-        guard let initialFrame = hostView.detachedIconFrameForTesting else {
-            XCTFail("Expected detached folder panel to be created")
-            return
-        }
-
-        hostView.setFrameOrigin(NSPoint(x: 96, y: 120))
-
-        guard let movedFrame = hostView.detachedIconFrameForTesting else {
-            XCTFail("Expected detached folder panel to remain attached")
-            return
-        }
-        XCTAssertEqual(movedFrame.minX, initialFrame.minX + 72, accuracy: 0.5)
-        XCTAssertEqual(movedFrame.minY, initialFrame.minY, accuracy: 0.5)
-    }
-
-    func testDetachedFolderPanelFollowsHostFrameReplacement() {
-        _ = NSApplication.shared
-        let window = NSWindow(
-            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
-        window.contentView = container
-
-        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
-        hostView.frame = NSRect(
-            x: 24,
-            y: 120,
-            width: TitlebarFolderIconMetrics.iconSize,
-            height: TitlebarFolderIconMetrics.iconSize
-        )
-        container.addSubview(hostView)
-        defer { hostView.removeFromSuperview() }
-
-        hostView.syncDetachedIcon()
-        guard let initialFrame = hostView.detachedIconFrameForTesting else {
-            XCTFail("Expected detached folder panel to be created")
-            return
-        }
-
-        hostView.frame = NSRect(
-            x: 96,
-            y: 128,
-            width: TitlebarFolderIconMetrics.iconSize,
-            height: TitlebarFolderIconMetrics.iconSize
-        )
-
-        guard let movedFrame = hostView.detachedIconFrameForTesting else {
-            XCTFail("Expected detached folder panel to remain attached")
-            return
-        }
-        XCTAssertEqual(movedFrame.minX, initialFrame.minX + 72, accuracy: 0.5)
-        XCTAssertEqual(movedFrame.minY, initialFrame.minY + 8, accuracy: 0.5)
-    }
-
-    func testDetachedFolderPanelFollowsAncestorFrameChanges() {
-        _ = NSApplication.shared
-        let window = NSWindow(
-            contentRect: NSRect(x: 40, y: 40, width: 320, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.close() }
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
-        window.contentView = container
-
-        let titlebarHost = NSView(frame: NSRect(x: 24, y: 0, width: 180, height: 180))
-        container.addSubview(titlebarHost)
-        defer { titlebarHost.removeFromSuperview() }
-
-        let hostView = DetachedFolderDragIconHostView(directory: NSTemporaryDirectory())
-        hostView.frame = NSRect(
-            x: 12,
-            y: 120,
-            width: TitlebarFolderIconMetrics.iconSize,
-            height: TitlebarFolderIconMetrics.iconSize
-        )
-        titlebarHost.addSubview(hostView)
-        defer { hostView.removeFromSuperview() }
-
-        hostView.syncDetachedIcon()
-        guard let initialFrame = hostView.detachedIconFrameForTesting else {
-            XCTFail("Expected detached folder panel to be created")
-            return
-        }
-
-        titlebarHost.setFrameOrigin(NSPoint(x: 96, y: 0))
-        let expectedMinX = initialFrame.minX + 72
-        let expectedMinY = initialFrame.minY
-        let deadline = Date().addingTimeInterval(0.5)
-        var movedFrame = hostView.detachedIconFrameForTesting
-        while Date() < deadline {
-            if let frame = movedFrame,
-               abs(frame.minX - expectedMinX) <= 0.5,
-               abs(frame.minY - expectedMinY) <= 0.5 {
-                break
-            }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
-            movedFrame = hostView.detachedIconFrameForTesting
-        }
-
-        guard let movedFrame else {
-            XCTFail("Expected detached folder panel to remain attached")
-            return
-        }
-        XCTAssertEqual(
-            movedFrame.minX,
-            expectedMinX,
-            accuracy: 0.5,
-            "The detached panel must follow converted window coordinates when a sidebar toggle moves an ancestor view without changing the host view's local frame."
-        )
-        XCTAssertEqual(movedFrame.minY, expectedMinY, accuracy: 0.5)
-    }
-
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
         let folderView = DraggableFolderNSView(directory: "/tmp")
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
@@ -2060,12 +1885,18 @@ final class FilePreviewPDFChromeTests: XCTestCase {
             NSPoint(x: zoomChromeHost.frame.midX, y: zoomChromeHost.frame.midY),
             to: container
         )
+        let shareProbe = chromeHost.convert(
+            NSPoint(x: zoomChromeHost.frame.maxX - 20, y: zoomChromeHost.frame.midY),
+            to: container
+        )
         let leftChromeHit = container.hitTest(leftProbe)
         let rightChromeHit = container.hitTest(rightProbe)
-        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit))"
+        let shareChromeHit = container.hitTest(shareProbe)
+        let debugFrames = "container=\(container.frame) content=\(String(describing: contentHost?.frame)) chromeHost=\(chromeHost.frame) left=\(sidebarChromeHost.frame) right=\(zoomChromeHost.frame) leftProbe=\(leftProbe) rightProbe=\(rightProbe) shareProbe=\(shareProbe) leftHit=\(String(describing: leftChromeHit)) rightHit=\(String(describing: rightChromeHit)) shareHit=\(String(describing: shareChromeHit))"
 
         XCTAssertTrue(isView(leftChromeHit, inside: sidebarChromeHost), debugFrames)
         XCTAssertTrue(isView(rightChromeHit, inside: zoomChromeHost), debugFrames)
+        XCTAssertTrue(isView(shareChromeHit, inside: zoomChromeHost), debugFrames)
     }
 
     func testThumbnailSidebarUsesFullWidthSingleColumnLayout() throws {
@@ -2602,6 +2433,54 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
 
         withExtendedLifetime([firstWindow, secondWindow]) {}
+    }
+
+    func testTextEditorClearThemeDoesNotDrawAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: .clear,
+            foregroundColor: .white,
+            drawsBackground: false
+        )
+
+        XCTAssertFalse(scrollView.drawsBackground)
+        XCTAssertFalse(scrollView.contentView.drawsBackground)
+        XCTAssertFalse(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(textView.textColor, .white)
+        XCTAssertEqual(textView.insertionPointColor, .white)
+    }
+
+    func testTextEditorOpaqueThemeDrawsAppKitBackgrounds() {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView()
+        let backgroundColor = NSColor(srgbRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.applyTheme(
+            to: scrollView,
+            backgroundColor: backgroundColor,
+            foregroundColor: .white,
+            drawsBackground: true
+        )
+
+        XCTAssertTrue(scrollView.drawsBackground)
+        XCTAssertTrue(scrollView.contentView.drawsBackground)
+        XCTAssertTrue(textView.drawsBackground)
+        XCTAssertEqual(scrollView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.contentView.backgroundColor, backgroundColor)
+        XCTAssertEqual(textView.backgroundColor, backgroundColor)
+        XCTAssertEqual(scrollView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(scrollView.contentView.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(textView.backgroundColor.alphaComponent, 1)
     }
 
     func testPendingTextFocusAppliesWhenTextViewAttaches() throws {

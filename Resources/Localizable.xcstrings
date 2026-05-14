@@ -18101,6 +18101,91 @@
         }
       }
     },
+    "command.cloudVM.failed.action.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a terminal and run `cmux auth status`, `cmux vm ls`, then `cmux vm new`. If you hit the active VM limit, delete one with `cmux vm rm <id>` and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開いて `cmux auth status`、`cmux vm ls`、`cmux vm new` を実行してください。アクティブな VM 数の上限に達している場合は `cmux vm rm <id>` で削除してから再試行してください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm new` in a terminal and send us the output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バンドルされた CLI を使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで `cmux vm new` を実行して出力を送ってください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.missingCLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm new` in a terminal to see the full error."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから、Start Cloud VM をもう一度試してください。ターミナルで `cmux vm new` を実行すると完全なエラーも確認できます。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細:"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.details.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional technical details are available in logs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加の技術的な詳細はログで確認できます。"
+          }
+        }
+      }
+    },
     "command.cloudVM.failed.launch": {
       "extractionState": "manual",
       "localizations": {
@@ -18148,6 +18233,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud VMを開始できませんでした"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.whatToTry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What to try:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試すこと:"
           }
         }
       }
@@ -20631,6 +20733,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codex レート制限"
+          }
+        }
+      }
+    },
+    "agent.codex.input.body.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex is asking a question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex が質問しています"
+          }
+        }
+      }
+    },
+    "agent.codex.input.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.codex.input.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
           }
         }
       }
@@ -111642,6 +111795,139 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Proc" } },
         "ja": { "stringUnit": { "state": "translated", "value": "プロセス" } }
+      }
+    },
+    "taskManager.section.codingAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Coding Agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コーディングエージェント" } }
+      }
+    },
+    "taskManager.section.programTotals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Program Totals" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プログラム合計" } }
+      }
+    },
+    "taskManager.section.hierarchy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hierarchy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
+      }
+    },
+    "taskManager.aggregate.processCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 process" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 個のプロセス" } }
+      }
+    },
+    "taskManager.aggregate.processCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld processes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 個のプロセス" } }
+      }
+    },
+    "taskManager.agent.claudeCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claude Code" } }
+      }
+    },
+    "taskManager.agent.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode" } }
+      }
+    },
+    "taskManager.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pi" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pi" } }
+      }
+    },
+    "taskManager.agent.amp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Amp" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Amp" } }
+      }
+    },
+    "taskManager.agent.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cursor" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cursor" } }
+      }
+    },
+    "taskManager.agent.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Gemini" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Gemini" } }
+      }
+    },
+    "taskManager.agent.rovodev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Rovo Dev" } }
+      }
+    },
+    "taskManager.agent.hermesAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Hermes Agent" } }
+      }
+    },
+    "taskManager.agent.copilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copilot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Copilot" } }
+      }
+    },
+    "taskManager.agent.codebuddy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeBuddy" } }
+      }
+    },
+    "taskManager.agent.factory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Factory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Factory" } }
+      }
+    },
+    "taskManager.agent.qoder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Qoder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Qoder" } }
+      }
+    },
+    "taskManager.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading resource usage" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース使用状況を読み込み中" } }
       }
     },
     "taskManager.error.title": {

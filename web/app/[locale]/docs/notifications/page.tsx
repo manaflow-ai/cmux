@@ -85,6 +85,7 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
       <p>
         {t.rich("hooksIntro", {
           config: (chunks) => <code>{chunks}</code>,
+          hooksMode: (chunks) => <code>{chunks}</code>,
         })}
       </p>
       <CodeBlock title={t("hooksJsonTitle")} lang="json">{`{
