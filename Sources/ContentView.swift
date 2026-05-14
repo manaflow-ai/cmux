@@ -1140,11 +1140,6 @@ struct ContentView: View {
         case workspaceDescriptionInput(CommandPaletteWorkspaceDescriptionTarget)
     }
 
-    private enum CommandPaletteListScope: String {
-        case commands
-        case switcher
-    }
-
     enum CommandPalettePendingActivation: Equatable {
         case selected(requestID: UInt64, fallbackSelectedIndex: Int, preferredCommandID: String?)
         case command(requestID: UInt64, commandID: String)
@@ -1261,11 +1256,6 @@ struct ContentView: View {
         var searchableTexts: [String] {
             [title, subtitle] + keywords
         }
-    }
-
-    private struct CommandPaletteUsageEntry: Codable, Sendable {
-        var useCount: Int
-        var lastUsedAt: TimeInterval
     }
 
     static func tmuxWorkspacePaneExactRect(
@@ -1534,12 +1524,6 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
-    private struct CommandPaletteResolvedSearchMatch: Sendable {
-        let commandID: String
-        let score: Int
-        let titleMatchIndices: Set<Int>
-    }
-
     private struct CommandPaletteSwitcherWindowContext {
         let windowId: UUID
         let tabManager: TabManager
@@ -1574,7 +1558,6 @@ struct ContentView: View {
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     nonisolated private static let commandPaletteCommandsPrefix = ">"
-    nonisolated private static let commandPaletteResolvedResultLimit = 100
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
@@ -5017,58 +5000,6 @@ struct ContentView: View {
         commandPaletteSearchTask = nil
     }
 
-    nonisolated private static func commandPaletteResolvedSearchMatches(
-        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        usageHistory: [String: CommandPaletteUsageEntry],
-        queryIsEmpty: Bool,
-        historyTimestamp: TimeInterval,
-        resultLimit: Int? = nil,
-        shouldCancel: @escaping () -> Bool = { false }
-    ) -> [CommandPaletteResolvedSearchMatch] {
-        let limit = resultLimit ?? Self.commandPaletteResolvedResultLimit
-        let historyBoost: ((String, Bool) -> Int)? = usageHistory.isEmpty ? nil : { commandId, queryIsEmpty in
-            Self.commandPaletteHistoryBoost(
-                for: commandId,
-                queryIsEmpty: queryIsEmpty,
-                history: usageHistory,
-                now: historyTimestamp
-            )
-        }
-
-        if let results = searchIndex?.search(
-            query: query,
-            resultLimit: limit,
-            historyBoost: historyBoost,
-            shouldCancel: shouldCancel
-        ) {
-            return results.map { result in
-                CommandPaletteResolvedSearchMatch(
-                    commandID: result.payload,
-                    score: result.score,
-                    titleMatchIndices: result.titleMatchIndices
-                )
-            }
-        }
-
-        let results = CommandPaletteSearchEngine.search(
-            entries: searchCorpus,
-            query: query,
-            resultLimit: limit,
-            historyBoost: historyBoost ?? { _, _ in 0 },
-            shouldCancel: shouldCancel
-        )
-
-        return results.map { result in
-            CommandPaletteResolvedSearchMatch(
-                commandID: result.payload,
-                score: result.score,
-                titleMatchIndices: result.titleMatchIndices
-            )
-        }
-    }
-
     private static func commandPaletteMaterializedSearchResults(
         matches: [CommandPaletteResolvedSearchMatch],
         commandsByID: [String: CommandPaletteCommand]
@@ -5133,120 +5064,6 @@ struct ContentView: View {
         commandPaletteOverlayRenderModel.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
     }
 
-    nonisolated private static func commandPalettePreviewSearchMatches(
-        scope: CommandPaletteListScope,
-        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        candidateCommandIDs: [String],
-        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        usageHistory: [String: CommandPaletteUsageEntry],
-        queryIsEmpty: Bool,
-        historyTimestamp: TimeInterval,
-        resultLimit: Int
-    ) -> [CommandPaletteResolvedSearchMatch] {
-        guard resultLimit > 0 else {
-            return []
-        }
-
-        if scope == .commands {
-            let matches = commandPaletteResolvedSearchMatches(
-                searchIndex: searchIndex,
-                searchCorpus: searchCorpus,
-                query: query,
-                usageHistory: usageHistory,
-                queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp,
-                resultLimit: resultLimit
-            )
-            return matches
-        }
-
-        guard !candidateCommandIDs.isEmpty else {
-            return []
-        }
-
-        var seenCommandIDs: Set<String> = []
-        let previewEntries: [CommandPaletteSearchCorpusEntry<String>] = candidateCommandIDs.compactMap { commandID in
-            guard seenCommandIDs.insert(commandID).inserted else { return nil }
-            return searchCorpusByID[commandID]
-        }
-        guard !previewEntries.isEmpty else {
-            return []
-        }
-
-        let matches = commandPaletteResolvedSearchMatches(
-            searchIndex: nil,
-            searchCorpus: previewEntries,
-            query: query,
-            usageHistory: usageHistory,
-            queryIsEmpty: queryIsEmpty,
-            historyTimestamp: historyTimestamp,
-            resultLimit: resultLimit
-        )
-        return matches
-    }
-
-    nonisolated static func commandPaletteCommandPreviewMatchCommandIDsForTests(
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
-        candidateCommandIDs: [String],
-        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        resultLimit: Int
-    ) -> [String] {
-        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
-        return commandPalettePreviewSearchMatches(
-            scope: .commands,
-            searchIndex: searchIndex,
-            searchCorpus: searchCorpus,
-            candidateCommandIDs: candidateCommandIDs,
-            searchCorpusByID: searchCorpusByID,
-            query: query,
-            usageHistory: [:],
-            queryIsEmpty: preparedQuery.isEmpty,
-            historyTimestamp: 0,
-            resultLimit: resultLimit
-        ).map(\.commandID)
-    }
-
-    static func commandPalettePreviewCandidateCommandIDs(
-        resultIDs: [String],
-        limit: Int
-    ) -> [String] {
-        guard limit > 0 else { return [] }
-        guard resultIDs.count > limit else { return resultIDs }
-        return Array(resultIDs.prefix(limit))
-    }
-
-    static func commandPaletteShouldSynchronouslySeedResults(
-        hasVisibleResultsForScope: Bool,
-        hasNucleoSearchIndex: Bool
-    ) -> Bool {
-        hasNucleoSearchIndex || !hasVisibleResultsForScope
-    }
-
-    static func commandPaletteShouldPreserveEmptyStateWhileSearchPending(
-        isSearchPending: Bool,
-        visibleResultsScopeMatches: Bool,
-        resolvedSearchScopeMatches: Bool,
-        resolvedSearchFingerprintMatches: Bool,
-        resolvedResultsAreEmpty: Bool
-    ) -> Bool {
-        guard isSearchPending,
-              visibleResultsScopeMatches,
-              resolvedSearchScopeMatches,
-              resolvedSearchFingerprintMatches,
-              resolvedResultsAreEmpty else {
-            return false
-        }
-
-        // The visible list is already empty at the call site. Keep the no-match
-        // message stable across any same-corpus pending query, including edits
-        // in the middle of the search text that are not prefix refinements.
-        return true
-    }
-
     private func scheduleCommandPaletteResultsRefresh(
         query: String? = nil,
         forceSearchCorpusRefresh: Bool = false
@@ -5279,11 +5096,11 @@ struct ContentView: View {
         let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
-        if Self.commandPaletteShouldSynchronouslySeedResults(
+        if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
             hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
             hasNucleoSearchIndex: searchIndex != nil
         ) {
-            let matches = Self.commandPaletteResolvedSearchMatches(
+            let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 query: matchingQuery,
@@ -5311,7 +5128,7 @@ struct ContentView: View {
         let previewCandidateCommandIDs: [String]
         if commandPaletteVisibleResultsScope == scope,
            commandPaletteVisibleResultsFingerprint == fingerprint {
-            previewCandidateCommandIDs = Self.commandPalettePreviewCandidateCommandIDs(
+            previewCandidateCommandIDs = CommandPaletteSearchOrchestrator.previewCandidateCommandIDs(
                 resultIDs: commandPaletteVisibleResults.map(\.id),
                 limit: Self.commandPaletteVisiblePreviewCandidateLimit
             )
@@ -5321,7 +5138,7 @@ struct ContentView: View {
         isCommandPaletteSearchPending = true
 
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
-            let previewMatches = Self.commandPalettePreviewSearchMatches(
+            let previewMatches = CommandPaletteSearchOrchestrator.previewSearchMatches(
                 scope: scope,
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
@@ -5362,14 +5179,13 @@ struct ContentView: View {
                     fingerprint: fingerprint
                 )
                 updateCommandPaletteScrollTarget(resultCount: previewResults.count, animated: false)
-                commandPaletteResultsRevision &+= 1
                 syncCommandPaletteOverlayCommandListState()
                 syncCommandPaletteDebugStateForObservedWindow()
             }
 
             guard !Task.isCancelled else { return }
 
-            let matches = Self.commandPaletteResolvedSearchMatches(
+            let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
                 query: matchingQuery,
@@ -7930,7 +7746,7 @@ struct ContentView: View {
             return true
         }
 
-        return Self.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+        return CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
             isSearchPending: isCommandPaletteSearchPending,
             visibleResultsScopeMatches: commandPaletteVisibleResultsScope == commandPaletteListScope,
             resolvedSearchScopeMatches: commandPaletteResolvedSearchScope == commandPaletteListScope,
@@ -8623,24 +8439,8 @@ struct ContentView: View {
         persistCommandPaletteUsageHistory(history)
     }
 
-    nonisolated private static func commandPaletteHistoryBoost(
-        for commandId: String,
-        queryIsEmpty: Bool,
-        history: [String: CommandPaletteUsageEntry],
-        now: TimeInterval
-    ) -> Int {
-        guard let entry = history[commandId] else { return 0 }
-
-        let ageDays = max(0, now - entry.lastUsedAt) / 86_400
-        let recencyBoost = max(0, 320 - Int(ageDays * 20))
-        let countBoost = min(180, entry.useCount * 12)
-        let totalBoost = recencyBoost + countBoost
-
-        return queryIsEmpty ? totalBoost : max(0, totalBoost / 3)
-    }
-
     private func commandPaletteHistoryBoost(for commandId: String, queryIsEmpty: Bool) -> Int {
-        Self.commandPaletteHistoryBoost(
+        CommandPaletteSearchOrchestrator.historyBoost(
             for: commandId,
             queryIsEmpty: queryIsEmpty,
             history: commandPaletteUsageHistoryByCommandId,

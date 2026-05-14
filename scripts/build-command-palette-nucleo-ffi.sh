@@ -7,8 +7,14 @@ LIB_NAME="libcmux_command_palette_nucleo_ffi.dylib"
 BUILD_OUTPUT_DIR="${TARGET_BUILD_DIR:-${CRATE_DIR}/target}/cmux-nucleo-ffi"
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "error: cargo is required to build ${LIB_NAME}" >&2
-  exit 1
+  case "${CMUX_NUCLEO_FFI_REQUIRE_CARGO:-${CI:-0}}" in
+    1|true|TRUE|yes|YES)
+      echo "error: cargo is required to build ${LIB_NAME}" >&2
+      exit 1
+      ;;
+  esac
+  echo "warning: cargo not found; skipping optional ${LIB_NAME} build" >&2
+  exit 0
 fi
 
 requested_archs="${CMUX_NUCLEO_FFI_ARCHS:-${ARCHS:-}}"

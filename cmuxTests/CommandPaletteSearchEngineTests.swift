@@ -419,7 +419,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
         let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus)
 
-        let previewCommandIDs = ContentView.commandPaletteCommandPreviewMatchCommandIDsForTests(
+        let previewCommandIDs = CommandPaletteSearchOrchestrator.commandPreviewMatchCommandIDsForTests(
             searchCorpus: corpus,
             searchIndex: searchIndex,
             candidateCommandIDs: ["command.find"],
@@ -619,7 +619,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     func testPreviewCandidateCommandIDsAreBounded() {
         let resultIDs = (0..<500).map { "command.\($0)" }
 
-        let previewCandidateIDs = ContentView.commandPalettePreviewCandidateCommandIDs(
+        let previewCandidateIDs = CommandPaletteSearchOrchestrator.previewCandidateCommandIDs(
             resultIDs: resultIDs,
             limit: 192
         )
@@ -631,19 +631,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testSynchronousSeedRunsWhenFastIndexIsReadyOrScopeChanges() {
         XCTAssertTrue(
-            ContentView.commandPaletteShouldSynchronouslySeedResults(
+            CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: false,
                 hasNucleoSearchIndex: false
             )
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldSynchronouslySeedResults(
+            CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: true,
                 hasNucleoSearchIndex: false
             )
         )
         XCTAssertTrue(
-            ContentView.commandPaletteShouldSynchronouslySeedResults(
+            CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: true,
                 hasNucleoSearchIndex: true
             )
@@ -652,7 +652,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testPendingEmptyStateIsNotPreservedWhenSearchIsNotPending() {
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: false,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
@@ -664,7 +664,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testPendingEmptyStateIsPreservedForSameResolvedNoMatchQuery() {
         XCTAssertTrue(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
@@ -676,7 +676,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testPendingEmptyStateIsPreservedForSameScopeNoMatchInPlaceEdit() {
         XCTAssertTrue(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
@@ -688,7 +688,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testPendingEmptyStateIsNotPreservedWhenResolvedResultsMayBeStale() {
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: false,
                 resolvedSearchScopeMatches: true,
@@ -697,7 +697,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: false,
@@ -706,7 +706,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,
@@ -715,7 +715,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
                 resolvedSearchScopeMatches: true,

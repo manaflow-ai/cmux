@@ -22,6 +22,8 @@ struct FFIMatch {
 }
 
 final class NucleoLibrary {
+    private static let supportedVersion: UInt32 = 2
+
     typealias CreateIndex = @convention(c) (
         UnsafePointer<UInt8>?,
         Int,
@@ -85,6 +87,17 @@ final class NucleoLibrary {
             from: handle,
             as: Version.self
         )
+        let resolvedVersion = self.version()
+        guard resolvedVersion == Self.supportedVersion else {
+            dlclose(handle)
+            throw NSError(
+                domain: "CommandPaletteNucleoFFITests",
+                code: 6,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "unsupported cmux_nucleo_ffi_version \(resolvedVersion)"
+                ]
+            )
+        }
     }
 
     deinit {
@@ -195,8 +208,26 @@ final class NucleoIndex {
             )
         }
 
-        return matches.prefix(count).compactMap { match in
-            guard entries.indices.contains(match.index) else { return nil }
+        guard count >= 0, count <= matches.count, count <= limit else {
+            throw NSError(
+                domain: "CommandPaletteNucleoFFITests",
+                code: 4,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "cmux_nucleo_index_search returned invalid count \(count) for limit \(limit)"
+                ]
+            )
+        }
+
+        return try matches.prefix(count).map { match in
+            guard entries.indices.contains(match.index) else {
+                throw NSError(
+                    domain: "CommandPaletteNucleoFFITests",
+                    code: 5,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "cmux_nucleo_index_search returned invalid index \(match.index)"
+                    ]
+                )
+            }
             let entry = entries[match.index]
             return NucleoResult(
                 id: entry.id,

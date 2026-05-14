@@ -33,6 +33,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     ) -> Int32
     private typealias Version = @convention(c) () -> UInt32
 
+    private static let supportedVersion: UInt32 = 2
     static let shared = CommandPaletteNucleoSearchLibrary.loadDefault()
 
     private let handle: UnsafeMutableRawPointer
@@ -84,6 +85,11 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
             dlclose(handle)
             return nil
         }
+        let resolvedVersion = version()
+        guard resolvedVersion == supportedVersion else {
+            dlclose(handle)
+            return nil
+        }
 
         CommandPaletteNucleoABI.assertCompatibleLayout()
 
@@ -92,7 +98,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
             createIndex: createIndex,
             destroyIndex: destroyIndex,
             searchIndexWithBoosts: searchIndexWithBoosts,
-            version: version()
+            version: resolvedVersion
         )
     }
 
