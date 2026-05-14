@@ -600,6 +600,7 @@ final class AuthManager: ObservableObject {
 
     func signInWithCredential(email: String, password: String) async throws {
         authLog("signInWithCredential: email=\(email)")
+        lastSignInError = nil
         isLoading = true
         defer { isLoading = false }
 
