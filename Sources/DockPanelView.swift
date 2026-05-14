@@ -710,8 +710,24 @@ final class DockControlsStore: ObservableObject {
                 trustRequest = request
                 return
             }
-            let resolvedControls = try resolution.controls.map {
-                try DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
+            var resolvedControls: [DockControlRuntime] = []
+            var firstRuntimeError: Error?
+            for definition in resolution.controls {
+                do {
+                    resolvedControls.append(try DockControlRuntime(
+                        definition: definition,
+                        baseDirectory: resolution.baseDirectory,
+                        workspaceId: workspaceId
+                    ))
+                } catch {
+                    firstRuntimeError = firstRuntimeError ?? error
+#if DEBUG
+                    cmuxDebugLog("dock.config.entry.skip id=\(definition.id) error=\(error.localizedDescription)")
+#endif
+                }
+            }
+            if resolvedControls.isEmpty, let firstRuntimeError {
+                throw firstRuntimeError
             }
             replaceControls(with: resolvedControls)
             sourceLabel = Self.sourceLabel(for: resolution)
