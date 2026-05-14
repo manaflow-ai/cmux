@@ -7447,13 +7447,7 @@ struct SettingsView: View {
         if previousAutoResumeAgentSessions != autoResumeAgentSessions {
             AgentSessionAutoResumeSettings.notifyDidChange()
         }
-        let previousAgentHibernationValues = AgentHibernationSettings.values()
-        agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
-        agentHibernationIdleSeconds = AgentHibernationSettings.defaultIdleSeconds
-        agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
-        if previousAgentHibernationValues != AgentHibernationSettings.values() {
-            AgentHibernationSettings.notifyDidChange()
-        }
+        AgentHibernationSettings.reset()
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
