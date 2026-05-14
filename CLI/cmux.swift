@@ -6305,14 +6305,19 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
+        // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
+        // job control is off (the default for `/bin/sh -c …`), so ssh would
+        // never receive keystrokes from the surface PTY. Inheriting fd 0
+        // explicitly with `<&0` overrides that default and keeps the wrapper's
+        // own stdin (the terminal) wired into the backgrounded ssh process.
         if isShellSnippet {
             scriptLines += [
                 "  (",
                 "    \(sshCommand)",
-                "  ) &",
+                "  ) <&0 &",
             ]
         } else {
-            scriptLines.append("  command \(sshCommand) &")
+            scriptLines.append("  command \(sshCommand) <&0 &")
         }
         scriptLines += [
             "  CMUX_SSH_CHILD_PID=$!",
