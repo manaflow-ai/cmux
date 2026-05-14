@@ -3625,6 +3625,49 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
     }
 
+    func testZshPromptResetsTerminalKeyboardProtocols() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _cmux_precmd
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_BUNDLED_CLI_PATH": "/usr/bin/true",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TEST_FORCE_KITTY_RESET": "1",
+            ]
+        )
+
+        XCTAssertEqual(output, "\u{1B}[>m\u{1B}[<8u")
+    }
+
+    func testBashPromptResetsTerminalKeyboardProtocols() throws {
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _cmux_prompt_command
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_BUNDLED_CLI_PATH": "/usr/bin/true",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_TEST_FORCE_KITTY_RESET": "1",
+            ]
+        )
+
+        XCTAssertEqual(result.stdout, "\u{1B}[>m\u{1B}[<8u")
+    }
+
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
         try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: cmuxLoadGhosttyIntegration,

@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "Hvis du bruger tmux inde i cmux, aktivér passthrough:",
-      "metaTitle": "Notifikationer"
+      "metaTitle": "Notifikationer",
+      "hooksTitle": "Notifikations-hooks",
+      "hooksIntro": "<config>cmux.json</config> kan definere notifikations-hooks, som modtager hver notifikationspolitik som JSON på stdin. Hvert hook returnerer JSON på stdout. Hooks er slået fra som standard; cmux kører dem kun, når <hooksMode>notifications.hooks</hooksMode> indeholder mindst ét aktiveret hook. cmux anvender den returnerede notifikationstekst og effekter, så hooks kan filtrere bannere, beholde eller springe sidebjælkens historik over, afspille lyde eller stoppe senere hooks.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Hook-input og -output",
+      "hooksDetails": "Hooks nedarves fra den globale <globalConfig>~/.config/cmux/cmux.json</globalConfig> og projektets <projectConfig>.cmux/cmux.json</projectConfig>-filer fra overordnede mapper til det aktuelle workspace. Projekt-hooks bruger samme tillidsprompt som andre projektkommandoer i <config>cmux.json</config>, før de kører. Feed-godkendelsesbannere går også gennem disse hooks; deaktivering af <desktop>desktop</desktop> skjuler det native banner, mens Feed-elementet stadig er tilgængeligt i cmux. Sæt <hooksMode>notifications.hooksMode</hooksMode> til <replace>replace</replace> i en projektkonfiguration for at ignorere nedarvede hooks. Hvis et hook fejler, får timeout eller returnerer ugyldig JSON, bruger cmux standardnotifikationsadfærden og viser en hook-fejladvarsel."
     },
     "browserAutomation": {
       "title": "Browserautomatisering",

@@ -3,6 +3,39 @@ import Testing
 
 @Suite("AgentLaunchSanitizer")
 struct AgentLaunchSanitizerTests {
+    @Test("Preserves Codex Teams launcher while dropping prompt")
+    func preservesCodexTeamsLauncher() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "--ask-for-approval",
+                    "never",
+                    "initial prompt should not replay",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+                "--ask-for-approval",
+                "never",
+            ]
+        )
+    }
+
     @Test("Consumes terminal optional values")
     func consumesTerminalOptionalValues() {
         #expect(
