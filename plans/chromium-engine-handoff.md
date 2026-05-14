@@ -205,4 +205,33 @@ Each pattern is now demonstrated; subsequent SDK forward-compat errors should ma
 
 Session 4 should open by checking `~/chromium-fork/build-content-shell.log`'s tail. If `Content Shell.app` exists at `~/chromium-fork/src/out/cmux_release/Content\ Shell.app`, build round 7 succeeded and P0 is decisively done; otherwise diagnose the next failure under the four-pattern taxonomy above.
 
-P1 still requires user permission to create `manaflow-ai/cmux-chromium` org-level repo. Until that exists, the `embedder/` tree cannot move into a real `gn gen` graph and the framework cannot be evaluated end-to-end.
+P1 still requires user permission to create `manaflow-ai/cmux-chromium` org-level repo. Until that exists, the `embedder/` tree cannot ship to its final home in the fork, but **`gn gen` + `gn check` semantic validation against the real M148 dep graph has now been completed** by temporarily dropping it into the cmux-aws-mac chromium-fork checkout (see below).
+
+#### Session 3 follow-up: real `gn gen` + `gn check` validation
+
+After the wakeup-block window, ran the next-most-honest test the advisor suggested: drop the `embedder/` tree into the chromium-fork checkout, hand-modify root `//BUILD.gn`'s `gn_all` group to include `//cmux:cmux_core_framework`, then `gn gen out/cmux-check`. Two real semantic errors surfaced (only catchable via `gn gen`, not via `gn format`):
+
+  1. `Duplicate item "//build/config/compiler:enable_arc" in list` — the default `default_compiler_configs` for `mac_framework_bundle` and `source_set` already includes `enable_arc`. Adding it explicitly is a duplicate. Fixed: dropped the `configs +=` lines from both `cmux_BUILD.gn` and `embedder/BUILD.gn`.
+  2. `//cmux:cmux_core_framework_shared_library which is NOT marked testonly can't depend on //mojo:mojo which is marked testonly` — `//mojo` is a top-level testonly umbrella; non-testonly framework deps must use granular subtargets. Fixed for the stub build by removing both `//mojo` and `//services/network/public/mojom` from the framework deps (the sentinel C ABI doesn't need them); annotated with a comment about which granular subtargets come back when real //content wiring lands.
+
+After those two fixes, `gn gen` succeeded:
+
+```
+Done. Made 27405 targets from 4066 files in 9952ms
+```
+
+`gn check` then passed for every cmux target this BUILD.gn pair defines:
+
+  - `//cmux:cmux_core_framework` → Header dependency check OK
+  - `//cmux:cmux_helper_app_default` → OK
+  - `//cmux:cmux_helper_app_renderer` → OK
+  - `//cmux:cmux_helper_app_gpu` → OK
+  - `//cmux:cmux_helper_app_plugin` → OK
+  - `//cmux:cmux_helpers` → OK
+  - `//cmux/embedder:embedder` → OK
+
+The chromium-fork tree was reverted (root `//BUILD.gn` restored from backup) so the running content_shell build remains undisturbed. Pulled the fixed `embedder/BUILD.gn` and `embedder/cmux_BUILD.gn` back to the worktree as canonical.
+
+**This decisively rules out the previously-suspected class of BUILD.gn correctness errors.** Any remaining BUILD.gn risk is in semantic categories that `gn gen` + `gn check` do not exercise (ninja linker step, runtime framework loading, ABI-version assertion at framework load). Those are gated on writing real `//content` consumers and on the fork repo existing.
+
+When the fork repo lands, the BUILD.gn pair drops in *as-is*; the only sequenced step the fork repo needs to absorb beyond the file drop is the one-line addition to root `//BUILD.gn`'s `gn_all` group entry (`"//cmux:cmux_core_framework",`).

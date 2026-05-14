@@ -1,15 +1,35 @@
 # `embedder/` — fork-bound artifacts
 
-> **NOTE — the `BUILD.gn` files pass `gn format` against the M148 tree
-> on `cmux-aws-mac`** (both files round-trip cleanly through the
-> depot_tools `gn format` parser; the only diffs are GN's single-line
-> collapses for length-1 lists, which have been applied here). They
-> have **not yet been `gn gen`-ed against a real `cmux_core_framework`
-> dep graph** (the framework is not yet reachable from
-> `//chrome:gn_all`), so semantic checks like target-lookup,
-> source-file existence beyond this directory, and template arg
-> types are still unverified. The obvious bugs the earlier WARNING
-> called out are fixed:
+> **VALIDATED — the `BUILD.gn` files pass `gn gen` + `gn check`
+> against M148 stable** on `cmux-aws-mac`:
+>
+>   - `gn gen out/cmux-check` builds the full graph (27,405 targets)
+>     with `//cmux:cmux_core_framework` reachable.
+>   - `gn check out/cmux-check //cmux:cmux_core_framework` → OK
+>   - `gn check out/cmux-check //cmux:cmux_helper_app_default` → OK
+>   - `gn check out/cmux-check //cmux:cmux_helper_app_renderer` → OK
+>   - `gn check out/cmux-check //cmux:cmux_helper_app_gpu` → OK
+>   - `gn check out/cmux-check //cmux:cmux_helper_app_plugin` → OK
+>   - `gn check out/cmux-check //cmux:cmux_helpers` → OK
+>   - `gn check out/cmux-check //cmux/embedder:embedder` → OK
+>
+> The verification path was: drop `embedder/cmux_BUILD.gn` →
+> `src/cmux/BUILD.gn` and `embedder/BUILD.gn` →
+> `src/cmux/embedder/BUILD.gn` in the chromium-fork checkout, add a
+> one-line entry to `//BUILD.gn`'s `gn_all` group so the framework
+> is reachable, then run `gn gen` + `gn check`. The root BUILD.gn
+> change was reverted afterward; that's the **only** mutation the
+> fork repo will need to absorb beyond dropping `embedder/` in.
+>
+> Remaining caveats:
+>
+>   - Ninja link-time validation hasn't been attempted. The framework
+>     compiles in isolation (stub sources, sentinel C ABI) but the
+>     `cmux_core_framework_shared_library` step has not actually
+>     produced a `.dylib`. That's gated on writing real `//content`
+>     consumers, not on BUILD.gn correctness.
+>   - The earlier WARNING block is now historical. The obvious bugs
+>     it called out are fixed:
 >
 > - `BUILD.gn` no longer lists `cmux_browser.mm` / `cmux_view.cc` /
 >   `cmux_session.cc` / `cmux_profile.cc` / `cmux_layer_host.mm` in

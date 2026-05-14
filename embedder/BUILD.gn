@@ -8,6 +8,10 @@
 #
 # When the cmux Chromium fork lands at manaflow-ai/cmux-chromium, this
 # file drops into src/cmux/embedder/ as-is.
+#
+# Validation status (M148, 2026-05-14): passes
+#   gn check out/cmux-check //cmux/embedder:embedder   (OK)
+# against the M148 stable chromium-fork checkout on cmux-aws-mac.
 
 import("//build/buildflag_header.gni")
 import("//build/config/mac/mac_sdk.gni")
@@ -53,7 +57,6 @@ source_set("embedder") {
     "QuartzCore.framework",
   ]
 
-  configs += [ "//build/config/compiler:enable_arc" ]
 }
 
 # Header-only target. Lets external GN consumers depend on the header

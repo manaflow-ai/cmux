@@ -8,9 +8,24 @@
 # src/cmux/BUILD.gn as-is.
 #
 # Shape mirrors upstream's chrome_framework + chrome_helper_app pattern
-# in chrome/BUILD.gn, but with cmux branding. Until an empty
-# `cmux_core_framework` builds in a real tree, treat the targets here
-# as the *intended* shape, not a tested one.
+# in chrome/BUILD.gn, but with cmux branding.
+#
+# Validation status (M148, 2026-05-14): this file, dropped into
+# src/cmux/BUILD.gn on a chromium-fork tree with a one-line addition
+# to root //BUILD.gn's gn_all group, passes:
+#
+#   gn gen out/cmux-check --args='target_os="mac" ...'      (27,405 targets)
+#   gn check out/cmux-check //cmux:cmux_core_framework      (OK)
+#   gn check out/cmux-check //cmux:cmux_helper_app_default  (OK)
+#   gn check out/cmux-check //cmux:cmux_helper_app_renderer (OK)
+#   gn check out/cmux-check //cmux:cmux_helper_app_gpu      (OK)
+#   gn check out/cmux-check //cmux:cmux_helper_app_plugin   (OK)
+#   gn check out/cmux-check //cmux:cmux_helpers             (OK)
+#
+# Header dependency check passes for every target this file defines,
+# against the real M148 stable graph. The remaining unverified piece
+# is ninja-linking the framework end-to-end (deferred until //content
+# wiring lands).
 
 import("//build/buildflag_header.gni")
 import("//build/config/apple/symbols.gni")
@@ -111,16 +126,17 @@ mac_framework_bundle("cmux_core_framework") {
   # placeholder file gives the linker something concrete to consume.
   sources = [ "//cmux/embedder/cmux_framework_main.cc" ]
 
+  # NOTE: stub framework deps. Real //mojo + //services/network/...
+  # wiring lands once the C ABI implementations move beyond sentinels;
+  # //mojo as a top-level alias is testonly, so granular subtargets
+  # (//mojo/public/cpp/bindings, //services/network/public/mojom:mojom)
+  # come back at that point.
   deps = [
     "//cmux/embedder:embedder",
     "//content/public/app",
-    "//mojo",
-    "//services/network/public/mojom",
   ]
 
   data_deps = [ ":cmux_helpers" ]
-
-  configs += [ "//build/config/compiler:enable_arc" ]
 
   ldflags = [ "-Wl,-install_name,@executable_path/../Frameworks/CmuxCore.framework/Versions/A/CmuxCore" ]
 }
