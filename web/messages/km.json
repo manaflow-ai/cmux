@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "ប្រសិនបើប្រើ tmux ក្នុង cmux, បើក passthrough:",
-      "metaTitle": "ការជូនដំណឹង"
+      "metaTitle": "ការជូនដំណឹង",
+      "hooksTitle": "Notification hooks",
+      "hooksIntro": "<config>cmux.json</config> can define notification hooks that receive every notification policy as JSON on stdin. Each hook returns JSON on stdout. Hooks are off by default; cmux only runs them when <hooksMode>notifications.hooks</hooksMode> contains at least one enabled hook. cmux applies the returned notification text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or stop later hooks.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Hook input and output",
+      "hooksDetails": "Hooks are inherited from global <globalConfig>~/.config/cmux/cmux.json</globalConfig> and project <projectConfig>.cmux/cmux.json</projectConfig> files from parent directories to the current workspace. Project hooks use the same trust prompt as other project <config>cmux.json</config> commands before they run. Feed approval banners also pass through these hooks; disabling <desktop>desktop</desktop> suppresses the native banner while keeping the Feed item available in cmux. Set <hooksMode>notifications.hooksMode</hooksMode> to <replace>replace</replace> in a project config to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert."
     },
     "browserAutomation": {
       "title": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",

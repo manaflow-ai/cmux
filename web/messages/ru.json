@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "Если используешь tmux внутри cmux, включи passthrough:",
-      "metaTitle": "Уведомления"
+      "metaTitle": "Уведомления",
+      "hooksTitle": "Хуки уведомлений",
+      "hooksIntro": "<config>cmux.json</config> может задавать хуки уведомлений, которые получают каждую политику уведомления как JSON через stdin. Каждый хук возвращает JSON через stdout. По умолчанию хуки отключены; cmux запускает их только когда <hooksMode>notifications.hooks</hooksMode> содержит хотя бы один включённый хук. cmux применяет возвращённый текст и эффекты, поэтому хуки могут фильтровать баннеры, сохранять или пропускать историю боковой панели, запускать звуки или останавливать последующие хуки.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Ввод и вывод хука",
+      "hooksDetails": "Хуки наследуются из глобального файла <globalConfig>~/.config/cmux/cmux.json</globalConfig> и проектных файлов <projectConfig>.cmux/cmux.json</projectConfig> от родительских каталогов до текущего workspace. Проектные хуки перед запуском используют тот же запрос доверия, что и другие проектные команды <config>cmux.json</config>. Баннеры подтверждения Feed тоже проходят через эти хуки; отключение <desktop>desktop</desktop> скрывает нативный баннер, но оставляет элемент Feed доступным в cmux. Установите <hooksMode>notifications.hooksMode</hooksMode> в <replace>replace</replace> в конфигурации проекта, чтобы игнорировать унаследованные хуки. Если хук завершается с ошибкой, истекает по тайм-ауту или возвращает неверный JSON, cmux использует поведение уведомлений по умолчанию и показывает предупреждение об ошибке хука."
     },
     "browserAutomation": {
       "title": "Автоматизация браузера",

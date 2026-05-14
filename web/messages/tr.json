@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "cmux içinde tmux kullanıyorsanız, passthrough'u etkinleştirin:",
-      "metaTitle": "Bildirimler"
+      "metaTitle": "Bildirimler",
+      "hooksTitle": "Bildirim hookları",
+      "hooksIntro": "<config>cmux.json</config>, her bildirim politikasını stdin üzerinden JSON olarak alan bildirim hookları tanımlayabilir. Her hook stdout üzerinden JSON döndürür. Hooklar varsayılan olarak kapalıdır; cmux bunları yalnızca <hooksMode>notifications.hooks</hooksMode> içinde en az bir etkin hook olduğunda çalıştırır. cmux dönen bildirim metnini ve etkileri uygular; böylece hooklar bannerları filtreleyebilir, kenar çubuğu geçmişini tutabilir veya atlayabilir, ses çalıştırabilir ya da sonraki hookları durdurabilir.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Hook girişi ve çıkışı",
+      "hooksDetails": "Hooklar global <globalConfig>~/.config/cmux/cmux.json</globalConfig> dosyasından ve üst dizinlerden geçerli workspace’e kadar olan proje <projectConfig>.cmux/cmux.json</projectConfig> dosyalarından miras alınır. Proje hookları, çalışmadan önce diğer proje <config>cmux.json</config> komutlarıyla aynı güven istemini kullanır. Feed onay bannerları da bu hooklardan geçer; <desktop>desktop</desktop> devre dışı bırakılırsa yerel banner bastırılır ve Feed öğesi cmux içinde kullanılabilir kalır. Miras alınan hookları yok saymak için proje yapılandırmasında <hooksMode>notifications.hooksMode</hooksMode> değerini <replace>replace</replace> yapın. Bir hook başarısız olursa, zaman aşımına uğrarsa veya geçersiz JSON döndürürse cmux varsayılan bildirim davranışını kullanır ve hook hatası uyarısı gösterir."
     },
     "browserAutomation": {
       "title": "Tarayıcı Otomasyonu",

@@ -54,6 +54,61 @@ cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval neede
 cmux notify --title "Done" --tab 0 --panel 1
 ```
 
+## Navigation
+
+Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to mark the current item as oldest unread and jump to the next latest unread. Both shortcuts are configurable in Settings > Keyboard Shortcuts and in `~/.config/cmux/cmux.json`.
+
+## Notification Hooks
+
+`cmux.json` can define composable hooks that receive every notification policy as JSON on stdin and return updated JSON on stdout. Hooks are off by default; cmux only runs them when `notifications.hooks` contains at least one enabled hook. Hooks can filter native banners, sidebar history, sounds, custom commands, workspace reordering, and pane flashes.
+
+```json
+{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "agent-filter",
+        "command": "sed 's/\"desktop\":true/\"desktop\":false/'",
+        "timeoutSeconds": 20
+      }
+    ]
+  }
+}
+```
+
+Hook input and output use this shape:
+
+```json
+{
+  "version": 1,
+  "notification": {
+    "workspaceId": "3B3F0D83-...",
+    "surfaceId": "7E9C1A02-...",
+    "title": "Codex",
+    "subtitle": "Waiting",
+    "body": "Agent needs input"
+  },
+  "context": {
+    "cwd": "/path/to/project",
+    "configPath": "/path/to/project/.cmux/cmux.json",
+    "hookId": "agent-filter",
+    "appFocused": false,
+    "focusedPanel": false
+  },
+  "effects": {
+    "record": true,
+    "markUnread": true,
+    "reorderWorkspace": true,
+    "desktop": true,
+    "sound": true,
+    "command": true,
+    "paneFlash": true
+  }
+}
+```
+
+Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
+
 ## Integration Examples
 
 ### Claude Code
@@ -171,6 +226,10 @@ cmux sets these in child shells:
 ```
 cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
 cmux list-notifications
+cmux dismiss-notification (--id <notification-id> | --all-read)
+cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
+cmux open-notification --id <notification-id>
+cmux jump-to-unread
 cmux clear-notifications
 cmux set-status <key> <value>
 cmux clear-status <key>

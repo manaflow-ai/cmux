@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 패스스루",
       "tmuxDesc": "cmux 내에서 tmux를 사용하는 경우 패스스루를 활성화하세요:",
-      "metaTitle": "알림"
+      "metaTitle": "알림",
+      "hooksTitle": "알림 훅",
+      "hooksIntro": "<config>cmux.json</config>은 모든 알림 정책을 stdin의 JSON으로 받는 알림 훅을 정의할 수 있습니다. 각 훅은 stdout으로 JSON을 반환합니다. 훅은 기본적으로 꺼져 있으며, cmux는 <hooksMode>notifications.hooks</hooksMode>에 활성화된 훅이 하나 이상 있을 때만 실행합니다. cmux는 반환된 알림 텍스트와 효과를 적용하므로 훅은 배너를 필터링하고, 사이드바 기록을 유지하거나 건너뛰고, 소리를 실행하거나, 이후 훅을 중지할 수 있습니다.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "훅 입력 및 출력",
+      "hooksDetails": "훅은 전역 <globalConfig>~/.config/cmux/cmux.json</globalConfig>과 현재 workspace까지의 부모 디렉터리에 있는 프로젝트 <projectConfig>.cmux/cmux.json</projectConfig> 파일에서 상속됩니다. 프로젝트 훅은 실행 전에 다른 프로젝트 <config>cmux.json</config> 명령과 동일한 신뢰 프롬프트를 사용합니다. Feed 승인 배너도 이 훅을 통과합니다. <desktop>desktop</desktop>을 비활성화하면 네이티브 배너는 숨기고 Feed 항목은 cmux에 유지합니다. 상속된 훅을 무시하려면 프로젝트 설정에서 <hooksMode>notifications.hooksMode</hooksMode>를 <replace>replace</replace>로 설정하세요. 훅이 실패하거나 시간 초과되거나 잘못된 JSON을 반환하면 cmux는 기본 알림 동작을 사용하고 훅 실패 알림을 표시합니다."
     },
     "browserAutomation": {
       "title": "브라우저 자동화",

@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 透傳",
       "tmuxDesc": "如果在 cmux 內使用 tmux，請啟用透傳：",
-      "metaTitle": "通知"
+      "metaTitle": "通知",
+      "hooksTitle": "通知 Hook",
+      "hooksIntro": "<config>cmux.json</config> 可以定義通知 Hook，讓每個通知政策以 JSON 形式從 stdin 傳入。每個 Hook 會透過 stdout 回傳 JSON。Hook 預設為關閉；只有在 <hooksMode>notifications.hooks</hooksMode> 至少包含一個已啟用的 Hook 時，cmux 才會執行它們。cmux 會套用回傳的通知文字與效果，因此 Hook 可以篩選橫幅、保留或略過側邊欄歷史、播放聲音，或停止後續 Hook。",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Hook 輸入與輸出",
+      "hooksDetails": "Hook 會從全域 <globalConfig>~/.config/cmux/cmux.json</globalConfig> 以及從父目錄到目前 workspace 的專案 <projectConfig>.cmux/cmux.json</projectConfig> 檔案繼承。專案 Hook 執行前會使用與其他專案 <config>cmux.json</config> 命令相同的信任提示。Feed 核准橫幅也會通過這些 Hook；停用 <desktop>desktop</desktop> 會抑制原生橫幅，同時讓 Feed 項目保留在 cmux 中。若要忽略繼承的 Hook，請在專案設定中將 <hooksMode>notifications.hooksMode</hooksMode> 設為 <replace>replace</replace>。如果 Hook 失敗、逾時或回傳無效 JSON，cmux 會使用預設通知行為並顯示 Hook 失敗提醒。"
     },
     "browserAutomation": {
       "title": "瀏覽器自動化",

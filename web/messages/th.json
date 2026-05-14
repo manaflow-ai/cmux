@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "ถ้าใช้ tmux ภายใน cmux ให้เปิด passthrough:",
-      "metaTitle": "การแจ้งเตือน"
+      "metaTitle": "การแจ้งเตือน",
+      "hooksTitle": "ฮุกการแจ้งเตือน",
+      "hooksIntro": "<config>cmux.json</config> สามารถกำหนดฮุกการแจ้งเตือนที่รับนโยบายการแจ้งเตือนทุกครั้งเป็น JSON ผ่าน stdin แต่ละฮุกส่ง JSON กลับผ่าน stdout ฮุกจะปิดอยู่ตามค่าเริ่มต้น; cmux จะเรียกใช้ฮุกก็ต่อเมื่อ <hooksMode>notifications.hooks</hooksMode> มีฮุกที่เปิดใช้งานอย่างน้อยหนึ่งรายการ cmux จะใช้ข้อความและเอฟเฟกต์ที่ส่งกลับมา ทำให้ฮุกกรองแบนเนอร์ เก็บหรือข้ามประวัติแถบด้านข้าง เล่นเสียง หรือหยุดฮุกถัดไปได้",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "อินพุตและเอาต์พุตของฮุก",
+      "hooksDetails": "ฮุกสืบทอดจากไฟล์ส่วนกลาง <globalConfig>~/.config/cmux/cmux.json</globalConfig> และไฟล์โปรเจ็กต์ <projectConfig>.cmux/cmux.json</projectConfig> จากไดเรกทอรีแม่มายัง workspace ปัจจุบัน ฮุกของโปรเจ็กต์ใช้พรอมป์ความเชื่อถือเดียวกับคำสั่งโปรเจ็กต์อื่นใน <config>cmux.json</config> ก่อนทำงาน แบนเนอร์อนุมัติของ Feed ก็ผ่านฮุกเหล่านี้ด้วย การปิด <desktop>desktop</desktop> จะซ่อนแบนเนอร์เนทีฟ แต่ยังเก็บรายการ Feed ไว้ใน cmux ตั้งค่า <hooksMode>notifications.hooksMode</hooksMode> เป็น <replace>replace</replace> ในคอนฟิกโปรเจ็กต์เพื่อไม่ใช้ฮุกที่สืบทอดมา หากฮุกล้มเหลว หมดเวลา หรือส่ง JSON ไม่ถูกต้อง cmux จะใช้พฤติกรรมการแจ้งเตือนเริ่มต้นและแสดงการแจ้งเตือนว่าฮุกล้มเหลว"
     },
     "browserAutomation": {
       "title": "Browser Automation",
