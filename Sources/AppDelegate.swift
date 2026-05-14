@@ -3797,14 +3797,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeRecoverableRoutes: Bool = true
     ) -> AppSessionSnapshot? {
         let routes = sortedMainWindowRoutesForSessionSnapshot(
-            includeRecoverableRoutes: includeRecoverableRoutes
+            includeRecoverableRoutes: false
         )
 
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let maxWindowSnapshots = SessionPersistencePolicy.maxWindowsPerSnapshot
 
         var seenWindowIds: Set<UUID> = []
         var windows: [SessionWindowSnapshot] = []
-        for route in routes where seenWindowIds.insert(route.windowId).inserted {
+        for route in routes {
+            guard windows.count < maxWindowSnapshots else { break }
+            guard seenWindowIds.insert(route.windowId).inserted else { continue }
             windows.append(
                 sessionWindowSnapshotForSessionPersistence(
                     tabManager: route.tabManager,
@@ -3817,17 +3820,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        if includeRecoverableRoutes {
+        if includeRecoverableRoutes, windows.count < maxWindowSnapshots {
             for recoverable in recoverableMainWindowSnapshotsForSessionSnapshot(
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
-                excludingWindowIds: seenWindowIds
+                excludingWindowIds: seenWindowIds,
+                maxSnapshotCount: maxWindowSnapshots - windows.count
             ) where seenWindowIds.insert(recoverable.windowId).inserted {
                 windows.append(recoverable.snapshot)
             }
         }
-
-        windows = Array(windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot))
 
         guard !windows.isEmpty else { return nil }
         return AppSessionSnapshot(

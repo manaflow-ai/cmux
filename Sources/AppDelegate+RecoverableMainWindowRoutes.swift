@@ -204,10 +204,15 @@ extension AppDelegate {
     func recoverableMainWindowSnapshotsForSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        excludingWindowIds excludedWindowIds: Set<UUID> = []
+        excludingWindowIds excludedWindowIds: Set<UUID> = [],
+        maxSnapshotCount: Int? = nil
     ) -> [(windowId: UUID, snapshot: SessionWindowSnapshot)] {
-        sortedRecoverableMainWindowRoutes().compactMap { route in
-            guard !excludedWindowIds.contains(route.windowId) else { return nil }
+        var snapshots: [(windowId: UUID, snapshot: SessionWindowSnapshot)] = []
+        for route in sortedRecoverableMainWindowRoutes() {
+            if let maxSnapshotCount, snapshots.count >= maxSnapshotCount {
+                break
+            }
+            guard !excludedWindowIds.contains(route.windowId) else { continue }
 
             let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
             if let window {
@@ -216,7 +221,7 @@ extension AppDelegate {
 
             if let manager = route.tabManager,
                tabManagerHasRegisteredTerminalSurface(manager) {
-                return (
+                snapshots.append((
                     route.windowId,
                     sessionWindowSnapshotForSessionPersistence(
                         tabManager: manager,
@@ -226,14 +231,16 @@ extension AppDelegate {
                         includeScrollback: includeScrollback,
                         restorableAgentIndex: restorableAgentIndex
                     )
-                )
+                ))
+                continue
             }
 
             let snapshot = includeScrollback
                 ? route.sessionSnapshot
                 : route.sessionSnapshot.removingTerminalScrollback()
-            return (route.windowId, snapshot)
+            snapshots.append((route.windowId, snapshot))
         }
+        return snapshots
     }
 
     private func sortedMainWindowRoutesForSessionSnapshot(
