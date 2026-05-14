@@ -761,6 +761,9 @@ private final class ClaudeHookSessionStore {
             return []
         }
         return try withLockedState { state in
+            // Collect victims first; mutating `state.sessions` while iterating
+            // it is undefined behavior in Swift and can trap under runtime
+            // checks. Compute the set, then remove in a separate pass.
             var removed: [String] = []
             for (sid, record) in state.sessions {
                 guard sid != keep else { continue }
@@ -772,8 +775,10 @@ private final class ClaudeHookSessionStore {
                 if let normalizedWorkspace, recordWorkspace != normalizedWorkspace {
                     continue
                 }
-                state.sessions.removeValue(forKey: sid)
                 removed.append(sid)
+            }
+            for sid in removed {
+                state.sessions.removeValue(forKey: sid)
             }
             // If the active-session pointer still targets a removed record,
             // clear it so later Stop/SessionEnd events cannot revive state
