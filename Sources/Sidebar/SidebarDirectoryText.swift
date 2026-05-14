@@ -19,7 +19,7 @@ struct SidebarDirectoryText: View {
                 .truncationMode(.tail)
         } else {
             ViewThatFits(in: .horizontal) {
-                ForEach(Array(candidates.dropLast()), id: \.self) { candidate in
+                ForEach(Array(candidates.dropLast().enumerated()), id: \.offset) { _, candidate in
                     Text(candidate)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(color)
