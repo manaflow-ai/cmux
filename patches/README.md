@@ -20,3 +20,7 @@ Until the fork repo exists, the workflow is:
   Metal shader compilation under macOS 15 + Xcode 26, where the
   Xcode-shipped metal stub cannot locate the cryptex-mounted Metal
   Toolchain (only `xcrun` can).
+- `0002-webnn-coreml-handle-new-mlmultiarraydatatype.patch` — adds a
+  default branch to `GetDataTypeByteSize` so the macOS 26.2 SDK's
+  new `MLMultiArrayDataType` values (Int8, UInt8, …) don't trip
+  `-Werror,-Wswitch`. Drop when upstream lands the proper fix.

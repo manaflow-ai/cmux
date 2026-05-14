@@ -236,6 +236,48 @@ if __name__ == "__main__":
 PYEOF
         echo "  applied: third_party/angle/.../metal_wrapper.py"
     fi
+
+    if [ -f "${patches_dir}/0002-webnn-coreml-handle-new-mlmultiarraydatatype.patch" ]; then
+        local target="${REMOTE_CHROMIUM_ROOT}/src/services/webnn/coreml/utils_coreml.mm"
+        echo ">> Applying webnn CoreML MLMultiArrayDataType default-branch patch"
+        ssh -o BatchMode=yes "${REMOTE_HOST}" "python3 - <<'PY'
+import pathlib
+p = pathlib.Path('${target}')
+s = p.read_text()
+old = '''  switch (data_type) {
+    case MLMultiArrayDataTypeDouble:
+      return 8;
+    case MLMultiArrayDataTypeFloat32:
+    case MLMultiArrayDataTypeInt32:
+      return 4;
+    case MLMultiArrayDataTypeFloat16:
+      return 2;
+  }
+'''
+new = '''  switch (data_type) {
+    case MLMultiArrayDataTypeDouble:
+      return 8;
+    case MLMultiArrayDataTypeFloat32:
+    case MLMultiArrayDataTypeInt32:
+      return 4;
+    case MLMultiArrayDataTypeFloat16:
+      return 2;
+    default:
+      // cmux fork: macOS 26 SDK introduced new MLMultiArrayDataType values
+      // (Int8, UInt8, etc.) that upstream Chromium has not enumerated yet.
+      // Treat unknown types conservatively; webnn is not on cmux's critical
+      // path so an exact byte-size here would just be future-rebase debt.
+      return 0;
+  }
+'''
+if old in s:
+    p.write_text(s.replace(old, new))
+    print('applied: services/webnn/coreml/utils_coreml.mm')
+else:
+    print('already-applied-or-mismatched (no-op)')
+PY
+"
+    fi
 }
 
 cmd_status() {
