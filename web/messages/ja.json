@@ -185,6 +185,17 @@
   },
   "docs": {
     "layoutTitle": "cmux docs",
+    "search": {
+      "placeholder": "ドキュメントを検索...",
+      "label": "ドキュメントを検索",
+      "resultsLabel": "検索結果",
+      "noResults": "結果がありません",
+      "error": "検索を利用できません",
+      "resultsCount": "{count, plural, one {# 件} other {# 件}}"
+    },
+    "headingAnchors": {
+      "link": "セクションへのリンク"
+    },
     "gettingStarted": {
       "title": "はじめに",
       "metaDescription": "AIコーディングエージェント向けネイティブmacOSターミナル、cmuxのインストール方法。Homebrew、DMGダウンロード、CLIセットアップ、Sparkle経由の自動更新。",
