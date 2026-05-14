@@ -14,6 +14,8 @@
 #   setup            Mount Chromium volume, install depot_tools, sync .zshrc.
 #   remount          Just re-attach the Chromium APFS volume (after reboot).
 #   fetch            Begin or resume Chromium fetch (Mac-only, shallow).
+#   apply-patches    Push the cmux fork patches from patches/ to the host's src/.
+#                    Idempotent — files are overwritten so re-running is safe.
 #   status           Report build host state (depot_tools, fetch progress).
 #   build [target]   Run a release build (default target: cmux_core_framework).
 #
@@ -151,6 +153,91 @@ echo "  log: ${REMOTE_CHROMIUM_ROOT}/gclient-sync.log"
 EOS
 }
 
+cmd_apply_patches() {
+    local script_dir
+    script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+    local patches_dir="${script_dir}/../patches"
+
+    if [ ! -d "${patches_dir}" ]; then
+        echo "  no patches/ dir at ${patches_dir}, nothing to apply"
+        return 0
+    fi
+
+    # Each patch is a hand-rolled context patch — we don't `git apply`,
+    # we just upload the post-patch file. See patches/README.md.
+    if [ -f "${patches_dir}/0001-angle-metal-wrapper-resolve-via-xcrun.patch" ]; then
+        local target="${REMOTE_CHROMIUM_ROOT}/src/third_party/angle/src/libANGLE/renderer/metal/shaders/metal_wrapper.py"
+        echo ">> Applying ANGLE metal-wrapper xcrun patch"
+        # Recreate the patched file directly from the post-patch content
+        # embedded in the .patch file. We extract the added lines (lines
+        # starting with "+") and reconstruct, but it's simpler to keep a
+        # parallel "applied" copy. For now: rebuild on the host.
+        ssh -o BatchMode=yes "${REMOTE_HOST}" "cat > ${target}" <<'PYEOF'
+#!/usr/bin/python3
+# Copyright 2023 The ANGLE Project Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+#
+# cmux fork: macOS 15 + Xcode 26 ships the Metal compiler toolchain as a
+# separate downloadable component which is mounted at runtime under
+# /var/run/com.apple.security.cryptexd/.../Metal.xctoolchain/usr/bin/.
+# The Xcode-bundled stubs at XcodeDefault.xctoolchain/usr/bin/metal,
+# metallib, etc. do NOT find that mount (only xcrun --find <tool> does).
+# Worse, some tools (e.g. metallib) do not exist as a stub at all, so the
+# GN-supplied path is a dangling reference. When the first argument
+# looks like a Metal toolchain tool living under
+# XcodeDefault.xctoolchain/usr/bin/, swap it for the xcrun-resolved real
+# path. Carry this patch in the cmux Chromium fork until upstream
+# chromium/angle handles this natively.
+from __future__ import annotations
+import os
+import subprocess
+import sys
+
+_XCODE_BIN_PREFIX = "XcodeDefault.xctoolchain/usr/bin/"
+_METAL_TOOL_PREFIXES = ("metal",)  # metal, metallib, metal-ar, metal-lipo, ...
+
+
+def _looks_like_metal_xcode_stub(path):
+    if not path:
+        return False
+    if _XCODE_BIN_PREFIX not in path:
+        return False
+    base = os.path.basename(path)
+    return any(base == p or base.startswith(p) for p in _METAL_TOOL_PREFIXES)
+
+
+def _xcrun_find(tool):
+    try:
+        r = subprocess.run(
+            ["/usr/bin/xcrun", "--find", tool],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        path = (r.stdout or "").strip()
+        return path or None
+    except FileNotFoundError:
+        return None
+
+
+def main(args):
+    if args and _looks_like_metal_xcode_stub(args[0]):
+        tool = os.path.basename(args[0])
+        replacement = _xcrun_find(tool)
+        if replacement and replacement != args[0]:
+            args = [replacement] + list(args[1:])
+    return subprocess.run(args, stdout=subprocess.PIPE, text=True).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+PYEOF
+        echo "  applied: third_party/angle/.../metal_wrapper.py"
+    fi
+}
+
 cmd_status() {
     run_remote bash <<EOS
 set -euo pipefail
@@ -220,11 +307,12 @@ EOS
 }
 
 case "$1" in
-    setup)   cmd_setup ;;
-    remount) cmd_remount ;;
-    fetch)   cmd_fetch ;;
-    status)  cmd_status ;;
-    build)   shift; cmd_build "$@" ;;
-    -h|--help) usage ;;
-    *) usage >&2; exit 2 ;;
+    setup)         cmd_setup ;;
+    remount)       cmd_remount ;;
+    fetch)         cmd_fetch ;;
+    apply-patches) cmd_apply_patches ;;
+    status)        cmd_status ;;
+    build)         shift; cmd_build "$@" ;;
+    -h|--help)     usage ;;
+    *)             usage >&2; exit 2 ;;
 esac
