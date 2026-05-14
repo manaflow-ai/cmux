@@ -7,8 +7,10 @@
 # fork lands at manaflow-ai/cmux-chromium, this file drops into
 # src/cmux/BUILD.gn as-is.
 #
-# Naming convention is intentional: `cmux_core_framework` mirrors
-# upstream's `chrome_framework` target shape but with cmux branding.
+# Shape mirrors upstream's chrome_framework + chrome_helper_app pattern
+# in chrome/BUILD.gn, but with cmux branding. Until an empty
+# `cmux_core_framework` builds in a real tree, treat the targets here
+# as the *intended* shape, not a tested one.
 
 import("//build/buildflag_header.gni")
 import("//build/config/apple/symbols.gni")
@@ -22,41 +24,67 @@ import("//content/public/app/mac_helpers.gni")
 cmux_core_framework_version = "0.1.cmux.0"
 cmux_core_framework_bundle_id = "ai.manaflow.cmux.browser.framework"
 
-# Helpers come from //content; we re-instantiate them with cmux bundle
-# ids so they sandbox correctly on macOS.
-group("cmux_helpers") {
-  deps = [
-    ":cmux_helper",
-    ":cmux_helper_renderer",
-    ":cmux_helper_gpu",
-    ":cmux_helper_plugin",
-  ]
+# Base name for helper apps. The output is `cmux_helper_name + helper
+# app-name suffix`, so the default helper becomes "cmux Helper" and
+# the renderer helper becomes "cmux Helper (Renderer)".
+cmux_helper_name = "cmux Helper"
+
+# Inlined equivalent of chrome/BUILD.gn's `chrome_helper_app` template,
+# wired to cmux branding. The template lives here (not in a .gni)
+# because cmux only has one consumer (this file).
+template("cmux_helper_app") {
+  mac_app_bundle(target_name) {
+    assert(defined(invoker.helper_name_suffix))
+    assert(defined(invoker.helper_bundle_id_suffix))
+
+    output_name = cmux_helper_name + invoker.helper_name_suffix
+
+    info_plist = "//cmux/branding/cmux_helper-Info.plist"
+
+    extra_substitutions = [
+      "CMUX_HELPER_BUNDLE_ID=${cmux_core_framework_bundle_id}${invoker.helper_bundle_id_suffix}",
+      "CMUX_HELPER_NAME=${cmux_helper_name}${invoker.helper_name_suffix}",
+      # mac_helpers.gni does not provide a CFBundlePackageType
+      # variant. Chrome hard-codes APPL for every helper; cmux does
+      # the same. (See chrome/app/helper-Info.plist.)
+      "CMUX_PACKAGE_TYPE=APPL",
+    ]
+
+    # Real cmux mac helper entry point lands here once the .cc file
+    # is added to //cmux/embedder. For now this is a placeholder
+    # comment so a future `gn gen` doesn't blow up on an empty
+    # sources list (mac_app_bundle requires at least one source).
+    sources = [ "//cmux/embedder/cmux_helper_main_mac.cc" ]
+
+    defines = [ "HELPER_EXECUTABLE" ]
+
+    deps = [
+      "//base/allocator:early_zone_registration_apple",
+      "//content/public/app",
+      "//sandbox/mac:seatbelt",
+    ]
+  }
 }
 
-foreach(helper, content_mac_helpers) {
-  helper_name = helper[0]                                # e.g. "renderer"
-  helper_bundle_id_suffix = helper[1]                    # e.g. "helper.renderer"
-  helper_app_role = helper[2]                            # CFBundlePackageType
-  helper_visibility = helper[3]
-  helper_extra_configs = helper[4]
-  helper_extra_substitutions = helper[5]
+# Instantiate the four helper variants from
+# //content/public/app/mac_helpers.gni. Each `helper_params` tuple is
+# [target_name, bundle_id_suffix, app_name_suffix] -- a 3-element list.
+# GN's foreach binds the whole tuple to the loop variable; element
+# access is by index, not destructuring.
+foreach(helper_params, content_mac_helpers) {
+  cmux_helper_app("cmux_helper_app_${helper_params[0]}") {
+    helper_name_suffix = helper_params[2]
+    helper_bundle_id_suffix = helper_params[1]
+  }
+}
 
-  mac_app_bundle("cmux_helper${helper_name}") {
-    output_name = "cmux Helper${helper_name}"
-    info_plist = "//cmux/branding/cmux_helper-Info.plist"
-    extra_substitutions = [
-      "CMUX_HELPER_BUNDLE_ID=${cmux_core_framework_bundle_id}.${helper_bundle_id_suffix}",
-      "CMUX_HELPER_NAME=cmux Helper${helper_name}",
-      "CMUX_PACKAGE_TYPE=${helper_app_role}",
-    ] + helper_extra_substitutions
-    sources = [ "//content/app/mac/main.cc" ]
-    deps = [
-      ":cmux_core_framework+link",
-      "//content/public/app",
-    ]
-    if (helper_extra_configs != []) {
-      configs += helper_extra_configs
-    }
+# Group target the framework data-deps on. Names match what the
+# foreach above generates (cmux_helper_app_default, _renderer, _gpu,
+# _plugin).
+group("cmux_helpers") {
+  public_deps = []
+  foreach(helper_params, content_mac_helpers) {
+    public_deps += [ ":cmux_helper_app_${helper_params[0]}" ]
   }
 }
 
@@ -72,16 +100,18 @@ mac_framework_bundle("cmux_core_framework") {
   ]
   info_plist = "//cmux/branding/cmux_core_framework-Info.plist"
 
-  sources = [
-    # Stub — the real entry points come from the embedder source_set
-    # and content/'s mac framework template. No sources needed here
-    # beyond the configuration plist; content/app/content_main_mac.mm
-    # is brought in transitively.
+  extra_substitutions = [
+    "CMUX_CORE_FRAMEWORK_BUNDLE_ID=${cmux_core_framework_bundle_id}",
+    "CMUX_CORE_FRAMEWORK_VERSION=${cmux_core_framework_version}",
   ]
+
+  # Real sources come from //cmux/embedder once the .mm/.cc files land.
+  # mac_framework_bundle does not allow an empty sources list; this
+  # placeholder file gives the linker something concrete to consume.
+  sources = [ "//cmux/embedder/cmux_framework_main.cc" ]
 
   deps = [
     "//cmux/embedder:embedder",
-    "//content/app:content_main",
     "//content/public/app",
     "//mojo",
     "//services/network/public/mojom",
@@ -98,10 +128,4 @@ mac_framework_bundle("cmux_core_framework") {
   ldflags = [
     "-Wl,-install_name,@executable_path/../Frameworks/CmuxCore.framework/Versions/A/CmuxCore",
   ]
-
-  if (enable_dsyms) {
-    extra_substitutions = [
-      "CMUX_CORE_FRAMEWORK_BUNDLE_ID=${cmux_core_framework_bundle_id}",
-    ]
-  }
 }

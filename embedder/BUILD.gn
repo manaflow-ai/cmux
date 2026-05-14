@@ -22,11 +22,15 @@ source_set("embedder") {
 
   sources = [
     "cmux_browser.h",
-    "cmux_browser.mm",
-    "cmux_layer_host.mm",
-    "cmux_profile.cc",
-    "cmux_session.cc",
-    "cmux_view.cc",
+    # Implementation translation units land here once the fork repo is
+    # created and we can build incrementally against a real //content
+    # toolchain. Keep these commented until each file exists; gn will
+    # otherwise fail with "source file does not exist" at gen time.
+    #   "cmux_browser.mm",
+    #   "cmux_layer_host.mm",
+    #   "cmux_profile.cc",
+    #   "cmux_session.cc",
+    #   "cmux_view.cc",
   ]
 
   deps = [

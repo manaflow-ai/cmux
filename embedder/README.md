@@ -1,5 +1,37 @@
 # `embedder/` — fork-bound artifacts
 
+> **NOTE — the `BUILD.gn` files are still unvalidated.** They have not
+> been `gn check`-ed against a real Chromium tree (no fork repo
+> exists), but the obvious bugs the earlier WARNING called out are
+> fixed:
+>
+> - `BUILD.gn` no longer lists `cmux_browser.mm` / `cmux_view.cc` /
+>   `cmux_session.cc` / `cmux_profile.cc` / `cmux_layer_host.mm` in
+>   `sources` — those files don't exist yet, so `gn gen` would have
+>   failed at "source file does not exist". They are left as a
+>   commented-out TODO block, to be re-enabled per file as each
+>   implementation lands.
+> - `cmux_BUILD.gn` no longer reads `helper[3]`/`[4]`/`[5]` (the
+>   `content_mac_helpers` tuple is 3-wide; indices 3+ would have
+>   tripped GN's bounds check). The `foreach` body now indexes
+>   `helper_params[0..2]` exactly like upstream
+>   `chrome/BUILD.gn:826`, the helper-target naming matches
+>   what the foreach generates, and the `group("cmux_helpers")`
+>   target list is generated from the same `content_mac_helpers`
+>   list so the names cannot drift.
+> - The helper template is inlined as `template("cmux_helper_app")`,
+>   mirroring `chrome_helper_app` in `chrome/BUILD.gn:730`. Empty
+>   placeholder sources (`cmux_helper_main_mac.cc`,
+>   `cmux_framework_main.cc`) are referenced where mac_app_bundle /
+>   mac_framework_bundle require non-empty source lists; those files
+>   need to land in `//cmux/embedder/` before the first `gn gen`.
+>
+> The `.h` header, branding plists, README, and CHANGELOG remain
+> accurate as-is. First real validation happens when the fork repo
+> exists and these files drop into `src/cmux/`, at which point a
+> `gn check //cmux/...` will surface any remaining issues.
+
+
 This directory is the staging area for files that will eventually live
 under `//cmux/embedder/` in the **manaflow-ai/cmux-chromium** fork.
 
