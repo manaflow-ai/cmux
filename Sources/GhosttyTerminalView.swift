@@ -4474,6 +4474,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    /// Offscreen window used to host the view hierarchy during background surface creation.
+    /// Ghostty requires a live NSWindow for Metal layer setup and backing context.
+    /// Released when the view moves to a real window or on teardown.
+    private var offscreenHostWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -4884,6 +4888,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        offscreenHostWindow = nil
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -5019,6 +5024,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
             cmuxDebugLog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
 #endif
+            // Release the offscreen host window once the view has moved to a real window.
+            if let offscreen = offscreenHostWindow, view.window !== offscreen {
+                offscreenHostWindow = nil
+            }
             if let screen = view.window?.screen ?? NSScreen.main,
                let displayID = screen.displayID,
                displayID != 0,
@@ -5681,7 +5690,37 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil, attachedView != nil else { return }
+        guard surface == nil else { return }
+
+        // Background workspaces may not be in any NSWindow yet — ghostty requires
+        // a live window for Metal layer setup and backing context. Provide an offscreen
+        // host window so the standard viewDidMoveToWindow → attachToView → createSurface
+        // chain fires with a valid window.
+        if surfaceView.window == nil && offscreenHostWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: -10000, y: -10000, width: 800, height: 600),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.orderOut(nil)
+            offscreenHostWindow = window
+            if let contentView = window.contentView {
+                hostedView.frame = contentView.bounds
+                hostedView.autoresizingMask = [.width, .height]
+                contentView.addSubview(hostedView)
+            }
+            // viewDidMoveToWindow fires on surfaceView → attachToView → createSurface
+            if surface != nil {
+#if DEBUG
+                dlog("surface.background_start.offscreen surface=\(id.uuidString.prefix(8)) ready=1")
+#endif
+                return
+            }
+        }
+
+        guard attachedView != nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
