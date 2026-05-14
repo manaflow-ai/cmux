@@ -121,19 +121,33 @@ Continued under the same `/goal i have reviewed it, use your best judgment and i
   - **CmuxDownload** + **CmuxDownloadDelegate** (step 4) — engine-neutral wrapper around `WKDownload`/`WKDownloadDelegate`. Strong-references shims per-WKDownload and clears them in terminal callbacks. `CmuxNavigationDelegate` gains `didBecome download` extensions; backend's nav bridge invokes them.
   - **CmuxSnapshotConfiguration** (step 6) — bridges `WKSnapshotConfiguration` (rect, snapshotWidth, afterScreenUpdates). `CmuxBrowserView.takeSnapshot(configuration:completionHandler:)` overload added.
 - **Tests:** 32 total (was 19), all green, 0 warnings, swift 6 strict concurrency.
+- Round 4 of content_shell hit `services/webnn/coreml/utils_coreml.mm`: macOS 26.2 SDK introduced new `MLMultiArrayDataType` enumerators that upstream chromium HEAD hasn't enumerated. `-Werror,-Wswitch` broke. Wrote `patches/0002-webnn-coreml-handle-new-mlmultiarraydatatype.patch` (adds a default branch returning 0; webnn isn't on cmux's critical path). Wired into `apply-patches`. Restarted round 4 with both patches applied; build progressing through V8 base when monitors were killed for high event volume.
+- Staged drop-in-ready artifacts for the future fork repo under `embedder/`:
+  - `embedder/cmux_browser.h` — full v1 C ABI as a real header (not just a sketch in markdown).
+  - `embedder/BUILD.gn` — `//cmux/embedder:embedder` + `:embedder_headers` source sets.
+  - `embedder/cmux_BUILD.gn` — `//cmux:cmux_core_framework` mac_framework_bundle plus the four helpers (renderer/gpu/plugin/main) re-instantiated with cmux bundle IDs.
+  - `embedder/branding/cmux_core_framework-Info.plist` — Info.plist for `CmuxCore.framework`. Substitutions match `cmux_BUILD.gn`.
+  - `embedder/branding/cmux_helper-Info.plist` — Info.plist for the four helpers; mirrors upstream `chrome/app/helper-Info.plist`.
+  - `embedder/CHANGELOG.md` — ABI v1 surface frozen; what's intentionally out of v1 listed.
+  - `embedder/README.md` — index + the mapping from this directory to the fork's `src/cmux/`.
+- Updated `plans/chromium-engine.md`: P0 marked DONE, P1 marked in-progress and gated on fork repo creation, P2 Swift surface marked DONE with C-side gated on fork repo.
+- Updated `plans/wkwebview-surface-audit.md`: migration order steps 1-4 + 6 marked ✅ shipped; only step 5 (CmuxInspector) remains and is explicitly deferred-last.
 - **Did not** wire CmuxBrowserEngine into `GhosttyTabs.xcodeproj` (deferred again — pbxproj edits warrant their own session).
 - **Did not** implement `CmuxInspector` (step 5 in the audit is explicitly last).
 - **Did not** create `manaflow-ai/cmux-chromium` (still needs user OK).
-- Pushed 5 commits to `feat-chromium-engine`; draft PR #4159 has them.
+- **Did not** implement the .mm/.cc impl files (cmux_browser.mm, cmux_view.cc, cmux_session.cc, cmux_profile.cc, cmux_layer_host.mm) — those go straight into the fork rather than staging here; they need content/ as a build-resolvable dep.
+- Pushed 16 commits to `feat-chromium-engine`; draft PR #4159 has them all.
 
 #### What session 2 added to "proved"
 
-- ANGLE Metal shader compilation now works on this host class (the patched wrapper is verified by a successful `:angle_metal_internal_shaders_to_*` step).
+- ANGLE Metal shader compilation works on this host class (patched wrapper verified by successful `:angle_metal_internal_shaders_to_*` steps producing 149 KB `.air` + 359 KB `.metallib`).
+- webnn CoreML compile is unstuck on macOS 26.2 SDK (utils_coreml.o builds at 131 KB after patch #2).
 - Engine-neutral wrappers exist for: data store, cookie store, downloads, snapshot config (in addition to nav, UI, scripts, scheme handlers, state mirror, pageZoom).
-- The fork's `patches/` directory is the durable home for chromium-side patches; `scripts/chromium-build-host.sh apply-patches` is idempotent and exercised.
+- The fork's `patches/` directory is the durable home for chromium-side patches; `scripts/chromium-build-host.sh apply-patches` is idempotent and exercised twice (against both patches).
+- `embedder/` directory holds the complete set of drop-in-ready files for the moment the fork repo exists: C ABI header, both BUILD.gn files (source set + framework), both branding plists (framework + helpers), CHANGELOG, README. The fork's first P1 build only needs the .mm/.cc impl files written.
 
 #### What session 2 did NOT prove
 
-- `content_shell` itself building green end-to-end. Round 3 was still in flight at session 2 close; verify on next session via `tail ~/chromium-fork/build-content-shell.log` and `ls ~/chromium-fork/src/out/cmux_release/Content\ Shell.app`.
+- `content_shell` itself building green end-to-end. Round 4 was in flight at session-2 close (last seen ~1252/20438 steps, no failures). Verify next session via `tail ~/chromium-fork/build-content-shell.log` and `ls ~/chromium-fork/src/out/cmux_release/Content\ Shell.app/Contents/MacOS/`. **If another forward-compat error fires**, follow the same patch-discipline: capture as a numbered patch under `patches/`, wire into `apply-patches`, restart.
 - CmuxBrowserEngine is still **not** linked into `GhosttyTabs.xcodeproj`. The package compiles in isolation but cmux's main target still uses raw WKWebView.
-- The Chromium backend is still a `fatalError` stub. No screenshots of "Chromium-in-cmux" possible.
+- The Chromium backend is still a `fatalError` stub. No screenshots of "Chromium-in-cmux" possible until P1's impl files land in the fork.
