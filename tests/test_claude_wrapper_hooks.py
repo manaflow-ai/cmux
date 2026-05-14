@@ -1113,6 +1113,37 @@ def test_live_socket_whitespace_xdg_cache_home_falls_back(failures: list[str]) -
     expect(child_node_options == "__UNSET__", f"whitespace XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_live_socket_whitespace_only_xdg_cache_home_falls_back(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
+        tmp = Path(td)
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            home=str(tmp / "home"),
+            xdg_cache_home="   ",
+            fake_uname="Linux",
+        )
+    expect(code == 0, f"whitespace-only XDG cache home: wrapper exited {code}: {stderr}", failures)
+    require_path = require_path_from_node_options(node_options)
+    expect(
+        require_path != "",
+        f"whitespace-only XDG cache home: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        not any(ch.isspace() for ch in require_path),
+        f"whitespace-only XDG cache home: expected whitespace-free restore path, got {require_path!r}",
+        failures,
+    )
+    expect(
+        require_path.endswith("/.cache/cmux/cmux-claude-node-options/restore-node-options.cjs"),
+        f"whitespace-only XDG cache home: expected Linux fallback cache path, got {require_path!r}",
+        failures,
+    )
+    expect(runtime_node_options == "__UNSET__", f"whitespace-only XDG cache home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"whitespace-only XDG cache home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
 def test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-cache-") as td:
         tmp = Path(td)
@@ -1343,6 +1374,7 @@ def main() -> int:
     test_live_socket_quoted_linux_home_uses_safe_cache_fallback(failures)
     test_live_socket_empty_linux_home_uses_safe_cache_fallback(failures)
     test_live_socket_whitespace_xdg_cache_home_falls_back(failures)
+    test_live_socket_whitespace_only_xdg_cache_home_falls_back(failures)
     test_live_socket_quoted_linux_xdg_cache_home_falls_back(failures)
     test_live_socket_relative_xdg_cache_home_falls_back(failures)
     test_live_socket_rehardens_cached_restore_module(failures)
