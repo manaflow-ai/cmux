@@ -15,7 +15,7 @@ import IOSurface
 import UniformTypeIdentifiers
 
 private let terminalNotificationFallbackTitle =
-    String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
+    String(localized: "terminal.notification.fallbackTitle", defaultValue: "Terminal")
 
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
