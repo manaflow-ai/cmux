@@ -7076,20 +7076,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
 
-        lines = lines.map { line in
-            var s = line
-            let leading = s.prefix(while: { $0 == " " })
-            s = String(s.dropFirst(leading.count))
-            var stripped = false
-            while let first = s.unicodeScalars.first,
-                  Self.terminalDecorationChars.contains(first) {
-                s = String(s.dropFirst())
-                stripped = true
-            }
-            if stripped && s.first == " " { s = String(s.dropFirst()) }
-            return String(leading) + s
-        }
-
         var result: [String] = []
         var inCodeFence = false
         var i = 0
@@ -7116,17 +7102,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 continue
             }
 
-            if Self.isHardBreakLine(trimmed) {
-                result.append(trimmed)
+            let cleaned = Self.stripDecorationChars(trimmed)
+
+            if Self.isHardBreakLine(cleaned) {
+                result.append(cleaned)
                 i += 1
                 continue
             }
 
-            var paragraph = trimmed
+            var paragraph = cleaned
             let startIndent = line.prefix(while: { $0 == " " }).count
-            let isURL = paragraph.hasPrefix("http://") ||
-                paragraph.hasPrefix("https://") ||
-                paragraph.hasPrefix("www.")
+            let isURL = Self.containsURL(paragraph)
             while i + 1 < lines.count {
                 let nextLine = lines[i + 1]
                 let nextTrimmed = nextLine.trimmingCharacters(in: .whitespaces)
@@ -7165,6 +7151,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") { return true }
         if trimmed.hasPrefix("# ") { return true }
         return false
+    }
+
+    private static func stripDecorationChars(_ trimmed: String) -> String {
+        var s = trimmed
+        var stripped = false
+        while let first = s.unicodeScalars.first,
+              terminalDecorationChars.contains(first) {
+            s = String(s.dropFirst())
+            stripped = true
+        }
+        if stripped && s.first == " " { s = String(s.dropFirst()) }
+        return s
+    }
+
+    private static func containsURL(_ text: String) -> Bool {
+        text.contains("http://") || text.contains("https://") || text.contains("www.")
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
