@@ -258,7 +258,11 @@ function refreshActiveLimitProviderStatuses(
       if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
       return Effect.gen(function* () {
         const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catchAll((err) =>
+            isProviderNotFoundError(err)
+              ? Effect.succeed("destroyed" as const)
+              : Effect.succeed(null),
+          ),
         );
         if (!providerStatus || providerStatus === "creating") return;
         const dbStatus = dbStatusFromProviderStatus(providerStatus);
