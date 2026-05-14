@@ -47,13 +47,6 @@ enum CmuxSettingsJSONCEditor {
         }
 
         let remainingKeyPath = keyPath.dropFirst()
-        let memberIndent = memberIndent(in: source, objectRange: objectRange)
-        let objectText = jsonObjectText(
-            keyPath: remainingKeyPath,
-            valueText: valueText,
-            memberIndent: memberIndent,
-            source: source
-        )
 
         if let existingValueRange = try valueRange(forKey: key, inObjectRange: objectRange, source: source) {
             if let nestedObjectRange = try objectRangeForValue(forValueRange: existingValueRange, in: source) {
@@ -65,12 +58,24 @@ enum CmuxSettingsJSONCEditor {
                 )
             }
 
+            let objectText = jsonObjectText(
+                keyPath: remainingKeyPath,
+                valueText: valueText,
+                memberIndent: memberIndent(in: source, objectRange: objectRange),
+                source: source
+            )
             var updated = source
             updated.replaceSubrange(existingValueRange, with: objectText)
             try validateJSONC(updated)
             return updated
         }
 
+        let objectText = jsonObjectText(
+            keyPath: remainingKeyPath,
+            valueText: valueText,
+            memberIndent: memberIndent(in: source, objectRange: objectRange),
+            source: source
+        )
         let updated = try insertingMember(
             key: key,
             valueText: objectText,
@@ -446,24 +451,38 @@ enum CmuxSettingsJSONCEditor {
         upTo limit: String.Index
     ) throws -> (value: String, range: Range<String.Index>)? {
         guard quoteIndex < limit, source[quoteIndex] == "\"" else { return nil }
-        var value = ""
         var index = source.index(after: quoteIndex)
         var isEscaped = false
         while index < limit {
             let character = source[index]
             if isEscaped {
-                value.append(character)
                 isEscaped = false
             } else if character == "\\" {
                 isEscaped = true
             } else if character == "\"" {
-                return (value, quoteIndex..<source.index(after: index))
+                let range = quoteIndex..<source.index(after: index)
+                return (try decodedJSONString(String(source[range])), range)
             } else {
-                value.append(character)
+                if character == "\n" || character == "\r" {
+                    throw JSONCEditError.invalidString
+                }
             }
             index = source.index(after: index)
         }
         throw JSONCEditError.unterminatedString
+    }
+
+    private static func decodedJSONString(_ jsonString: String) throws -> String {
+        let data = Data("[\(jsonString)]".utf8)
+        do {
+            guard let array = try JSONSerialization.jsonObject(with: data, options: []) as? [String],
+                  let value = array.first else {
+                throw JSONCEditError.invalidString
+            }
+            return value
+        } catch {
+            throw JSONCEditError.invalidString
+        }
     }
 
     private static func validateJSONC(_ source: String) throws {
@@ -478,9 +497,12 @@ enum CmuxSettingsJSONCEditor {
         case unterminatedObject
         case unterminatedString
         case valueNotFound
+        case invalidString
 
         var errorDescription: String? {
             switch self {
+            case .invalidString:
+                return "invalid JSONC string"
             case .rootObjectNotFound:
                 return "config file root object was not found"
             case .unterminatedArray:

@@ -54,7 +54,7 @@ struct MarkdownPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clear)
+        .background(contentBackgroundColor)
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -89,6 +89,7 @@ struct MarkdownPanelView: View {
                     backgroundColor: themeBackgroundColor,
                     uiScaleFactor: uiScaleFactor
                 ),
+                backgroundColor: appearance.contentBackgroundColor,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -104,8 +105,9 @@ struct MarkdownPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: .clear,
-                    themeForegroundColor: themeForegroundColor
+                    themeBackgroundColor: appearance.contentBackgroundColor,
+                    themeForegroundColor: themeForegroundColor,
+                    drawsBackground: appearance.drawsContentBackground
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -169,23 +171,27 @@ struct MarkdownPanelView: View {
                 .font(.system(size: UIScaleSettings.scaled(40, by: uiScaleFactor)))
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
-                .cmuxFont(size: 13, weight: .semibold)
+                .cmuxFont(size: 13, weight: .semibold, relativeTo: .headline)
                 .foregroundColor(.primary)
             Text(panel.filePath)
-                .font(.system(size: UIScaleSettings.scaled(12, by: uiScaleFactor), design: .monospaced))
+                .cmuxFont(size: 12, design: .monospaced, relativeTo: .body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .cmuxFont(size: 10)
+                .cmuxFont(size: 10, relativeTo: .caption)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Theme
+
+    private var contentBackgroundColor: Color {
+        Color(nsColor: appearance.contentBackgroundColor)
+    }
 
     private var themeBackgroundColor: NSColor {
         appearance.backgroundColor
@@ -273,7 +279,7 @@ private struct MarkdownPanelToolbar: View {
         HStack(spacing: 8) {
             if let confirmation {
                 Text(confirmation)
-                    .cmuxFont(size: 11, weight: .medium)
+                    .cmuxFont(size: 11, weight: .medium, relativeTo: .caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .transition(.opacity)

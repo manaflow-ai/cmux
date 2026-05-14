@@ -45,6 +45,7 @@ struct MarkdownWebTheme: Equatable {
 struct MarkdownWebRenderer: NSViewRepresentable {
     let markdown: String
     let theme: MarkdownWebTheme
+    let backgroundColor: NSColor
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
@@ -70,6 +71,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
         webView.setValue(false, forKey: "drawsBackground")
+        applyBackground(to: webView)
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
@@ -96,6 +98,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.workspaceId = workspaceId
         context.coordinator.filePath = filePath
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
@@ -118,6 +121,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         if webView.appearance !== appearance {
             webView.appearance = appearance
         }
+    }
+
+    private func applyBackground(to webView: WKWebView) {
+        webView.underPageBackgroundColor = backgroundColor
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = backgroundColor.cgColor
+        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     @MainActor

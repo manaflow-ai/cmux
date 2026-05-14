@@ -1346,7 +1346,8 @@ struct ContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panelId
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId),
+                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
+                        workspace.restoredUnreadPanelIds.contains(panelId),
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
                 )
@@ -6058,7 +6059,9 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
-            let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) || notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
+            let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
+                workspace.restoredUnreadPanelIds.contains(panelId) ||
+                notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
 
             if panelIsTerminal {
@@ -6423,6 +6426,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
             )
         )
+        contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7264,6 +7268,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.enableSupportedFileRouting") {
             CmdClickSupportedFileRouteSettings.setEnabled(true)
         }
+        registerSettingsToggleCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
@@ -7385,8 +7390,9 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId)
-                || notificationStore.hasUnreadNotification(forTabId: panelContext.workspace.id, surfaceId: panelContext.panelId)
+            let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
+                panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
+                notificationStore.hasUnreadNotification(forTabId: panelContext.workspace.id, surfaceId: panelContext.panelId)
             if hasUnread {
                 panelContext.workspace.markPanelRead(panelContext.panelId)
             } else {
@@ -9168,10 +9174,21 @@ struct VerticalTabsSidebar: View {
         from oldWorkspaceIds: [UUID],
         to newWorkspaceIds: [UUID]
     ) -> Bool {
-        guard let selectedWorkspaceId = tabManager.selectedTabId else {
-            return false
+        SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: tabManager.selectedTabId,
+            oldWorkspaceIds: oldWorkspaceIds,
+            newWorkspaceIds: newWorkspaceIds
+        )
+    }
+
+    private func requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(_ notification: Notification) {
+        guard let manager = notification.object as? TabManager, manager === tabManager else {
+            return
         }
-        return !oldWorkspaceIds.contains(selectedWorkspaceId) && newWorkspaceIds.contains(selectedWorkspaceId)
+        guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
+        let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
+        pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
     private struct WorkspaceListRenderContext {
@@ -9406,8 +9423,14 @@ struct VerticalTabsSidebar: View {
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
-                    ) else { return }
+                    ) else {
+                        flushPendingSelectedWorkspaceScroll(scrollProxy)
+                        return
+                    }
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+                    requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
                 .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
                     laidOutWorkspaceRowIds = rowIds

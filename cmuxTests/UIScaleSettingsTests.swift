@@ -191,6 +191,41 @@ final class UIScaleSettingsTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
     }
 
+    func testWritingAppUIScaleMatchesEscapedJSONCKeys() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-escaped-key-\(UUID().uuidString).json", isDirectory: false)
+        try #"""
+        {
+          "schemaVersion": 1,
+          "a\u0070p": {
+            "ui\u0053cale": 1.1,
+            "appearance": "system"
+          }
+        }
+        """#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        try store.writeAppUIScale(1.4)
+
+        let updated = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertTrue(updated.contains(#""a\u0070p""#))
+        XCTAssertTrue(updated.contains(#""ui\u0053cale": 1.4"#))
+        XCTAssertFalse(updated.contains(#""app": {"#))
+        XCTAssertFalse(updated.contains(#""uiScale": 1.4"#))
+        let data = Data(updated.utf8)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONCParser.preprocess(data: data)) as? [String: Any]
+        )
+        let appSection = try XCTUnwrap(json["app"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(appSection["uiScale"] as? Double), 1.4, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(appSection["appearance"] as? String), "system")
+    }
+
     func testWritingAppUIScaleDoesNotReplaceUnreadableConfig() throws {
         let settingsFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-scale-unreadable-\(UUID().uuidString).json", isDirectory: false)
