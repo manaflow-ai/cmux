@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
+import { DocsHeading } from "../../components/docs-heading";
 
 export async function generateMetadata({
   params,
@@ -23,10 +24,10 @@ export default function DockPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("configTitle")}</h2>
+      <DocsHeading level={2} id="config-title">{t("configTitle")}</DocsHeading>
       <p>{t("configIntro")}</p>
       <ol>
         <li>
@@ -39,7 +40,7 @@ export default function DockPage() {
       <Callout type="info">{t("precedenceCallout")}</Callout>
       <Callout type="warn">{t("trustCallout")}</Callout>
 
-      <h2>{t("exampleTitle")}</h2>
+      <DocsHeading level={2} id="example-title">{t("exampleTitle")}</DocsHeading>
       <p>{t("exampleIntro")}</p>
       <CodeBlock title=".cmux/dock.json" lang="json">{`{
   "controls": [
@@ -64,7 +65,7 @@ export default function DockPage() {
   ]
 }`}</CodeBlock>
 
-      <h2>{t("fieldsTitle")}</h2>
+      <DocsHeading level={2} id="fields-title">{t("fieldsTitle")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -112,7 +113,7 @@ export default function DockPage() {
         </tbody>
       </table>
 
-      <h2>{t("sharingTitle")}</h2>
+      <DocsHeading level={2} id="sharing-title">{t("sharingTitle")}</DocsHeading>
       <p>{t("sharingIntro")}</p>
       <ul>
         <li>{t("sharingProject")}</li>
@@ -120,7 +121,7 @@ export default function DockPage() {
         <li>{t("sharingSecrets")}</li>
       </ul>
 
-      <h2>{t("agentPromptTitle")}</h2>
+      <DocsHeading level={2} id="agent-prompt-title">{t("agentPromptTitle")}</DocsHeading>
       <p>{t("agentPromptIntro")}</p>
       <CodeBlock title={t("agentPromptCodeTitle")} lang="text">
         {t("agentPrompt")}
