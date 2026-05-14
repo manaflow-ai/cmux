@@ -187,31 +187,30 @@ enum ManagedSettingsValueKind: Equatable {
     case stringDictionary
 
     func currentStoredValue(defaultsKey: String, defaults: UserDefaults = .standard) -> ManagedSettingsValue? {
-        if defaultsKey == WorkspaceTabColorSettings.paletteKey,
-           self == .stringDictionary,
-           WorkspaceTabColorSettings.backupPaletteMap(defaults: defaults) != nil {
-            return .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults))
-        }
-        if self == .nullableString {
-            return .nullableString(defaults.string(forKey: defaultsKey))
-        }
-
-        guard defaults.object(forKey: defaultsKey) != nil else { return nil }
-
         switch self {
         case .bool:
+            guard defaults.object(forKey: defaultsKey) != nil else { return nil }
             return .bool(defaults.bool(forKey: defaultsKey))
         case .int:
+            guard defaults.object(forKey: defaultsKey) != nil else { return nil }
             return .int(defaults.integer(forKey: defaultsKey))
         case .double:
+            guard defaults.object(forKey: defaultsKey) != nil else { return nil }
             return .double(defaults.double(forKey: defaultsKey))
         case .string:
+            guard defaults.object(forKey: defaultsKey) != nil else { return nil }
             return .string(defaults.string(forKey: defaultsKey) ?? "")
         case .nullableString:
             return .nullableString(defaults.string(forKey: defaultsKey))
         case .stringArray:
+            guard defaults.object(forKey: defaultsKey) != nil else { return nil }
             return .stringArray(defaults.array(forKey: defaultsKey) as? [String] ?? [])
         case .stringDictionary:
+            if defaultsKey == WorkspaceTabColorSettings.paletteKey,
+               WorkspaceTabColorSettings.backupPaletteMap(defaults: defaults) != nil {
+                return .stringDictionary(WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults))
+            }
+            guard defaults.object(forKey: defaultsKey) != nil else { return nil }
             return .stringDictionary(defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:])
         }
     }

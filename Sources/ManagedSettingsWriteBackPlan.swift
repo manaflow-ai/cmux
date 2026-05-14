@@ -36,15 +36,17 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
         guard !resolvedChangesBySourcePath.isEmpty else {
             return .noChanges
         }
+        var didWriteChanges = false
         for sourcePath in resolvedChangesBySourcePath.keys.sorted() {
             let changesByPath = resolvedChangesBySourcePath[sourcePath] ?? [:]
             let changes = changesByPath.keys.sorted().map { jsonPath in
                 (jsonPath: jsonPath, value: changesByPath[jsonPath]!)
             }
             guard await shouldContinue() else {
-                return .noChanges
+                return didWriteChanges ? .wroteChanges : .noChanges
             }
             try CmuxSettingsJSONWriter.write(changes, to: sourcePath, fileManager: fileManager)
+            didWriteChanges = true
         }
         return .wroteChanges
     }
