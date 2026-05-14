@@ -4,6 +4,7 @@ import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
+import { DocsHeading } from "../../components/docs-heading";
 
 const skills = [
   {
@@ -67,10 +68,10 @@ export default function SkillsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("installTitle")}</h2>
+      <DocsHeading level={2} id="install-title">{t("installTitle")}</DocsHeading>
       <p>
         {t.rich("installIntro", {
           code: (chunks) => <code>{chunks}</code>,
@@ -83,7 +84,7 @@ export default function SkillsPage() {
         })}
       </Callout>
 
-      <h3>{t("localInstallTitle")}</h3>
+      <DocsHeading level={3} id="local-install-title">{t("localInstallTitle")}</DocsHeading>
       <p>{t("localInstallIntro")}</p>
       <CodeBlock title={t("localInstallCommands")} lang="bash">{`./skills.sh
 ./skills.sh --list
@@ -93,7 +94,7 @@ export default function SkillsPage() {
       <p>{t("pinRefIntro")}</p>
       <CodeBlock lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash -s -- --ref main`}</CodeBlock>
 
-      <h2>{t("includedTitle")}</h2>
+      <DocsHeading level={2} id="included-title">{t("includedTitle")}</DocsHeading>
       <p>{t("includedIntro")}</p>
       <table>
         <thead>
@@ -123,7 +124,7 @@ export default function SkillsPage() {
         </tbody>
       </table>
 
-      <h2>{t("helpMenuTitle")}</h2>
+      <DocsHeading level={2} id="help-menu-title">{t("helpMenuTitle")}</DocsHeading>
       <p>
         {t.rich("helpMenuIntro", {
           help: (chunks) => <strong>{chunks}</strong>,
@@ -131,7 +132,7 @@ export default function SkillsPage() {
         })}
       </p>
 
-      <h2>{t("authoringTitle")}</h2>
+      <DocsHeading level={2} id="authoring-title">{t("authoringTitle")}</DocsHeading>
       <p>{t("authoringIntro")}</p>
       <CodeBlock lang="text">{`skills/<name>/SKILL.md
 skills/<name>/agents/openai.yaml
@@ -144,7 +145,7 @@ skills/<name>/templates/*`}</CodeBlock>
         })}
       </Callout>
 
-      <h2>{t("relatedTitle")}</h2>
+      <DocsHeading level={2} id="related-title">{t("relatedTitle")}</DocsHeading>
       <ul>
         <li>
           <Link href="/docs/browser-automation">{t("relatedBrowserAutomation")}</Link>

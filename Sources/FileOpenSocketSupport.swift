@@ -50,17 +50,24 @@ extension TerminalController {
 
     private func v2FileOpenSurfacePayload(
         workspace: Workspace,
-        panel: FilePreviewPanel
+        panel: any Panel
     ) -> [String: Any] {
         let paneUUID = workspace.paneId(forPanelId: panel.id)?.id
-        return [
+        var payload: [String: Any] = [
             "surface_id": panel.id.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
             "pane_id": v2OrNull(paneUUID?.uuidString),
             "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
-            "path": panel.filePath,
-            "preview_mode": panel.previewMode.socketName
+            "panel_type": panel.panelType.rawValue
         ]
+        if let previewPanel = panel as? FilePreviewPanel {
+            payload["path"] = previewPanel.filePath
+            payload["preview_mode"] = previewPanel.previewMode.socketName
+        } else if let markdownPanel = panel as? MarkdownPanel {
+            payload["path"] = markdownPanel.filePath
+            payload["display_mode"] = markdownPanel.displayMode.rawValue
+        }
+        return payload
     }
 
     func v2FileOpen(params: [String: Any]) -> V2CallResult {
@@ -85,7 +92,7 @@ extension TerminalController {
         }
 
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to open file preview", data: nil)
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to open file", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -126,14 +133,14 @@ extension TerminalController {
                 return
             }
 
-            let openedPanels = ws.openFilePreviewSurfaces(
+            let openedPanels = ws.openFileSurfaces(
                 inPane: paneId,
                 filePaths: filePaths,
                 focus: shouldFocus,
                 reuseExisting: filePaths.count == 1 && !hasExplicitPaneDestination
             )
             guard !openedPanels.isEmpty else {
-                result = .err(code: "internal_error", message: "Failed to create file preview", data: nil)
+                result = .err(code: "internal_error", message: "Failed to open file", data: nil)
                 return
             }
 
@@ -143,7 +150,7 @@ extension TerminalController {
             }
             let primary = surfacePayloads.last ?? [:]
             let paneUUID = ws.paneId(forPanelId: openedPanels.last?.id ?? openedPanels[0].id)?.id
-            result = .ok([
+            var response: [String: Any] = [
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": ws.id.uuidString,
@@ -152,10 +159,18 @@ extension TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                 "surface_id": primary["surface_id"] ?? NSNull(),
                 "surface_ref": primary["surface_ref"] ?? NSNull(),
+                "panel_type": primary["panel_type"] ?? NSNull(),
                 "path": primary["path"] ?? NSNull(),
                 "paths": filePaths,
                 "surfaces": surfacePayloads
-            ])
+            ]
+            if let previewMode = primary["preview_mode"] {
+                response["preview_mode"] = previewMode
+            }
+            if let displayMode = primary["display_mode"] {
+                response["display_mode"] = displayMode
+            }
+            result = .ok(response)
         }
         return result
     }

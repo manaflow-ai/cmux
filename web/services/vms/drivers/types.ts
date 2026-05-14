@@ -79,6 +79,8 @@ export interface VMProvider {
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;
 
+  getStatus?(vmId: string): Promise<VMStatus>;
+
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
 

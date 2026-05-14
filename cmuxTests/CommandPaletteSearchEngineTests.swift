@@ -417,9 +417,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         }
         let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
+        let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus)
 
         let previewCommandIDs = ContentView.commandPaletteCommandPreviewMatchCommandIDsForTests(
             searchCorpus: corpus,
+            searchIndex: searchIndex,
             candidateCommandIDs: ["command.find"],
             searchCorpusByID: corpusByID,
             query: "finde",
@@ -627,15 +629,23 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCandidateIDs.last, "command.191")
     }
 
-    func testSynchronousSeedRunsOnlyWhenScopeChanges() {
+    func testSynchronousSeedRunsWhenFastIndexIsReadyOrScopeChanges() {
         XCTAssertTrue(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
-                hasVisibleResultsForScope: false
+                hasVisibleResultsForScope: false,
+                hasNucleoSearchIndex: false
             )
         )
         XCTAssertFalse(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
-                hasVisibleResultsForScope: true
+                hasVisibleResultsForScope: true,
+                hasNucleoSearchIndex: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldSynchronouslySeedResults(
+                hasVisibleResultsForScope: true,
+                hasNucleoSearchIndex: true
             )
         )
     }
