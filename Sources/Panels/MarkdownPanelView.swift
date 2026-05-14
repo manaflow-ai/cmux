@@ -53,7 +53,7 @@ struct MarkdownPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clear)
+        .background(contentBackgroundColor)
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -85,6 +85,7 @@ struct MarkdownPanelView: View {
             MarkdownWebRenderer(
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
+                backgroundColor: appearance.contentBackgroundColor,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -100,8 +101,9 @@ struct MarkdownPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: .clear,
-                    themeForegroundColor: themeForegroundColor
+                    themeBackgroundColor: appearance.contentBackgroundColor,
+                    themeForegroundColor: themeForegroundColor,
+                    drawsBackground: appearance.drawsContentBackground
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -182,6 +184,10 @@ struct MarkdownPanelView: View {
     }
 
     // MARK: - Theme
+
+    private var contentBackgroundColor: Color {
+        Color(nsColor: appearance.contentBackgroundColor)
+    }
 
     private var themeBackgroundColor: NSColor {
         appearance.backgroundColor
