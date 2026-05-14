@@ -1202,7 +1202,7 @@ struct FilePreviewPanelView: View {
                         get: { panel.viewZoomFactor },
                         set: { panel.setViewZoomFactor($0) }
                     ),
-                    isDisabled: panel.isFileUnavailable
+                    isDisabled: panel.isFileUnavailable || panel.previewMode != .text
                 )
             }
 
@@ -3563,10 +3563,6 @@ private final class FilePreviewImageContainerView: NSView {
         }
     }
 
-    private func viewZoomCommand(for event: NSEvent) -> ViewZoomCommand? {
-        ViewZoomControl.command(for: event)
-    }
-
     @objc private func rotateLeft() {
         rotateImage(by: -90)
     }
@@ -3781,7 +3777,7 @@ private final class FilePreviewImageScrollView: NSScrollView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let command = viewZoomCommand(for: event), let onViewZoomCommand {
+        if let command = ViewZoomControl.command(for: event), let onViewZoomCommand {
             onViewZoomCommand(command)
             return true
         }
@@ -3879,9 +3875,6 @@ private final class FilePreviewImageScrollView: NSScrollView {
         }
     }
 
-    private func viewZoomCommand(for event: NSEvent) -> ViewZoomCommand? {
-        ViewZoomControl.command(for: event)
-    }
 }
 
 private final class FilePreviewImageDocumentView: NSView {

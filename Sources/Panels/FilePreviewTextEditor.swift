@@ -160,7 +160,7 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        if let zoomCommand = viewZoomShortcutCommand(for: event) {
+        if let zoomCommand = ViewZoomControl.command(for: event) {
             guard let panel else { return false }
             panel.performViewZoomCommand(zoomCommand)
             applyPreviewFontSize(ViewZoomControl.textEditorFontSize(for: panel.viewZoomFactor))
@@ -220,10 +220,6 @@ final class SavingTextView: NSTextView {
     private static func clampedFontSize(_ fontSize: CGFloat) -> CGFloat {
         guard fontSize.isFinite else { return ViewZoomControl.textEditorDefaultFontSize }
         return min(max(fontSize, minimumPreviewFontSize), maximumPreviewFontSize)
-    }
-
-    private func viewZoomShortcutCommand(for event: NSEvent) -> ViewZoomCommand? {
-        ViewZoomControl.command(for: event)
     }
 
     private func saveShortcutMatch(for event: NSEvent) -> Bool? {

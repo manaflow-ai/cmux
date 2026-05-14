@@ -1462,6 +1462,7 @@ struct ContentView: View {
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
+        static let panelSupportsViewZoom = "panel.supportsViewZoom"
         static let panelHasPane = "panel.hasPane"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
@@ -6046,10 +6047,15 @@ struct ContentView: View {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
+            let panelSupportsViewZoom =
+                panelContext.panel is BrowserPanel ||
+                panelContext.panel is MarkdownPanel ||
+                ((panelContext.panel as? FilePreviewPanel)?.previewMode == .text)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelSupportsViewZoom, panelSupportsViewZoom)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
@@ -6756,7 +6762,8 @@ struct ContentView: View {
                 commandId: "palette.browserZoomIn",
                 title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
                 subtitle: panelSubtitle,
-                keywords: ["view", "zoom", "in", "browser", "markdown", "text"]
+                keywords: ["view", "zoom", "in", "browser", "markdown", "text"],
+                when: { $0.bool(CommandPaletteContextKeys.panelSupportsViewZoom) }
             )
         )
         contributions.append(
@@ -6764,7 +6771,8 @@ struct ContentView: View {
                 commandId: "palette.browserZoomOut",
                 title: constant(String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out")),
                 subtitle: panelSubtitle,
-                keywords: ["view", "zoom", "out", "browser", "markdown", "text"]
+                keywords: ["view", "zoom", "out", "browser", "markdown", "text"],
+                when: { $0.bool(CommandPaletteContextKeys.panelSupportsViewZoom) }
             )
         )
         contributions.append(
@@ -6772,7 +6780,8 @@ struct ContentView: View {
                 commandId: "palette.browserZoomReset",
                 title: constant(String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size")),
                 subtitle: panelSubtitle,
-                keywords: ["view", "zoom", "reset", "actual size", "browser", "markdown", "text"]
+                keywords: ["view", "zoom", "reset", "actual size", "browser", "markdown", "text"],
+                when: { $0.bool(CommandPaletteContextKeys.panelSupportsViewZoom) }
             )
         )
         contributions.append(

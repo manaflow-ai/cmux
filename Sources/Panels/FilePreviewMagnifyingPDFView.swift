@@ -35,7 +35,7 @@ final class FilePreviewMagnifyingPDFView: PDFView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let command = viewZoomCommand(for: event), let onViewZoomCommand {
+        if let command = ViewZoomControl.command(for: event), let onViewZoomCommand {
             onViewZoomCommand(command)
             return true
         }
@@ -83,7 +83,4 @@ final class FilePreviewMagnifyingPDFView: PDFView {
         }
     }
 
-    private func viewZoomCommand(for event: NSEvent) -> ViewZoomCommand? {
-        ViewZoomControl.command(for: event)
-    }
 }
