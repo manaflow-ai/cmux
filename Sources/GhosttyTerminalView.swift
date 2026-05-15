@@ -4402,6 +4402,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let keycode: UInt32
         let mods: ghostty_input_mods_e
         let label: String
+        let queuedByteCost: Int = 1
     }
 
     private enum PendingSocketInput {
@@ -4416,7 +4417,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             case .inputText(let text):
                 return text.utf8.count
             case .key(let event):
-                return max(event.label.utf8.count, 1)
+                return max(event.queuedByteCost, 1)
             }
         }
     }
@@ -4486,6 +4487,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var teardownRequestReason: String?
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
+    private let pendingSocketInputLock = NSLock()
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var headlessStartupWindow: NSWindow?
@@ -5694,7 +5696,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         guard let surface = surface else {
             let queued = enqueuePendingSocketInput(.pasteText(data))
-            requestBackgroundSurfaceStartIfNeeded()
+            if queued {
+                requestBackgroundSurfaceStartIfNeeded()
+            }
             return queued
         }
         writeTextData(data, to: surface)
@@ -5722,7 +5726,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard !text.isEmpty else { return true }
         guard let surface = surface else {
             let queued = enqueuePendingSocketInput(text)
-            requestBackgroundSurfaceStartIfNeeded()
+            if queued {
+                requestBackgroundSurfaceStartIfNeeded()
+            }
             return queued
         }
         sendInput(text, to: surface)
@@ -6028,6 +6034,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let incomingBytes = inputs.reduce(0) { $0 + $1.estimatedBytes }
         guard incomingBytes > 0 else { return true }
 
+        pendingSocketInputLock.lock()
+        defer { pendingSocketInputLock.unlock() }
+
         guard incomingBytes <= maxPendingSocketInputBytes,
               pendingSocketInputBytes + incomingBytes <= maxPendingSocketInputBytes else {
 #if DEBUG
@@ -6056,11 +6065,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func flushPendingSocketInputIfNeeded() {
-        guard let surface = surface, !pendingSocketInputQueue.isEmpty else { return }
+        guard let surface = surface else { return }
+        pendingSocketInputLock.lock()
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
+        pendingSocketInputLock.unlock()
+        guard !queued.isEmpty else { return }
 
         var queuedKeys = 0
         for item in queued {
@@ -6136,6 +6148,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @MainActor
     func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
+        pendingSocketInputLock.lock()
+        defer { pendingSocketInputLock.unlock() }
         let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
                 count += 1
