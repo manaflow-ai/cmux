@@ -1,5 +1,48 @@
 # cmux agent notes
 
+## Personal fork notes (read first)
+
+This repo (`TraderSamwise/cmux`) is **sam's personal fork** of [`manaflow-ai/cmux`](https://github.com/manaflow-ai/cmux). The long-lived feature branch is `feature/quick-terminal-pr`. Two things to know before building or merging from upstream:
+
+### Quick terminal (visor / quake-mode)
+
+The fork adds a quick-terminal panel implemented in `Sources/QuickTerminalController.swift`. It registers as a `mainWindowContext` just like a regular main window and runs the same `ContentView`. When merging from upstream `main`:
+
+- If a new `@EnvironmentObject` is added to `ContentView` (`Sources/ContentView.swift` ~L1051), mirror the injection in `QuickTerminalController.createQuickTerminalWindow` and pass it through `registerMainWindow(...)`. Otherwise the visor will SIGILL the instant SwiftUI evaluates the body.
+- Current required env objects: `TabManager`, `TerminalNotificationStore`, `SidebarState`, `SidebarSelectionState`, `FileExplorerState`, `CmuxConfigStore`.
+
+### Ad-hoc Release signing only
+
+This fork is built only with **ad-hoc signing** — no Apple Developer cert, no provisioning profile. To keep that working:
+
+- `Resources/cmux.entitlements` (added upstream in PR #3027 for auth scaffolding) has been **intentionally deleted**. Do not reintroduce it: `keychain-access-groups` cannot be carried by an ad-hoc signature, and codesign refuses the build with *"entitlements that require signing with a development certificate"*.
+- The Release config's `CODE_SIGN_ENTITLEMENTS` is set to `""` (see `GhosttyTabs.xcodeproj/project.pbxproj`). Keep it that way.
+- The auth code's `FallbackTokenStore` (`Sources/Auth/AuthManager.swift`) already drops to a file store when keychain writes fail, so dropping the entitlement has no runtime impact for personal use.
+- Other repo-root entitlement files (`cmux.release.entitlements`, `cmux.nightly.entitlements`, `cmux-helper.entitlements`, `cmux.entitlements`) are consumed only by `scripts/sign-cmux-bundle.sh`, `scripts/build-sign-upload.sh`, and the release/nightly GitHub workflows. They do **not** affect local `xcodebuild` Release builds — leave them alone unless you plan to run those signing scripts.
+
+### Building on a fresh machine (e.g., the other laptop)
+
+```bash
+git clone git@github.com:TraderSamwise/cmux.git
+cd cmux
+git checkout feature/quick-terminal-pr
+./scripts/setup.sh         # init submodules + build GhosttyKit.xcframework
+./scripts/reloadp.sh       # build Release and launch (works ad-hoc)
+```
+
+Install over `/Applications/cmux.app` once you're happy:
+
+```bash
+pkill -x cmux; rm -rf /Applications/cmux.app \
+  && ditto "$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Build/Products/Release/cmux.app' -print0 | xargs -0 stat -f '%m %N' | sort -nr | head -n1 | cut -d' ' -f2-)" /Applications/cmux.app \
+  && touch /Applications/cmux.app \
+  && open /Applications/cmux.app
+```
+
+(The `find | sort -nr | head -n1` picks the newest Release `cmux.app` from DerivedData — the directory hash is project-path-dependent and will differ across machines.)
+
+If `xcodebuild` fails with *"entitlements that require signing with a development certificate"*, the upstream `Resources/cmux.entitlements` has been re-added by an unintended merge. Check `git status`, delete it, and verify `CODE_SIGN_ENTITLEMENTS = "";` in the Release config of `GhosttyTabs.xcodeproj/project.pbxproj`.
+
 ## Initial setup
 
 Run the setup script to initialize submodules and build GhosttyKit:

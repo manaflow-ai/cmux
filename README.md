@@ -1,6 +1,8 @@
 <h1 align="center">cmux</h1>
 <p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
 
+> **Personal fork notice.** `TraderSamwise/cmux` is sam's personal fork; the long-lived branch is `feature/quick-terminal-pr`. It adds a quake-style quick-terminal panel and is built only with ad-hoc signing (no Apple Developer cert required). Build and merge notes specific to this fork live in [`CLAUDE.md`](./CLAUDE.md#personal-fork-notes-read-first). Original upstream: [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux).
+
 <p align="center">
   <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
     <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
