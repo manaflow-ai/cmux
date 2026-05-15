@@ -61,11 +61,13 @@ class FakeCmuxSocket:
         decision: dict | None,
         surfaces: list[dict] | None = None,
         drop_first_surface_list: bool = False,
+        app_pid: int | None = None,
     ):
         self.path = path
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
+        self.app_pid = os.getpid() if app_pid is None else app_pid
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self._ready = threading.Event()
@@ -127,6 +129,8 @@ class FakeCmuxSocket:
                             self._dropped_surface_list = True
                             continue
                         result = {"surfaces": self.surfaces}
+                    elif frame.get("method") == "system.identify":
+                        result = {"app_pid": self.app_pid}
                     elif self.decision is not None:
                         result = {
                             "status": "resolved",
@@ -177,6 +181,13 @@ def wait_for_monitor_pids(session_id: str, *, present: bool, timeout: float) -> 
         time.sleep(0.1)
     state = "start" if present else "exit"
     raise AssertionError(f"monitor for {session_id} did not {state}; last pids={last}")
+
+
+def resolve_sleep_path() -> str:
+    sleep_path = shutil.which("sleep")
+    if sleep_path is None:
+        raise AssertionError("sleep command not found")
+    return sleep_path
 
 
 def assert_monitor_remains_present(session_id: str, *, duration: float) -> None:
@@ -373,6 +384,46 @@ def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-missing-owner.sock"
+    state_dir = root / "hook-state-missing-owner"
+    transcript_path = root / "codex-missing-owner.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-missing-owner-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeCmuxSocket(socket_path, None, app_pid=0):
+        prompt = {
+            "session_id": session_id,
+            "turn_id": f"codex-monitor-missing-owner-turn-{os.getpid()}",
+            "cwd": str(root),
+            "transcript_path": str(transcript_path),
+        }
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), "hooks", "codex", "prompt-submit"],
+            input=json.dumps(prompt),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+    if monitor_pids_for_session(session_id):
+        raise AssertionError("prompt-submit started an unowned codex monitor")
+
+
 def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-empty-surfaces.sock"
     state_dir = root / "hook-state-empty-surfaces"
@@ -480,7 +531,7 @@ def test_codex_monitor_exits_when_owner_pid_is_gone(cli_path: str, root: Path) -
     transcript_path = root / "codex-session-owner-gone.jsonl"
     transcript_path.write_text("", encoding="utf-8")
 
-    owner = subprocess.Popen(["/bin/sleep", "0.1"])
+    owner = subprocess.Popen([resolve_sleep_path(), "0.1"])
     owner.wait(timeout=2)
 
     session_id = f"codex-monitor-owner-gone-session-{os.getpid()}"
@@ -527,7 +578,7 @@ def test_codex_monitor_exits_when_live_owner_pid_exits(cli_path: str, root: Path
     transcript_path = root / "codex-session-live-owner-exits.jsonl"
     transcript_path.write_text("", encoding="utf-8")
 
-    owner = subprocess.Popen(["/bin/sleep", "0.5"])
+    owner = subprocess.Popen([resolve_sleep_path(), "0.5"])
     session_id = f"codex-monitor-live-owner-exits-session-{os.getpid()}"
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = str(socket_path)
@@ -1754,6 +1805,7 @@ def main() -> int:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
+            test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_monitor_exits_when_owner_pid_is_gone(cli_path, root)

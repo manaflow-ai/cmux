@@ -18773,7 +18773,10 @@ struct CMUXCLI {
         let ownerPID: Int?
         if let ownerPIDRaw {
             guard let parsedOwnerPID = Int(ownerPIDRaw), parsedOwnerPID > 0 else {
-                throw CLIError(message: "Invalid --owner-pid: expected a positive integer", exitCode: 2)
+                throw CLIError(
+                    message: "cmux hooks codex monitor: Invalid --owner-pid; provide a positive integer PID and retry",
+                    exitCode: 2
+                )
             }
             ownerPID = parsedOwnerPID
         } else {
@@ -20988,35 +20991,45 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
-                let leasePath = createCodexMonitorLease(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    env: env
-                )
-                let ownerPID = codexMonitorOwnerPID(client: client)
-                if leasePath == nil {
+                if let ownerPID = codexMonitorOwnerPID(client: client) {
+                    let leasePath = createCodexMonitorLease(
+                        sessionId: sessionId,
+                        turnId: input.turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        env: env
+                    )
+                    if leasePath == nil {
+                        telemetry.breadcrumb(
+                            "codex-hook.monitor.lease-unavailable",
+                            data: [
+                                "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                                "has_owner_pid": true,
+                            ]
+                        )
+                    }
+                    startCodexTranscriptMonitor(
+                        sessionId: sessionId,
+                        turnId: input.turnId,
+                        transcriptPath: normalizedHookValue(input.transcriptPath),
+                        cwd: hookCwd ?? mapped?.cwd,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        ownerPID: ownerPID,
+                        leasePath: leasePath,
+                        env: env,
+                        telemetry: telemetry
+                    )
+                } else {
                     telemetry.breadcrumb(
-                        "codex-hook.monitor.lease-unavailable",
+                        "codex-hook.monitor.owner-unavailable",
                         data: [
                             "has_turn_id": normalizedHookValue(input.turnId) != nil,
-                            "has_owner_pid": ownerPID != nil,
+                            "has_transcript": normalizedHookValue(input.transcriptPath) != nil,
+                            "has_surface_id": normalizedHookValue(surfaceId) != nil,
                         ]
                     )
                 }
-                startCodexTranscriptMonitor(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath),
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    ownerPID: ownerPID,
-                    leasePath: leasePath,
-                    env: env,
-                    telemetry: telemetry
-                )
             }
 
         case .stop:
