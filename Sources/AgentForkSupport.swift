@@ -43,6 +43,10 @@ enum AgentForkSupport {
         isRemoteContext: Bool = false
     ) async -> Bool {
         guard snapshot.forkCommand != nil else { return false }
+        if isRemoteContext,
+           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
+            return false
+        }
         guard snapshot.kind == .opencode else { return true }
         if snapshot.launchCommand?.launcher == "omo" {
             return true
@@ -79,7 +83,9 @@ enum AgentForkSupport {
             return false
         }
         let supportsFork = openCodeVersionSupportsFork(output)
-        await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
+        if supportsFork {
+            await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
+        }
         return supportsFork
     }
 

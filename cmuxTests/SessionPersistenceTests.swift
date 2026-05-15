@@ -2227,6 +2227,38 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(supportsFork)
     }
 
+    func testAgentForkSupportRejectsRemoteForksThatNeedLauncherScript() async {
+        let longPath = "/Users/cmux/" + String(repeating: "nested-project-", count: 120)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--add-dir",
+                    longPath
+                ],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
+        XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
+        let supportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: true
+        )
+        XCTAssertFalse(supportsFork)
+    }
+
     func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
@@ -2248,6 +2280,45 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             isRemoteContext: true
         )
         XCTAssertTrue(supportsFork)
+    }
+
+    func testOpenCodeForkSupportDoesNotCacheUnsupportedVersion() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-probe-cache-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        let versionFile = root.appendingPathComponent("version.txt", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        cat "\(versionFile.path)"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-cache",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode"],
+                workingDirectory: root.path,
+                environment: ["PATH": "\(root.path):/usr/bin:/bin"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        try "opencode 1.14.48\n".write(to: versionFile, atomically: true, encoding: .utf8)
+        let unsupportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertFalse(unsupportedVersionSupportsFork)
+
+        try "opencode 1.14.50\n".write(to: versionFile, atomically: true, encoding: .utf8)
+        let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertTrue(supportedVersionSupportsFork)
     }
 
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
