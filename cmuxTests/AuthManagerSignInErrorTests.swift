@@ -35,9 +35,13 @@ final class AuthManagerSignInErrorTests: XCTestCase {
             XCTFail("Expected invalid callback to be stored as the visible sign-in error")
             return
         }
-        XCTAssertEqual(
+        XCTAssertNotEqual(
             manager.lastSignInError?.localizedMessage,
             AuthManagerError.invalidCallback.errorDescription
+        )
+        XCTAssertEqual(
+            manager.lastSignInError?.localizedMessage,
+            AuthSignInError.message("diagnostic detail").localizedMessage
         )
     }
 }

@@ -32,12 +32,7 @@ enum AuthSignInError: Equatable, Sendable {
     case message(String)
 
     var localizedMessage: String {
-        switch self {
-        case .authManager(let error):
-            return error.errorDescription ?? Self.genericLocalizedMessage
-        case .message:
-            return Self.genericLocalizedMessage
-        }
+        Self.genericLocalizedMessage
     }
 
     private static var genericLocalizedMessage: String {
