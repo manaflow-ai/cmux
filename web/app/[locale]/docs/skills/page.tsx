@@ -55,14 +55,6 @@ const skills = [
     descriptionKey: "debugWindowsDescription",
     useKey: "debugWindowsUse",
   },
-  {
-    id: "release",
-    path: "skills/release/SKILL.md",
-    command: "./scripts/bump-version.sh",
-    nameKey: "releaseName",
-    descriptionKey: "releaseDescription",
-    useKey: "releaseUse",
-  },
 ] as const;
 
 const skillCoverage = [
@@ -101,12 +93,6 @@ const skillCoverage = [
     nameKey: "debugWindowsName",
     scopeKey: "debugWindowsScope",
     referencesKey: "debugWindowsReferences",
-  },
-  {
-    id: "release",
-    nameKey: "releaseName",
-    scopeKey: "releaseScope",
-    referencesKey: "releaseReferences",
   },
 ] as const;
 
