@@ -519,6 +519,52 @@ final class NotificationDockBadgeTests: XCTestCase {
         )
     }
 
+    func testCrashBreadcrumbNotificationCarriesCrashFilePathToDesktopDelivery() throws {
+        let store = TerminalNotificationStore.shared
+        let crashFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
+            .standardizedFileURL
+        let pendingCrash = GhosttyCrashBreadcrumb.PendingCrash(
+            fileURL: crashFileURL,
+            modifiedAt: Date()
+        )
+        let expectedPath = crashFileURL.path
+        let crashUserInfo = GhosttyCrashBreadcrumb.notificationUserInfo(for: pendingCrash)
+        var deliveredNotification: TerminalNotification?
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredNotification = notification
+        }
+
+        store.addNotification(
+            tabId: GhosttyCrashBreadcrumb.notificationTabId,
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "",
+            body: "",
+            userInfo: crashUserInfo
+        )
+
+        let recordedNotification = try XCTUnwrap(store.notifications.first)
+        XCTAssertEqual(
+            recordedNotification.userInfo[GhosttyCrashBreadcrumb.notificationFilePathUserInfoKey],
+            expectedPath
+        )
+        XCTAssertEqual(
+            deliveredNotification?.userInfo[GhosttyCrashBreadcrumb.notificationFilePathUserInfoKey],
+            expectedPath
+        )
+
+        let notificationResponseUserInfo: [AnyHashable: Any] = [
+            GhosttyCrashBreadcrumb.notificationFilePathUserInfoKey: expectedPath,
+        ]
+        XCTAssertEqual(
+            GhosttyCrashBreadcrumb.crashFileURL(from: notificationResponseUserInfo),
+            crashFileURL
+        )
+    }
+
     func testNotificationBadgePreferenceDefaultsToEnabled() {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
