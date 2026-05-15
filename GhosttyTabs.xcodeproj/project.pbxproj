@@ -341,6 +341,9 @@
 		C40590030000000000000002 /* CMUXCLI+MemoryTelemetryConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590030000000000000001 /* CMUXCLI+MemoryTelemetryConfig.swift */; };
 		C40590010000000000000002 /* CMUXCLI+MemoryTelemetryDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590010000000000000001 /* CMUXCLI+MemoryTelemetryDatabase.swift */; };
 		C40590020000000000000002 /* CMUXCLI+MemoryTrimmer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590020000000000000001 /* CMUXCLI+MemoryTrimmer.swift */; };
+		C40590040000000000000002 /* CMUXCLI+MemoryTelemetryOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590040000000000000001 /* CMUXCLI+MemoryTelemetryOptions.swift */; };
+		C40590050000000000000002 /* CMUXCLI+MemoryTelemetrySampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590050000000000000001 /* CMUXCLI+MemoryTelemetrySampling.swift */; };
+		C40590060000000000000002 /* CMUXCLI+MemoryTelemetryRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40590060000000000000001 /* CMUXCLI+MemoryTelemetryRendering.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */; };
@@ -854,6 +857,9 @@
 		C40590030000000000000001 /* CMUXCLI+MemoryTelemetryConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetryConfig.swift"; sourceTree = "<group>"; };
 		C40590010000000000000001 /* CMUXCLI+MemoryTelemetryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetryDatabase.swift"; sourceTree = "<group>"; };
 		C40590020000000000000001 /* CMUXCLI+MemoryTrimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTrimmer.swift"; sourceTree = "<group>"; };
+		C40590040000000000000001 /* CMUXCLI+MemoryTelemetryOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetryOptions.swift"; sourceTree = "<group>"; };
+		C40590050000000000000001 /* CMUXCLI+MemoryTelemetrySampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetrySampling.swift"; sourceTree = "<group>"; };
+		C40590060000000000000001 /* CMUXCLI+MemoryTelemetryRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MemoryTelemetryRendering.swift"; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		B9000030A1B2C3D4E5F60719 /* cmux_open.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open.swift; sourceTree = "<group>"; };
 		B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHCommandSupport.swift"; sourceTree = "<group>"; };
@@ -1397,6 +1403,9 @@
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				C40590030000000000000001 /* CMUXCLI+MemoryTelemetryConfig.swift */,
+				C40590040000000000000001 /* CMUXCLI+MemoryTelemetryOptions.swift */,
+				C40590050000000000000001 /* CMUXCLI+MemoryTelemetrySampling.swift */,
+				C40590060000000000000001 /* CMUXCLI+MemoryTelemetryRendering.swift */,
 				C40590010000000000000001 /* CMUXCLI+MemoryTelemetryDatabase.swift */,
 				C40590020000000000000001 /* CMUXCLI+MemoryTrimmer.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
@@ -2077,6 +2086,9 @@
 			files = (
 					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				C40590030000000000000002 /* CMUXCLI+MemoryTelemetryConfig.swift in Sources */,
+				C40590040000000000000002 /* CMUXCLI+MemoryTelemetryOptions.swift in Sources */,
+				C40590050000000000000002 /* CMUXCLI+MemoryTelemetrySampling.swift in Sources */,
+				C40590060000000000000002 /* CMUXCLI+MemoryTelemetryRendering.swift in Sources */,
 				C40590010000000000000002 /* CMUXCLI+MemoryTelemetryDatabase.swift in Sources */,
 				C40590020000000000000002 /* CMUXCLI+MemoryTrimmer.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,

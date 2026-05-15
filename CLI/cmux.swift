@@ -4293,7 +4293,7 @@ struct CMUXCLI {
         }
     }
 
-    private func parsePositiveInt(_ raw: String?, label: String) throws -> Int? {
+    func parsePositiveInt(_ raw: String?, label: String) throws -> Int? {
         guard let raw else { return nil }
         guard let value = Int(raw) else {
             throw CLIError(message: "\(label) must be an integer")
@@ -11143,93 +11143,6 @@ struct CMUXCLI {
         let requestedFormat: Bool
     }
 
-    struct MemoryTopCommandOptions {
-        let since: TimeInterval
-        let jsonOutput: Bool
-        let limit: Int
-        let sort: MemoryTopSort
-    }
-
-    struct MemoryCurrentCommandOptions {
-        let workspaceHandle: String?
-        let jsonOutput: Bool
-        let limit: Int?
-    }
-
-    struct MemoryTrimCommandOptions {
-        let workspaceHandle: String?
-        let agent: String?
-        let graceSeconds: TimeInterval
-        let dryRun: Bool
-        let jsonOutput: Bool
-    }
-
-    struct MemoryWorkspaceSample {
-        let sampledAt: Date
-        let windowId: String?
-        let windowRef: String?
-        let workspaceId: String
-        let workspaceRef: String?
-        let workspaceTitle: String
-        let cpuPercent: Double
-        let memoryPercent: Double
-        let residentBytes: Int64
-        let virtualBytes: Int64
-        let processCount: Int
-        let topProcessNames: [String]
-
-        var payload: [String: Any] {
-            [
-                "sampled_at": Self.iso8601(sampledAt),
-                "approximate": true,
-                "window_id": windowId ?? NSNull(),
-                "window_ref": windowRef ?? NSNull(),
-                "workspace_id": workspaceId,
-                "workspace_ref": workspaceRef ?? NSNull(),
-                "workspace_title": workspaceTitle,
-                "cpu_percent": cpuPercent,
-                "memory_percent": memoryPercent,
-                "resident_bytes": residentBytes,
-                "virtual_bytes": virtualBytes,
-                "process_count": processCount,
-                "top_process_names": topProcessNames
-            ]
-        }
-
-        private static func iso8601(_ date: Date) -> String {
-            ISO8601DateFormatter().string(from: date)
-        }
-    }
-
-    enum MemoryTopSort: String {
-        case peak
-        case average
-
-        var payloadValue: String {
-            rawValue
-        }
-
-        static func parse(_ raw: String?) throws -> MemoryTopSort {
-            guard let raw else { return .peak }
-            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            switch normalized {
-            case "peak", "max", "rss", "peak-rss":
-                return .peak
-            case "avg", "average", "mean", "avg-rss", "average-rss":
-                return .average
-            default:
-                throw CLIError(message: "--sort must be one of: peak, avg")
-            }
-        }
-    }
-
-    private enum MemorySubcommand: String {
-        case snapshot
-        case list
-        case top
-        case trim
-    }
-
     private func runMemoryCommand(
         command: String,
         commandArgs: [String],
@@ -11303,377 +11216,6 @@ struct CMUXCLI {
             } else {
                 print(renderMemoryTrimResult(result, idFormat: idFormat))
             }
-        }
-    }
-
-    private func parseMemorySubcommand(command: String, args: [String]) throws -> (MemorySubcommand, [String]) {
-        switch command {
-        case "memory-snapshot":
-            return (.snapshot, args)
-        case "memory-list":
-            return (.list, args)
-        case "memory-top":
-            return (.top, args)
-        case "memory-trim":
-            return (.trim, args)
-        case "memory":
-            guard let rawSubcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  !rawSubcommand.isEmpty else {
-                throw CLIError(message: "Usage: cmux memory <snapshot|list|top|trim> [flags]")
-            }
-            let rest = Array(args.dropFirst())
-            switch rawSubcommand {
-            case "snapshot", "snap":
-                return (.snapshot, rest)
-            case "list", "ls":
-                return (.list, rest)
-            case "top":
-                return (.top, rest)
-            case "trim":
-                return (.trim, rest)
-            default:
-                throw CLIError(message: "Unknown memory subcommand '\(rawSubcommand)'. Usage: cmux memory <snapshot|list|top|trim> [flags]")
-            }
-        default:
-            throw CLIError(message: "Unknown memory command '\(command)'")
-        }
-    }
-
-    private func parseMemoryCurrentOptions(_ args: [String], commandName: String) throws -> MemoryCurrentCommandOptions {
-        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
-        let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
-        var jsonOutput = false
-        var remaining: [String] = []
-        for arg in rem1 {
-            switch arg {
-            case "--json":
-                jsonOutput = true
-            case "--all":
-                continue
-            default:
-                remaining.append(arg)
-            }
-        }
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index> --limit <n> --json")
-        }
-        if let extra = remaining.first {
-            throw CLIError(message: "\(commandName): unexpected argument '\(extra)'")
-        }
-        let limit = try parsePositiveInt(limitOpt, label: "--limit")
-        return MemoryCurrentCommandOptions(
-            workspaceHandle: workspaceOpt,
-            jsonOutput: jsonOutput,
-            limit: limit
-        )
-    }
-
-    private func parseMemoryTopOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTopCommandOptions {
-        let (sinceOpt, rem0) = parseOption(args, name: "--since")
-        let (limitOpt, rem1) = parseOption(rem0, name: "--limit")
-        let (sortOpt, rem2) = parseOption(rem1, name: "--sort")
-        var jsonOutput = globalJSONOutput
-        var remaining: [String] = []
-        for arg in rem2 {
-            if arg == "--json" {
-                jsonOutput = true
-            } else {
-                remaining.append(arg)
-            }
-        }
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "memory top: unknown flag '\(unknown)'. Known flags: --since <duration> --limit <n> --sort <peak|avg> --json")
-        }
-        if let extra = remaining.first {
-            throw CLIError(message: "memory top: unexpected argument '\(extra)'")
-        }
-        let since = try parseMemoryDuration(sinceOpt ?? "6h", label: "--since")
-        let limit = try parsePositiveInt(limitOpt, label: "--limit") ?? 20
-        return MemoryTopCommandOptions(
-            since: since,
-            jsonOutput: jsonOutput,
-            limit: max(1, limit),
-            sort: try MemoryTopSort.parse(sortOpt)
-        )
-    }
-
-    private func parseMemoryTrimOptions(_ args: [String], jsonOutput globalJSONOutput: Bool) throws -> MemoryTrimCommandOptions {
-        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
-        let (agentOpt, rem1) = parseOption(rem0, name: "--agent")
-        let (graceOpt, rem2) = parseOption(rem1, name: "--grace")
-        let (graceSecondsOpt, rem3) = parseOption(rem2, name: "--grace-seconds")
-        var dryRun = false
-        var jsonOutput = globalJSONOutput
-        var remaining: [String] = []
-        for arg in rem3 {
-            switch arg {
-            case "--dry-run":
-                dryRun = true
-            case "--json":
-                jsonOutput = true
-            default:
-                remaining.append(arg)
-            }
-        }
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "memory trim: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index> --agent <name|pid|auto> --grace <duration> --grace-seconds <n> --dry-run --json")
-        }
-        if let extra = remaining.first {
-            throw CLIError(message: "memory trim: unexpected argument '\(extra)'")
-        }
-        let graceSeconds: TimeInterval
-        if let graceSecondsOpt {
-            graceSeconds = try parseMemoryDuration(graceSecondsOpt, label: "--grace-seconds")
-        } else {
-            graceSeconds = try parseMemoryDuration(graceOpt ?? "5s", label: "--grace")
-        }
-        let workspaceHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        return MemoryTrimCommandOptions(
-            workspaceHandle: workspaceHandle,
-            agent: agentOpt,
-            graceSeconds: max(0, graceSeconds),
-            dryRun: dryRun,
-            jsonOutput: jsonOutput
-        )
-    }
-
-    private func parseMemoryDuration(_ raw: String, label: String) throws -> TimeInterval {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !trimmed.isEmpty else {
-            throw CLIError(message: "\(label) requires a duration")
-        }
-        var suffixStart = trimmed.endIndex
-        while suffixStart > trimmed.startIndex {
-            let previous = trimmed.index(before: suffixStart)
-            guard trimmed[previous].isLetter else { break }
-            suffixStart = previous
-        }
-        let numberText = String(trimmed[..<suffixStart])
-        let suffix = String(trimmed[suffixStart...])
-        guard let value = Double(numberText), value >= 0 else {
-            throw CLIError(message: "\(label) must be a non-negative duration like 30s, 15m, 6h, or 1d")
-        }
-        switch suffix {
-        case "", "s", "sec", "secs", "second", "seconds":
-            return value
-        case "m", "min", "mins", "minute", "minutes":
-            return value * 60
-        case "h", "hr", "hrs", "hour", "hours":
-            return value * 60 * 60
-        case "d", "day", "days":
-            return value * 60 * 60 * 24
-        default:
-            throw CLIError(message: "\(label) has unsupported duration unit '\(suffix)'")
-        }
-    }
-
-    private func buildMemorySamples(
-        options: MemoryCurrentCommandOptions,
-        client: SocketClient
-    ) throws -> [MemoryWorkspaceSample] {
-        let payload = try buildMemoryTopPayload(
-            workspaceHandle: options.workspaceHandle,
-            client: client
-        )
-        var samples = memoryWorkspaceSamples(from: payload)
-        samples.sort {
-            if $0.residentBytes != $1.residentBytes {
-                return $0.residentBytes > $1.residentBytes
-            }
-            return ($0.workspaceRef ?? $0.workspaceId) < ($1.workspaceRef ?? $1.workspaceId)
-        }
-        return samples
-    }
-
-    private func limitedMemorySamples(_ samples: [MemoryWorkspaceSample], limit: Int?) -> [MemoryWorkspaceSample] {
-        guard let limit else { return samples }
-        return Array(samples.prefix(max(1, limit)))
-    }
-
-    func buildMemoryTopPayload(
-        workspaceHandle: String?,
-        client: SocketClient
-    ) throws -> [String: Any] {
-        var params: [String: Any] = [
-            "all_windows": true,
-            "include_processes": true
-        ]
-        if let workspaceHandle {
-            guard let normalized = try normalizeWorkspaceHandle(workspaceHandle, client: client) else {
-                throw CLIError(message: "Invalid workspace handle")
-            }
-            params["workspace_id"] = normalized
-        }
-        do {
-            return try client.sendV2(method: "system.top", params: params, responseTimeout: 30)
-        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux memory requires a running cmux build with system.top support")
-        }
-    }
-
-    private func memoryWorkspaceSamples(from payload: [String: Any]) -> [MemoryWorkspaceSample] {
-        let sampledAt = memorySampleDate(from: payload)
-        let windows = payload["windows"] as? [[String: Any]] ?? []
-        var samples: [MemoryWorkspaceSample] = []
-        for window in windows {
-            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
-            for workspace in workspaces {
-                let resources = workspace["resources"] as? [String: Any] ?? [:]
-                samples.append(
-                    MemoryWorkspaceSample(
-                        sampledAt: sampledAt,
-                        windowId: window["id"] as? String,
-                        windowRef: window["ref"] as? String,
-                        workspaceId: (workspace["id"] as? String) ?? "",
-                        workspaceRef: workspace["ref"] as? String,
-                        workspaceTitle: topLabelText(workspace["title"] as? String),
-                        cpuPercent: topDouble(resources["cpu_percent"]),
-                        memoryPercent: topDouble(resources["memory_percent"] ?? resources["percent_mem"]),
-                        residentBytes: topInt64(resources["resident_bytes"]),
-                        virtualBytes: topInt64(resources["virtual_bytes"]),
-                        processCount: topInt(resources["process_count"]) ?? 0,
-                        topProcessNames: topMemoryProcessNames(in: workspace)
-                    )
-                )
-            }
-        }
-        return samples.filter { !$0.workspaceId.isEmpty }
-    }
-
-    private func memorySampleDate(from payload: [String: Any]) -> Date {
-        if let sample = payload["sample"] as? [String: Any],
-           let raw = sample["sampled_at"] as? String,
-           let date = ISO8601DateFormatter().date(from: raw) {
-            return date
-        }
-        return Date()
-    }
-
-    private func topMemoryProcessNames(in workspace: [String: Any]) -> [String] {
-        var residentBytesByName: [String: Int64] = [:]
-        collectMemoryProcessNames(fromProcessesIn: workspace, into: &residentBytesByName)
-        for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-            collectMemoryProcessNames(fromProcessesIn: tag, into: &residentBytesByName)
-        }
-        for pane in workspace["panes"] as? [[String: Any]] ?? [] {
-            collectMemoryProcessNames(fromProcessesIn: pane, into: &residentBytesByName)
-            for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
-                collectMemoryProcessNames(fromProcessesIn: surface, into: &residentBytesByName)
-                for webview in surface["webviews"] as? [[String: Any]] ?? [] {
-                    collectMemoryProcessNames(fromProcessesIn: webview, into: &residentBytesByName)
-                }
-            }
-        }
-        return residentBytesByName
-            .sorted {
-                if $0.value != $1.value { return $0.value > $1.value }
-                return $0.key < $1.key
-            }
-            .prefix(5)
-            .map(\.key)
-    }
-
-    private func collectMemoryProcessNames(
-        fromProcessesIn node: [String: Any],
-        into residentBytesByName: inout [String: Int64]
-    ) {
-        let processes = node["processes"] as? [[String: Any]] ?? []
-        for process in processes {
-            collectMemoryProcessName(from: process, into: &residentBytesByName)
-        }
-    }
-
-    private func collectMemoryProcessName(
-        from process: [String: Any],
-        into residentBytesByName: inout [String: Int64]
-    ) {
-        let name = topLabelText(process["name"] as? String)
-        if !name.isEmpty {
-            let resources = process["resources"] as? [String: Any] ?? [:]
-            residentBytesByName[name, default: 0] += topInt64(resources["resident_bytes"])
-        }
-        for child in process["children"] as? [[String: Any]] ?? [] {
-            collectMemoryProcessName(from: child, into: &residentBytesByName)
-        }
-    }
-
-    private func renderMemorySamples(_ samples: [MemoryWorkspaceSample], idFormat: CLIIDFormat) -> String {
-        guard !samples.isEmpty else { return "No workspace memory samples" }
-        var lines = ["APPROX RSS  MEM%    CPU%    PROC  WORKSPACE       TITLE  TOP PROCESSES"]
-        for sample in samples {
-            let handle = memoryWorkspaceHandle(
-                id: sample.workspaceId,
-                ref: sample.workspaceRef,
-                idFormat: idFormat
-            )
-            let rss = padLeft(formatBytes(sample.residentBytes), width: 10)
-            let mem = padLeft(String(format: "%.1f%%", sample.memoryPercent), width: 7)
-            let cpu = padLeft(String(format: "%.1f%%", sample.cpuPercent), width: 7)
-            let proc = padLeft(String(sample.processCount), width: 5)
-            let title = sample.workspaceTitle.isEmpty ? "-" : sample.workspaceTitle
-            let processes = sample.topProcessNames.isEmpty ? "-" : sample.topProcessNames.joined(separator: ",")
-            lines.append("\(rss)  \(mem)  \(cpu)  \(proc)  \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title)  \(processes)")
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private func renderMemoryTopRows(_ rows: [[String: Any]], idFormat: CLIIDFormat) -> String {
-        guard !rows.isEmpty else { return "No memory samples in selected time window" }
-        var lines = ["PEAK RSS    AVG RSS     PEAK MEM  AVG MEM   PEAK CPU  AVG CPU   SAMPLES  LAST SAMPLE           WORKSPACE       TITLE"]
-        for row in rows {
-            let handle = memoryWorkspaceHandle(
-                id: row["workspace_id"] as? String,
-                ref: row["workspace_ref"] as? String,
-                idFormat: idFormat
-            )
-            let peakRSS = padLeft(formatBytes(topInt64(row["peak_rss_bytes"])), width: 10)
-            let avgRSS = padLeft(formatBytes(Int64(topDouble(row["avg_rss_bytes"]))), width: 10)
-            let peakMem = padLeft(String(format: "%.1f%%", topDouble(row["peak_memory_percent"])), width: 8)
-            let avgMem = padLeft(String(format: "%.1f%%", topDouble(row["avg_memory_percent"])), width: 8)
-            let peakCPU = padLeft(String(format: "%.1f%%", topDouble(row["peak_cpu_percent"])), width: 8)
-            let avgCPU = padLeft(String(format: "%.1f%%", topDouble(row["avg_cpu_percent"])), width: 8)
-            let samples = padLeft(String(topInt(row["sample_count"]) ?? 0), width: 7)
-            let lastSample = (row["last_sampled_at"] as? String) ?? "-"
-            let title = topLabelText(row["workspace_title"] as? String)
-            lines.append("\(peakRSS)  \(avgRSS)  \(peakMem)  \(avgMem)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title.isEmpty ? "-" : title)")
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private func renderMemoryTrimResult(_ result: MemoryTrimResult, idFormat: CLIIDFormat) -> String {
-        let workspace = memoryWorkspaceHandle(
-            id: result.workspaceId,
-            ref: result.workspaceRef,
-            idFormat: idFormat
-        )
-        let mode = result.dryRun ? "Would trim" : "Trimmed"
-        var parts = [
-            "\(mode) \(result.agent.displayName)",
-            "pid=\(result.agent.pid)",
-            "workspace=\(workspace)",
-            "rss=\(formatBytes(result.agent.residentBytes))"
-        ]
-        if let gracefulAction = result.gracefulAction {
-            parts.append("graceful=\"\(gracefulAction)\"")
-        }
-        parts.append("terminated=\(result.terminated ? "yes" : "no")")
-        parts.append("killed=\(result.killed ? "yes" : "no")")
-        parts.append("still_running=\(result.stillRunning ? "yes" : "no")")
-        return parts.joined(separator: " ")
-    }
-
-    private func memoryWorkspaceHandle(id: String?, ref: String?, idFormat: CLIIDFormat) -> String {
-        switch idFormat {
-        case .refs:
-            return (ref?.isEmpty == false ? ref : nil) ?? id ?? "?"
-        case .uuids:
-            return (id?.isEmpty == false ? id : nil) ?? ref ?? "?"
-        case .both:
-            let joined = [ref, id].compactMap { value in
-                guard let value, !value.isEmpty else { return nil }
-                return value
-            }.joined(separator: " ")
-            return joined.isEmpty ? "?" : joined
         }
     }
 
@@ -12884,7 +12426,7 @@ struct CMUXCLI {
         return "\(cpuText) \(rssText) \(countText)  "
     }
 
-    private func formatBytes(_ bytes: Int64) -> String {
+    func formatBytes(_ bytes: Int64) -> String {
         let units = ["B", "KB", "MB", "GB", "TB"]
         var value = Double(max(0, bytes))
         var unitIndex = 0
@@ -12898,12 +12440,12 @@ struct CMUXCLI {
         return String(format: "%.1f %@", value, units[unitIndex])
     }
 
-    private func padLeft(_ value: String, width: Int) -> String {
+    func padLeft(_ value: String, width: Int) -> String {
         guard value.count < width else { return value }
         return String(repeating: " ", count: width - value.count) + value
     }
 
-    private func topInt(_ raw: Any?) -> Int? {
+    func topInt(_ raw: Any?) -> Int? {
         if let value = raw as? Int {
             return value
         }
@@ -12916,7 +12458,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func topInt64(_ raw: Any?) -> Int64 {
+    func topInt64(_ raw: Any?) -> Int64 {
         if let value = raw as? Int64 {
             return value
         }
@@ -12933,7 +12475,7 @@ struct CMUXCLI {
         return 0
     }
 
-    private func topDouble(_ raw: Any?) -> Double {
+    func topDouble(_ raw: Any?) -> Double {
         if let value = raw as? Double {
             return value
         }

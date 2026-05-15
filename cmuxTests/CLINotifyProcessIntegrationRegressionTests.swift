@@ -2202,7 +2202,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         """
         XCTAssertEqual(sqlite3_prepare_v2(db, insert, -1, &stmt, nil), SQLITE_OK)
         defer { sqlite3_finalize(stmt) }
-        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
         sqlite3_bind_double(stmt, 1, sampledAt.timeIntervalSince1970)
         sqlite3_bind_text(stmt, 2, workspaceId, -1, transient)
         sqlite3_bind_text(stmt, 3, workspaceRef, -1, transient)

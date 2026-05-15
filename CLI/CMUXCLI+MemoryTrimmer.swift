@@ -4,14 +4,7 @@ import Foundation
 private func memoryTelemetryInt(_ raw: Any?) -> Int? {
     if let value = raw as? Int { return value }
     if let value = raw as? Int64 { return Int(exactly: value) }
-    if let value = raw as? Double {
-        guard value.isFinite,
-              value >= Double(Int.min),
-              value <= Double(Int.max) else {
-            return nil
-        }
-        return Int(value)
-    }
+    if let value = raw as? Double { return Int(exactly: value) }
     if let value = raw as? NSNumber { return value.intValue }
     if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
     return nil
@@ -20,14 +13,7 @@ private func memoryTelemetryInt(_ raw: Any?) -> Int? {
 private func memoryTelemetryInt64(_ raw: Any?) -> Int64 {
     if let value = raw as? Int64 { return value }
     if let value = raw as? Int { return Int64(value) }
-    if let value = raw as? Double {
-        guard value.isFinite,
-              value >= Double(Int64.min),
-              value <= Double(Int64.max) else {
-            return 0
-        }
-        return Int64(value)
-    }
+    if let value = raw as? Double { return Int64(exactly: value) ?? 0 }
     if let value = raw as? NSNumber { return value.int64Value }
     if let value = raw as? String {
         return Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
@@ -123,6 +109,8 @@ extension CMUXCLI {
     }
 
     struct MemoryTrimmer {
+        private static let postSignalWaitSeconds: TimeInterval = 1
+
         let cli: CMUXCLI
         let client: SocketClient
 
@@ -178,7 +166,7 @@ extension CMUXCLI {
                         terminated = true
                         attemptedShutdown = true
                     }
-                    _ = waitForProcessExit(pid: liveCandidate.pid, timeout: options.graceSeconds)
+                    _ = waitForProcessExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
 
                 if let liveCandidate = try revalidatedSignalCandidate(
@@ -189,7 +177,7 @@ extension CMUXCLI {
                         killed = true
                         attemptedShutdown = true
                     }
-                    _ = waitForProcessExit(pid: liveCandidate.pid, timeout: 1)
+                    _ = waitForProcessExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
             } else {
                 gracefulAction = graceful?.label
@@ -513,7 +501,7 @@ extension CMUXCLI {
                 return !isProcessRunning(pid: pid)
             }
 
-            let deadline = Date().addingTimeInterval(timeout)
+            let deadline = Date.now.addingTimeInterval(timeout)
             while true {
                 let remaining = deadline.timeIntervalSinceNow
                 guard remaining > 0 else { return !isProcessRunning(pid: pid) }

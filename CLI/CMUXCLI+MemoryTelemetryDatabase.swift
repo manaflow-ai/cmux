@@ -63,7 +63,7 @@ extension CMUXCLI {
             try open()
             try prune(retention: retention)
 
-            let cutoff = Date().addingTimeInterval(-since).timeIntervalSince1970
+            let cutoff = Date.now.addingTimeInterval(-since).timeIntervalSince1970
             let orderBy: String
             switch sort {
             case .peak:
@@ -164,7 +164,7 @@ extension CMUXCLI {
                 throw CLIError(message: sqliteMessage() ?? "SQLite prepare failed")
             }
             defer { sqlite3_finalize(stmt) }
-            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
             sqlite3_bind_double(stmt, 1, sample.sampledAt.timeIntervalSince1970)
             bindText(stmt, 2, sample.workspaceId, transient: transient)
             bindText(stmt, 3, sample.workspaceRef, transient: transient)
@@ -204,7 +204,7 @@ extension CMUXCLI {
 
         private func prune(retention: TimeInterval) throws {
             guard retention > 0 else { return }
-            let cutoff = Date().addingTimeInterval(-retention).timeIntervalSince1970
+            let cutoff = Date.now.addingTimeInterval(-retention).timeIntervalSince1970
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, "DELETE FROM workspace_memory_samples WHERE sampled_at < ?", -1, &stmt, nil) == SQLITE_OK,
                   let stmt else {
