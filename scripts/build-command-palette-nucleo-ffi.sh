@@ -42,15 +42,12 @@ rust_target_for_arch() {
 
 ensure_rust_target() {
   local target="$1"
-  if rustup target list --installed | grep -qx "$target"; then
-    return
-  fi
   if command -v rustup >/dev/null 2>&1; then
+    if rustup target list --installed | grep -qx "$target"; then
+      return
+    fi
     rustup target add "$target"
-    return
   fi
-  echo "error: Rust target $target is not installed and rustup is unavailable" >&2
-  exit 1
 }
 
 mkdir -p "${BUILD_OUTPUT_DIR}"

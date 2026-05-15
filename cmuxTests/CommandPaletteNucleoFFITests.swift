@@ -31,6 +31,29 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertEqual(resultIDs.first, "workspace.indigoMarkdownStudio")
     }
 
+    func testNucleoFFIMatchesAsciiQueryAgainstDiacriticTitle() throws {
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.cafe",
+                rank: 0,
+                title: "Café Notes",
+                searchableTexts: ["Café Notes", "Workspace"]
+            ),
+            FixtureEntry(
+                id: "workspace.cargo",
+                rank: 1,
+                title: "Cargo Notes",
+                searchableTexts: ["Cargo Notes", "Workspace"]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "cafe", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.cafe")
+    }
+
     func testNucleoFFIHandlesEmptyQuery() throws {
         let library = try NucleoLibrary()
         let entries = makeOpenFolderEntries()

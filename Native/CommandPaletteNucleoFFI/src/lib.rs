@@ -28,6 +28,7 @@ struct Candidate {
     title: String,
     search_text: String,
     rank: i32,
+    ascii_prefilter_safe: bool,
     ascii_mask_low: u64,
     ascii_mask_high: u64,
     title_initials: Vec<char>,
@@ -110,6 +111,7 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
         let Some(search_text) = text_from_blob(blob, span.search_offset, span.search_len) else {
             return std::ptr::null_mut();
         };
+        let ascii_prefilter_safe = title.is_ascii() && search_text.is_ascii();
         let (title_low, title_high) = ascii_mask(title);
         let (search_low, search_high) = ascii_mask(search_text);
         let title_initials = title_word_initials(title);
@@ -118,6 +120,7 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
             title: title.to_owned(),
             search_text: search_text.to_owned(),
             rank: span.rank,
+            ascii_prefilter_safe,
             ascii_mask_low: title_low | search_low,
             ascii_mask_high: title_high | search_high,
             title_initials,
@@ -263,11 +266,13 @@ unsafe fn cmux_nucleo_index_search_impl(
         let mut best_matches = BinaryHeap::with_capacity(output_limit);
 
         for (candidate_index, candidate) in index.candidates.iter().enumerate() {
-            if let Some((query_low, query_high)) = query_mask {
-                if query_low & !candidate.ascii_mask_low != 0
-                    || query_high & !candidate.ascii_mask_high != 0
-                {
-                    continue;
+            if candidate.ascii_prefilter_safe {
+                if let Some((query_low, query_high)) = query_mask {
+                    if query_low & !candidate.ascii_mask_low != 0
+                        || query_high & !candidate.ascii_mask_high != 0
+                    {
+                        continue;
+                    }
                 }
             }
 
