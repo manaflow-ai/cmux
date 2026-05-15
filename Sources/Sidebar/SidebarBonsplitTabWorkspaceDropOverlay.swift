@@ -110,7 +110,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let action = action(for: sender)
-        let accepted = acceptsDrag(sender, action: action)
+        let accepted = acceptsDrop(sender, action: action)
 #if DEBUG
         dlog(
             "sidebar.workspaceDropOverlay.prepare accepted=\(accepted ? 1 : 0) " +
@@ -123,7 +123,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropIndicator(nil) }
         let action = action(for: sender)
-        guard acceptsDrag(sender, action: action), let action else {
+        guard acceptsDrop(sender, action: action), let action else {
 #if DEBUG
             dlog(
                 "sidebar.workspaceDropOverlay.perform moved=0 reason=notAccepted " +
@@ -159,7 +159,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 
     private func updateDrag(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let action = action(for: sender)
-        guard acceptsDrag(sender, action: action), let action else {
+        guard canTrackDrag(sender, action: action), let action else {
             setDropIndicator(nil)
 #if DEBUG
             dlog(
@@ -187,11 +187,19 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         return .move
     }
 
-    private func acceptsDrag(
+    private func canTrackDrag(
         _ sender: any NSDraggingInfo,
         action: SidebarDropPlanner.WorkspaceDropAction?
     ) -> Bool {
-        guard sender.draggingPasteboard.types?.contains(Self.pasteboardType) == true else { return false }
+        guard action != nil else { return false }
+        return BonsplitTabDragPayload.hasTransferType(in: sender.draggingPasteboard)
+    }
+
+    private func acceptsDrop(
+        _ sender: any NSDraggingInfo,
+        action: SidebarDropPlanner.WorkspaceDropAction?
+    ) -> Bool {
+        guard canTrackDrag(sender, action: action) else { return false }
         guard hasValidTransfer(), let action else { return false }
         return canPerformAction(action)
     }
@@ -201,14 +209,15 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
-        guard let eventType = NSApp.currentEvent?.type else { return true }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
-            return true
-        default:
-            return false
+        if let eventType = NSApp.currentEvent?.type {
+            switch eventType {
+            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
+                break
+            default:
+                return false
+            }
         }
+        return BonsplitTabDragPayload.currentDragPasteboardHasTransferType()
     }
 
     private func localPoint(_ sender: any NSDraggingInfo) -> CGPoint {

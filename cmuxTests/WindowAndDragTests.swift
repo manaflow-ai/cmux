@@ -2983,6 +2983,16 @@ private final class DeferredBonsplitPasteboardOwner: NSObject {
     }
 }
 
+final class GhosttySurfaceSizeRetryPolicyTests: XCTestCase {
+    func testTabDragDeferralWaitsForMouseUpInsteadOfImmediateRetry() {
+        XCTAssertFalse(
+            GhosttySurfaceSizeRetryPolicy.shouldScheduleImmediateRetry(deferralReason: .tabDrag)
+        )
+        XCTAssertFalse(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: .leftMouseDragged))
+        XCTAssertTrue(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: .leftMouseUp))
+    }
+}
+
 @MainActor
 final class TmuxWorkspacePaneOverlayTests: XCTestCase {
     func testTmuxWorkspacePaneOverlayModelTracksFlashReason() {

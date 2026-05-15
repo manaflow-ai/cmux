@@ -14280,6 +14280,17 @@ enum BonsplitTabDragPayload {
         transfer(from: NSPasteboard(name: .drag))
     }
 
+    static func currentDragPasteboardHasTransferType() -> Bool {
+        hasTransferType(in: NSPasteboard(name: .drag))
+    }
+
+    static func hasTransferType(in pasteboard: NSPasteboard) -> Bool {
+        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+            return false
+        }
+        return pasteboard.types?.contains(NSPasteboard.PasteboardType(typeIdentifier)) == true
+    }
+
     static func transfer(from pasteboard: NSPasteboard) -> Transfer? {
         guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
             return nil
