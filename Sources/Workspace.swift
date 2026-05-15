@@ -1212,7 +1212,7 @@ extension Workspace {
             }
         }
         pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-        panel.surface.requestBackgroundSurfaceStartIfNeeded()
+        panel.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
@@ -8463,7 +8463,11 @@ final class Workspace: Identifiable, ObservableObject {
             return panels[panelId] as? TerminalPanel
         }
     }
-    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
+        backgroundPrimeTerminalPanels.forEach {
+            $0.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+        }
+    }
     func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
     @discardableResult
     func preloadTerminalPanelForDebugStress(

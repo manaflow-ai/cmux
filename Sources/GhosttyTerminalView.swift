@@ -5687,10 +5687,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     // start a terminal in a background workspace without selecting that workspace.
     // Ghostty can create from the attached NSView while it is off-window; geometry
     // and display id are reconciled later when the view is presented.
-    func requestBackgroundSurfaceStartIfNeeded() {
+    func requestBackgroundSurfaceStartIfNeeded(allowOffWindow: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.requestBackgroundSurfaceStartIfNeeded()
+                self?.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: allowOffWindow)
             }
             return
         }
@@ -5705,6 +5705,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
+            guard allowOffWindow || view.window != nil else {
+                #if DEBUG
+                cmuxDebugLog(
+                    "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
+                )
+                #endif
+                return
+            }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
