@@ -1,0 +1,21 @@
+{
+  "$schema": "./cef.lock.schema.json",
+  "comment": "Pinned CEF binary distribution for cmux. Update via vendor/fetch_cef.sh --update.",
+  "channel": "stable",
+  "version": "146.0.10+g8219561+chromium-146.0.7680.179",
+  "platforms": {
+    "macosarm64": {
+      "tarball": "cef_binary_146.0.10+g8219561+chromium-146.0.7680.179_macosarm64.tar.bz2",
+      "sha1": "a483c800e506a592c63b60b36a12127eea3fc39f",
+      "size_bytes": 282101327,
+      "extracted_dir_name": "cef_binary_146.0.10+g8219561+chromium-146.0.7680.179_macosarm64"
+    }
+  },
+  "sources": [
+    {
+      "name": "spotifycdn",
+      "base_url": "https://cef-builds.spotifycdn.com/",
+      "kind": "public"
+    }
+  ]
+}

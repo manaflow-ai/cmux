@@ -97,6 +97,15 @@
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
+		072C936A77433C881CEB999E /* BrowserEngineBackedPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B77447FF0E81CC9DE8DF935 /* BrowserEngineBackedPanel.swift */; };
+		2C4EEF951C0B3032EEF3FF20 /* CEFBrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF6F3F014B22A4412339DEF /* CEFBrowserPanelView.swift */; };
+		2ED1CFA236A19BEF10A66F8C /* CEFBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2663AE54AECC766B7D266810 /* CEFBrowserPanel.swift */; };
+		6D04248A3FEC88DB81E18115 /* BrowserEngineKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14EE82C15F89AC320545C0F /* BrowserEngineKind.swift */; };
+		CF3BFCA8C4D2C3275CDABDE1 /* Workspace+CEFBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBE0A4A673F9AACC734BF58 /* Workspace+CEFBrowser.swift */; };
+		DE42DE5EA39384DFC88AEAA8 /* AppDelegate+CEF.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F2FD4EF921AFDDC08C6021 /* AppDelegate+CEF.swift */; };
+		EEB483BBFDE329054E88832B /* CMUXCEF in Frameworks */ = {isa = PBXBuildFile; productRef = 8D3B18F693EFA3DAE0AE4484 /* CMUXCEF */; };
+		EEB483BCFDE329054E88832B /* cef.lock.json in Resources */ = {isa = PBXBuildFile; fileRef = EEB483BDFDE329054E88832B /* cef.lock.json */; };
+		F17BFA55B144BA47B323AF58 /* CrApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F54F562F65F5AFD65E23C2 /* CrApplication.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F013 /* FeedPermissionActionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F012 /* FeedPermissionActionPolicy.swift */; };
@@ -777,6 +786,9 @@
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
+		5B77447FF0E81CC9DE8DF935 /* BrowserEngineBackedPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BrowserEngineBackedPanel.swift; path = Panels/BrowserEngineBackedPanel.swift; sourceTree = "<group>"; };
+		2663AE54AECC766B7D266810 /* CEFBrowserPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CEFBrowserPanel.swift; path = Panels/CEFBrowserPanel.swift; sourceTree = "<group>"; };
+		DCF6F3F014B22A4412339DEF /* CEFBrowserPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CEFBrowserPanelView.swift; path = Panels/CEFBrowserPanelView.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -832,6 +844,11 @@
 		E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkspaceDefinition.swift; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
 		A5001655 /* CmuxActionTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxActionTrust.swift; sourceTree = "<group>"; };
+		4BBE0A4A673F9AACC734BF58 /* Workspace+CEFBrowser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+CEFBrowser.swift"; sourceTree = "<group>"; };
+		96F2FD4EF921AFDDC08C6021 /* AppDelegate+CEF.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CEF.swift"; sourceTree = "<group>"; };
+		B14EE82C15F89AC320545C0F /* BrowserEngineKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BrowserEngineKind.swift; sourceTree = "<group>"; };
+		C7F54F562F65F5AFD65E23C2 /* CrApplication.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CrApplication.swift; sourceTree = "<group>"; };
+		EEB483BDFDE329054E88832B /* cef.lock.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CEF/vendor/cef.lock.json; sourceTree = SOURCE_ROOT; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
 		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
@@ -988,6 +1005,7 @@
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				EEB483BBFDE329054E88832B /* CMUXCEF in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1158,6 +1176,7 @@
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
 				C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */,
 				D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */,
+				B14EE82C15F89AC320545C0F /* BrowserEngineKind.swift */,
 				D7AB34300000000000000002 /* SidebarDropPlanner.swift */,
 				D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */,
 				C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */,
@@ -1210,6 +1229,7 @@
 					A5001416 /* Workspace.swift */,
 					D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 					C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
+					4BBE0A4A673F9AACC734BF58 /* Workspace+CEFBrowser.swift */,
 					E30780000000000000000001 /* WorkspaceRemoteConfiguration.swift */,
 					D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */,
 					D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */,
@@ -1303,6 +1323,9 @@
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
+				5B77447FF0E81CC9DE8DF935 /* BrowserEngineBackedPanel.swift */,
+				2663AE54AECC766B7D266810 /* CEFBrowserPanel.swift */,
+				DCF6F3F014B22A4412339DEF /* CEFBrowserPanelView.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
@@ -1344,6 +1367,8 @@
 				A5001611 /* SessionPersistence.swift */,
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
+				C7F54F562F65F5AFD65E23C2 /* CrApplication.swift */,
+				96F2FD4EF921AFDDC08C6021 /* AppDelegate+CEF.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				A5001651 /* CmuxConfig.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
@@ -1378,6 +1403,7 @@
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
 				FEED0000000000000000F003 /* Feed */,
+				EEB483BDFDE329054E88832B /* cef.lock.json */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -1558,6 +1584,7 @@
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
+				0AC808F4EFD2F279ECDCD12E /* Embed CEF */,
 				D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */,
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
@@ -1583,6 +1610,7 @@
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
+				8D3B18F693EFA3DAE0AE4484 /* CMUXCEF */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
 			productName = GhosttyTabs;
@@ -1713,6 +1741,7 @@
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
+				E740A80C2FB1F9B500DE0F44 /* XCLocalSwiftPackageReference "CEF" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -1741,6 +1770,7 @@
 				FEED0000000000000000F007 /* opencode-plugin.js in Resources */,
 				FEED0A00000000000000F007 /* feed-tui in Resources */,
 				A9D9000000000000000F0017 /* markdown-viewer in Resources */,
+				EEB483BCFDE329054E88832B /* cef.lock.json in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1769,6 +1799,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		0AC808F4EFD2F279ECDCD12E /* Embed CEF */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/CEF/vendor/cef.lock.json",
+			);
+			name = "Embed CEF";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper",
+				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)",
+				"$(BUILT_PRODUCTS_DIR)/$(EXECUTABLE_FOLDER_PATH)/../Frameworks/cmux Helper (Renderer).app/Contents/MacOS/cmux Helper (Renderer)",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/CEF/Scripts/embed_cef_into_cmux.sh\"\n";
+		};
 		D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -1837,6 +1889,7 @@
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
+				6D04248A3FEC88DB81E18115 /* BrowserEngineKind.swift in Sources */,
 				D7AB34300000000000000001 /* SidebarDropPlanner.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
@@ -1888,6 +1941,7 @@
 					A5001406 /* Workspace.swift in Sources */,
 					D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 					C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
+					CF3BFCA8C4D2C3275CDABDE1 /* Workspace+CEFBrowser.swift in Sources */,
 					E30780000000000000000002 /* WorkspaceRemoteConfiguration.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */,
@@ -1985,6 +2039,9 @@
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
+				072C936A77433C881CEB999E /* BrowserEngineBackedPanel.swift in Sources */,
+				2ED1CFA236A19BEF10A66F8C /* CEFBrowserPanel.swift in Sources */,
+				2C4EEF951C0B3032EEF3FF20 /* CEFBrowserPanelView.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
@@ -2065,6 +2122,8 @@
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */,
 				36CE99ED050785B5E96B72BB /* AuthCallbackRouter.swift in Sources */,
+				F17BFA55B144BA47B323AF58 /* CrApplication.swift in Sources */,
+				DE42DE5EA39384DFC88AEAA8 /* AppDelegate+CEF.swift in Sources */,
 				D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
 				350DAC5EBD38642A3E81471A /* AuthManager.swift in Sources */,
 				698944F99A6ADFBA24A7BFB9 /* AuthSettingsStore.swift in Sources */,
@@ -2684,6 +2743,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
 		};
+		E740A80C2FB1F9B500DE0F44 /* XCLocalSwiftPackageReference "CEF" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = CEF;
+		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/bonsplit;
@@ -2755,6 +2818,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
 			productName = CMUXDebugLog;
+		};
+		8D3B18F693EFA3DAE0AE4484 /* CMUXCEF */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E740A80C2FB1F9B500DE0F44 /* XCLocalSwiftPackageReference "CEF" */;
+			productName = CMUXCEF;
 		};
 		A5001231 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

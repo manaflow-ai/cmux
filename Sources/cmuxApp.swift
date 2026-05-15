@@ -15,6 +15,11 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    /// Selects the browser engine for newly-created browser panes. See
+    /// ``BrowserEngineKind`` for the trade-offs; toggle lives under
+    /// **Debug → Browser Engine** in DEBUG builds.
+    @AppStorage(BrowserEngineKind.userDefaultsKey) private var browserEngineRaw = BrowserEngineKind.default.rawValue
+    @StateObject private var cefRuntimeInstaller = CEFRuntimeInstaller.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -303,6 +308,66 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                // MARK: - Browser engine (experimental)
+                //
+                // Switches *new* browser panes between the production
+                // WKWebView engine and the experimental CEF engine.
+                // Existing panes keep the engine they were born with;
+                // there is no live migration. CEF availability also
+                // depends on the `CEF/` Swift package being linked
+                // into this build and on the host OS meeting CEF's
+                // runtime floor.
+                Menu(String(
+                    localized: "debug.menu.browserEngine",
+                    defaultValue: "Browser Engine"
+                )) {
+                    ForEach(BrowserEngineKind.allCases, id: \.self) { kind in
+                        let isCurrent = BrowserEngineKind.current == kind
+                        let isAvailable = (kind != .cef) || BrowserEngineKind.canSelectCEF
+                        Button(action: {
+                            if kind == .cef {
+                                Task { @MainActor in
+                                    guard await cefRuntimeInstaller.ensureInstalledAfterUserConfirmation(
+                                        presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                                    ) else { return }
+                                    browserEngineRaw = kind.rawValue
+                                }
+                            } else {
+                                browserEngineRaw = kind.rawValue
+                            }
+                        }) {
+                            HStack {
+                                if isCurrent {
+                                    Image(systemName: "checkmark")
+                                        .frame(width: 16)
+                                } else {
+                                    Color.clear
+                                        .frame(width: 16, height: 1)
+                                }
+                                if kind == .cef, let status = cefRuntimeInstaller.menuStatusText {
+                                    Text("\(kind.displayLabel) (\(status))")
+                                } else {
+                                    Text(kind.displayLabel)
+                                }
+                            }
+                        }
+                        .disabled(!isAvailable || (kind == .cef && cefRuntimeInstaller.phase.isBusy))
+                    }
+                    if !BrowserEngineKind.isCEFAvailable {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefMissing",
+                            defaultValue: "CEF is not linked. See CEF/INTEGRATION.md."
+                        ))
+                    } else if !BrowserEngineKind.isCEFSupportedOnCurrentOS {
+                        Divider()
+                        Text(String(
+                            localized: "debug.menu.browserEngine.cefUnsupportedOS",
+                            defaultValue: "CEF requires macOS 15.0 or later."
+                        ))
+                    }
+                }
+                Divider()
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }
@@ -1163,6 +1228,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.aboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.browserImportHintDebug",
+    "cmux.cefRuntime.installProgress",
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.backgroundDebug",

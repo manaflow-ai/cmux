@@ -1003,6 +1003,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
+            #if DEBUG
+            if BrowserEngineKind.current == .cef, BrowserEngineKind.isCEFAvailable {
+                cmuxDebugLog("cef.startup.defer reason=launch")
+            }
+            #endif
             syncActivationPolicy()
         }
 
