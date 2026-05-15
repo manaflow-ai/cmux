@@ -120,6 +120,9 @@ jobs:
             brew install rustup-init
             rustup-init -y --profile minimal --default-toolchain stable
           fi
+          if ! rustup show active-toolchain >/dev/null 2>&1; then
+            rustup default stable
+          fi
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           ./scripts/install-zig-ci.sh
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
