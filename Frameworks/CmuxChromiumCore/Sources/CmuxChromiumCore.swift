@@ -145,6 +145,12 @@ final class CmuxChromiumBrowserView: NSView {
     private var persistentUserScripts: [String] = []
     private var persistentUserStyles: [String] = []
     private var lastPersistentStateKey: String?
+    private var attachedHostLayerContextID: UInt32 = 0
+    private var stateChangeNotifyPending = false
+    private var pressedMouseButton: OwlMouseButton?
+    private var lastContextMenuPoint: NSPoint?
+    private var lastPresentedNativeMenuGeneration = -1
+    private var activeNativeMenuPresenter: OwlNativeMenuPresenter?
 
     var stateChangedHandler: (() -> Void)?
     private(set) var currentURL: URL?
@@ -494,6 +500,10 @@ final class CmuxChromiumBrowserView: NSView {
     override func mouseMoved(with event: NSEvent) { postMouseEvent(event, type: .mouseMoved) }
     override func rightMouseDown(with event: NSEvent) { postMouseEvent(event, type: .rightMouseDown) }
     override func rightMouseUp(with event: NSEvent) { postMouseEvent(event, type: .rightMouseUp) }
+    override func rightMouseDragged(with event: NSEvent) { postMouseEvent(event, type: .rightMouseDragged) }
+    override func otherMouseDown(with event: NSEvent) { postMouseEvent(event, type: .otherMouseDown) }
+    override func otherMouseUp(with event: NSEvent) { postMouseEvent(event, type: .otherMouseUp) }
+    override func otherMouseDragged(with event: NSEvent) { postMouseEvent(event, type: .otherMouseDragged) }
     override func scrollWheel(with event: NSEvent) { postScrollEvent(event) }
     override func keyDown(with event: NSEvent) { postKeyEvent(event) }
     override func keyUp(with event: NSEvent) { postKeyEvent(event) }
@@ -724,45 +734,84 @@ final class CmuxChromiumBrowserView: NSView {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            var shouldNotify = false
             switch kind {
             case .ready, .compositor:
-                if hostPID > 0 {
+                if hostPID > 0, self.contentShellPID != pid_t(hostPID) {
                     self.contentShellPID = pid_t(hostPID)
+                    shouldNotify = true
                 }
                 if contextID != 0 {
-                    self.currentContextID = contextID
-                    self.attachHostLayer(contextID: contextID)
-                    self.estimatedProgress = max(self.estimatedProgress, 0.8)
+                    if self.currentContextID != contextID {
+                        self.currentContextID = contextID
+                        self.lastPersistentStateKey = nil
+                        shouldNotify = true
+                    }
+                    shouldNotify = self.attachHostLayer(contextID: contextID) || shouldNotify
+                    let nextProgress = max(self.estimatedProgress, 0.8)
+                    if self.estimatedProgress != nextProgress {
+                        self.estimatedProgress = nextProgress
+                        shouldNotify = true
+                    }
                     self.applyPersistentBrowserState()
                 }
             case .navigation:
                 if let urlString, let url = URL(string: urlString) {
-                    self.currentURL = url
-                    self.launchedURL = url
+                    if self.currentURL != url {
+                        self.currentURL = url
+                        shouldNotify = true
+                    }
+                    if self.launchedURL != url {
+                        self.launchedURL = url
+                        shouldNotify = true
+                    }
                     self.recordNavigation(url)
                     self.lastPersistentStateKey = nil
                 }
                 if let title, !title.isEmpty {
-                    self.currentTitle = title
+                    if self.currentTitle != title {
+                        self.currentTitle = title
+                        shouldNotify = true
+                    }
                 }
-                self.isLoading = loading
-                self.estimatedProgress = loading ? max(self.estimatedProgress, 0.4) : 1
+                if self.isLoading != loading {
+                    self.isLoading = loading
+                    shouldNotify = true
+                }
+                let nextProgress = loading ? max(self.estimatedProgress, 0.4) : 1
+                if self.estimatedProgress != nextProgress {
+                    self.estimatedProgress = nextProgress
+                    shouldNotify = true
+                }
                 if !loading {
                     self.applyPersistentBrowserState()
                 }
             case .disconnected:
-                self.isLoading = false
-                self.estimatedProgress = 0
+                if self.isLoading {
+                    self.isLoading = false
+                    shouldNotify = true
+                }
+                if self.estimatedProgress != 0 {
+                    self.estimatedProgress = 0
+                    shouldNotify = true
+                }
+                if self.freshMojoSession != nil {
+                    shouldNotify = true
+                }
                 self.freshMojoSession = nil
                 self.freshMojoPollTimer?.invalidate()
                 self.freshMojoPollTimer = nil
                 self.releaseFreshMojoUserDataPointer()
-            case .log, .surfaceTree, .none:
+            case .surfaceTree:
+                self.presentNativeMenuIfNeeded()
+            case .log, .none:
                 if kind == .log, let message {
                     cmuxChromiumLogger.debug("Runtime log: \(message, privacy: .private)")
                 }
             }
-            self.notifyStateChanged()
+            if shouldNotify {
+                self.notifyStateChanged()
+            }
         }
     }
 
@@ -778,11 +827,10 @@ final class CmuxChromiumBrowserView: NSView {
               let contextID = UInt32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               contextID != 0 else { return }
         if contextID == currentContextID {
-            applyPersistentBrowserState()
             return
         }
         currentContextID = contextID
-        attachHostLayer(contextID: contextID)
+        _ = attachHostLayer(contextID: contextID)
         isLoading = false
         estimatedProgress = 1
         applyPersistentBrowserState()
@@ -793,8 +841,17 @@ final class CmuxChromiumBrowserView: NSView {
         }
     }
 
-    private func attachHostLayer(contextID: UInt32) {
-        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type else { return }
+    @discardableResult
+    private func attachHostLayer(contextID: UInt32) -> Bool {
+        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type else { return false }
+        if attachedHostLayerContextID == contextID,
+           hostLayer?.superlayer === layer {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            hostLayer?.frame = bounds
+            CATransaction.commit()
+            return false
+        }
         let host = cls.init()
         host.setValue(NSNumber(value: contextID), forKey: "contextId")
         host.frame = bounds
@@ -804,7 +861,9 @@ final class CmuxChromiumBrowserView: NSView {
         hostLayer?.removeFromSuperlayer()
         layer?.addSublayer(host)
         hostLayer = host
+        attachedHostLayerContextID = contextID
         CATransaction.commit()
+        return true
     }
 
     private func writeResizeIfNeeded(force: Bool = false) {
@@ -834,9 +893,71 @@ final class CmuxChromiumBrowserView: NSView {
         try? payload.write(to: resizeFile, atomically: true, encoding: .utf8)
     }
 
+    private func presentNativeMenuIfNeeded() {
+        guard activeNativeMenuPresenter == nil,
+              let session = freshMojoSession,
+              let freshMojoRuntime,
+              let tree = freshMojoRuntime.surfaceTree(session),
+              tree.generation != lastPresentedNativeMenuGeneration,
+              let surface = tree.surfaces.last(where: {
+                  $0.kind == OwlFreshSurfaceKind.nativeMenu.rawValue
+                      && $0.visible
+                      && !$0.nativeMenuItems.isEmpty
+              }) else {
+            return
+        }
+
+        lastPresentedNativeMenuGeneration = tree.generation
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let presenter = OwlNativeMenuPresenter()
+        presenter.onSelect = { [weak self] index in
+            guard let self,
+                  let session = self.freshMojoSession else { return }
+            _ = self.freshMojoRuntime?.acceptActivePopupMenuItem(session, index: UInt32(index))
+        }
+        presenter.onCancel = { [weak self] in
+            guard let self,
+                  let session = self.freshMojoSession else { return }
+            _ = self.freshMojoRuntime?.cancelActivePopup(session)
+        }
+        presenter.onClose = { [weak self, weak presenter] in
+            guard let self,
+                  let presenter,
+                  self.activeNativeMenuPresenter === presenter else { return }
+            self.activeNativeMenuPresenter = nil
+        }
+        menu.delegate = presenter
+
+        for (index, item) in surface.nativeMenuItems.enumerated() {
+            if item.separator {
+                menu.addItem(.separator())
+                continue
+            }
+            let menuItem = NSMenuItem(title: item.label, action: #selector(OwlNativeMenuPresenter.selectItem(_:)), keyEquivalent: "")
+            menuItem.target = presenter
+            menuItem.tag = index
+            menuItem.isEnabled = item.enabled
+            menuItem.toolTip = item.toolTip.isEmpty ? nil : item.toolTip
+            menu.addItem(menuItem)
+        }
+
+        activeNativeMenuPresenter = presenter
+        let menuPoint = lastContextMenuPoint ?? NSPoint(
+            x: CGFloat(surface.x),
+            y: max(0, bounds.height - CGFloat(surface.y + surface.height))
+        )
+        lastContextMenuPoint = nil
+        menu.popUp(positioning: nil, at: menuPoint, in: self)
+    }
+
     private func notifyStateChanged() {
+        guard !stateChangeNotifyPending else { return }
+        stateChangeNotifyPending = true
         DispatchQueue.main.async { [weak self] in
-            self?.stateChangedHandler?()
+            guard let self else { return }
+            self.stateChangeNotifyPending = false
+            self.stateChangedHandler?()
         }
     }
 
@@ -1003,13 +1124,29 @@ final class CmuxChromiumBrowserView: NSView {
         default:
             mouseType = OwlMouseType.move.rawValue
         }
-        let button: UInt8
-        if type == .rightMouseDown || type == .rightMouseUp {
-            button = OwlMouseButton.right.rawValue
-        } else if event.buttonNumber == 2 || type == .otherMouseDown || type == .otherMouseUp {
-            button = OwlMouseButton.middle.rawValue
-        } else {
-            button = OwlMouseButton.left.rawValue
+        let button = mouseButton(for: event, type: type)
+        if type == .rightMouseDown {
+            lastContextMenuPoint = local
+        } else if mouseType == OwlMouseType.down.rawValue {
+            lastContextMenuPoint = nil
+        }
+        if mouseType == OwlMouseType.down.rawValue {
+            pressedMouseButton = button == .none ? nil : button
+        }
+        let eventButton: OwlMouseButton = {
+            switch type {
+            case .mouseMoved:
+                return .none
+            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+                return pressedMouseButton ?? button
+            default:
+                return button
+            }
+        }()
+        defer {
+            if mouseType == OwlMouseType.up.rawValue {
+                pressedMouseButton = nil
+            }
         }
         if let session = freshMojoSession,
            let freshMojoRuntime,
@@ -1018,7 +1155,7 @@ final class CmuxChromiumBrowserView: NSView {
                kind: UInt32(mouseType),
                x: Float(local.x),
                y: Float(max(0, bounds.height - local.y)),
-               button: UInt32(button),
+               button: UInt32(eventButton.rawValue),
                clickCount: UInt32(clamping: event.clickCount),
                deltaX: 0,
                deltaY: 0,
@@ -1030,12 +1167,31 @@ final class CmuxChromiumBrowserView: NSView {
             type: mouseType,
             x: Double(local.x),
             y: Double(max(0, bounds.height - local.y)),
-            button: button,
+            button: eventButton.rawValue,
             clickCount: UInt8(clamping: event.clickCount),
             deltaX: 0,
             deltaY: 0,
             modifiers: UInt32(truncatingIfNeeded: event.modifierFlags.rawValue)
         )
+    }
+
+    private func mouseButton(for event: NSEvent, type: CGEventType) -> OwlMouseButton {
+        switch type {
+        case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
+            return .right
+        case .otherMouseDown, .otherMouseUp, .otherMouseDragged:
+            return .middle
+        case .mouseMoved:
+            return .none
+        default:
+            if event.buttonNumber == 1 {
+                return .right
+            }
+            if event.buttonNumber == 2 {
+                return .middle
+            }
+            return .left
+        }
     }
 
     private func postScrollEvent(_ event: NSEvent) {
@@ -1048,7 +1204,7 @@ final class CmuxChromiumBrowserView: NSView {
                kind: UInt32(OwlMouseType.wheel.rawValue),
                x: Float(local.x),
                y: Float(max(0, bounds.height - local.y)),
-               button: UInt32(OwlMouseButton.left.rawValue),
+               button: UInt32(OwlMouseButton.none.rawValue),
                clickCount: 0,
                deltaX: Float(event.scrollingDeltaX),
                deltaY: Float(event.scrollingDeltaY),
@@ -1060,7 +1216,7 @@ final class CmuxChromiumBrowserView: NSView {
             type: OwlMouseType.wheel.rawValue,
             x: Double(local.x),
             y: Double(max(0, bounds.height - local.y)),
-            button: OwlMouseButton.left.rawValue,
+            button: OwlMouseButton.none.rawValue,
             clickCount: 0,
             deltaX: Double(event.scrollingDeltaX),
             deltaY: Double(event.scrollingDeltaY),
@@ -1166,10 +1322,15 @@ final class CmuxChromiumBrowserView: NSView {
         controlChannel.close()
         contentShellPID = 0
         currentContextID = 0
+        attachedHostLayerContextID = 0
         devToolsPort = nil
         devToolsPageWebSocketURL = nil
         hostLayer?.removeFromSuperlayer()
         hostLayer = nil
+        pressedMouseButton = nil
+        lastContextMenuPoint = nil
+        lastPresentedNativeMenuGeneration = -1
+        activeNativeMenuPresenter = nil
         launchedURL = nil
         isLoading = false
         estimatedProgress = 0
@@ -1234,6 +1395,14 @@ private enum OwlFreshMojoEventKind: Int32 {
     case surfaceTree = 6
 }
 
+private enum OwlFreshSurfaceKind: Int {
+    case webView = 0
+    case popupWidget = 1
+    case nativeMenu = 2
+    case nativeFilePicker = 3
+    case devTools = 4
+}
+
 private struct OwlFreshMojoEvent {
     var kind: Int32
     var contextID: UInt32
@@ -1242,6 +1411,47 @@ private struct OwlFreshMojoEvent {
     var url: UnsafePointer<CChar>?
     var title: UnsafePointer<CChar>?
     var message: UnsafePointer<CChar>?
+}
+
+private struct OwlFreshSurfaceTree: Decodable {
+    var generation: Int
+    var surfaces: [OwlFreshSurface]
+}
+
+private struct OwlFreshSurface: Decodable {
+    var kind: Int
+    var x: Int
+    var y: Int
+    var width: Int
+    var height: Int
+    var visible: Bool
+    var nativeMenuItems: [OwlFreshNativeMenuItem]
+}
+
+private struct OwlFreshNativeMenuItem: Decodable {
+    var label: String
+    var toolTip: String
+    var enabled: Bool
+    var separator: Bool
+}
+
+private final class OwlNativeMenuPresenter: NSObject, NSMenuDelegate {
+    var onSelect: ((Int) -> Void)?
+    var onCancel: (() -> Void)?
+    var onClose: (() -> Void)?
+    private var didSelectItem = false
+
+    @objc func selectItem(_ sender: NSMenuItem) {
+        didSelectItem = true
+        onSelect?(sender.tag)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if !didSelectItem {
+            onCancel?()
+        }
+        onClose?()
+    }
 }
 
 private typealias OwlFreshMojoEventCallback = @convention(c) (
@@ -1326,6 +1536,22 @@ private final class OwlFreshMojoRuntime {
         UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
         UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
     ) -> Int32
+    private typealias SurfaceTreeJSON = @convention(c) (
+        OpaquePointer?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) -> Int32
+    private typealias AcceptActivePopupMenuItem = @convention(c) (
+        OpaquePointer?,
+        UInt32,
+        UnsafeMutablePointer<Bool>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) -> Int32
+    private typealias CancelActivePopup = @convention(c) (
+        OpaquePointer?,
+        UnsafeMutablePointer<Bool>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) -> Int32
     private typealias PollEvents = @convention(c) (UInt32) -> Void
     private typealias FreeBuffer = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
@@ -1350,6 +1576,9 @@ private final class OwlFreshMojoRuntime {
     private let inputSendMouse: SendMouse
     private let inputSendKey: SendKey
     private let surfaceTreeCaptureSurfaceJSON: CaptureSurface
+    private let surfaceTreeGetJSON: SurfaceTreeJSON?
+    private let nativeSurfaceAcceptActivePopupMenuItem: AcceptActivePopupMenuItem?
+    private let nativeSurfaceCancelActivePopup: CancelActivePopup?
     private let pollEventsFunction: PollEvents
     private let freeBuffer: FreeBuffer
 
@@ -1375,6 +1604,9 @@ private final class OwlFreshMojoRuntime {
         inputSendMouse: SendMouse,
         inputSendKey: SendKey,
         surfaceTreeCaptureSurfaceJSON: CaptureSurface,
+        surfaceTreeGetJSON: SurfaceTreeJSON?,
+        nativeSurfaceAcceptActivePopupMenuItem: AcceptActivePopupMenuItem?,
+        nativeSurfaceCancelActivePopup: CancelActivePopup?,
         pollEventsFunction: PollEvents,
         freeBuffer: FreeBuffer
     ) {
@@ -1399,6 +1631,9 @@ private final class OwlFreshMojoRuntime {
         self.inputSendMouse = inputSendMouse
         self.inputSendKey = inputSendKey
         self.surfaceTreeCaptureSurfaceJSON = surfaceTreeCaptureSurfaceJSON
+        self.surfaceTreeGetJSON = surfaceTreeGetJSON
+        self.nativeSurfaceAcceptActivePopupMenuItem = nativeSurfaceAcceptActivePopupMenuItem
+        self.nativeSurfaceCancelActivePopup = nativeSurfaceCancelActivePopup
         self.pollEventsFunction = pollEventsFunction
         self.freeBuffer = freeBuffer
     }
@@ -1451,6 +1686,18 @@ private final class OwlFreshMojoRuntime {
             "owl_fresh_mojo_session_create_with_proxy",
             as: SessionCreateWithProxy.self
         )
+        let surfaceTreeGetJSON = symbol(
+            "owl_fresh_mojo_surface_tree_get_json",
+            as: SurfaceTreeJSON.self
+        )
+        let nativeSurfaceAcceptActivePopupMenuItem = symbol(
+            "owl_fresh_mojo_native_surface_accept_active_popup_menu_item",
+            as: AcceptActivePopupMenuItem.self
+        )
+        let nativeSurfaceCancelActivePopup = symbol(
+            "owl_fresh_mojo_native_surface_cancel_active_popup",
+            as: CancelActivePopup.self
+        )
 
         return OwlFreshMojoRuntime(
             handle: handle,
@@ -1474,6 +1721,9 @@ private final class OwlFreshMojoRuntime {
             inputSendMouse: inputSendMouse,
             inputSendKey: inputSendKey,
             surfaceTreeCaptureSurfaceJSON: surfaceTreeCaptureSurfaceJSON,
+            surfaceTreeGetJSON: surfaceTreeGetJSON,
+            nativeSurfaceAcceptActivePopupMenuItem: nativeSurfaceAcceptActivePopupMenuItem,
+            nativeSurfaceCancelActivePopup: nativeSurfaceCancelActivePopup,
             pollEventsFunction: pollEventsFunction,
             freeBuffer: freeBuffer
         )
@@ -1665,6 +1915,38 @@ private final class OwlFreshMojoRuntime {
         return NSImage(data: pngData)
     }
 
+    func surfaceTree(_ session: OpaquePointer) -> OwlFreshSurfaceTree? {
+        guard let surfaceTreeGetJSON else { return nil }
+        var result: UnsafeMutablePointer<CChar>?
+        var error: UnsafeMutablePointer<CChar>?
+        let status = surfaceTreeGetJSON(session, &result, &error)
+        consumeCString(error)
+        guard status == 0,
+              let json = consumeCString(result),
+              let data = json.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(OwlFreshSurfaceTree.self, from: data)
+    }
+
+    func acceptActivePopupMenuItem(_ session: OpaquePointer, index: UInt32) -> Bool {
+        guard let nativeSurfaceAcceptActivePopupMenuItem else { return false }
+        var ok = false
+        var error: UnsafeMutablePointer<CChar>?
+        let status = nativeSurfaceAcceptActivePopupMenuItem(session, index, &ok, &error)
+        consumeCString(error)
+        return status == 0 && ok
+    }
+
+    func cancelActivePopup(_ session: OpaquePointer) -> Bool {
+        guard let nativeSurfaceCancelActivePopup else { return false }
+        var ok = false
+        var error: UnsafeMutablePointer<CChar>?
+        let status = nativeSurfaceCancelActivePopup(session, &ok, &error)
+        consumeCString(error)
+        return status == 0 && ok
+    }
+
     func pollEvents(timeoutMilliseconds: UInt32) {
         pollEventsFunction(timeoutMilliseconds)
     }
@@ -1700,6 +1982,7 @@ private enum OwlMouseButton: UInt8 {
     case left = 0
     case middle = 1
     case right = 2
+    case none = 255
 }
 
 private enum OwlKeyType: UInt8 {

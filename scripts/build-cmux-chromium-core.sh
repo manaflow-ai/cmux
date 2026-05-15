@@ -8,8 +8,12 @@ FRAMEWORK_SOURCE="$SRCROOT/Frameworks/CmuxChromiumCore/Sources/CmuxChromiumCore.
 BUILD_ROOT="${CMUX_CHROMIUM_CORE_BUILD_DIR:-$SRCROOT/.build/CmuxChromiumCore}"
 FRAMEWORK_NAME="CmuxChromiumCore.framework"
 MODULE_NAME="CmuxChromiumCore"
-DEFAULT_DOWNLOAD_URL="https://github.com/manaflow-ai/chromium/releases/download/owl-chromium-cb711dd4af32/owl-chromium-runtime-macos-arm64-cb711dd4af32.tar.gz"
-DEFAULT_DOWNLOAD_SHA256="092f614b05c8f454aa142d8169e32255921c4051d99555172bf24c4d963b723e"
+CHROMIUM_RUNTIME_REVISION="66fc3593cef3"
+CHROMIUM_RUNTIME_RELEASE="66fc3593ce"
+CHROMIUM_RUNTIME_TAG="owl-chromium-${CHROMIUM_RUNTIME_RELEASE}"
+CHROMIUM_RUNTIME_BASENAME="owl-chromium-runtime-macos-arm64-${CHROMIUM_RUNTIME_REVISION}"
+DEFAULT_DOWNLOAD_URL="https://github.com/manaflow-ai/chromium/releases/download/${CHROMIUM_RUNTIME_TAG}/${CHROMIUM_RUNTIME_BASENAME}.tar.gz"
+DEFAULT_DOWNLOAD_SHA256="d412d1f2193b36900dcf0ea3a2436b5d8cf30cdc678503b68ebd86c9d73dd92b"
 DOWNLOAD_URL="${CMUX_CHROMIUM_CONTENT_SHELL_ARCHIVE_URL:-$DEFAULT_DOWNLOAD_URL}"
 EXPECTED_ARCHIVE_SHA256="${CMUX_CHROMIUM_CONTENT_SHELL_SHA256:-}"
 if [[ "$DOWNLOAD_URL" == "$DEFAULT_DOWNLOAD_URL" && -z "$EXPECTED_ARCHIVE_SHA256" ]]; then
@@ -19,7 +23,7 @@ if [[ "$DOWNLOAD_URL" != "$DEFAULT_DOWNLOAD_URL" && -z "$EXPECTED_ARCHIVE_SHA256
   echo "error: custom CMUX_CHROMIUM_CONTENT_SHELL_ARCHIVE_URL requires CMUX_CHROMIUM_CONTENT_SHELL_SHA256" >&2
   exit 1
 fi
-CACHE_ROOT="${CMUX_CHROMIUM_CONTENT_SHELL_CACHE:-$HOME/Library/Caches/cmux/chromium-content-shell/owl-chromium-cb711dd4af32}"
+CACHE_ROOT="${CMUX_CHROMIUM_CONTENT_SHELL_CACHE:-$HOME/Library/Caches/cmux/chromium-content-shell/${CHROMIUM_RUNTIME_TAG}}"
 RUNTIME_SANDBOX_DISABLED=false
 RUNTIME_USES_IN_PROCESS_GPU_BY_DEFAULT=false
 RUNTIME_FORBIDDEN_SWITCHES_JSON='["no-sandbox", "in-process-gpu"]'
@@ -80,7 +84,7 @@ resolve_content_shell_app() {
     candidates+=("$CMUX_CHROMIUM_CONTENT_SHELL_APP")
   fi
   candidates+=(
-    "$CACHE_ROOT/owl-chromium-runtime-macos-arm64-cb711dd4af32/Content Shell.app"
+    "$CACHE_ROOT/${CHROMIUM_RUNTIME_BASENAME}/Content Shell.app"
     "$CACHE_ROOT/Content Shell.app"
   )
   if [[ "${CMUX_CHROMIUM_ALLOW_LOCAL_CONTENT_SHELL:-0}" == "1" ]]; then
@@ -105,7 +109,7 @@ download_content_shell_if_needed() {
   mkdir -p "$CACHE_ROOT"
   local archive="$CACHE_ROOT/content-shell.tar.gz"
   if [[ "$DOWNLOAD_URL" == "$DEFAULT_DOWNLOAD_URL" ]]; then
-    archive="$CACHE_ROOT/owl-chromium-runtime-macos-arm64-cb711dd4af32.tar.gz"
+    archive="$CACHE_ROOT/${CHROMIUM_RUNTIME_BASENAME}.tar.gz"
   fi
   echo "Downloading patched browser runtime"
   curl -fL "$DOWNLOAD_URL" -o "$archive"
