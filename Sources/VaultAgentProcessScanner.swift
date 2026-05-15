@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import SQLite3
 
 extension RestorableAgentSessionIndex {
@@ -103,6 +104,20 @@ extension RestorableAgentSessionIndex {
         return openCodeExecutablePath(observed: observed, environment: environment)
     }
 
+    static func openCodeLaunchArgumentsForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> [String] {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        let executablePath = openCodeExecutablePath(observed: observed, environment: environment)
+        return openCodeLaunchArguments(observed: observed, executablePath: executablePath)
+    }
+
     static func openCodeFallbackSessionIdForProcess(
         arguments: [String],
         latestSessionIdForSolePanel: String?,
@@ -194,6 +209,10 @@ extension RestorableAgentSessionIndex {
                 observed: process.observed,
                 environment: process.environment
             )
+            let launchArguments = openCodeLaunchArguments(
+                observed: process.observed,
+                executablePath: executablePath
+            )
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .opencode,
                 sessionId: sessionId,
@@ -201,7 +220,7 @@ extension RestorableAgentSessionIndex {
                 launchCommand: AgentLaunchCommandSnapshot(
                     launcher: "opencode",
                     executablePath: executablePath,
-                    arguments: [executablePath],
+                    arguments: launchArguments,
                     workingDirectory: process.workingDirectory,
                     environment: process.observed.environment,
                     capturedAt: capturedAt,
@@ -241,6 +260,33 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
         return argumentExecutable ?? "opencode"
+    }
+
+    private static func openCodeLaunchArguments(
+        observed: VaultObservedAgentProcess,
+        executablePath: String
+    ) -> [String] {
+        let tail = openCodeLaunchTail(observed: observed)
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail) else {
+            return [executablePath]
+        }
+        return [executablePath] + preserved
+    }
+
+    private static func openCodeLaunchTail(observed: VaultObservedAgentProcess) -> [String] {
+        let arguments = observed.arguments
+        guard !arguments.isEmpty else { return [] }
+        if let executableIndex = arguments.firstIndex(where: { VaultObservedAgentProcess.argumentLooksLikeOpenCode($0) }) {
+            return Array(arguments.dropFirst(executableIndex + 1))
+        }
+        let processIdentityLooksLikeOpenCode = observed.executableBasenames.contains { basename in
+            VaultObservedAgentProcess.argumentLooksLikeOpenCode(basename)
+        }
+        guard processIdentityLooksLikeOpenCode else { return [] }
+        if arguments[0].hasPrefix("-") {
+            return arguments
+        }
+        return Array(arguments.dropFirst())
     }
 
     private static func executablePath(

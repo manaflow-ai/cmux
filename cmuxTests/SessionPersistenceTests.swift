@@ -2240,6 +2240,71 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectedOpenCodeLaunchArgumentsPreserveSafeForkContext() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-argv-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let executable = bin.appendingPathComponent("opencode", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let arguments = RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+            arguments: [
+                "node",
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "--agent",
+                "build",
+                "--port",
+                "4096",
+                "--session",
+                "old-session",
+                "--prompt",
+                "old prompt",
+                "/tmp/opencode repo"
+            ],
+            environment: ["PATH": "\(bin.path):/usr/bin"]
+        )
+        XCTAssertEqual(
+            arguments,
+            [
+                executable.path,
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "--agent",
+                "build",
+                "--port",
+                "4096",
+                "/tmp/opencode repo"
+            ]
+        )
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: executable.path,
+                arguments: arguments,
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/opencode repo' && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
+        )
+    }
+
     func testProcessDetectedOpenCodeSessionFallbackAvoidsAmbiguousSameDirectoryPanels() {
         XCTAssertEqual(
             RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
