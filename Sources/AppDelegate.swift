@@ -13746,7 +13746,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                let trackedPanel = self.browserPanel(for: trackedPanelId),
                !self.shouldPreserveBrowserAddressBarTracking(
                    for: trackedPanel,
-                   trackedPanelMatchesWebView: false
+                   trackedPanelMatchesWebView: false,
+                   pointerInitiatedWebFocus: pointerInitiated,
+                   in: webView.window
                ) {
                 trackedPanel.endSuppressWebViewFocusForAddressBar()
                 self.browserAddressBarFocusedPanelId = nil
