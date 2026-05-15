@@ -112,18 +112,19 @@ export async function POST(request: Request): Promise<Response> {
         // Allow callers to send no body at all. The handler already falls through to
         // default provider/image, so a bare `curl -X POST /api/vm` should create a default
         // VM. Empty is a default-create; malformed or non-object JSON is rejected below.
-        const parsedBody = await measureVmAsync(timing, "request_parse", async () => {
-          const rawText = await request.text();
-          const bodyWasEmpty = rawText.length === 0;
-          if (bodyWasEmpty) {
-            return { rawText, bodyWasEmpty, raw: undefined as unknown };
-          }
-          return { rawText, bodyWasEmpty, raw: JSON.parse(rawText) as unknown };
-        }).catch((err) => {
+        let parsedBody: { readonly bodyWasEmpty: boolean; readonly raw: unknown };
+        try {
+          parsedBody = await measureVmAsync(timing, "request_parse", async () => {
+            const rawText = await request.text();
+            const bodyWasEmpty = rawText.length === 0;
+            if (bodyWasEmpty) {
+              return { bodyWasEmpty, raw: undefined as unknown };
+            }
+            return { bodyWasEmpty, raw: JSON.parse(rawText) as unknown };
+          });
+        } catch (err) {
+          if (!(err instanceof SyntaxError)) throw err;
           recordSpanError(span, err);
-          return null;
-        });
-        if (!parsedBody) {
           return done(vmErrorResponse({
             error: "vm_json_parse_failed",
             status: 400,
