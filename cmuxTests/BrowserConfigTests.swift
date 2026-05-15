@@ -3610,6 +3610,69 @@ final class BrowserReadAccessURLTests: XCTestCase {
         let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
         XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
     }
+
+    func testWidensReadAccessToUserHomeForFilesUnderHome() throws {
+        // Files under the user's home directory should grant read access at
+        // the home root so sibling-directory assets (e.g. `../assets/style.css`
+        // referenced from a deeply nested generated report) resolve. Without
+        // this, WKWebView's sandbox blocks anything outside the page's
+        // immediate parent and the page renders unstyled.
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.standardizedFileURL
+        let containerName = "BrowserReadAccessURLTests-\(UUID().uuidString)"
+        let container = home.appendingPathComponent(containerName, isDirectory: true)
+        let nested = container
+            .appendingPathComponent("reports", isDirectory: true)
+            .appendingPathComponent("2026-05-15", isDirectory: true)
+        let file = nested.appendingPathComponent("kr-stocks.html")
+        try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: container) }
+        try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, home)
+    }
+
+    func testFallsBackToParentDirectoryForFilesOutsideHome() throws {
+        // /tmp is outside the user home; behavior should match the previous
+        // parent-directory fallback so we don't accidentally widen access on
+        // shared paths.
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .standardizedFileURL
+        let dir = tempRoot.appendingPathComponent(
+            "BrowserReadAccessURLTests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let file = dir.appendingPathComponent("sample.html")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
+
+        // Skip on machines where the system temp dir happens to live under
+        // the user's home (rare, e.g. some CI sandboxes).
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        try XCTSkipIf(tempRoot.path.hasPrefix(home + "/") || tempRoot.path == home)
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+}
+
+final class CommandClickFileOpenRouterBrowserRenderTests: XCTestCase {
+    func testHTMLExtensionsRouteToBrowser() {
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/index.html"))
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/INDEX.HTML"))
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/page.htm"))
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/page.xhtml"))
+    }
+
+    func testNonHTMLExtensionsDoNotRouteToBrowser() {
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/readme.md"))
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/main.swift"))
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/style.css"))
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/data.json"))
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRenderInBrowser(path: "/tmp/no-extension"))
+    }
 }
 
 

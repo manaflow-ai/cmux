@@ -981,12 +981,50 @@ struct BrowserPopupBrowserContext {
     let processPool: WKProcessPool
 }
 
+/// Roots that are reasonable to grant a `WKWebView` read access to when
+/// loading a local `file://` URL.
+///
+/// We start from the user's home directory because most authored HTML the
+/// user navigates to (project checkouts, generated reports, static-site
+/// previews) keeps its CSS/images in a sibling directory of the page itself
+/// (e.g. `<link href="../../assets/style.css">`). Granting access only to
+/// the page's parent directory — as `loadFileURL` does by default — leaves
+/// those resources blocked by WebKit's sandbox, so the page renders with
+/// User Agent default styling only and looks unstyled. Granting access to
+/// the user home keeps siblings reachable while still excluding system
+/// directories outside `$HOME`.
+///
+/// For files outside the user's home (e.g. `/tmp`, `/Volumes/...`) we fall
+/// back to the file's parent directory, matching the previous behavior.
+func browserReadAccessRootCandidates(fileManager: FileManager = .default) -> [URL] {
+    var roots: [URL] = []
+    let home = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
+    if !home.path.isEmpty, home.path.hasPrefix("/") {
+        roots.append(home)
+    }
+    return roots
+}
+
 func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
     guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
     let path = fileURL.path
     var isDirectory: ObjCBool = false
-    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+    let exists = fileManager.fileExists(atPath: path, isDirectory: &isDirectory)
+    if exists, isDirectory.boolValue {
         return fileURL
+    }
+
+    // Prefer a broader root (e.g. user home) so sibling assets referenced
+    // via `../assets/style.css` resolve. Only widen access to a root that
+    // actually contains the target file.
+    let standardizedTarget = fileURL.standardizedFileURL.path
+    for root in browserReadAccessRootCandidates(fileManager: fileManager) {
+        let rootPath = root.path
+        guard !rootPath.isEmpty, rootPath != "/" else { continue }
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        if standardizedTarget == rootPath || standardizedTarget.hasPrefix(prefix) {
+            return root
+        }
     }
 
     let parent = fileURL.deletingLastPathComponent()
