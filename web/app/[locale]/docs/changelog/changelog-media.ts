@@ -26,6 +26,31 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.6": {
+    title: "SSH Typing Restored, Command Palette Settings Toggles",
+    features: [
+      {
+        title: "SSH Typing Restored",
+        description:
+          "Fixes a critical regression in 0.64.5 where cmux ssh sessions would connect and render the remote prompt but drop every keystroke. The backgrounded ssh inside the startup wrapper now inherits the wrapper's stdin via <&0, so typing reaches the remote shell again. Thanks @kays0x for the community fix.",
+      },
+      {
+        title: "Command Palette Settings Toggles",
+        description:
+          "Boolean Settings rows are now reachable from the command palette, including iMessage Mode. Toggle features without opening Settings.",
+      },
+      {
+        title: "Sidebar Reorder Stays in View",
+        description:
+          "Reordering a selected workspace now keeps it visible — the sidebar scrolls along so the selected item never disappears off-screen after a move.",
+      },
+      {
+        title: "Cloud VM Error Guidance",
+        description:
+          "cmux vm errors now include actionable next steps: sign-in instructions when not authenticated, suggested fixes for unknown flags, and usage examples for missing arguments.",
+      },
+    ],
+  },
   "0.64.5": {
     title: "Codex Teams, Menubar Global Search, Markdown Viewer, Feed by Default",
     features: [

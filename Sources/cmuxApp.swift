@@ -851,7 +851,7 @@ struct cmuxApp: App {
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
-        NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
+        notificationStore.notificationMenuSnapshot
     }
 
     var activeTabManager: TabManager {
