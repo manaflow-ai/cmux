@@ -15592,6 +15592,10 @@ class TerminalController {
         var success = false
         v2MainSync {
             guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
+            guard terminalPanel.surface.acceptsTerminalInput else {
+                success = false
+                return
+            }
             if terminalPanel.surface.surface == nil {
                 _ = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0)
             }
