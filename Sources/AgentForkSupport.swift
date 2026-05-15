@@ -95,13 +95,7 @@ enum AgentForkSupport {
         environment: [String: String]?,
         workingDirectory: String?
     ) -> String {
-        var processEnvironment = ProcessInfo.processInfo.environment
-        if let environment {
-            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
-            for (key, value) in selectedEnvironment {
-                processEnvironment[key] = value
-            }
-        }
+        let processEnvironment = processEnvironmentForOpenCodeProbe(environment: environment)
         let relevantEnvironmentKeys = [
             "PATH",
             "OPENCODE_BIN",
@@ -153,14 +147,7 @@ enum AgentForkSupport {
             outputBuffer.append(data)
         }
 
-        var processEnvironment = ProcessInfo.processInfo.environment
-        if let environment {
-            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
-            for (key, value) in selectedEnvironment {
-                processEnvironment[key] = value
-            }
-        }
-        process.environment = processEnvironment
+        process.environment = processEnvironmentForOpenCodeProbe(environment: environment)
         let completion = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in completion.signal() }
 
@@ -185,6 +172,20 @@ enum AgentForkSupport {
         outputBuffer.append(remainingData)
         guard !timedOut else { return nil }
         return String(data: outputBuffer.value(), encoding: .utf8)
+    }
+
+    private static func processEnvironmentForOpenCodeProbe(environment: [String: String]?) -> [String: String] {
+        var processEnvironment = ProcessInfo.processInfo.environment
+        guard let environment else { return processEnvironment }
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        for (key, value) in selectedEnvironment {
+            processEnvironment[key] = value
+        }
+        if let path = environment["PATH"],
+           !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            processEnvironment["PATH"] = path
+        }
+        return processEnvironment
     }
 
     private static func openCodeProbeWorkingDirectory(snapshot: SessionRestorableAgentSnapshot) -> String? {

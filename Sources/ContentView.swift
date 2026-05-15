@@ -6063,18 +6063,15 @@ struct ContentView: View {
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
-                func finishProbe() {
-                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
-                }
                 if let fallbackFingerprint,
                    let currentContext = focusedPanelContext,
                    currentContext.workspace.id == workspaceId,
                    currentContext.panelId == panelId,
                    let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
                    Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
-                    finishProbe()
+                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
                     return
                 }
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
@@ -6093,7 +6090,9 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 }
-                finishProbe()
+                commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
                 if shouldRefreshResults,
                    isCommandPalettePresented,
                    commandPaletteForkableAgentActivePanelKey == panelKey {

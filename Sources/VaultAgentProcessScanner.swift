@@ -240,9 +240,7 @@ extension RestorableAgentSessionIndex {
         observed: VaultObservedAgentProcess,
         environment: [String: String]
     ) -> String {
-        let argumentExecutable = observed.arguments.first(where: { argument in
-            VaultObservedAgentProcess.argumentLooksLikeOpenCode(argument)
-        })
+        let argumentExecutable = observed.openCodeExecutableArgument
         if let argumentExecutable,
            argumentExecutable.contains("/") {
             return argumentExecutable
@@ -276,7 +274,7 @@ extension RestorableAgentSessionIndex {
     private static func openCodeLaunchTail(observed: VaultObservedAgentProcess) -> [String] {
         let arguments = observed.arguments
         guard !arguments.isEmpty else { return [] }
-        if let executableIndex = arguments.firstIndex(where: { VaultObservedAgentProcess.argumentLooksLikeOpenCode($0) }) {
+        if let executableIndex = observed.openCodeExecutableArgumentIndex {
             return Array(arguments.dropFirst(executableIndex + 1))
         }
         let processIdentityLooksLikeOpenCode = observed.executableBasenames.contains { basename in
@@ -390,13 +388,37 @@ private struct VaultObservedAgentProcess: Sendable {
     }
 
     var isOpenCodeProcess: Bool {
+        processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
+    }
+
+    var openCodeExecutableArgument: String? {
+        guard let index = openCodeExecutableArgumentIndex,
+              arguments.indices.contains(index) else {
+            return nil
+        }
+        return arguments[index]
+    }
+
+    var openCodeExecutableArgumentIndex: Int? {
+        if let first = arguments.first,
+           Self.argumentLooksLikeOpenCode(first) {
+            return 0
+        }
+        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
+            return nil
+        }
+        guard let scriptIndex = Self.nodeScriptArgumentIndex(arguments) else {
+            return nil
+        }
+        return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
+    }
+
+    private var processIdentityLooksLikeOpenCode: Bool {
         executableBasenames.contains { basename in
             let normalized = basename.lowercased()
             return normalized == "opencode" ||
                 normalized == ".opencode" ||
                 normalized == "opencode-ai"
-        } || arguments.contains { argument in
-            Self.argumentLooksLikeOpenCode(argument)
         }
     }
 
@@ -408,6 +430,63 @@ private struct VaultObservedAgentProcess: Sendable {
             basename == ".opencode" ||
             basename == "opencode-ai" ||
             pathComponents.contains("opencode-ai")
+    }
+
+    private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
+        switch basename.lowercased() {
+        case "node":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
+        guard !arguments.isEmpty else { return nil }
+        var index = 0
+        if wrapperLooksLikeNodeRuntime((arguments[0] as NSString).lastPathComponent) {
+            index = 1
+        }
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let nextIndex = index + 1
+                return nextIndex < arguments.count ? nextIndex : nil
+            }
+            if argument.hasPrefix("-") {
+                if nodeOptionConsumesScript(argument) {
+                    return nil
+                }
+                index += 1 + nodeOptionValueCount(argument)
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private static func nodeOptionConsumesScript(_ argument: String) -> Bool {
+        let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+        switch option {
+        case "-e", "--eval", "-p", "--print", "-c", "--check":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func nodeOptionValueCount(_ argument: String) -> Int {
+        if argument.contains("=") {
+            return 0
+        }
+        switch argument {
+        case "-r", "--require", "--import", "--loader", "--experimental-loader",
+             "--conditions", "-C", "--title", "--test-name-pattern",
+             "--test-reporter", "--test-reporter-destination":
+            return 1
+        default:
+            return 0
+        }
     }
 }
 

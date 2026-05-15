@@ -13268,8 +13268,11 @@ final class Workspace: Identifiable, ObservableObject {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> AgentConversationForkWorkspaceLaunch? {
+        var launchSnapshot = snapshot
+        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
+        launchSnapshot.workingDirectory = workingDirectory
         guard panels[panelId] is TerminalPanel,
-              let startupInput = snapshot.forkStartupInput(
+              let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteWorkspace
@@ -13279,7 +13282,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace()
         return AgentConversationForkWorkspaceLaunch(
-            workingDirectory: forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot),
+            workingDirectory: workingDirectory,
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteTerminalStartupCommand(),
             initialTerminalInput: startupInput,
             remoteConfiguration: remoteConfiguration
@@ -13294,9 +13297,12 @@ final class Workspace: Identifiable, ObservableObject {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
+        var launchSnapshot = snapshot
+        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
+        launchSnapshot.workingDirectory = workingDirectory
         guard panels[panelId] is TerminalPanel,
               let paneId = paneId(forPanelId: panelId),
-              let startupInput = snapshot.forkStartupInput(
+              let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteWorkspace
@@ -13313,7 +13319,7 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: paneId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            workingDirectory: forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot),
+            workingDirectory: workingDirectory,
             initialInput: startupInput,
             remoteStartupCommand: remoteStartupCommand
         )

@@ -2279,6 +2279,27 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
             )
         )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "tail",
+                processPath: "/usr/bin/tail",
+                arguments: ["tail", "-f", "/tmp/opencode"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
+            )
+        )
         XCTAssertEqual(
             RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
