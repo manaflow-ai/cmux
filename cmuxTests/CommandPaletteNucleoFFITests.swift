@@ -21,6 +21,19 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         )
     }
 
+    func testNucleoFFIMatchesMultiTokenQueriesAcrossFieldsWithoutOrderDependency() throws {
+        let library = try NucleoLibrary()
+        let entries = makeOpenFolderEntries()
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "directory open", limit: 4).map(\.id)
+
+        XCTAssertEqual(
+            Array(resultIDs.prefix(2)),
+            ["palette.openFolder", "palette.openFolderInVSCodeInline"]
+        )
+    }
+
     func testNucleoFFIPrefersTitleInitialismOverCompactInWordMatch() throws {
         let library = try NucleoLibrary()
         let entries = makeInitialismWorkspaceEntries()
