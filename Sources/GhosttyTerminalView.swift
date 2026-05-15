@@ -8364,6 +8364,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     in: window
                 )
             }
+            terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
         }
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
@@ -11798,6 +11799,15 @@ final class GhosttySurfaceScrollView: NSView {
         !surfaceView.suppressingReparentFocus || didSuppressReparentFirstResponder
     }
 
+    func clearReparentFocusSuppressionForPointerFocus() {
+        guard surfaceView.suppressingReparentFocus else { return }
+        surfaceView.suppressingReparentFocus = false
+        didSuppressReparentFirstResponder = false
+#if DEBUG
+        cmuxDebugLog("focus.reparent.pointerClear surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+    }
+
     func clearSuppressReparentFocus() {
         surfaceView.suppressingReparentFocus = false
         didSuppressReparentFirstResponder = false
@@ -11847,6 +11857,12 @@ final class GhosttySurfaceScrollView: NSView {
         guard let window, let fr = window.firstResponder as? NSView else { return false }
         return fr === surfaceView || fr.isDescendant(of: surfaceView)
     }
+
+#if DEBUG
+    func debugIsSuppressingReparentFocusForTesting() -> Bool {
+        surfaceView.suppressingReparentFocus
+    }
+#endif
 
     private func currentTerminalSurfaceOwnsFirstResponder() -> Bool {
         guard let window, let firstResponder = window.firstResponder as? NSView else { return false }

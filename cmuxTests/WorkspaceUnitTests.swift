@@ -3763,6 +3763,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         rightPanel.surface.setFocus(false)
         rightPanel.hostedView.setActive(false)
         rightPanel.hostedView.suppressReparentFocus()
+#if DEBUG
+        XCTAssertTrue(rightPanel.hostedView.debugIsSuppressingReparentFocusForTesting())
+#endif
 
         guard let rightSurfaceView = surfaceView(in: rightPanel.hostedView) else {
             XCTFail("Expected right terminal surface view")
@@ -3773,6 +3776,12 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         rightSurfaceView.mouseDown(with: event)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+#if DEBUG
+        XCTAssertFalse(
+            rightPanel.hostedView.debugIsSuppressingReparentFocusForTesting(),
+            "Explicit pointer focus should clear reparent-only focus suppression"
+        )
+#endif
 
         XCTAssertFalse(
             leftPanel.hostedView.debugRenderStats().isActive,
