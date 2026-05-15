@@ -67,7 +67,7 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
-  test("does not block create when usage event recording fails", async () => {
+  dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",
       providerVmId: null,
