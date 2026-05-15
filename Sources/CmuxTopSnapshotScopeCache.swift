@@ -85,76 +85,84 @@ nonisolated extension CmuxTopProcessSnapshot {
     }
 
     static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {
-        guard bytes.count > MemoryLayout<Int32>.size else { return nil }
-
-        var argcRaw: Int32 = 0
-        withUnsafeMutableBytes(of: &argcRaw) { rawBuffer in
-            rawBuffer.copyBytes(from: bytes.prefix(MemoryLayout<Int32>.size))
+        guard let process = processArgumentsAndEnvironment(fromKernProcArgs: bytes) else {
+            return nil
         }
-        let argc = Int(Int32(littleEndian: argcRaw))
-        guard argc > 0 else { return nil }
+        return cmuxScope(arguments: process.arguments, environment: process.environment)
+    }
 
-        var index = MemoryLayout<Int32>.size
-        skipString(in: bytes, index: &index)
-        skipNulls(in: bytes, index: &index)
-
-        for _ in 0..<argc {
-            guard index < bytes.count else { return nil }
-            skipString(in: bytes, index: &index)
-            skipNulls(in: bytes, index: &index)
+    static func cmuxScope(arguments: [String], environment: [String: String]) -> CmuxTopProcessScope? {
+        if let environmentScope = cmuxScopeFromEnvironment(environment) {
+            return environmentScope
         }
+        if let hookScope = cmuxHookMonitorScope(arguments: arguments) {
+            return hookScope
+        }
+        return nil
+    }
 
-        var workspaceID: UUID?
-        var surfaceID: UUID?
-        while index < bytes.count {
-            skipNulls(in: bytes, index: &index)
-            guard index < bytes.count else { break }
+    private static func cmuxScopeFromEnvironment(_ environment: [String: String]) -> CmuxTopProcessScope? {
+        let workspaceID = uuidValue(in: environment, keys: ["CMUX_WORKSPACE_ID", "CMUX_TAB_ID"])
+        let surfaceID = uuidValue(in: environment, keys: ["CMUX_SURFACE_ID", "CMUX_PANEL_ID"])
+        guard workspaceID != nil || surfaceID != nil else { return nil }
+        return CmuxTopProcessScope(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            attributionReason: "cmux-environment"
+        )
+    }
 
-            let start = index
-            skipString(in: bytes, index: &index)
-            guard start < index,
-                  let entry = String(bytes: bytes[start..<index], encoding: .utf8) else {
+    private static func cmuxHookMonitorScope(arguments: [String]) -> CmuxTopProcessScope? {
+        guard containsSubcommandPath(["hooks", "codex", "monitor"], in: arguments) else {
+            return nil
+        }
+        let workspaceID = uuidOptionValue(in: arguments, names: ["--workspace"])
+        let surfaceID = uuidOptionValue(in: arguments, names: ["--surface", "--panel"])
+        guard workspaceID != nil || surfaceID != nil else { return nil }
+        return CmuxTopProcessScope(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            attributionReason: "cmux-hook-arguments"
+        )
+    }
+
+    private static func containsSubcommandPath(_ path: [String], in arguments: [String]) -> Bool {
+        guard !path.isEmpty, arguments.count >= path.count else { return false }
+        let normalizedArguments = arguments.map {
+            URL(fileURLWithPath: $0).lastPathComponent.lowercased()
+        }
+        for startIndex in normalizedArguments.indices {
+            let endIndex = startIndex + path.count
+            guard endIndex <= normalizedArguments.count else { break }
+            if Array(normalizedArguments[startIndex..<endIndex]) == path {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func uuidValue(in environment: [String: String], keys: [String]) -> UUID? {
+        for key in keys {
+            guard let raw = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty,
+                  let uuid = UUID(uuidString: raw) else {
                 continue
             }
-
-            if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_WORKSPACE_ID") {
-                workspaceID = UUID(uuidString: value) ?? workspaceID
-            } else if workspaceID == nil,
-                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_TAB_ID") {
-                workspaceID = UUID(uuidString: value)
-            } else if let value = value(inEnvironmentEntry: entry, forKey: "CMUX_SURFACE_ID") {
-                surfaceID = UUID(uuidString: value) ?? surfaceID
-            } else if surfaceID == nil,
-                      let value = value(inEnvironmentEntry: entry, forKey: "CMUX_PANEL_ID") {
-                surfaceID = UUID(uuidString: value)
-            }
-
-            if workspaceID != nil, surfaceID != nil {
-                break
-            }
+            return uuid
         }
-
-        guard workspaceID != nil || surfaceID != nil else { return nil }
-        return CmuxTopProcessScope(workspaceID: workspaceID, surfaceID: surfaceID)
+        return nil
     }
 
-    private static func value(inEnvironmentEntry entry: String, forKey key: String) -> String? {
-        let prefix = "\(key)="
-        guard entry.hasPrefix(prefix) else { return nil }
-        let value = String(entry.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
-    private static func skipString(in bytes: [UInt8], index: inout Int) {
-        while index < bytes.count, bytes[index] != 0 {
-            index += 1
+    private static func uuidOptionValue(in arguments: [String], names: Set<String>) -> UUID? {
+        for index in arguments.indices {
+            guard names.contains(arguments[index]) else { continue }
+            let valueIndex = arguments.index(after: index)
+            guard valueIndex < arguments.endIndex else { continue }
+            let raw = arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty, let uuid = UUID(uuidString: raw) else { continue }
+            return uuid
         }
-    }
-
-    private static func skipNulls(in bytes: [UInt8], index: inout Int) {
-        while index < bytes.count, bytes[index] == 0 {
-            index += 1
-        }
+        return nil
     }
 
     private static func kinfoProc(for pid: Int) -> kinfo_proc? {
