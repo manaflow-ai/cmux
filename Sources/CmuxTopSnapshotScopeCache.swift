@@ -108,7 +108,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         return CmuxTopProcessScope(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            attributionReason: "session-env"
+            attributionReason: "cmux-environment"
         )
     }
 
@@ -122,32 +122,22 @@ nonisolated extension CmuxTopProcessSnapshot {
         return CmuxTopProcessScope(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            attributionReason: "hook-monitor"
+            attributionReason: "cmux-hook-arguments"
         )
     }
 
     private static func containsSubcommandPath(_ path: [String], in arguments: [String]) -> Bool {
         let normalizedPath = path.map { $0.lowercased() }
-        guard !normalizedPath.isEmpty else { return false }
-
-        if arguments.count >= normalizedPath.count + 1 {
-            let executableName = URL(fileURLWithPath: arguments[0])
-                .lastPathComponent
-                .lowercased()
-            let subcommands = arguments
-                .dropFirst()
-                .prefix(normalizedPath.count)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            if executableName == "cmux", Array(subcommands) == normalizedPath {
-                return true
-            }
-        }
-
-        guard arguments.count >= normalizedPath.count else { return false }
-        let leadingArguments = arguments
+        guard !normalizedPath.isEmpty, arguments.count >= normalizedPath.count + 1 else { return false }
+        let executableName = URL(fileURLWithPath: arguments[0])
+            .lastPathComponent
+            .lowercased()
+        guard executableName == "cmux" else { return false }
+        let subcommands = arguments
+            .dropFirst()
             .prefix(normalizedPath.count)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-        return Array(leadingArguments) == normalizedPath
+        return Array(subcommands) == normalizedPath
     }
 
     private static func uuidValue(in environment: [String: String], keys: [String]) -> UUID? {

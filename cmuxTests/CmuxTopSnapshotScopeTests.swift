@@ -271,7 +271,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         XCTAssertEqual(scope.workspaceID, workspaceID)
         XCTAssertEqual(scope.surfaceID, surfaceID)
-        XCTAssertEqual(scope.attributionReason, "hook-monitor")
+        XCTAssertEqual(scope.attributionReason, "cmux-hook-arguments")
     }
 
     func testCodexMonitorArgumentsIgnorePathValuedSubcommandLookalikes() {
@@ -284,6 +284,23 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
                 "/tmp/hooks",
                 "/tmp/codex",
                 "/tmp/monitor",
+                "--workspace",
+                workspaceID.uuidString
+            ],
+            environment: [:]
+        )
+
+        XCTAssertNil(scope)
+    }
+
+    func testCodexMonitorArgumentsRequireCmuxExecutable() {
+        let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+
+        let scope = CmuxTopProcessSnapshot.cmuxScope(
+            arguments: [
+                "hooks",
+                "codex",
+                "monitor",
                 "--workspace",
                 workspaceID.uuidString
             ],
@@ -385,7 +402,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(int(resources["process_count"]), 1)
         XCTAssertEqual(int(monitorProcess["pid"]), monitorPID)
         XCTAssertEqual(int(monitorProcess["ppid"]), 1)
-        XCTAssertEqual(monitorProcess["attribution_reason"] as? String, "hook-monitor")
+        XCTAssertEqual(monitorProcess["attribution_reason"] as? String, "cmux-hook-arguments")
         XCTAssertTrue(totalPIDs.contains(monitorPID))
     }
 
