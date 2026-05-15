@@ -2340,6 +2340,24 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
+    func testExplicitNoInheritanceLeavesNewWorkspaceCwdUnsetWhenGlobalInheritanceEnabled() throws {
+        try withWorkspaceWorkingDirectoryInheritanceSetting(nil) {
+            let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"
+            let manager = TabManager(
+                initialWorkingDirectory: sourceCwd,
+                autoWelcomeIfNeeded: false
+            )
+
+            let inserted = manager.addWorkspace(
+                inheritWorkingDirectory: false,
+                autoWelcomeIfNeeded: false
+            )
+
+            XCTAssertNil(inserted.focusedTerminalPanel?.requestedWorkingDirectory)
+            XCTAssertNotEqual(inserted.currentDirectory, sourceCwd)
+        }
+    }
+
     func testExplicitWorkspaceWorkingDirectoryWinsWhenInheritanceIsDisabled() throws {
         try withWorkspaceWorkingDirectoryInheritanceSetting(false) {
             let sourceCwd = "/tmp/cmux-source-\(UUID().uuidString)"

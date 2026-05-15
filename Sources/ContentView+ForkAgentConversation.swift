@@ -93,6 +93,7 @@ extension ContentView {
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
+                    inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
                     autoWelcomeIfNeeded: false
                 )
                 if let remoteConfiguration = launch.remoteConfiguration {
