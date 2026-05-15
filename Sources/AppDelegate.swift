@@ -12320,14 +12320,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let liveOmnibarFieldExists = browserOmnibarField(panelId: panelId, in: shortcutWindow) != nil
-        if shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+        let trackingContext = BrowserAddressBarTrackingContext(
             trackedPanelMatchesWebView: true,
             omnibarResponderActive: false,
             preferredFocusIntentIsAddressBar: panel.preferredFocusIntent == .addressBar,
             suppressesWebViewFocus: panel.shouldSuppressWebViewFocus(),
             pointerInitiatedWebFocus: false,
             liveOmnibarFieldExists: liveOmnibarFieldExists
-        ) {
+        )
+        if shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(trackingContext) {
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
@@ -12378,19 +12379,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func shouldPreserveBrowserAddressBarTracking(
         for panel: BrowserPanel,
+        trackedPanelMatchesWebView: Bool,
         pointerInitiatedWebFocus: Bool = false,
         in window: NSWindow? = nil
     ) -> Bool {
         guard browserAddressBarFocusedPanelId == panel.id else { return false }
         let resolvedWindow = window ?? panel.webView.window
-        return shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-            trackedPanelMatchesWebView: true,
+        let trackingContext = BrowserAddressBarTrackingContext(
+            trackedPanelMatchesWebView: trackedPanelMatchesWebView,
             omnibarResponderActive: isBrowserOmnibarResponder(resolvedWindow?.firstResponder),
             preferredFocusIntentIsAddressBar: panel.preferredFocusIntent == .addressBar,
             suppressesWebViewFocus: panel.shouldSuppressWebViewFocus(),
             pointerInitiatedWebFocus: pointerInitiatedWebFocus,
             liveOmnibarFieldExists: browserOmnibarField(panelId: panel.id, in: resolvedWindow) != nil
         )
+        return shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(trackingContext)
     }
 
     @discardableResult
@@ -13735,12 +13738,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             guard let webView = notification.object as? CmuxWebView,
                   let panel = self.browserPanelOwning(webView) else { return }
-            let pointerInitiated = notification.userInfo?["pointerInitiated"] as? Bool ?? false
+            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            let pointerInitiated = notification.userInfo?[pointerInitiatedKey] as? Bool ?? false
 
             if let trackedPanelId = self.browserAddressBarFocusedPanelId,
                trackedPanelId != panel.id,
                let trackedPanel = self.browserPanel(for: trackedPanelId),
-               !self.shouldPreserveBrowserAddressBarTracking(for: trackedPanel) {
+               !self.shouldPreserveBrowserAddressBarTracking(
+                   for: trackedPanel,
+                   trackedPanelMatchesWebView: false
+               ) {
                 trackedPanel.endSuppressWebViewFocusForAddressBar()
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
@@ -13754,6 +13761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             guard !self.shouldPreserveBrowserAddressBarTracking(
                 for: panel,
+                trackedPanelMatchesWebView: panel.webView === webView,
                 pointerInitiatedWebFocus: pointerInitiated,
                 in: webView.window
             ) else {

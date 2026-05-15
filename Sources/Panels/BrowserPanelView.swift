@@ -55,10 +55,10 @@ final class BrowserOmnibarNativeFieldRegistry {
         pruneDeadEntries(for: panelId)
         guard let entries = fields[panelId] else { return nil }
         let liveFields = entries.reversed().compactMap(\.field)
-        if let window, let windowField = liveFields.first(where: { $0.window === window }) {
-            return windowField
+        if let window {
+            return liveFields.first(where: { $0.window === window })
         }
-        return liveFields.first
+        return liveFields.first(where: { $0.window != nil }) ?? liveFields.first
     }
 
     func fieldOwningEditor(_ editor: NSTextView, in window: NSWindow? = nil) -> OmnibarNativeTextField? {

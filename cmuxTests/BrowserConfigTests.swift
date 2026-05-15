@@ -118,12 +118,14 @@ final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
     func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
         XCTAssertTrue(
             shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                trackedPanelMatchesWebView: true,
-                omnibarResponderActive: false,
-                preferredFocusIntentIsAddressBar: true,
-                suppressesWebViewFocus: false,
-                pointerInitiatedWebFocus: false,
-                liveOmnibarFieldExists: true
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: true,
+                    omnibarResponderActive: false,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: false,
+                    pointerInitiatedWebFocus: false,
+                    liveOmnibarFieldExists: true
+                )
             )
         )
     }
@@ -131,12 +133,14 @@ final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
     func testPointerWebViewFocusCanClearTrackedAddressBar() {
         XCTAssertFalse(
             shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                trackedPanelMatchesWebView: true,
-                omnibarResponderActive: false,
-                preferredFocusIntentIsAddressBar: true,
-                suppressesWebViewFocus: true,
-                pointerInitiatedWebFocus: true,
-                liveOmnibarFieldExists: true
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: true,
+                    omnibarResponderActive: false,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: true,
+                    pointerInitiatedWebFocus: true,
+                    liveOmnibarFieldExists: true
+                )
             )
         )
     }
@@ -144,14 +148,91 @@ final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
     func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
         XCTAssertFalse(
             shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                trackedPanelMatchesWebView: false,
-                omnibarResponderActive: true,
-                preferredFocusIntentIsAddressBar: true,
-                suppressesWebViewFocus: true,
-                pointerInitiatedWebFocus: false,
-                liveOmnibarFieldExists: true
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: false,
+                    omnibarResponderActive: true,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: true,
+                    pointerInitiatedWebFocus: false,
+                    liveOmnibarFieldExists: true
+                )
             )
         )
+    }
+}
+
+final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
+    @MainActor
+    func testSpecificWindowLookupDoesNotReturnFieldFromAnotherWindow() {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 20, y: 20, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
+        let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
+        firstWindow.contentView = firstContainer
+        secondWindow.contentView = secondContainer
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        field.panelId = panelId
+        firstContainer.addSubview(field)
+        registry.register(field, panelId: panelId)
+
+        defer {
+            registry.unregister(field, panelId: panelId)
+            field.removeFromSuperview()
+            firstWindow.contentView = nil
+            secondWindow.contentView = nil
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        XCTAssertTrue(registry.field(for: panelId, in: firstWindow) === field)
+        XCTAssertNil(registry.field(for: panelId, in: secondWindow))
+    }
+
+    @MainActor
+    func testNilWindowLookupPrefersAttachedFieldBeforeDetachedField() {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let attachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        attachedField.panelId = panelId
+        container.addSubview(attachedField)
+
+        let detachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        detachedField.panelId = panelId
+
+        registry.register(attachedField, panelId: panelId)
+        registry.register(detachedField, panelId: panelId)
+
+        defer {
+            registry.unregister(attachedField, panelId: panelId)
+            registry.unregister(detachedField, panelId: panelId)
+            attachedField.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(registry.field(for: panelId) === attachedField)
     }
 }
 
