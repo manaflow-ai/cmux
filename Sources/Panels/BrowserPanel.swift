@@ -14,6 +14,17 @@ import CommonCrypto
 import Security
 #endif
 
+func cmuxResponderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+    var responder = start
+    var hops = 0
+    while let current = responder, hops < 64 {
+        if current === target { return true }
+        responder = current.nextResponder
+        hops += 1
+    }
+    return false
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -2019,6 +2030,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    private var didTearDownWebViewForRelease = false
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -2731,6 +2743,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func tearDownCurrentWebViewForRelease(_ webView: WKWebView, reason: String) {
+        guard !didTearDownWebViewForRelease else { return }
+        didTearDownWebViewForRelease = true
         tearDownReactGrabMessageHandler(for: webView)
         Self.tearDownWebViewForRelease(webView, reason: reason)
     }
@@ -2744,7 +2758,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
         WebViewInspectorTeardown.closeInspector(for: webView)
         if let window = webView.window,
-           responderChainContains(window.firstResponder, target: webView) {
+           cmuxResponderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
         BrowserWindowPortalRegistry.detach(webView: webView)
@@ -3099,6 +3113,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
+        didTearDownWebViewForRelease = false
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
 
@@ -3443,6 +3458,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
+        didTearDownWebViewForRelease = false
         shouldRenderWebView = wasRenderable
 
         bindWebView(replacement)
@@ -3503,7 +3519,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if cmuxResponderChainContains(window.firstResponder, target: webView) {
             noteWebViewFocused()
             return
         }
@@ -3522,7 +3538,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if cmuxResponderChainContains(window.firstResponder, target: webView) {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             suppressOmnibarAutofocus(for: 1.5)
             noteWebViewFocused()
@@ -3537,7 +3553,7 @@ final class BrowserPanel: Panel, ObservableObject {
         DispatchQueue.main.async { [weak self, weak window, weak webView] in
             guard let self, let window, let webView else { return }
             guard webView.window === window else { return }
-            if !Self.responderChainContains(window.firstResponder, target: webView),
+            if !cmuxResponderChainContains(window.firstResponder, target: webView),
                window.makeFirstResponder(webView) {
                 self.suppressOmnibarAutofocus(for: 1.5)
                 self.noteWebViewFocused()
@@ -3550,7 +3566,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if cmuxResponderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
     }
@@ -4213,8 +4229,11 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
-        Task { @MainActor in
-            Self.tearDownWebViewForRelease(webView, reason: "panelDeinit")
+        let shouldTearDownWebView = !didTearDownWebViewForRelease
+        if shouldTearDownWebView {
+            Task { @MainActor in
+                Self.tearDownWebViewForRelease(webView, reason: "panelDeinit")
+            }
         }
     }
 }
@@ -4312,6 +4331,7 @@ extension BrowserPanel {
         )
         webViewInstanceID = UUID()
         webView = replacement
+        didTearDownWebViewForRelease = false
         shouldRenderWebView = false
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
@@ -5416,7 +5436,7 @@ extension BrowserPanel {
         }
 
         if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+           cmuxResponderChainContains(window.firstResponder, target: webView) {
             return .browser(.webView)
         }
 
@@ -5491,7 +5511,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if cmuxResponderChainContains(responder, target: webView) {
             return .browser(.webView)
         }
 
@@ -5525,7 +5545,7 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            guard cmuxResponderChainContains(window.firstResponder, target: webView) else { return false }
             return window.makeFirstResponder(nil)
         }
     }
@@ -5910,17 +5930,6 @@ private extension BrowserPanel {
         }
         webView.pageZoom = clamped
         return true
-    }
-
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
     }
 
     func hasSideDockedDeveloperToolsLayout() -> Bool {
