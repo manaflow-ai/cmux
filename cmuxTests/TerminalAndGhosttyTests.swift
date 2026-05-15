@@ -944,6 +944,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let panel = TerminalPanel(workspaceId: UUID())
 
         XCTAssertNil(panel.hostedView.window)
+        XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
         XCTAssertEqual(
             panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
             0,
@@ -957,7 +958,10 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             initialInput: "echo resume\n"
         )
 
-        XCTAssertNil(panel.hostedView.window)
+        XCTAssertTrue(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
+        )
         XCTAssertGreaterThan(
             panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
             0,
@@ -971,7 +975,10 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             initialCommand: "echo startup"
         )
 
-        XCTAssertNil(panel.hostedView.window)
+        XCTAssertTrue(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
+        )
         XCTAssertGreaterThan(
             panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
             0,

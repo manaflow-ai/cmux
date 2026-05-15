@@ -4488,6 +4488,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -4597,9 +4598,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
-        view.terminalSurface = self
-        view.tabId = tabId
-        attachedView = view
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
@@ -4609,11 +4607,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             || inheritedCommand?.isEmpty == false
             || inheritedInput?.isEmpty == false
 
-        // Bind the owned view immediately so cold socket input can start the runtime without
-        // waiting for window membership. Only surfaces with startup work create the runtime
-        // eagerly; ordinary empty test/helper surfaces still start lazily on attach or input.
+        // Surfaces with startup work must spawn before the user focuses their workspace.
+        // Ghostty's embedded surface creation still expects a view with a window, so use
+        // a hidden bootstrap window until the real portal host is ready.
         if hasStartupWork {
-            hostedView.attachSurface(self)
+            startRuntimeUsingHeadlessWindowIfNeeded(reason: "startup")
         }
     }
 
@@ -4621,6 +4619,77 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    private func startRuntimeUsingHeadlessWindowIfNeeded(reason: String) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+            }
+            return
+        }
+
+        guard allowsRuntimeSurfaceCreation() else { return }
+        guard surface == nil else { return }
+        ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        hostedView.attachSurface(self)
+    }
+
+    private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
+        guard headlessStartupWindow == nil else { return }
+        guard hostedView.window == nil else { return }
+
+        let width = max(surfaceView.bounds.width, CGFloat(800))
+        let height = max(surfaceView.bounds.height, CGFloat(600))
+        let frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.hasShadow = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+
+        let contentView = NSView(frame: frame)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.contentView = contentView
+        headlessStartupWindow = window
+
+#if DEBUG
+        cmuxDebugLog(
+            "surface.headless_window.create surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) window=\(ObjectIdentifier(window))"
+        )
+#endif
+    }
+
+    private func releaseHeadlessStartupWindowIfNeeded(for view: GhosttyNSView) {
+        guard let window = headlessStartupWindow else { return }
+        guard let currentWindow = view.window, currentWindow !== window else { return }
+        headlessStartupWindow = nil
+        window.contentView = nil
+        window.close()
+#if DEBUG
+        cmuxDebugLog(
+            "surface.headless_window.release surface=\(id.uuidString.prefix(8)) " +
+            "realWindow=\(ObjectIdentifier(currentWindow))"
+        )
+#endif
+    }
+
+    func reconcileAttachedWindowIfNeeded(for view: GhosttyNSView) {
+        guard attachedView === view else { return }
+        releaseHeadlessStartupWindowIfNeeded(for: view)
+        guard let screen = view.window?.screen ?? NSScreen.main,
+              let displayID = screen.displayID,
+              displayID != 0,
+              let s = surface else { return }
+        ghostty_surface_set_display_id(s, displayID)
     }
 
     private static func mergedNormalizedEnvironment(
@@ -5047,6 +5116,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
         // itself is unchanged.
         if attachedView === view && surface != nil {
+            releaseHeadlessStartupWindowIfNeeded(for: view)
 #if DEBUG
             cmuxDebugLog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
 #endif
@@ -5070,16 +5140,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         attachedView = view
+        releaseHeadlessStartupWindowIfNeeded(for: view)
 
-        // If the surface doesn't exist yet, create it against this owned NSView immediately.
-        // PTY startup and initial input must not depend on the view being attached to a
-        // window; first window attachment will reconcile display id, scale, and geometry.
+        // Ordinary portal attachment can arrive before AppKit has put the view in
+        // a window. Defer those. Startup and cold-input paths install the owned
+        // view in a hidden bootstrap window first, then come through here.
         if surface == nil {
             guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
                 cmuxDebugLog(
                     "surface.attach.skip surface=\(id.uuidString.prefix(5)) " +
                     "reason=lifecycle.\(portalLifecycleState.rawValue)"
+                )
+#endif
+                return
+            }
+            guard view.window != nil else {
+#if DEBUG
+                cmuxDebugLog(
+                    "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=noWindow " +
+                    "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
                 )
 #endif
                 return
@@ -5770,7 +5850,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil, attachedView != nil else { return }
+        guard surface == nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
@@ -5778,13 +5858,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard let self else { return }
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil, let view = self.attachedView else { return }
+            guard self.surface == nil else { return }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
-            self.createSurface(for: view)
+            if let view = self.attachedView, view.window != nil {
+                self.createSurface(for: view)
+            } else {
+                self.startRuntimeUsingHeadlessWindowIfNeeded(reason: "cold-input")
+            }
             #if DEBUG
             let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            let view = self.attachedView ?? self.surfaceView
             cmuxDebugLog(
                 "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
             )
@@ -6045,6 +6130,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func debugHasHeadlessStartupWindowForTesting() -> Bool {
+        headlessStartupWindow != nil
+    }
+
+    @MainActor
     func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
         let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
@@ -6095,6 +6185,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     deinit {
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
+        headlessStartupWindow?.contentView = nil
+        headlessStartupWindow?.close()
+        headlessStartupWindow = nil
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -6533,6 +6626,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         tabId = surface.tabId
         if !isAlreadyAttached {
             surface.attachToView(self)
+        } else {
+            surface.reconcileAttachedWindowIfNeeded(for: self)
         }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         if !isAlreadyAttached {
