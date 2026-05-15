@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -38,7 +39,6 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_PATH = Path.home() / ".config" / "cmux" / "cmux.json"
-LEGACY_PATH = Path.home() / ".config" / "cmux" / "settings.json"
 SCHEMA_URL = (
     "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
 )
@@ -345,6 +345,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print(f"ok: {path} parses")
         return 0
     unknown: list[str] = []
+    # Keep this in sync with top-level structural keys in web/data/cmux.schema.json.
     structural = {
         "$schema",
         "schemaVersion",
@@ -385,9 +386,17 @@ def cmd_open(args: argparse.Namespace) -> int:
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
     if editor:
         try:
-            return subprocess.call([*editor.split(), str(path)])
+            editor_args = shlex.split(editor)
+        except ValueError as e:
+            print(f"error: invalid editor command: {e}", file=sys.stderr)
+            return 1
+        if not editor_args:
+            print("error: editor command is empty", file=sys.stderr)
+            return 1
+        try:
+            return subprocess.call([*editor_args, str(path)])
         except FileNotFoundError:
-            print(f"error: editor not found: {editor.split()[0]}", file=sys.stderr)
+            print(f"error: editor not found: {editor_args[0]}", file=sys.stderr)
             return 1
     for app in (["code", "--wait"], ["cursor", "--wait"], ["open", "-e"], ["xdg-open"]):
         if shutil.which(app[0]):
