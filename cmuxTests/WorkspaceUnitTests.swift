@@ -4843,6 +4843,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
+        XCTAssertNil(forkPanel.requestedWorkingDirectory)
+        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
     }
@@ -4890,7 +4892,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
-        XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/Users/cmux/fallback repo")
+        XCTAssertNil(forkPanel.requestedWorkingDirectory)
+        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
             "cd '/Users/cmux/fallback repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
@@ -4975,11 +4978,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/project")
+        XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(
             launch.initialTerminalCommand,
             "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -tt cmux-macmini"
         )
         XCTAssertEqual(launch.initialTerminalInput, snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertTrue(launch.autoConnectRemoteConfiguration)
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.identityFile, "/Users/example/.ssh/cmux")
@@ -5030,10 +5035,48 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/fallback repo")
+        XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
             "cd '/Users/cmux/fallback repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+        )
+    }
+
+    func testForkAgentWorkspaceLaunchInLocalWorkspaceUsesLocalTerminalWorkingDirectory() throws {
+        let workspace = Workspace()
+        workspace.currentDirectory = "/tmp/local fork repo"
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let launch = try XCTUnwrap(
+            workspace.forkAgentWorkspaceLaunch(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot
+            )
+        )
+
+        XCTAssertEqual(launch.workingDirectory, "/tmp/local fork repo")
+        XCTAssertEqual(launch.terminalWorkingDirectory, "/tmp/local fork repo")
+        XCTAssertNil(launch.initialTerminalCommand)
+        XCTAssertFalse(launch.autoConnectRemoteConfiguration)
+        XCTAssertNil(launch.remoteConfiguration)
+        XCTAssertEqual(
+            launch.initialTerminalInput,
+            "cd '/tmp/local fork repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 

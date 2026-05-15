@@ -13241,9 +13241,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     struct AgentConversationForkWorkspaceLaunch: Equatable {
         var workingDirectory: String?
+        var terminalWorkingDirectory: String?
         var initialTerminalCommand: String?
         var initialTerminalInput: String
         var remoteConfiguration: WorkspaceRemoteConfiguration?
+        var autoConnectRemoteConfiguration: Bool
     }
 
     @discardableResult
@@ -13281,11 +13283,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace()
+        let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         return AgentConversationForkWorkspaceLaunch(
             workingDirectory: workingDirectory,
+            terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
             initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteTerminalStartupCommand(),
             initialTerminalInput: startupInput,
-            remoteConfiguration: remoteConfiguration
+            remoteConfiguration: remoteConfiguration,
+            autoConnectRemoteConfiguration: remoteConfiguration != nil
         )
     }
 
@@ -13319,10 +13324,15 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: paneId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            workingDirectory: workingDirectory,
+            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
             initialInput: startupInput,
             remoteStartupCommand: remoteStartupCommand
         )
+        if let forkedPanel,
+           remoteStartupCommand != nil,
+           let workingDirectory {
+            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+        }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
         }

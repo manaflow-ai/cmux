@@ -463,6 +463,51 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkExecutionIgnoresCachedSnapshotWithoutAuthoritativeSnapshot() {
+        let cached = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "stale-codex-session",
+            workingDirectory: "/tmp/stale repo",
+            launchCommand: nil
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "fallback-claude-session",
+            workingDirectory: "/tmp/fallback repo",
+            launchCommand: nil
+        )
+        let live = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "live-codex-session",
+            workingDirectory: "/tmp/live repo",
+            launchCommand: nil
+        )
+
+        XCTAssertNil(
+            ContentView.commandPaletteForkExecutionSnapshot(
+                indexSnapshot: nil,
+                fallbackSnapshot: nil,
+                cachedSnapshot: cached
+            )
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteForkExecutionSnapshot(
+                indexSnapshot: nil,
+                fallbackSnapshot: fallback,
+                cachedSnapshot: cached
+            )?.sessionId,
+            fallback.sessionId
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteForkExecutionSnapshot(
+                indexSnapshot: live,
+                fallbackSnapshot: fallback,
+                cachedSnapshot: cached
+            )?.sessionId,
+            live.sessionId
+        )
+    }
+
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
         let workspaceId = UUID()
         let panelId = UUID()
