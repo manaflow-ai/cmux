@@ -258,6 +258,23 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             )
         }
     }
+
+    func testDisabledStateMutesTitlebarButtons() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+
+            XCTAssertLessThan(
+                titlebarControlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
+                titlebarControlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+                "Expected disabled foreground to stay muted for style \(style)"
+            )
+            XCTAssertEqual(
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false, isEnabled: false),
+                0,
+                "Expected disabled titlebar button hover to have no active background for style \(style)"
+            )
+        }
+    }
 }
 
 final class AppIconAppearanceObserverTests: XCTestCase {

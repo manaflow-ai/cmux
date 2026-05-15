@@ -361,6 +361,11 @@ private enum TitlebarControlIconStyle {
 }
 
 func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Double {
+    titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: true)
+}
+
+func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool) -> Double {
+    guard isEnabled else { return 0.34 }
     if isPressed {
         return TitlebarControlIconStyle.pressedOpacity
     }
@@ -375,6 +380,16 @@ func titlebarControlBackgroundOpacity(
     isHovering: Bool,
     isPressed: Bool
 ) -> Double {
+    titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: isPressed, isEnabled: true)
+}
+
+func titlebarControlBackgroundOpacity(
+    config: TitlebarControlsStyleConfig,
+    isHovering: Bool,
+    isPressed: Bool,
+    isEnabled: Bool
+) -> Double {
+    guard isEnabled else { return 0 }
     if isPressed {
         return 0.14
     }
@@ -389,6 +404,16 @@ func titlebarControlBorderOpacity(
     isHovering: Bool,
     isPressed: Bool
 ) -> Double {
+    titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: isPressed, isEnabled: true)
+}
+
+func titlebarControlBorderOpacity(
+    config: TitlebarControlsStyleConfig,
+    isHovering: Bool,
+    isPressed: Bool,
+    isEnabled: Bool
+) -> Double {
+    guard isEnabled else { return config.buttonBackground ? 0.04 : 0 }
     if isPressed {
         return 0.11
     }
@@ -403,6 +428,7 @@ struct TitlebarControlButton<Content: View>: View {
     let accessibilityIdentifier: String
     let accessibilityLabel: String
     let action: () -> Void
+    var isEnabled = true
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
@@ -410,6 +436,7 @@ struct TitlebarControlButton<Content: View>: View {
         Button(action: action) {
             content()
         }
+        .disabled(!isEnabled)
         .buttonStyle(TitlebarControlButtonStyle(config: config))
         .frame(width: config.buttonSize, height: config.buttonSize)
         .contentShape(Rectangle())
@@ -424,6 +451,27 @@ struct TitlebarControlButton<Content: View>: View {
     }
 }
 
+struct FocusHistoryNavigationAvailability: Equatable {
+    let canNavigateBack: Bool
+    let canNavigateForward: Bool
+
+    static let unavailable = FocusHistoryNavigationAvailability(
+        canNavigateBack: false,
+        canNavigateForward: false
+    )
+}
+
+@MainActor
+func focusHistoryNavigationAvailability(preferredWindow: NSWindow?) -> FocusHistoryNavigationAvailability {
+    guard let manager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: preferredWindow) else {
+        return .unavailable
+    }
+    return FocusHistoryNavigationAvailability(
+        canNavigateBack: manager.canNavigateBack,
+        canNavigateForward: manager.canNavigateForward
+    )
+}
+
 private struct TitlebarControlButtonStyle: ButtonStyle {
     let config: TitlebarControlsStyleConfig
 
@@ -436,6 +484,7 @@ private struct TitlebarControlButtonStyleBody: View {
     let configuration: ButtonStyle.Configuration
     let config: TitlebarControlsStyleConfig
     @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         configuration.label
@@ -468,15 +517,29 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var foregroundOpacity: Double {
-        titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: configuration.isPressed)
+        titlebarControlForegroundOpacity(
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
     }
 
     private var backgroundOpacity: Double {
-        titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: configuration.isPressed)
+        titlebarControlBackgroundOpacity(
+            config: config,
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
     }
 
     private var borderOpacity: Double {
-        titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: configuration.isPressed)
+        titlebarControlBorderOpacity(
+            config: config,
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
     }
 }
 
@@ -526,6 +589,7 @@ struct TitlebarControlsView: View {
     @State private var shortcutRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
+    @State private var focusHistoryAvailabilityRevision: UInt64 = 0
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
@@ -592,6 +656,7 @@ struct TitlebarControlsView: View {
                         DispatchQueue.main.async {
                             if hostWindowNumber != nextWindowNumber {
                                 hostWindowNumber = nextWindowNumber
+                                focusHistoryAvailabilityRevision &+= 1
                             }
                         }
                     }
@@ -604,6 +669,12 @@ struct TitlebarControlsView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
+                focusHistoryAvailabilityRevision &+= 1
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+                focusHistoryAvailabilityRevision &+= 1
             }
             .onAppear {
                 modifierKeyMonitor.start()
@@ -623,9 +694,11 @@ struct TitlebarControlsView: View {
         titlebarShortcutHintVerticalOffset(for: config)
     }
 
+    @MainActor
     @ViewBuilder
     private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
+        let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
@@ -691,7 +764,8 @@ struct TitlebarControlsView: View {
                 config: config,
                 accessibilityIdentifier: "titlebarControl.focusHistoryBack",
                 accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
-                action: onFocusHistoryBack
+                action: onFocusHistoryBack,
+                isEnabled: focusHistoryAvailability.canNavigateBack
             ) {
                 iconLabel(systemName: "chevron.left", config: config)
             }
@@ -701,7 +775,8 @@ struct TitlebarControlsView: View {
                 config: config,
                 accessibilityIdentifier: "titlebarControl.focusHistoryForward",
                 accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
-                action: onFocusHistoryForward
+                action: onFocusHistoryForward,
+                isEnabled: focusHistoryAvailability.canNavigateForward
             ) {
                 iconLabel(systemName: "chevron.right", config: config)
             }
@@ -730,6 +805,21 @@ struct TitlebarControlsView: View {
                     titlebarShortcutHintOverlay(items: hintLayoutItems, config: config)
                 }
         }
+    }
+
+    @MainActor
+    private var focusHistoryNavigationAvailabilitySnapshot: FocusHistoryNavigationAvailability {
+        let _ = focusHistoryAvailabilityRevision
+        return focusHistoryNavigationAvailability(preferredWindow: focusHistoryTargetWindow)
+    }
+
+    @MainActor
+    private var focusHistoryTargetWindow: NSWindow? {
+        if let hostWindowNumber,
+           let hostWindow = NSApp.windows.first(where: { $0.windowNumber == hostWindowNumber }) {
+            return hostWindow
+        }
+        return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     private func titlebarHintLayoutItems(config: TitlebarControlsStyleConfig) -> [TitlebarHintLayoutItem] {
