@@ -533,9 +533,17 @@ enum AgentForkSupport {
         ) else {
             return false
         }
+        let workingDirectory = openCodeProbeWorkingDirectory(snapshot: snapshot)
+        guard shouldRunLocalOpenCodeVersionProbe(
+            probe: probe,
+            workingDirectory: workingDirectory
+        ) else {
+            return true
+        }
         let cacheKey = openCodeVersionProbeCacheKey(
             probe: probe,
-            environment: snapshot.launchCommand?.environment
+            environment: snapshot.launchCommand?.environment,
+            workingDirectory: workingDirectory
         )
         if let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
             return cached
@@ -543,7 +551,8 @@ enum AgentForkSupport {
         guard let output = await commandOutput(
             executable: probe.executable,
             arguments: probe.arguments,
-            environment: snapshot.launchCommand?.environment
+            environment: snapshot.launchCommand?.environment,
+            workingDirectory: workingDirectory
         ) else {
             await openCodeVersionProbeCache.store(false, for: cacheKey)
             return false
@@ -562,7 +571,8 @@ enum AgentForkSupport {
 
     private static func openCodeVersionProbeCacheKey(
         probe: (executable: String, arguments: [String]),
-        environment: [String: String]?
+        environment: [String: String]?,
+        workingDirectory: String?
     ) -> String {
         var processEnvironment = ProcessInfo.processInfo.environment
         if let environment {
@@ -579,19 +589,22 @@ enum AgentForkSupport {
         let environmentParts = relevantEnvironmentKeys.map { key in
             "\(key)=\(processEnvironment[key] ?? "")"
         }
-        return ([probe.executable] + probe.arguments + environmentParts).joined(separator: "\u{1f}")
+        return ([probe.executable] + probe.arguments + environmentParts + ["cwd=\(workingDirectory ?? "")"])
+            .joined(separator: "\u{1f}")
     }
 
     private static func commandOutput(
         executable: String,
         arguments: [String],
-        environment: [String: String]?
+        environment: [String: String]?,
+        workingDirectory: String?
     ) async -> String? {
         await Task.detached(priority: .utility) {
             commandOutputSynchronously(
                 executable: executable,
                 arguments: arguments,
-                environment: environment
+                environment: environment,
+                workingDirectory: workingDirectory
             )
         }.value
     }
@@ -599,11 +612,15 @@ enum AgentForkSupport {
     private static func commandOutputSynchronously(
         executable: String,
         arguments: [String],
-        environment: [String: String]?
+        environment: [String: String]?,
+        workingDirectory: String?
     ) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
+        if let workingDirectoryURL = localDirectoryURL(path: workingDirectory) {
+            process.currentDirectoryURL = workingDirectoryURL
+        }
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -647,6 +664,41 @@ enum AgentForkSupport {
         outputBuffer.append(remainingData)
         guard !timedOut else { return nil }
         return String(data: outputBuffer.value(), encoding: .utf8)
+    }
+
+    private static func openCodeProbeWorkingDirectory(snapshot: SessionRestorableAgentSnapshot) -> String? {
+        normalized(snapshot.launchCommand?.workingDirectory) ?? normalized(snapshot.workingDirectory)
+    }
+
+    private static func shouldRunLocalOpenCodeVersionProbe(
+        probe: (executable: String, arguments: [String]),
+        workingDirectory: String?
+    ) -> Bool {
+        if let workingDirectory, localDirectoryURL(path: workingDirectory) == nil {
+            return false
+        }
+        if probe.executable.hasPrefix("/") {
+            return FileManager.default.isExecutableFile(atPath: probe.executable)
+        }
+        return true
+    }
+
+    private static func localDirectoryURL(path: String?) -> URL? {
+        guard let path = normalized(path) else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }
 
@@ -730,25 +782,29 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func forkStartupInput(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true
     ) -> String? {
         startupInput(
             command: forkCommand,
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript
         )
     }
 
     private func startupInput(
         command: String?,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        allowLauncherScript: Bool = true
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
+        guard allowLauncherScript else { return nil }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
             command: command,
             kind: kind,

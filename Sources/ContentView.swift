@@ -5893,14 +5893,15 @@ struct ContentView: View {
     }
 
     private static func commandPaletteSnapshotForkAvailability(
-        _ snapshot: SessionRestorableAgentSnapshot
+        _ snapshot: SessionRestorableAgentSnapshot,
+        isRemoteTerminal: Bool = false
     ) -> CommandPaletteForkSnapshotAvailability {
         guard snapshot.forkCommand != nil else { return .unsupported }
         switch snapshot.kind {
         case .claude, .codex:
             return .supportedWithoutProbe
         case .opencode:
-            return snapshot.launchCommand?.launcher == "omo" ? .supportedWithoutProbe : .requiresProbe
+            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         default:
             return .unsupported
         }
@@ -5928,7 +5929,8 @@ struct ContentView: View {
         workspaceId: UUID,
         panelId: UUID,
         supportedPanelKeys: Set<String>,
-        fallbackSnapshot: SessionRestorableAgentSnapshot?
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false
     ) -> Bool {
         let panelKey = commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
@@ -5936,12 +5938,18 @@ struct ContentView: View {
         )
         if supportedPanelKeys.contains(panelKey) {
             if let fallbackSnapshot {
-                return commandPaletteSnapshotForkAvailability(fallbackSnapshot) != .unsupported
+                return commandPaletteSnapshotForkAvailability(
+                    fallbackSnapshot,
+                    isRemoteTerminal: isRemoteTerminal
+                ) != .unsupported
             }
             return true
         }
         if let fallbackSnapshot {
-            return commandPaletteSnapshotForkAvailability(fallbackSnapshot) == .supportedWithoutProbe
+            return commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) == .supportedWithoutProbe
         }
         return false
     }
@@ -5957,6 +5965,8 @@ struct ContentView: View {
 
         let workspaceId = panelContext.workspace.id
         let panelId = panelContext.panelId
+        let isRemoteTerminal = panelContext.workspace.isRemoteWorkspace ||
+            panelContext.workspace.isRemoteTerminalSurface(panelId)
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
@@ -5970,7 +5980,10 @@ struct ContentView: View {
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
             }
-            switch Self.commandPaletteSnapshotForkAvailability(fallbackSnapshot) {
+            switch Self.commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) {
             case .supportedWithoutProbe:
                 cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
                 commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
@@ -6263,6 +6276,8 @@ struct ContentView: View {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
+            let panelIsRemoteTerminal = workspace.isRemoteWorkspace ||
+                workspace.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
@@ -6275,7 +6290,8 @@ struct ContentView: View {
                     workspaceId: workspace.id,
                     panelId: panelId,
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
-                    fallbackSnapshot: fallbackForkableSnapshot
+                    fallbackSnapshot: fallbackForkableSnapshot,
+                    isRemoteTerminal: panelIsRemoteTerminal
                 )
             )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)

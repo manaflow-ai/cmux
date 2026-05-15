@@ -425,6 +425,15 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: directOpenCode,
+                isRemoteTerminal: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
                 fallbackSnapshot: omoOpenCode
             )
         )

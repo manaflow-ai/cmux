@@ -13269,7 +13269,8 @@ final class Workspace: Identifiable, ObservableObject {
         guard panels[panelId] is TerminalPanel,
               let startupInput = snapshot.forkStartupInput(
                   fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory
+                  temporaryDirectory: temporaryDirectory,
+                  allowLauncherScript: !isRemoteWorkspace
               ) else {
             return nil
         }
@@ -13295,7 +13296,8 @@ final class Workspace: Identifiable, ObservableObject {
               let paneId = paneId(forPanelId: panelId),
               let startupInput = snapshot.forkStartupInput(
                   fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory
+                  temporaryDirectory: temporaryDirectory,
+                  allowLauncherScript: !isRemoteWorkspace
               ) else {
             return nil
         }

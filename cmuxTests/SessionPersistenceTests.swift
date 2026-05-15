@@ -2174,6 +2174,59 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertFalse(AgentForkSupport.openCodeVersionSupportsFork("not a version"))
     }
 
+    func testOpenCodeForkSupportProbesFromLaunchWorkingDirectory() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-probe-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        echo 'opencode 1.14.50'
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode"],
+                workingDirectory: root.path,
+                environment: ["PATH": ".:/usr/bin:/bin"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertTrue(supportsFork)
+    }
+
+    func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-remote",
+            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/remote/bin/opencode",
+                arguments: ["/remote/bin/opencode"],
+                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                environment: ["PATH": "/remote/bin:/usr/bin"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertTrue(supportsFork)
+    }
+
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
         XCTAssertTrue(
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
