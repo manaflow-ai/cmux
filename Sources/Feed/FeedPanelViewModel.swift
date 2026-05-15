@@ -46,20 +46,28 @@ final class FeedPanelViewModel {
 
     private func arm() {
         guard let store = FeedCoordinator.shared.store else { return }
-        let previousItems = items
-        withObservationTracking {
-            let currentItems = store.items
-            items = currentItems
-            if currentItems != previousItems {
-                scheduleAgentGraphRebuildIfNeeded(from: currentItems)
-            }
-            hasMorePersistedItems = store.hasMorePersistedItems
-            isLoadingOlderItems = store.isLoadingOlderItems
+        let storeSnapshot = withObservationTracking {
+            FeedStoreObservationSnapshot(
+                items: store.items,
+                hasMorePersistedItems: store.hasMorePersistedItems,
+                isLoadingOlderItems: store.isLoadingOlderItems
+            )
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.arm()
             }
         }
+        applyStoreObservationSnapshot(storeSnapshot)
+    }
+
+    private func applyStoreObservationSnapshot(_ snapshot: FeedStoreObservationSnapshot) {
+        let previousItems = items
+        items = snapshot.items
+        if snapshot.items != previousItems {
+            scheduleAgentGraphRebuildIfNeeded(from: snapshot.items)
+        }
+        hasMorePersistedItems = snapshot.hasMorePersistedItems
+        isLoadingOlderItems = snapshot.isLoadingOlderItems
     }
 
     func loadOlderItems() {
@@ -157,6 +165,12 @@ final class FeedPanelViewModel {
 private struct AgentGraphBuildRequest {
     let sequence: Int
     let items: [WorkstreamItem]
+}
+
+private struct FeedStoreObservationSnapshot {
+    let items: [WorkstreamItem]
+    let hasMorePersistedItems: Bool
+    let isLoadingOlderItems: Bool
 }
 
 private actor FeedAgentGraphBuildWorker {
