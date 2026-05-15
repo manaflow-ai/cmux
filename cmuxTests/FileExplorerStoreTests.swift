@@ -1111,7 +1111,7 @@ final class FileSearchControllerTests: XCTestCase {
             presentation: .find,
             searchController: searchController
         )
-        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         store.setRootPath("/tmp/cmux-find-content-revision-test")
         container.updateHeader(store: store)
         container.updatePresentation(.find)
@@ -1166,7 +1166,7 @@ final class FileSearchControllerTests: XCTestCase {
             presentation: .find,
             searchController: searchController
         )
-        store.provider = MockFileExplorerProvider(homePath: "/tmp")
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
         store.setRootPath("/tmp/cmux-find-rerender-test")
         container.updateHeader(store: store)
         container.updatePresentation(.find)
