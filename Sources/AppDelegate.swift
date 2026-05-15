@@ -10589,7 +10589,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
+        _ = openLatestWorkspaceUnread()
         return nil
+    }
+
+    private func openLatestWorkspaceUnread() -> Bool {
+        guard let notificationStore else { return false }
+        let unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        guard !unreadWorkspaceIds.isEmpty else { return false }
+
+        var seenWindowIds = Set<UUID>()
+        let preferredContext = preferredRegisteredMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        let orderedContexts = ([preferredContext].compactMap { $0 } + sortedMainWindowContextsForSessionSnapshot())
+            .filter { seenWindowIds.insert($0.windowId).inserted }
+
+        for context in orderedContexts {
+            for workspace in context.tabManager.tabs where unreadWorkspaceIds.contains(workspace.id) {
+                if openWorkspaceUnread(workspace, in: context) {
+                    return true
+                }
+            }
+        }
+
+        guard let tabManager,
+              let workspace = tabManager.tabs.first(where: { unreadWorkspaceIds.contains($0.id) }) else {
+            return false
+        }
+        let panelId = workspace.preferredUnreadPanelIdForJump()
+        let didOpen = openNotificationFallback(tabId: workspace.id, surfaceId: panelId, notificationId: nil)
+        if didOpen {
+            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
+        }
+        return didOpen
+    }
+
+    private func openWorkspaceUnread(_ workspace: Workspace, in context: MainWindowContext) -> Bool {
+        let panelId = workspace.preferredUnreadPanelIdForJump()
+        let didOpen = openNotificationInContext(context, tabId: workspace.id, surfaceId: panelId, notificationId: nil)
+        if didOpen {
+            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
+        }
+        return didOpen
+    }
+
+    private func clearWorkspaceUnreadAfterJump(workspace: Workspace, panelId: UUID?) {
+        workspace.clearUnreadAfterJump(panelId: panelId)
     }
 
     @discardableResult
@@ -14806,6 +14850,23 @@ private extension NSWindow {
 #endif
             self.firstResponder?.keyDown(with: event)
             return true
+        }
+
+        if let firstResponderWebView,
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+               event,
+               responder: self.firstResponder
+           ) {
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser document editing command preflight " +
+                (result ? "resolved before window menu path" : "left unclaimed; continuing")
+            )
+#endif
+            if result {
+                return true
+            }
         }
 
         if let firstResponderWebView,
