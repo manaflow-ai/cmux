@@ -28,6 +28,7 @@ enum CommandPaletteSearchOrchestrator {
         usageHistory: [String: CommandPaletteUsageEntry],
         queryIsEmpty: Bool,
         historyTimestamp: TimeInterval,
+        additionalScoreBoost: ((String, Bool) -> Int)? = nil,
         resultLimit: Int? = nil,
         shouldCancel: @escaping () -> Bool = { false }
     ) -> [CommandPaletteResolvedSearchMatch] {
@@ -41,13 +42,27 @@ enum CommandPaletteSearchOrchestrator {
                 now: historyTimestamp
             )
         }
+        let scoreBoost: ((String, Bool) -> Int)? = {
+            switch (historyBoost, additionalScoreBoost) {
+            case (nil, nil):
+                return nil
+            case (let historyBoost?, nil):
+                return historyBoost
+            case (nil, let additionalScoreBoost?):
+                return additionalScoreBoost
+            case (let historyBoost?, let additionalScoreBoost?):
+                return { commandId, queryIsEmpty in
+                    historyBoost(commandId, queryIsEmpty) + additionalScoreBoost(commandId, queryIsEmpty)
+                }
+            }
+        }()
 
         func swiftSearchMatches() -> [CommandPaletteResolvedSearchMatch] {
             let results = CommandPaletteSearchEngine.search(
                 entries: searchCorpus,
                 query: query,
                 resultLimit: resultLimit,
-                historyBoost: historyBoost ?? { _, _ in 0 },
+                historyBoost: scoreBoost ?? { _, _ in 0 },
                 shouldCancel: shouldCancel
             )
 
@@ -63,7 +78,7 @@ enum CommandPaletteSearchOrchestrator {
         if let results = searchIndex?.search(
             query: query,
             resultLimit: nucleoResultLimit,
-            historyBoost: historyBoost,
+            historyBoost: scoreBoost,
             shouldCancel: shouldCancel
         ) {
             let nucleoMatches = results.map { result in
@@ -97,6 +112,7 @@ enum CommandPaletteSearchOrchestrator {
                 return mergedSwiftFallbackMatches(
                     fallbackMatches,
                     nucleoMatches: nucleoMatches,
+                    searchCorpusByID: searchCorpusByID,
                     limit: nucleoResultLimit
                 )
             }
@@ -166,24 +182,71 @@ enum CommandPaletteSearchOrchestrator {
     private static func mergedSwiftFallbackMatches(
         _ swiftMatches: [CommandPaletteResolvedSearchMatch],
         nucleoMatches: [CommandPaletteResolvedSearchMatch],
+        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
         limit: Int
     ) -> [CommandPaletteResolvedSearchMatch] {
         guard limit > 0 else { return [] }
-        var merged: [CommandPaletteResolvedSearchMatch] = []
-        merged.reserveCapacity(min(limit, swiftMatches.count + nucleoMatches.count))
-        var seenCommandIDs: Set<String> = []
+        var matchesByID: [String: CommandPaletteResolvedSearchMatch] = [:]
+        matchesByID.reserveCapacity(swiftMatches.count + nucleoMatches.count)
 
-        for match in swiftMatches {
-            guard seenCommandIDs.insert(match.commandID).inserted else { continue }
-            merged.append(match)
-            if merged.count == limit { return merged }
+        func merge(_ match: CommandPaletteResolvedSearchMatch) {
+            if let existing = matchesByID[match.commandID] {
+                if resolvedSearchMatchIsBetter(match, than: existing, searchCorpusByID: searchCorpusByID) {
+                    matchesByID[match.commandID] = match
+                }
+                return
+            }
+            matchesByID[match.commandID] = match
         }
+
         for match in nucleoMatches {
-            guard seenCommandIDs.insert(match.commandID).inserted else { continue }
-            merged.append(match)
-            if merged.count == limit { return merged }
+            merge(match)
         }
-        return merged
+        for match in swiftMatches {
+            merge(match)
+        }
+
+        return Array(
+            matchesByID.values
+                .sorted {
+                    resolvedSearchMatchIsBetter($0, than: $1, searchCorpusByID: searchCorpusByID)
+                }
+                .prefix(limit)
+        )
+    }
+
+    private static func resolvedSearchMatchIsBetter(
+        _ lhs: CommandPaletteResolvedSearchMatch,
+        than rhs: CommandPaletteResolvedSearchMatch,
+        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>]
+    ) -> Bool {
+        if lhs.score != rhs.score { return lhs.score > rhs.score }
+        let lhsEntry = searchCorpusByID[lhs.commandID]
+        let rhsEntry = searchCorpusByID[rhs.commandID]
+        let lhsRank = lhsEntry?.rank ?? Int.max
+        let rhsRank = rhsEntry?.rank ?? Int.max
+        if lhsRank != rhsRank { return lhsRank < rhsRank }
+        let lhsTitle = lhsEntry?.title ?? lhs.commandID
+        let rhsTitle = rhsEntry?.title ?? rhs.commandID
+        let titleComparison = lhsTitle.localizedCaseInsensitiveCompare(rhsTitle)
+        if titleComparison != .orderedSame {
+            return titleComparison == .orderedAscending
+        }
+        return lhs.commandID < rhs.commandID
+    }
+
+    static func mergedSwiftFallbackMatchesForTests(
+        _ swiftMatches: [CommandPaletteResolvedSearchMatch],
+        nucleoMatches: [CommandPaletteResolvedSearchMatch],
+        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
+        limit: Int
+    ) -> [CommandPaletteResolvedSearchMatch] {
+        mergedSwiftFallbackMatches(
+            swiftMatches,
+            nucleoMatches: nucleoMatches,
+            searchCorpusByID: searchCorpusByID,
+            limit: limit
+        )
     }
 
     static func previewSearchMatches(
@@ -196,6 +259,7 @@ enum CommandPaletteSearchOrchestrator {
         usageHistory: [String: CommandPaletteUsageEntry],
         queryIsEmpty: Bool,
         historyTimestamp: TimeInterval,
+        additionalScoreBoost: ((String, Bool) -> Int)? = nil,
         resultLimit: Int
     ) -> [CommandPaletteResolvedSearchMatch] {
         guard resultLimit > 0 else {
@@ -211,6 +275,7 @@ enum CommandPaletteSearchOrchestrator {
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
+                additionalScoreBoost: additionalScoreBoost,
                 resultLimit: resultLimit
             )
         }
@@ -235,6 +300,7 @@ enum CommandPaletteSearchOrchestrator {
             usageHistory: usageHistory,
             queryIsEmpty: queryIsEmpty,
             historyTimestamp: historyTimestamp,
+            additionalScoreBoost: additionalScoreBoost,
             resultLimit: resultLimit
         )
     }
