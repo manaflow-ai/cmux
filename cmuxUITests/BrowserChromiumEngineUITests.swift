@@ -44,7 +44,7 @@ final class BrowserChromiumEngineUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForSocketReady(timeout: 60.0),
-            "Expected cmux control socket to accept v2 requests. candidates=\(socketCandidates()) diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
+            "Expected cmux control socket to accept requests. candidates=\(socketCandidates()) diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
         )
 
         let openResult = try okResult(
@@ -159,10 +159,13 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         XCTAssertGreaterThan(image.size.width, 10)
         XCTAssertGreaterThan(image.size.height, 10)
         try pngData.write(to: URL(fileURLWithPath: screenshotPath), options: .atomic)
+        print("CMUX_CHROMIUM_SCREENSHOT_PATH=\(screenshotPath)")
         let attachment = XCTAttachment(data: pngData, uniformTypeIdentifier: "public.png")
         attachment.name = "Chromium browser surface screenshot"
         attachment.lifetime = .keepAlways
-        add(attachment)
+        XCTContext.runActivity(named: "Chromium browser surface screenshot") { activity in
+            activity.add(attachment)
+        }
         if let path = screenshotResult["path"] as? String {
             XCTAssertTrue(FileManager.default.fileExists(atPath: path), "Expected screenshot file to exist at \(path)")
         }
@@ -231,6 +234,10 @@ final class BrowserChromiumEngineUITests: XCTestCase {
     }
 
     private func socketV2Ready(responseTimeout: TimeInterval) -> Bool {
+        if ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendRawLine("ping") == "PONG" {
+            return true
+        }
+
         let ping = socketJSON(method: "system.ping", params: [:], responseTimeout: responseTimeout)
         let pingResult = ping?["result"] as? [String: Any]
         if (ping?["ok"] as? Bool) == true, pingResult?["pong"] as? Bool == true {
@@ -323,7 +330,7 @@ final class BrowserChromiumEngineUITests: XCTestCase {
             guard JSONSerialization.isValidJSONObject(object),
                   let data = try? JSONSerialization.data(withJSONObject: object),
                   let line = String(data: data, encoding: .utf8),
-                  let response = sendLine(line),
+                  let response = sendRawLine(line),
                   let responseData = response.data(using: .utf8),
                   let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
                 return nil
@@ -331,7 +338,7 @@ final class BrowserChromiumEngineUITests: XCTestCase {
             return parsed
         }
 
-        func sendLine(_ line: String) -> String? {
+        func sendRawLine(_ line: String) -> String? {
             if let response = sendLineViaSocket(line) {
                 return response
             }
