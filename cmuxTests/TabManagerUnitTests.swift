@@ -123,6 +123,33 @@ private func runGit(
 }
 
 @MainActor
+final class TabManagerWorkspaceSelectionPerfTests: XCTestCase {
+    func testDirectWorkspaceSelectionActivatesHotSwitchWindow() {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let second = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+
+        XCTAssertFalse(manager.isWorkspaceCycleHot)
+
+        manager.selectWorkspace(second)
+
+        XCTAssertEqual(manager.selectedTabId, second.id)
+        XCTAssertTrue(manager.isWorkspaceCycleHot)
+    }
+
+    func testSelectingCurrentWorkspaceDoesNotActivateHotSwitchWindow() {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        guard let selected = manager.selectedWorkspace else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        manager.selectWorkspace(selected)
+
+        XCTAssertFalse(manager.isWorkspaceCycleHot)
+    }
+}
+
+@MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
