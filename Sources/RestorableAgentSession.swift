@@ -588,53 +588,65 @@ enum AgentForkSupport {
         environment: [String: String]?
     ) async -> String? {
         await Task.detached(priority: .utility) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [executable] + arguments
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            let outputBuffer = CommandOutputBuffer()
-            pipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else { return }
-                outputBuffer.append(data)
-            }
-
-            var processEnvironment = ProcessInfo.processInfo.environment
-            if let environment {
-                let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
-                for (key, value) in selectedEnvironment {
-                    processEnvironment[key] = value
-                }
-            }
-            process.environment = processEnvironment
-            let completion = DispatchSemaphore(value: 0)
-            process.terminationHandler = { _ in completion.signal() }
-
-            do {
-                try process.run()
-            } catch {
-                pipe.fileHandleForReading.readabilityHandler = nil
-                return nil
-            }
-            var timedOut = false
-            if completion.wait(timeout: .now() + .nanoseconds(Int(Self.commandOutputTimeoutNanoseconds))) == .timedOut {
-                timedOut = true
-                process.terminate()
-                if completion.wait(timeout: .now() + .nanoseconds(Int(Self.commandTerminateTimeoutNanoseconds))) == .timedOut {
-                    kill(process.processIdentifier, SIGKILL)
-                    completion.wait()
-                }
-            }
-
-            pipe.fileHandleForReading.readabilityHandler = nil
-            let remainingData = pipe.fileHandleForReading.readDataToEndOfFile()
-            outputBuffer.append(remainingData)
-            guard !timedOut else { return nil }
-            return String(data: outputBuffer.value(), encoding: .utf8)
+            commandOutputSynchronously(
+                executable: executable,
+                arguments: arguments,
+                environment: environment
+            )
         }.value
+    }
+
+    private static func commandOutputSynchronously(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]?
+    ) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable] + arguments
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        let outputBuffer = CommandOutputBuffer()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            outputBuffer.append(data)
+        }
+
+        var processEnvironment = ProcessInfo.processInfo.environment
+        if let environment {
+            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+            for (key, value) in selectedEnvironment {
+                processEnvironment[key] = value
+            }
+        }
+        process.environment = processEnvironment
+        let completion = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in completion.signal() }
+
+        do {
+            try process.run()
+        } catch {
+            pipe.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+        var timedOut = false
+        if completion.wait(timeout: .now() + .nanoseconds(Int(commandOutputTimeoutNanoseconds))) == .timedOut {
+            timedOut = true
+            process.terminate()
+            if completion.wait(timeout: .now() + .nanoseconds(Int(commandTerminateTimeoutNanoseconds))) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                completion.wait()
+            }
+        }
+
+        pipe.fileHandleForReading.readabilityHandler = nil
+        let remainingData = pipe.fileHandleForReading.readDataToEndOfFile()
+        outputBuffer.append(remainingData)
+        guard !timedOut else { return nil }
+        return String(data: outputBuffer.value(), encoding: .utf8)
     }
 }
 
