@@ -10562,8 +10562,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func dismissNotificationsPopoverIfShown() -> Bool {
-        titlebarAccessoryController.dismissNotificationsPopoverIfShown()
+    func dismissNotificationsPopoverIfShown(animated: Bool = true) -> Bool {
+        titlebarAccessoryController.dismissNotificationsPopoverIfShown(animated: animated)
     }
 
     func isNotificationsPopoverShown() -> Bool {

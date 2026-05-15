@@ -1581,8 +1581,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
     }
 
-    func dismissNotificationsPopover() {
+    func dismissNotificationsPopover(animated: Bool = true) {
         if notificationsPopover.isShown {
+            notificationsPopover.animates = animated
             notificationsPopover.performClose(nil)
         }
     }
@@ -1994,7 +1995,7 @@ final class UpdateTitlebarAccessoryController {
         for index in matchingIndices {
             let accessory = window.titlebarAccessoryViewControllers[index]
             if let controls = accessory as? TitlebarControlsAccessoryViewController {
-                controls.dismissNotificationsPopover()
+                controls.dismissNotificationsPopover(animated: false)
             }
             window.removeTitlebarAccessoryViewController(at: index)
         }
@@ -2066,7 +2067,7 @@ final class UpdateTitlebarAccessoryController {
                 return
             }
             for controller in controllers where controller !== target {
-                controller.dismissNotificationsPopover()
+                controller.dismissNotificationsPopover(animated: animated)
             }
             target.toggleNotificationsPopover(animated: animated, externalAnchor: anchorView)
             return
@@ -2077,7 +2078,7 @@ final class UpdateTitlebarAccessoryController {
         let target = preferredNotificationsController(from: controllers, preferShownPopover: true)
         for controller in controllers {
             if controller !== target {
-                controller.dismissNotificationsPopover()
+                controller.dismissNotificationsPopover(animated: animated)
             }
         }
         target?.toggleNotificationsPopover(animated: animated)
@@ -2139,15 +2140,16 @@ final class UpdateTitlebarAccessoryController {
     }
 
     @discardableResult
-    func dismissNotificationsPopoverIfShown() -> Bool {
+    func dismissNotificationsPopoverIfShown(animated: Bool = true) -> Bool {
         let controllers = controlsControllers.allObjects
         var dismissed = false
         if let popover = detachedNotificationsPopover, popover.isShown {
+            popover.animates = animated
             popover.performClose(nil)
             dismissed = true
         }
         for controller in controllers where controller.popoverIsShownForTesting {
-            controller.dismissNotificationsPopover()
+            controller.dismissNotificationsPopover(animated: animated)
             dismissed = true
         }
         return dismissed
@@ -2160,7 +2162,7 @@ final class UpdateTitlebarAccessoryController {
         let target = preferredNotificationsController(from: controllers, preferShownPopover: false)
         for controller in controllers {
             if controller !== target {
-                controller.dismissNotificationsPopover()
+                controller.dismissNotificationsPopover(animated: animated)
             }
         }
         guard let target else { return }
