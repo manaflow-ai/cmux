@@ -50,7 +50,7 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
-  }) => Effect.Effect<void, VmDatabaseError>;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly markCreateRunning: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -298,7 +298,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
-      await db
+      const updated = await db
         .update(cloudVms)
         .set({
           status: input.status,
@@ -311,7 +311,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             eq(cloudVms.providerVmId, input.providerVmId),
             ne(cloudVms.status, "destroyed"),
           ),
-        );
+        )
+        .returning({ id: cloudVms.id });
+      return updated.length > 0;
     }),
 
   markCreateRunning: (input) =>
