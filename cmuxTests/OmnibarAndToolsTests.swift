@@ -694,6 +694,43 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
         XCTAssertTrue(registry.field(for: panelId, in: sourceWindow) === sourceField)
         XCTAssertNil(registry.field(for: panelId, in: requestedWindow))
     }
+
+    func testInteractionOverlayPassesThroughUntilFieldIsRegisteredInWindow() throws {
+        let panelId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let interactionView = BrowserOmnibarInteractionView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.panelId = panelId
+        interactionView.panelId = panelId
+        contentView.addSubview(field)
+        contentView.addSubview(interactionView)
+        window.contentView = contentView
+        defer {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
+            field.removeFromSuperview()
+            interactionView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertNil(
+            interactionView.hitTest(NSPoint(x: 12, y: 12)),
+            "The overlay must not swallow the first click before it has a forwarding target"
+        )
+
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
+
+        XCTAssertTrue(
+            interactionView.hitTest(NSPoint(x: 12, y: 12)) === interactionView,
+            "The overlay should capture events once it can forward to the same-window native field"
+        )
+    }
 }
 
 @MainActor
