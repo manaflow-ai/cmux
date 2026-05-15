@@ -6838,7 +6838,11 @@ class TerminalController {
             #endif
             let queued: Bool
             if let surface = terminalPanel.surface.surface {
-                sendSocketText(text, surface: surface)
+                guard !ghostty_surface_process_exited(surface) else {
+                    result = .err(code: "process_exited", message: "Terminal process has exited", data: ["surface_id": surfaceId.uuidString])
+                    return
+                }
+                terminalPanel.surface.sendInput(text)
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
@@ -6846,8 +6850,7 @@ class TerminalController {
                 queued = false
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
-                terminalPanel.sendText(text)
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                terminalPanel.surface.sendInput(text)
                 queued = true
             }
 #if DEBUG
@@ -6856,7 +6859,7 @@ class TerminalController {
                 "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
             )
 #endif
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "queued": queued, "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
     }
@@ -6893,7 +6896,13 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let surfaceWasReady = terminalPanel.surface.surface != nil
+            let runtimeSurface = terminalPanel.surface.surface
+            if let runtimeSurface,
+               ghostty_surface_process_exited(runtimeSurface) {
+                result = .err(code: "process_exited", message: "Terminal process has exited", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            let surfaceWasReady = runtimeSurface != nil
             guard terminalPanel.surface.sendNamedKey(key) else {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
@@ -15501,12 +15510,9 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
+            if let surface = terminalPanel.surface.surface,
+               ghostty_surface_process_exited(surface) {
+                error = "ERROR: Terminal process has exited"
                 return
             }
 
@@ -15517,13 +15523,10 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            let surfaceWasReady = terminalPanel.surface.surface != nil
+            terminalPanel.surface.sendInput(unescaped)
+            if surfaceWasReady {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
             }
             success = true
         }
@@ -15583,6 +15586,12 @@ class TerminalController {
                 return
             }
 
+            if let surface = terminalPanel.surface.surface,
+               ghostty_surface_process_exited(surface) {
+                error = "ERROR: Terminal process has exited"
+                return
+            }
+
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
@@ -15591,13 +15600,11 @@ class TerminalController {
             // This DEBUG-only command is used by UI tests to enqueue shell work in an
             // existing workspace. Return once the input is queued on main so a long
             // payload does not hold the control-socket response open in CI.
-            TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
-                guard let self else { return }
-                if let surface = terminalPanel.surface.surface {
-                    self.sendSocketText(unescaped, surface: surface)
-                } else {
-                    terminalPanel.sendText(unescaped)
-                    terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            TerminalMutationBus.shared.enqueueMainActorMutation {
+                let surfaceWasReady = terminalPanel.surface.surface != nil
+                terminalPanel.surface.sendInput(unescaped)
+                if surfaceWasReady {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
                 }
             }
             success = true
@@ -15654,25 +15661,32 @@ class TerminalController {
         let text = parts[1]
 
         var success = false
+        var error: String?
         v2MainSync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
+                error = "ERROR: Surface not found"
+                return
+            }
+            if let surface = terminalPanel.surface.surface,
+               ghostty_surface_process_exited(surface) {
+                error = "ERROR: Terminal process has exited"
+                return
+            }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            let surfaceWasReady = terminalPanel.surface.surface != nil
+            terminalPanel.surface.sendInput(unescaped)
+            if surfaceWasReady {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
             }
             success = true
         }
 
+        if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
@@ -15689,6 +15703,11 @@ class TerminalController {
                 return
             }
 
+            if let surface = terminalPanel.surface.surface,
+               ghostty_surface_process_exited(surface) {
+                error = "ERROR: Terminal process has exited"
+                return
+            }
             success = terminalPanel.surface.sendNamedKey(keyName)
         }
         if let error { return error }
@@ -15708,6 +15727,11 @@ class TerminalController {
         v2MainSync {
             guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
                 error = "ERROR: Surface not found"
+                return
+            }
+            if let surface = terminalPanel.surface.surface,
+               ghostty_surface_process_exited(surface) {
+                error = "ERROR: Terminal process has exited"
                 return
             }
             success = terminalPanel.surface.sendNamedKey(keyName)
