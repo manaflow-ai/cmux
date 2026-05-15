@@ -162,13 +162,13 @@ jobs:
           fi
 
       - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
@@ -177,7 +177,7 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -245,7 +245,7 @@ jobs:
           fi
 
           XCODEBUILD_CMD=(
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
             -disableAutomaticPackageResolution
             -destination "platform=macOS"
