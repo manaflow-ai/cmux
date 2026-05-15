@@ -4995,7 +4995,10 @@ struct ContentView: View {
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
-        commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
+            entries,
+            keyedBy: \.id
+        )
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
                 payload: entry.id,
@@ -5005,7 +5008,10 @@ struct ContentView: View {
             )
         }
         commandPaletteSearchCorpus = searchCorpus
-        commandPaletteSearchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
+        commandPaletteSearchCorpusByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
+            searchCorpus,
+            keyedBy: \.payload
+        )
         cachedCommandPaletteScope = scope
         cachedCommandPaletteFingerprint = fingerprint
         scheduleCommandPaletteSearchIndexBuild(

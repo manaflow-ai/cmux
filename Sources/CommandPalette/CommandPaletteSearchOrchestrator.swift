@@ -20,6 +20,18 @@ enum CommandPaletteSearchOrchestrator {
     private static let synchronousSeedCorpusLimit = 256
     private static let singleEditFallbackNucleoProbeLimit = 12
 
+    static func firstValueDictionary<Element, Key: Hashable>(
+        _ values: [Element],
+        keyedBy key: (Element) -> Key
+    ) -> [Key: Element] {
+        var dictionary: [Key: Element] = [:]
+        dictionary.reserveCapacity(values.count)
+        for value in values where dictionary[key(value)] == nil {
+            dictionary[key(value)] = value
+        }
+        return dictionary
+    }
+
     static func resolvedSearchMatches(
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
@@ -125,12 +137,7 @@ enum CommandPaletteSearchOrchestrator {
     private static func searchCorpusByID(
         _ searchCorpus: [CommandPaletteSearchCorpusEntry<String>]
     ) -> [String: CommandPaletteSearchCorpusEntry<String>] {
-        var entriesByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
-        entriesByID.reserveCapacity(searchCorpus.count)
-        for entry in searchCorpus where entriesByID[entry.payload] == nil {
-            entriesByID[entry.payload] = entry
-        }
-        return entriesByID
+        firstValueDictionary(searchCorpus, keyedBy: \.payload)
     }
 
     private static func shouldConsiderSwiftSingleEditFallback(

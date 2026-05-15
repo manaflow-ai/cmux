@@ -1226,6 +1226,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(matches.map(\.commandID), ["palette.high", "palette.medium", "palette.fallback"])
     }
 
+    func testFirstValueDictionaryPreservesFirstDuplicateKey() {
+        let values = [
+            (id: "palette.duplicate", title: "First"),
+            (id: "palette.unique", title: "Unique"),
+            (id: "palette.duplicate", title: "Second"),
+        ]
+
+        let valuesByID = CommandPaletteSearchOrchestrator.firstValueDictionary(values) { $0.id }
+
+        XCTAssertEqual(valuesByID["palette.duplicate"]?.title, "First")
+        XCTAssertEqual(valuesByID["palette.unique"]?.title, "Unique")
+        XCTAssertEqual(valuesByID.count, 2)
+    }
+
     func testNucleoExactPartialResultsDoNotRunSwiftSingleEditFallback() throws {
         let entries = [
             FixtureEntry(
