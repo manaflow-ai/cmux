@@ -669,7 +669,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
-                accessibilityIdentifier: "sidebar.focusHistoryBack",
+                accessibilityIdentifier: "titlebarControl.focusHistoryBack",
                 accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
                 action: onFocusHistoryBack
             ) {
@@ -679,7 +679,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
-                accessibilityIdentifier: "sidebar.focusHistoryForward",
+                accessibilityIdentifier: "titlebarControl.focusHistoryForward",
                 accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
                 action: onFocusHistoryForward
             ) {
@@ -1041,6 +1041,10 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
+                case .focusHistoryBack:
+                    onFocusHistoryBack()
+                case .focusHistoryForward:
+                    onFocusHistoryForward()
                 }
             }
             .frame(

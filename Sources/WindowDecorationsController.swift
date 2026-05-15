@@ -350,6 +350,10 @@ final class WindowDecorationsController {
                     tabManager: targetTabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
+            case .focusHistoryBack:
+                AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()
+            case .focusHistoryForward:
+                AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateForward()
             }
         }
     }

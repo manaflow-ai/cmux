@@ -43564,7 +43564,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスを戻る"
+            "value": "フォーカスを戻す"
           }
         }
       }
@@ -43581,7 +43581,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスを進む"
+            "value": "フォーカスを進める"
           }
         }
       }
@@ -83700,7 +83700,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスを戻る"
+            "value": "フォーカスを戻す"
           }
         }
       }
@@ -83717,7 +83717,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスを進む"
+            "value": "フォーカスを進める"
           }
         }
       }
