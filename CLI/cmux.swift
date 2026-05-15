@@ -12816,7 +12816,12 @@ struct CMUXCLI {
         let pid = topInt(process["pid"]).map(String.init) ?? "?"
         let name = topLabelText(process["name"] as? String)
         let label = name.isEmpty ? "process" : name
-        return "process \(pid) \(label)"
+        var parts = ["process", pid, label]
+        let attributionReason = topLabelText(process["attribution_reason"] as? String)
+        if !attributionReason.isEmpty {
+            parts.append("[\(attributionReason)]")
+        }
+        return parts.joined(separator: " ")
     }
 
     private func topResourceColumns(node: [String: Any]) -> String {
