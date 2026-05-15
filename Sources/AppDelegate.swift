@@ -854,6 +854,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
+    /// Tracks whether the last successfully persisted snapshot had real content,
+    /// so a subsequent "trivial" snapshot (1 default workspace, no state) can't
+    /// silently wipe a richer prior session after a hard crash.
+    private var lastPersistedSnapshotIsNonTrivial = false
+    private var socketListenerHealthTimer: DispatchSourceTimer?
+    private var socketListenerHealthCheckInFlight = false
+    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
+    private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
+    private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1125,6 +1134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.observeDuplicateLaunches()
             }
         }
+        // Load quick terminal config early, before any window creation can
+        // trigger session restore (which checks visorEnabled).
+        installQuickTerminal()
+
         NSWindow.allowsAutomaticWindowTabbing = false
         disableNativeTabbingShortcut()
         if !isRunningUnderXCTest {
@@ -2647,7 +2660,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.removeLegacyPersistedWindowGeometry()
         SessionPersistenceStore.syncManualRestoreSnapshotCache()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = SessionPersistenceStore.load()
+        let loaded = SessionPersistenceStore.load()
+        startupSessionSnapshot = loaded
+        lastPersistedSnapshotIsNonTrivial = !Self.isTrivialSnapshot(loaded)
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -2745,7 +2760,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
 
         let startupSnapshot = startupSessionSnapshot
-        let primaryWindowSnapshot = startupSnapshot?.windows.first
+
+        // Ensure quick terminal config is loaded (installQuickTerminal may not
+        // have run yet since SwiftUI window creation can precede didFinishLaunching).
+        QuickTerminalController.shared.loadConfiguration()
+
+        // Separate quick terminal snapshot from regular windows. If the visor
+        // hotkey is no longer configured, treat the visor snapshot as a regular
+        // window so its workspaces aren't silently dropped.
+        let visorEnabled = QuickTerminalController.shared.keybind != nil
+        let quickTerminalSnapshot = visorEnabled
+            ? startupSnapshot?.windows.first(where: { $0.isQuickTerminal == true })
+            : nil
+        let regularWindows = startupSnapshot?.windows.filter { window in
+            if visorEnabled { return window.isQuickTerminal != true }
+            return true
+        } ?? []
+
+        // Stash the visor snapshot for deferred restore when the visor window
+        // is first created (on toggle or immediately below).
+        if let quickTerminalSnapshot {
+            QuickTerminalController.shared.restoreSession(quickTerminalSnapshot)
+        }
+
+        let primaryWindowSnapshot = regularWindows.first
         if let primaryWindowSnapshot {
             isApplyingSessionRestore = true
 #if DEBUG
@@ -2760,6 +2798,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
+        } else if quickTerminalSnapshot != nil, QuickTerminalController.shared.keybind != nil {
+            // No regular windows to restore — hide the SwiftUI-created primary
+            // window and show the visor with the restored session.
+            primaryWindow.orderOut(nil)
+            DispatchQueue.main.async {
+                primaryWindow.close()
+                QuickTerminalController.shared.toggle()
+            }
         } else {
             let displays = currentDisplayGeometries()
             let fallbackGeometry = persistedWindowGeometry()
@@ -2774,9 +2820,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
+        if startupSnapshot != nil {
+            let additionalWindows = Array(regularWindows
                 .dropFirst()
                 .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
 #if DEBUG
@@ -3295,9 +3340,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // Set synchronously so SwiftUI's WindowGroup teardown during logout
+            // sees isTerminatingApp=true and skips the unregister-time
+            // removeWhenEmpty save that would otherwise wipe the snapshot.
+            self?.isTerminatingApp = true
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.isTerminatingApp = true
                 _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
             }
         }
@@ -3464,7 +3512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
+        let persistedGeometryData = snapshot.windows.first(where: { $0.isQuickTerminal != true }).flatMap { primaryWindow in
             Self.encodedPersistedWindowGeometryData(
                 frame: primaryWindow.frame,
                 display: primaryWindow.display
@@ -3525,6 +3573,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
+        !isTerminatingApp
+    }
+
+    /// A snapshot is "trivial" when it looks indistinguishable from a fresh
+    /// launch: at most one window, with at most one workspace, with no custom
+    /// state. We use this as the no-overwrite shield so a hard crash that
+    /// briefly leaves cmux in default state can't wipe a richer prior session.
+    nonisolated static func isTrivialSnapshot(_ snapshot: AppSessionSnapshot?) -> Bool {
+        guard let snapshot else { return true }
+        guard snapshot.windows.count <= 1 else { return false }
+        guard let window = snapshot.windows.first else { return true }
+        return isTrivialWindow(window)
+    }
+
+    nonisolated static func isTrivialWindow(_ window: SessionWindowSnapshot) -> Bool {
+        let workspaces = window.tabManager.workspaces
+        guard workspaces.count <= 1 else { return false }
+        guard let workspace = workspaces.first else { return true }
+        return isTrivialWorkspace(workspace)
+    }
+
+    nonisolated static func isTrivialWorkspace(_ workspace: SessionWorkspaceSnapshot) -> Bool {
+        if workspace.panels.count > 1 { return false }
+        if let title = workspace.customTitle, !title.isEmpty { return false }
+        if workspace.customColor != nil { return false }
+        if workspace.isPinned { return false }
+        if !workspace.statusEntries.isEmpty { return false }
+        if !workspace.logEntries.isEmpty { return false }
+        if workspace.progress != nil { return false }
+        if workspace.gitBranch != nil { return false }
+        return true
+    }
+
+    nonisolated static func shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(
+        isTerminatingApp: Bool
+    ) -> Bool {
         !isTerminatingApp
     }
 
@@ -3713,6 +3797,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
+        let willPersistSnapshot = snapshot != nil || removeWhenEmpty
+        let newIsTrivial = Self.isTrivialSnapshot(snapshot)
+        let blockSnapshotPersist = willPersistSnapshot
+            && newIsTrivial
+            && lastPersistedSnapshotIsNonTrivial
+
+#if DEBUG
+        if blockSnapshotPersist {
+            dlog("session.save.skipped reason=trivial_overwrite_protect removeWhenEmpty=\(removeWhenEmpty ? 1 : 0)")
+        }
+#endif
+
         let writeBlock = {
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
@@ -3721,6 +3817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
             }
+            if blockSnapshotPersist { return }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
             } else if removeWhenEmpty {
@@ -3732,6 +3829,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             writeBlock()
         } else {
             sessionPersistenceQueue.async(execute: writeBlock)
+        }
+
+        if willPersistSnapshot && !blockSnapshotPersist {
+            lastPersistedSnapshotIsNonTrivial = !newIsTrivial
         }
     }
 
@@ -3761,6 +3862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
                 let window = context.window ?? windowForMainWindowId(context.windowId)
+                let isQuickTerminal = context.windowId == QuickTerminalController.shared.windowId
                 return SessionWindowSnapshot(
                     frame: window.map { SessionRectSnapshot($0.frame) },
                     display: displaySnapshot(for: window),
@@ -3772,16 +3874,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+                    ),
+                    isQuickTerminal: isQuickTerminal ? true : nil
                 )
             }
 
-        guard !windows.isEmpty else { return nil }
+        let windowsWithPendingQuickTerminal = Self.includingPendingQuickTerminalSnapshot(
+            windows,
+            pendingQuickTerminalSnapshot: QuickTerminalController.shared.pendingSessionSnapshotForPersistence()
+        )
+
+        guard !windowsWithPendingQuickTerminal.isEmpty else { return nil }
         return AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
-            windows: windows
+            windows: windowsWithPendingQuickTerminal
         )
+    }
+
+    nonisolated static func includingPendingQuickTerminalSnapshot(
+        _ windows: [SessionWindowSnapshot],
+        pendingQuickTerminalSnapshot: SessionWindowSnapshot?
+    ) -> [SessionWindowSnapshot] {
+        guard let pendingQuickTerminalSnapshot else { return windows }
+        guard !windows.contains(where: { $0.isQuickTerminal == true }) else { return windows }
+
+        var merged = windows
+        if merged.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
+            merged.removeLast()
+        }
+        merged.append(pendingQuickTerminalSnapshot)
+        return merged
     }
 
 #if DEBUG
@@ -10865,6 +10988,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard refreshedManagers.insert(identifier).inserted else { continue }
             manager.refreshSplitButtonTooltips()
         }
+    }
+
+    private func installQuickTerminal() {
+        let controller = QuickTerminalController.shared
+        controller.loadConfiguration()
+        controller.installGlobalHotkey()
     }
 
     private func installGhosttyConfigObserver() {
