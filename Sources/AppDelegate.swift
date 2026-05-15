@@ -12267,7 +12267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusedBrowserOmnibarField(for event: NSEvent, in window: NSWindow?) -> OmnibarNativeTextField? {
-        let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event) ?? browserAddressBarFocusedPanelId
+        let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event)
         return browserOmnibarField(panelId: panelId, in: window)
     }
 
