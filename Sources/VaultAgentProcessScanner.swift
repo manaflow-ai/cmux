@@ -108,6 +108,13 @@ extension RestorableAgentSessionIndex {
         latestSessionIdForSolePanel: String?,
         sameWorkingDirectoryPanelCount: Int
     ) -> String? {
+        if arguments.hasOpenCodeForkFlag {
+            guard sameWorkingDirectoryPanelCount == 1 else { return nil }
+            guard let latestSessionIdForSolePanel else { return nil }
+            let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s")
+            guard explicitSessionId != latestSessionIdForSolePanel else { return nil }
+            return latestSessionIdForSolePanel
+        }
         if let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s") {
             return explicitSessionId
         }
@@ -164,8 +171,9 @@ extension RestorableAgentSessionIndex {
             let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
             let hasExplicitSessionId = process.observed.arguments.value(afterOption: "--session") != nil ||
                 process.observed.arguments.value(afterOption: "-s") != nil
+            let hasForkFlag = process.observed.arguments.hasOpenCodeForkFlag
             let latestSessionId: String?
-            if hasExplicitSessionId || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
+            if (hasExplicitSessionId && !hasForkFlag) || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
                 latestSessionId = nil
             } else if let cached = sessionByWorkingDirectory[process.workingDirectoryKey] {
                 latestSessionId = cached
@@ -410,6 +418,10 @@ private extension CmuxVaultAgentSessionIDSource {
 }
 
 private extension Array where Element == String {
+    var hasOpenCodeForkFlag: Bool {
+        contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
+    }
+
     func value(afterOption option: String) -> String? {
         for index in indices {
             let argument = self[index]

@@ -2251,6 +2251,28 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-parent", "--fork"],
+                latestSessionIdForSolePanel: "ses-child",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-child"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-parent", "--fork"],
+                latestSessionIdForSolePanel: nil,
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-parent", "--fork"],
+                latestSessionIdForSolePanel: "ses-parent",
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1

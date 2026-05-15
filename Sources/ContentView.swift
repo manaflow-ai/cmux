@@ -5910,16 +5910,18 @@ struct ContentView: View {
         _ snapshot: SessionRestorableAgentSnapshot
     ) -> String {
         let launchCommand = snapshot.launchCommand
-        return [
+        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
+        let parts: [String] = [
             snapshot.kind.rawValue,
             snapshot.sessionId,
             snapshot.workingDirectory ?? "",
             launchCommand?.launcher ?? "",
             launchCommand?.executablePath ?? "",
-            launchCommand?.arguments.joined(separator: "\u{1f}") ?? "",
+            launchArguments,
             launchCommand?.workingDirectory ?? "",
             launchCommand?.source ?? ""
-        ].joined(separator: "\u{1e}")
+        ]
+        return parts.joined(separator: "\u{1e}")
     }
 
     static func commandPalettePanelHasForkableAgent(

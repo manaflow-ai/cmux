@@ -13237,6 +13237,13 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    struct AgentConversationForkWorkspaceLaunch: Equatable {
+        var workingDirectory: String?
+        var initialTerminalCommand: String?
+        var initialTerminalInput: String
+        var remoteConfiguration: WorkspaceRemoteConfiguration?
+    }
+
     @discardableResult
     func forkAgentConversationToRight(
         fromPanelId panelId: UUID,
@@ -13250,6 +13257,29 @@ final class Workspace: Identifiable, ObservableObject {
             direction: .right,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
+        )
+    }
+
+    func forkAgentWorkspaceLaunch(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> AgentConversationForkWorkspaceLaunch? {
+        guard panels[panelId] is TerminalPanel,
+              let startupInput = snapshot.forkStartupInput(
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory
+              ) else {
+            return nil
+        }
+
+        let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace()
+        return AgentConversationForkWorkspaceLaunch(
+            workingDirectory: forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot),
+            initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteTerminalStartupCommand(),
+            initialTerminalInput: startupInput,
+            remoteConfiguration: remoteConfiguration
         )
     }
 
@@ -13290,6 +13320,11 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel(for: panelId)?.requestedWorkingDirectory,
             currentDirectory
         ])
+    }
+
+    private func forkAgentRemoteConfigurationForNewWorkspace() -> WorkspaceRemoteConfiguration? {
+        guard remoteTerminalStartupCommand() != nil else { return nil }
+        return remoteConfiguration?.sessionSnapshot()?.workspaceConfiguration() ?? remoteConfiguration
     }
 
     private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {

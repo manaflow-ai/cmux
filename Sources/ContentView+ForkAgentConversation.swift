@@ -72,19 +72,22 @@ extension ContentView {
                     direction: direction
                 ) != nil
             case .newWorkspace:
-                guard let startupInput = snapshot.forkStartupInput() else {
+                guard let launch = currentContext.workspace.forkAgentWorkspaceLaunch(
+                    fromPanelId: panelId,
+                    snapshot: snapshot
+                ) else {
                     NSSound.beep()
                     return
                 }
-                let workingDirectory = currentContext.workspace.forkAgentWorkingDirectory(
-                    fromPanelId: panelId,
-                    snapshot: snapshot
-                )
-                _ = tabManager.addWorkspace(
-                    workingDirectory: workingDirectory,
-                    initialTerminalInput: startupInput,
+                let forkWorkspace = tabManager.addWorkspace(
+                    workingDirectory: launch.workingDirectory,
+                    initialTerminalCommand: launch.initialTerminalCommand,
+                    initialTerminalInput: launch.initialTerminalInput,
                     autoWelcomeIfNeeded: false
                 )
+                if let remoteConfiguration = launch.remoteConfiguration {
+                    forkWorkspace.configureRemoteConnection(remoteConfiguration, autoConnect: false)
+                }
                 didFork = true
             }
 
