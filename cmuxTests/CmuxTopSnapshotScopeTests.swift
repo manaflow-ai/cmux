@@ -271,7 +271,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         XCTAssertEqual(scope.workspaceID, workspaceID)
         XCTAssertEqual(scope.surfaceID, surfaceID)
-        XCTAssertEqual(scope.attributionReason, "cmux-hook-arguments")
+        XCTAssertEqual(scope.attributionReason, "hook-monitor")
     }
 
     func testCodexMonitorArgumentsIgnorePathValuedSubcommandLookalikes() {
@@ -385,7 +385,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(int(resources["process_count"]), 1)
         XCTAssertEqual(int(monitorProcess["pid"]), monitorPID)
         XCTAssertEqual(int(monitorProcess["ppid"]), 1)
-        XCTAssertEqual(monitorProcess["attribution_reason"] as? String, "cmux-hook-arguments")
+        XCTAssertEqual(monitorProcess["attribution_reason"] as? String, "hook-monitor")
         XCTAssertTrue(totalPIDs.contains(monitorPID))
     }
 

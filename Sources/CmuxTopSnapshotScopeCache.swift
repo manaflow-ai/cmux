@@ -108,7 +108,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         return CmuxTopProcessScope(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            attributionReason: "cmux-environment"
+            attributionReason: "session-env"
         )
     }
 
@@ -122,7 +122,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         return CmuxTopProcessScope(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            attributionReason: "cmux-hook-arguments"
+            attributionReason: "hook-monitor"
         )
     }
 
