@@ -11,7 +11,6 @@ nonisolated struct CmuxEventsResume: Equatable {
     let latestSequence: Int64
     let nextSequence: Int64
     let gap: Bool
-    let gapReason: String?
 }
 
 nonisolated struct CmuxEventsClientFrame {
@@ -88,7 +87,7 @@ nonisolated struct CmuxEventsClientHelper {
             try Self.validateProtocol(object)
             return CmuxEventsClientFrame(kind: .heartbeat)
         default:
-            throw CLIError(message: "Invalid event stream frame: unknown type \(type)")
+            throw CLIError(message: "Invalid event stream frame: unknown type")
         }
     }
 
@@ -121,23 +120,21 @@ nonisolated struct CmuxEventsClientHelper {
 
     private static func parseFrameObject(_ line: String) throws -> [String: Any] {
         guard let data = line.data(using: .utf8) else {
-            throw CLIError(message: "Invalid event stream frame: \(line)")
+            throw CLIError(message: "Invalid event stream frame: expected UTF-8 JSON object")
         }
         let object: [String: Any]
         do {
             guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Invalid event stream frame: \(line)")
+                throw CLIError(message: "Invalid event stream frame: expected JSON object")
             }
             object = parsed
         } catch let error as CLIError {
             throw error
         } catch {
-            throw CLIError(message: "Invalid event stream frame: \(line)")
+            throw CLIError(message: "Invalid event stream frame: expected JSON object")
         }
         if let ok = object["ok"] as? Bool, ok == false {
-            let error = object["error"] as? [String: Any]
-            let message = error?["message"] as? String ?? "event stream error"
-            throw CLIError(message: message)
+            throw CLIError(message: "cmux events stream returned an error")
         }
         return object
     }
@@ -174,8 +171,7 @@ nonisolated struct CmuxEventsClientHelper {
             oldestSequence: oldestSequence,
             latestSequence: latestSequence,
             nextSequence: nextSequence,
-            gap: gap,
-            gapReason: resume["gap_reason"] as? String
+            gap: gap
         )
     }
 
@@ -362,10 +358,9 @@ extension CMUXCLI {
     }
 
     private func printEventResumeGapGuidance(_ resume: CmuxEventsResume) {
-        let reason = resume.gapReason.map { " (\($0))" } ?? ""
         fputs(
             """
-            cmux events: resume gap after seq \(resume.requestedAfterSequence)\(reason). Replayed events are partial; refresh snapshots with commands such as `cmux list-workspaces`, `cmux list-notifications`, or `cmux tree`, then dedupe by event id before continuing.
+            cmux events: resume gap after seq \(resume.requestedAfterSequence). Replayed events are partial; refresh snapshots with commands such as `cmux list-workspaces`, `cmux list-notifications`, or `cmux tree`, then dedupe by event id before continuing.
 
             """,
             stderr

@@ -117,6 +117,146 @@ final class CMUXEventsCommandTests: XCTestCase {
         XCTAssertEqual(requestLog.methods, ["events.stream"])
     }
 
+    func testEventsCommandDoesNotEchoServerGapReason() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("events-gap")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let requestLog = EventStreamRequestLog()
+        let sensitiveReason = "pg_pool refused AccessDenied token=server-secret"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startEventStreamServer(
+            listenerFD: listenerFD,
+            requestLog: requestLog,
+            frames: [
+                gapAckFrame(gapReason: sensitiveReason),
+                validEventFrame(seq: 21)
+            ]
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["events", "--no-ack", "--no-heartbeat", "--limit", "1"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("cmux events: resume gap after seq 0."), result.stderr)
+        XCTAssertFalse(result.stderr.contains(sensitiveReason), result.stderr)
+        XCTAssertFalse(result.stderr.contains("AccessDenied"), result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":21"#), result.stdout)
+        XCTAssertEqual(requestLog.methods, ["events.stream"])
+    }
+
+    func testEventsCommandDoesNotEchoUnknownFrameType() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("events-type")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let requestLog = EventStreamRequestLog()
+        let sensitiveType = "internal-secret-pg-pool-refused"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startEventStreamServer(
+            listenerFD: listenerFD,
+            requestLog: requestLog,
+            frames: [
+                validAckFrame(),
+                #"{"type":"\#(sensitiveType)","protocol":"cmux-events","version":1}"#
+            ]
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["events", "--no-ack", "--no-heartbeat"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Invalid event stream frame: unknown type"), result.stderr)
+        XCTAssertFalse(result.stderr.contains(sensitiveType), result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(requestLog.methods, ["events.stream"])
+    }
+
+    func testEventsCommandDoesNotEchoMalformedFrameBody() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("events-body")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let requestLog = EventStreamRequestLog()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startEventStreamServer(
+            listenerFD: listenerFD,
+            requestLog: requestLog,
+            frames: [
+                #"{"type":"ack","secret":"AccessDenied server-secret""#
+            ]
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["events", "--no-ack", "--no-heartbeat"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("Invalid event stream frame: expected JSON object"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("AccessDenied"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("server-secret"), result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(requestLog.methods, ["events.stream"])
+    }
+
+    func testEventsCommandDoesNotEchoServerErrorMessage() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("events-error")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let requestLog = EventStreamRequestLog()
+        let sensitiveMessage = "database password leaked through AccessDenied"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startEventStreamServer(
+            listenerFD: listenerFD,
+            requestLog: requestLog,
+            frames: [
+                #"{"ok":false,"error":{"message":"\#(sensitiveMessage)"}}"#
+            ]
+        )
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["events", "--no-ack", "--no-heartbeat"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("cmux events stream returned an error"), result.stderr)
+        XCTAssertFalse(result.stderr.contains(sensitiveMessage), result.stderr)
+        XCTAssertFalse(result.stderr.contains("AccessDenied"), result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(requestLog.methods, ["events.stream"])
+    }
+
     func testEventsCommandRejectsMalformedCursorFileBeforeConnecting() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
@@ -319,5 +459,13 @@ final class CMUXEventsCommandTests: XCTestCase {
 
     private func validAckFrame() -> String {
         #"{"type":"ack","protocol":"cmux-events","version":1,"boot_id":"boot","subscription_id":"subscription","heartbeat_interval_seconds":15,"replay_count":0,"resume":{"after_seq":0,"requested_after_seq":0,"oldest_seq":1,"latest_seq":0,"next_seq":1,"gap":false},"filters":{"names":[],"categories":[]}}"#
+    }
+
+    private func gapAckFrame(gapReason: String) -> String {
+        #"{"type":"ack","protocol":"cmux-events","version":1,"boot_id":"boot","subscription_id":"subscription","heartbeat_interval_seconds":15,"replay_count":0,"resume":{"after_seq":0,"requested_after_seq":0,"oldest_seq":10,"latest_seq":20,"next_seq":21,"gap":true,"gap_reason":"\#(gapReason)"},"filters":{"names":[],"categories":[]}}"#
+    }
+
+    private func validEventFrame(seq: Int64) -> String {
+        #"{"type":"event","protocol":"cmux-events","version":1,"boot_id":"boot","seq":\#(seq),"id":"boot-\#(seq)","name":"notification.created","category":"notification","source":"test","occurred_at":"2026-05-06T19:18:03.421Z","payload":{}}"#
     }
 }
