@@ -104,19 +104,7 @@ export function createVm(input: {
     }
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
-    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation).pipe(
-      Effect.catchAll((err) =>
-        Effect.gen(function* () {
-          yield* refundCredit(billing, repo, create.vm, creditReservation);
-          yield* repo.markCreateFailed({
-            id: create.vm.id,
-            code: "usage_event_failed",
-            message: "Cloud VM usage tracking failed.",
-          }).pipe(Effect.catchAll(() => Effect.void));
-          return yield* Effect.fail(err);
-        }),
-      ),
-    );
+    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
     const handle = yield* measureVmEffect(
       input.timing,
@@ -580,7 +568,7 @@ function recordCreateRequestedEvents(
           imageVersion: input.imageVersion ?? null,
         },
       },
-    ]),
+    ]).pipe(Effect.catchAll(() => Effect.void)),
   );
 }
 

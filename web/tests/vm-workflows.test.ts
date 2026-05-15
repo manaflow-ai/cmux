@@ -10,10 +10,16 @@ import {
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { VmRepositoryLive } from "../services/vms/repository";
+import {
+  VmRepository,
+  VmRepositoryLive,
+  type CloudVmRow,
+  type VmRepositoryShape,
+} from "../services/vms/repository";
 import {
   VmCreateCreditsInsufficientError,
   VmCreateInProgressError,
+  VmDatabaseError,
   VmLimitExceededError,
   VmNotFoundError,
   VmProviderOperationError,
@@ -61,6 +67,85 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("does not block create when usage event recording fails", async () => {
+    const requested = testCloudVmRow({
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const running = testCloudVmRow({
+      status: "running",
+      providerVmId: "provider-vm-usage-events",
+      imageVersion: "test-version",
+    });
+    let providerCreateCalls = 0;
+    let usageEventAttempts = 0;
+    const repo: VmRepositoryShape = {
+      listUserVms: () => Effect.succeed([]),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      activeLimitCandidates: () => Effect.succeed([]),
+      markProviderObservedStatus: () => Effect.succeed(false),
+      markCreateRunning: () => Effect.succeed(running),
+      markCreateFailed: () => Effect.void,
+      findUserVm: () => Effect.succeed(null),
+      markDestroyed: () => Effect.void,
+      recordLease: () => Effect.void,
+      activeIdentityLeases: () => Effect.succeed([]),
+      markLeasesRevoked: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => {
+        usageEventAttempts += 1;
+        return Effect.fail(new VmDatabaseError({
+          operation: "recordUsageEvents",
+          cause: new Error("usage event table unavailable"),
+        }));
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          providerCreateCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-usage-events",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-usage-events",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-usage-events",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        imageVersion: "test-version",
+        idempotencyKey: "usage-events",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-usage-events");
+    expect(providerCreateCalls).toBe(1);
+    expect(usageEventAttempts).toBe(2);
+  });
+
   dbTest("creates one provider VM per user idempotency key and records usage", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -1349,6 +1434,28 @@ describe("VM Effect workflows", () => {
     ]);
   });
 });
+
+function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
+  const now = new Date();
+  return {
+    id: "00000000-0000-4000-8000-000000000001",
+    userId: "user-workflow-usage-events",
+    billingTeamId: "team-workflow-usage-events",
+    billingPlanId: "free",
+    provider: "freestyle",
+    providerVmId: null,
+    imageId: "snapshot-test",
+    imageVersion: null,
+    status: "provisioning",
+    idempotencyKey: "usage-events",
+    createdAt: now,
+    updatedAt: now,
+    destroyedAt: null,
+    failureCode: null,
+    failureMessage: null,
+    ...overrides,
+  };
+}
 
 async function waitForBlockedAdvisoryLock(sql: Sql, billingTeamId: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {

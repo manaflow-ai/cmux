@@ -101,7 +101,6 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => timing.finish({ status: response.status }));
       let user: AuthedUser = initialUser;
-      const done = (response: Response): Response => response;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
         // (client sending `"aws"` or `"docker"`) previously slipped past the type cast and
@@ -122,62 +121,62 @@ export async function POST(request: Request): Promise<Response> {
         } catch (err) {
           if (!(err instanceof SyntaxError)) throw err;
           recordSpanError(span, err);
-          return done(vmErrorResponse({
+          return vmErrorResponse({
             error: "vm_json_parse_failed",
             status: 400,
             message: "Cloud VM create expected valid JSON.",
             action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
-          }));
+          });
         }
         const { bodyWasEmpty, raw } = parsedBody;
         if (!bodyWasEmpty && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
           recordSpanError(span, new Error("Cloud VM create body was not a JSON object"));
-          return done(vmErrorResponse({
+          return vmErrorResponse({
             error: "vm_expected_object",
             status: 400,
             message: "Cloud VM create expected a JSON object body.",
             action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
-          }));
+          });
         }
         const candidate = (raw ?? {}) as Record<string, unknown>;
         if (candidate.image !== undefined && typeof candidate.image !== "string") {
-          return done(vmErrorResponse({
+          return vmErrorResponse({
             error: "vm_invalid_request",
             status: 400,
             message: "`image` must be a string when provided.",
             action: "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
             details: { field: "image" },
-          }));
+          });
         }
         if (candidate.provider !== undefined) {
           if (typeof candidate.provider !== "string") {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_invalid_request",
               status: 400,
               message: "Cloud VM service override must be a string when provided.",
               action: "Remove the override to use the default Cloud VM service.",
               details: { field: "provider" },
-            }));
+            });
           }
           if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
               message: "Unsupported Cloud VM service override.",
               action: "Remove the override to use the default Cloud VM service.",
               details: { field: "provider" },
-            }));
+            });
           }
         }
         const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
         if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
-          return done(invalidTeamIdResponse());
+          return invalidTeamIdResponse();
         }
         if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
-          return done(invalidTeamIdResponse());
+          return invalidTeamIdResponse();
         }
         if (requestHasBlankVmTeamId(request)) {
-          return done(invalidTeamIdResponse());
+          return invalidTeamIdResponse();
         }
         const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
           image: typeof candidate.image === "string" ? candidate.image : undefined,
@@ -191,23 +190,23 @@ export async function POST(request: Request): Promise<Response> {
           imageSelection = resolveVmImage(provider, body.image);
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_create_disabled",
               status: 503,
               message: "Cloud VM creation is disabled for this environment.",
               action: "Ask an admin to enable Cloud VM creation, then retry.",
               reason: "Cloud VM creation is disabled.",
-            }));
+            });
           }
           if (isVmImageConfigError(err)) {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_image_config_error",
               status: 503,
               message: "The requested Cloud VM image is not available in this environment.",
               action: "Retry without `image` to use the default Cloud VM image, or ask an admin to configure a supported image.",
               reason: "Cloud VM image configuration is unavailable.",
               details: { imageRequested: err.image !== undefined },
-            }));
+            });
           }
           throw err;
         }
@@ -234,7 +233,7 @@ export async function POST(request: Request): Promise<Response> {
           const refreshedUser = await measureVmAsync(timing, "auth", () =>
             verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
           );
-          if (!refreshedUser) return done(unauthorized());
+          if (!refreshedUser) return unauthorized();
           user = refreshedUser;
         }
         let entitlements;
@@ -247,7 +246,7 @@ export async function POST(request: Request): Promise<Response> {
           );
         } catch (err) {
           if (isVmBillingTeamResolutionError(err)) {
-            return done(billingTeamErrorResponse(err));
+            return billingTeamErrorResponse(err);
           }
           throw err;
         }
@@ -275,16 +274,16 @@ export async function POST(request: Request): Promise<Response> {
           }));
         } catch (err) {
           if (isVmCreateInProgressError(err)) {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_create_in_progress",
               status: 409,
               message: "A Cloud VM create is already running for this request.",
               action: "Wait for the first `cmux vm new` to finish. If your terminal was interrupted, retry the same command and cmux will reuse the in-flight request.",
               details: { idempotencyKeySet: !!err.idempotencyKey },
-            }));
+            });
           }
           if (isVmCreateFailedError(err)) {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_create_failed",
               status: 500,
               message: "The previous Cloud VM create attempt failed.",
@@ -292,40 +291,40 @@ export async function POST(request: Request): Promise<Response> {
               details: {
                 idempotencyKeySet: !!err.idempotencyKey,
               },
-            }));
+            });
           }
           if (isVmLimitExceededError(err)) {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_active_limit_exceeded",
               status: 402,
               message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
               action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
               extra: { limit: err.limit },
               details: { limit: err.limit },
-            }));
+            });
           }
           if (isVmCreateCreditsInsufficientError(err)) {
-            return done(vmErrorResponse({
+            return vmErrorResponse({
               error: "vm_create_credits_insufficient",
               status: 402,
               message: "This team has no Cloud VM create credits left.",
               action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
               extra: { amount: err.amount },
               details: { amount: err.amount },
-            }));
+            });
           }
           const workflowError = vmWorkflowErrorResponse(err);
-          if (workflowError) return done(workflowError);
+          if (workflowError) return workflowError;
           throw err;
         }
         setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-        return done(jsonResponse({
+        return jsonResponse({
           id: created.providerVmId,
           provider: created.provider,
           image: created.image,
           imageVersion: created.imageVersion,
           createdAt: created.createdAt,
-        }));
+        });
       }
     },
   );
