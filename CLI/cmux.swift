@@ -18437,7 +18437,7 @@ struct CMUXCLI {
     private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
     private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
-    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
+    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 10
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
@@ -18587,6 +18587,30 @@ struct CMUXCLI {
         return ownerFound ? .alive : .gone
     }
 
+    private func codexMonitorOwnerPID(client: SocketClient) -> Int? {
+        guard let payload = try? client.sendV2(
+            method: "system.identify",
+            responseTimeout: Self.codexMonitorOwnerCheckTimeoutSeconds
+        ) else {
+            return nil
+        }
+        if let pid = payload["app_pid"] as? Int, pid > 0 {
+            return pid
+        }
+        if let pid = (payload["app_pid"] as? NSNumber)?.intValue, pid > 0 {
+            return pid
+        }
+        return nil
+    }
+
+    private func codexMonitorOwnerProcessIsAlive(_ pid: Int?) -> Bool {
+        guard let pid, pid > 0 else { return true }
+        if kill(pid_t(pid), 0) == 0 {
+            return true
+        }
+        return errno == EPERM
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -18594,6 +18618,7 @@ struct CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String?,
+        ownerPID: Int?,
         leasePath: String?,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
@@ -18634,6 +18659,9 @@ struct CMUXCLI {
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
         }
+        if let ownerPID, ownerPID > 0 {
+            monitorArgs += ["--owner-pid", String(ownerPID)]
+        }
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
@@ -18662,6 +18690,7 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let ownerPID = optionValue(commandArgs, name: "--owner-pid").flatMap(Int.init)
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -18673,6 +18702,9 @@ struct CMUXCLI {
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
+            if !codexMonitorOwnerProcessIsAlive(ownerPID) {
+                return
+            }
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
             }
@@ -20850,6 +20882,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
+                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
                 let leasePath = createCodexMonitorLease(
                     sessionId: sessionId,
                     turnId: input.turnId,
@@ -20857,10 +20890,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     env: env
                 )
+                let ownerPID = codexMonitorOwnerPID(client: client)
                 if leasePath == nil {
                     telemetry.breadcrumb(
                         "codex-hook.monitor.lease-unavailable",
-                        data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                        data: [
+                            "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                            "has_owner_pid": ownerPID != nil,
+                        ]
                     )
                 }
                 startCodexTranscriptMonitor(
@@ -20870,6 +20907,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    ownerPID: ownerPID,
                     leasePath: leasePath,
                     env: env,
                     telemetry: telemetry

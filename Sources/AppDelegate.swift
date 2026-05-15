@@ -1554,11 +1554,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
 
+    private func teardownAllWorkspacePanelsBeforeAppTeardown() {
+        var seenManagers = Set<ObjectIdentifier>()
+        let managers = allMainWindowTabManagersForDebug() + [tabManager].compactMap { $0 }
+        for manager in managers {
+            guard seenManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        teardownAllWorkspacePanelsBeforeAppTeardown()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         TerminalController.shared.stop()
