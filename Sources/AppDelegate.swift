@@ -12272,7 +12272,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
-        guard let panelId = browserAddressBarFocusedPanelId else { return nil }
+        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let shortcutResponder = shortcutWindow?.firstResponder
+        let responderPanelId = isBrowserOmnibarResponder(shortcutResponder)
+            ? browserOmnibarPanelId(for: shortcutResponder)
+            : nil
+        guard let panelId = responderPanelId ?? browserAddressBarFocusedPanelId else { return nil }
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
@@ -12305,18 +12310,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let shortcutResponder = shortcutWindow?.firstResponder
-
-        if isBrowserOmnibarResponder(shortcutResponder) {
+        if let responderPanelId {
 #if DEBUG
             cmuxDebugLog(
-                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "browser.focus.addressBar.shortcutContext panel=\(responderPanelId.uuidString.prefix(5)) " +
                 "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
-            return panelId
+            return responderPanelId
         }
 
         let liveOmnibarFieldExists = browserOmnibarField(panelId: panelId, in: shortcutWindow) != nil
