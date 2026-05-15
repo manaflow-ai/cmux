@@ -79,7 +79,43 @@ def strip_jsonc(text: str) -> str:
         out.append(ch)
         i += 1
     # Drop trailing commas before ] or } (also legal in JSONC).
-    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+    return strip_trailing_commas_outside_strings("".join(out))
+
+
+def strip_trailing_commas_outside_strings(text: str) -> str:
+    """Remove JSONC trailing commas without touching string contents."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    string_quote = ""
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == string_quote:
+                in_string = False
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_string = True
+            string_quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == ",":
+            j = i + 1
+            while j < n and text[j].isspace():
+                j += 1
+            if j < n and text[j] in "}]":
+                i += 1
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def load_settings(path: Path) -> dict[str, Any]:
@@ -106,7 +142,10 @@ def atomic_write(path: Path, data: dict[str, Any]) -> None:
 def split_path(dotted: str) -> list[str]:
     if not dotted:
         raise SystemExit("error: empty key path")
-    return dotted.split(".")
+    parts = dotted.split(".")
+    if any(part == "" for part in parts):
+        raise SystemExit("error: empty key path segment")
+    return parts
 
 
 def get_at(data: Any, parts: list[str]) -> Any:
@@ -121,11 +160,16 @@ def get_at(data: Any, parts: list[str]) -> Any:
 def set_at(data: dict[str, Any], parts: list[str], value: Any) -> bool:
     cur = data
     for p in parts[:-1]:
-        if p not in cur or not isinstance(cur[p], dict):
+        if p not in cur:
             cur[p] = {}
+        elif not isinstance(cur[p], dict):
+            raise SystemExit(
+                f"error: intermediate key '{p}' is not an object "
+                f"(got {type(cur[p]).__name__}); cannot set nested path"
+            )
         cur = cur[p]
     leaf = parts[-1]
-    changed = cur.get(leaf, "__cmux_missing__") != value
+    changed = (leaf not in cur) or cur[leaf] != value
     cur[leaf] = value
     return changed
 
@@ -170,7 +214,19 @@ def flatten(prefix: str, value: Any) -> list[str]:
 
 def supported_paths_from_source(source: Path) -> list[str]:
     text = source.read_text()
-    return sorted(set(re.findall(r'"([a-zA-Z]+\.[a-zA-Z0-9_.]+)"', text)))
+    known_sections = (
+        "app.",
+        "terminal.",
+        "notifications.",
+        "sidebar.",
+        "workspaceColors.",
+        "sidebarAppearance.",
+        "automation.",
+        "browser.",
+        "shortcuts.",
+    )
+    candidates = re.findall(r'"([a-zA-Z]+\.[a-zA-Z0-9_.]+)"', text)
+    return sorted({p for p in candidates if p.startswith(known_sections)})
 
 
 def supported_paths_from_reference(skill_root: Path | None) -> list[str]:
@@ -267,7 +323,8 @@ def cmd_list_supported(args: argparse.Namespace) -> int:
     paths = supported_paths()
     if not paths:
         print(
-            "error: could not locate Sources/CmuxSettingsJSONPathSupport.swift or references/all-keys.md",
+            "error: could not load the supported-paths list; "
+            "run from a cmux checkout or reinstall the cmux-settings skill",
             file=sys.stderr,
         )
         return 1
@@ -327,11 +384,22 @@ def cmd_open(args: argparse.Namespace) -> int:
         atomic_write(path, {"$schema": SCHEMA_URL, "schemaVersion": 1})
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
     if editor:
-        return subprocess.call([*editor.split(), str(path)])
-    for app in (["code", "--wait"], ["cursor", "--wait"], ["open", "-e"]):
+        try:
+            return subprocess.call([*editor.split(), str(path)])
+        except FileNotFoundError:
+            print(f"error: editor not found: {editor.split()[0]}", file=sys.stderr)
+            return 1
+    for app in (["code", "--wait"], ["cursor", "--wait"], ["open", "-e"], ["xdg-open"]):
         if shutil.which(app[0]):
-            return subprocess.call([*app, str(path)])
-    return subprocess.call(["open", str(path)])
+            try:
+                return subprocess.call([*app, str(path)])
+            except FileNotFoundError:
+                continue
+    print(
+        "error: no suitable editor found; set $EDITOR or install code, cursor, open, or xdg-open",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def main() -> int:
