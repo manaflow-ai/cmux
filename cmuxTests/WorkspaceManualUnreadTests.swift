@@ -663,6 +663,9 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         try assertWorkspaceReadFlowClearsNotificationBackedPanelBadge { store, _ in
             store.markAllRead()
         }
+        try assertWorkspaceReadFlowClearsNotificationBackedPanelBadge { store, _ in
+            store.clearAll(discardQueuedNotifications: false)
+        }
     }
 
     private func assertWorkspaceReadFlowClearsRepresentativeBadge(

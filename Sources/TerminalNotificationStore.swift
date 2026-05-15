@@ -1536,6 +1536,12 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markAllRead() {
+        let tabIdsToRefresh = Set(notifications.compactMap { notification in
+            notification.isRead ? nil : notification.tabId
+        })
+        .union(manualUnreadWorkspaceIds)
+        .union(panelDerivedUnreadWorkspaceIds)
+        .union(restoredUnreadWorkspaceIds)
         var updated = notifications
         var idsToClear: [String] = []
         for index in updated.indices {
@@ -1548,7 +1554,7 @@ final class TerminalNotificationStore: ObservableObject {
             notifications = updated
         }
         clearWorkspaceManualUnread()
-        clearAllWorkspacePanelUnread(forTabIds: panelDerivedUnreadWorkspaceIds)
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToRefresh)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
@@ -1579,13 +1585,18 @@ final class TerminalNotificationStore: ObservableObject {
             !manualUnreadWorkspaceIds.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
+        let tabIdsToRefresh = Set(notifications.map(\.tabId))
+            .union(focusedReadIndicatorByTabId.keys)
+            .union(manualUnreadWorkspaceIds)
+            .union(panelDerivedUnreadWorkspaceIds)
+            .union(restoredUnreadWorkspaceIds)
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
-        clearAllWorkspacePanelUnread(forTabIds: panelDerivedUnreadWorkspaceIds)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToRefresh)
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
