@@ -102,6 +102,30 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertEqual(resultIDs.first, "palette.checkForUpdates")
     }
 
+    func testNucleoFFIDoesNotMatchSingleTokenAcrossSearchFields() throws {
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "palette.crossFieldOnly",
+                rank: 0,
+                title: "Other Command",
+                searchableTexts: ["Other Command", "foo", "bar"]
+            ),
+            FixtureEntry(
+                id: "palette.frameRate",
+                rank: 1,
+                title: "Frame Rate",
+                searchableTexts: ["Frame Rate", "Display", "frame", "rate"]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "fr", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "palette.frameRate")
+        XCTAssertFalse(resultIDs.contains("palette.crossFieldOnly"))
+    }
+
     func testNucleoFFIMatchesAsciiQueryAgainstDiacriticTitle() throws {
         let library = try NucleoLibrary()
         let entries = [

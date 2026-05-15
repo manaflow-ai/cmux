@@ -128,7 +128,25 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
             .deletingLastPathComponent()
         paths.append(
             sourceRoot
+                .appendingPathComponent("Native/CommandPaletteNucleoFFI/target/cmux-nucleo-ffi")
+                .appendingPathComponent(Self.libraryFileName)
+                .path
+        )
+        paths.append(
+            sourceRoot
                 .appendingPathComponent("Native/CommandPaletteNucleoFFI/target/release")
+                .appendingPathComponent(Self.libraryFileName)
+                .path
+        )
+        paths.append(
+            sourceRoot
+                .appendingPathComponent("Native/CommandPaletteNucleoFFI/target/aarch64-apple-darwin/release")
+                .appendingPathComponent(Self.libraryFileName)
+                .path
+        )
+        paths.append(
+            sourceRoot
+                .appendingPathComponent("Native/CommandPaletteNucleoFFI/target/x86_64-apple-darwin/release")
                 .appendingPathComponent(Self.libraryFileName)
                 .path
         )

@@ -27,6 +27,7 @@ pub struct CmuxNucleoMatch {
 struct Candidate {
     title: String,
     search_text: String,
+    search_lines: Vec<String>,
     rank: i32,
     ascii_prefilter_safe: bool,
     ascii_mask_low: u64,
@@ -128,9 +129,11 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
         let (search_low, search_high) = ascii_mask(search_text);
         let title_initials = title_word_initials(title);
         let title_char_count = title.chars().count();
+        let search_lines = search_text.lines().map(str::to_owned).collect();
         candidates.push(Candidate {
             title: title.to_owned(),
             search_text: search_text.to_owned(),
+            search_lines,
             rank: span.rank,
             ascii_prefilter_safe,
             ascii_mask_low: title_low | search_low,
@@ -394,7 +397,7 @@ fn weighted_token_score(
     candidate: &Candidate,
 ) -> Option<f64> {
     let title_score = state.score_text(&token.pattern, &candidate.title);
-    let search_score = state.score_text(&token.pattern, &candidate.search_text);
+    let search_score = best_search_line_score(state, &token.pattern, candidate);
     weighted_score(
         &token.text,
         token.initialism_query.as_ref(),
@@ -402,6 +405,23 @@ fn weighted_token_score(
         title_score,
         search_score,
     )
+}
+
+fn best_search_line_score(
+    state: &mut SearchState,
+    pattern: &Pattern,
+    candidate: &Candidate,
+) -> Option<u32> {
+    let mut best_score: Option<u32> = None;
+    for line in &candidate.search_lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(score) = state.score_text(pattern, line) {
+            best_score = Some(best_score.map_or(score, |best| best.max(score)));
+        }
+    }
+    best_score
 }
 
 fn weighted_score(
