@@ -5187,6 +5187,7 @@ struct ContentView: View {
         }
         let previewCandidateCommandIDs: [String]
         if commandPaletteVisibleResultsScope == scope,
+           commandPaletteVisibleResultsFingerprint == fingerprint,
            !commandPaletteVisibleResults.isEmpty {
             previewCandidateCommandIDs = CommandPaletteSearchOrchestrator.previewCandidateCommandIDs(
                 resultIDs: commandPaletteVisibleResults.map(\.id),
