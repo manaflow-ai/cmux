@@ -515,6 +515,39 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentSnapshotFingerprintChangesWithForkCommand() {
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: ["/usr/local/bin/codex"],
+            workingDirectory: "/tmp/repo",
+            environment: nil,
+            capturedAt: 123,
+            source: "process"
+        )
+        let first = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: launchCommand
+        )
+        var second = first
+        second.registration = CmuxVaultAgentRegistration(
+            id: "fork-fingerprint",
+            name: "Fork Fingerprint",
+            detect: CmuxVaultAgentDetectRule(processName: "fork-fingerprint"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} resume {{sessionId}}",
+            cwd: .ignore
+        )
+
+        XCTAssertNotEqual(first.forkCommand, second.forkCommand)
+        XCTAssertNotEqual(
+            ContentView.commandPaletteForkSnapshotFingerprint(first),
+            ContentView.commandPaletteForkSnapshotFingerprint(second)
+        )
+    }
+
     func testCommandPreviewSearchUsesFullCommandCorpus() {
         let entries = [
             FixtureEntry(

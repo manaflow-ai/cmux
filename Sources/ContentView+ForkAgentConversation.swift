@@ -53,7 +53,12 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            guard await AgentForkSupport.supportsFork(snapshot: snapshot) else {
+            let isRemoteContext = currentContext.workspace.isRemoteWorkspace ||
+                currentContext.workspace.isRemoteTerminalSurface(panelId)
+            guard await AgentForkSupport.supportsFork(
+                snapshot: snapshot,
+                isRemoteContext: isRemoteContext
+            ) else {
                 NSSound.beep()
                 return
             }

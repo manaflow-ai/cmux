@@ -1123,6 +1123,7 @@ struct ContentView: View {
     @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
     @State var commandPaletteForkableAgentSnapshotFingerprintsByPanelKey: [String: String] = [:]
     @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
+    @State private var commandPaletteForkableAgentProbeFingerprintsByPanelKey: [String: String] = [:]
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -5920,7 +5921,8 @@ struct ContentView: View {
             launchCommand?.executablePath ?? "",
             launchArguments,
             launchCommand?.workingDirectory ?? "",
-            launchCommand?.source ?? ""
+            launchCommand?.source ?? "",
+            snapshot.forkCommand ?? ""
         ]
         return parts.joined(separator: "\u{1e}")
     }
@@ -5976,6 +5978,7 @@ struct ContentView: View {
             let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
             if let cachedFingerprint = commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey],
                cachedFingerprint != fallbackFingerprint {
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
                 commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
@@ -6006,7 +6009,8 @@ struct ContentView: View {
                     panelKey: panelKey,
                     workspaceId: workspaceId,
                     panelId: panelId,
-                    fallbackSnapshot: fallbackSnapshot
+                    fallbackSnapshot: fallbackSnapshot,
+                    fallbackFingerprint: fallbackFingerprint
                 )
                 return
             }
@@ -6020,7 +6024,8 @@ struct ContentView: View {
             panelKey: panelKey,
             workspaceId: workspaceId,
             panelId: panelId,
-            fallbackSnapshot: nil
+            fallbackSnapshot: nil,
+            fallbackFingerprint: nil
         )
     }
 
@@ -6028,11 +6033,20 @@ struct ContentView: View {
         panelKey: String,
         workspaceId: UUID,
         panelId: UUID,
-        fallbackSnapshot: SessionRestorableAgentSnapshot?
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        fallbackFingerprint: String?
     ) {
-        guard commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] == nil else { return }
+        let probeFingerprint = fallbackFingerprint ?? ""
+        if let task = commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] {
+            guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] != probeFingerprint else { return }
+            task.cancel()
+            commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        }
         let probeID = UUID()
         commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] = probeID
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
 
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
@@ -6048,6 +6062,21 @@ struct ContentView: View {
 
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
+                guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                func finishProbe() {
+                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                }
+                if let fallbackFingerprint,
+                   let currentContext = focusedPanelContext,
+                   currentContext.workspace.id == workspaceId,
+                   currentContext.panelId == panelId,
+                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
+                   Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
+                    finishProbe()
+                    return
+                }
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
                 let shouldRefreshResults: Bool
@@ -6064,8 +6093,7 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 }
-                commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                finishProbe()
                 if shouldRefreshResults,
                    isCommandPalettePresented,
                    commandPaletteForkableAgentActivePanelKey == panelKey {
@@ -6084,11 +6112,13 @@ struct ContentView: View {
         }
         commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeAll()
         commandPaletteForkableAgentProbeIDsByPanelKey.removeAll()
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeAll()
     }
 
     private func cancelCommandPaletteForkableAgentAvailabilityProbe(for panelKey: String) {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)?.cancel()
         commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
     }
 
     private func commandPaletteCommandsContext(

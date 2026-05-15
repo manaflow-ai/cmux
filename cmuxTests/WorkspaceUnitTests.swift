@@ -4812,6 +4812,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             ),
             autoConnect: false
         )
+        let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
+        XCTAssertEqual(initialRemoteSessionCount, 1)
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -4838,7 +4840,44 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 2)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
+    }
+
+    func testSessionIndexRemoteSplitDoesNotInjectRemoteStartupCommand() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64000,
+                relayID: "relay-session-drop",
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-session-drop-remote.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+        let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
+        XCTAssertEqual(initialRemoteSessionCount, 1)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let initialInput = "codex resume session-drop\n"
+
+        let splitPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: paneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: "/Users/cmux/project",
+                initialInput: initialInput
+            )
+        )
+
+        XCTAssertNil(splitPanel.surface.debugInitialCommand())
+        XCTAssertEqual(splitPanel.surface.initialInput, initialInput)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
     }
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {

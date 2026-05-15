@@ -13182,11 +13182,13 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool,
         workingDirectory: String?,
-        initialInput: String?
+        initialInput: String?,
+        remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
-        if remoteTerminalStartupCommand != nil {
+        let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
@@ -13198,13 +13200,13 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: remoteTerminalStartupCommand,
+            initialCommand: startupCommand,
             initialInput: initialInput
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if remoteTerminalStartupCommand != nil {
+        if startupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -13224,7 +13226,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            if remoteTerminalStartupCommand != nil {
+            if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
@@ -13302,14 +13304,23 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        clearSplitZoom()
-        return splitPaneWithNewTerminal(
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+        let remoteStartupCommand = remoteTerminalStartupCommand()
+        let forkedPanel = splitPaneWithNewTerminal(
             targetPane: paneId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             workingDirectory: forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot),
-            initialInput: startupInput
+            initialInput: startupInput,
+            remoteStartupCommand: remoteStartupCommand
         )
+        if forkedPanel == nil, let zoomedPaneId {
+            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        }
+        return forkedPanel
     }
 
     func forkAgentWorkingDirectory(

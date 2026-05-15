@@ -2227,6 +2227,29 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(supportsFork)
     }
 
+    func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-remote-context",
+            workingDirectory: FileManager.default.temporaryDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/bin/false",
+                arguments: ["/bin/false"],
+                workingDirectory: FileManager.default.temporaryDirectory.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: true
+        )
+        XCTAssertTrue(supportsFork)
+    }
+
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
         XCTAssertTrue(
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
