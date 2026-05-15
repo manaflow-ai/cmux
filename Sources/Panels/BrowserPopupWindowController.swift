@@ -321,7 +321,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         guard !didTearDownWebView else { return }
         didTearDownWebView = true
         if let window = webView.window,
-           BrowserPanel.responderChainContains(window.firstResponder, target: webView) {
+           Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
         webAuthnCoordinator.uninstall(from: webView)
@@ -332,6 +332,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         webView.uiDelegate = nil
         webView.loadHTMLString("", baseURL: URL(string: "about:blank"))
         webView.removeFromSuperview()
+    }
+
+    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var responder = start
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if current === target { return true }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return false
     }
 
     // MARK: - Nested popup creation
