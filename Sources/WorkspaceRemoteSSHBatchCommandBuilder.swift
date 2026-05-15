@@ -10,8 +10,8 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String
     ) -> [String] {
-        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
-        let command = "sh -c \(shellSingleQuoted(script))"
+        let script = "exec \(ShellArgumentQuoting.singleQuoted(remotePath)) serve --stdio"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(script))"
         return ["-T"]
             + batchArguments(configuration: configuration)
             + ["-o", "RequestTTY=no", configuration.destination, command]
@@ -129,7 +129,4 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
             .lowercased()
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
 }

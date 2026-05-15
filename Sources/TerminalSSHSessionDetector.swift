@@ -222,8 +222,8 @@ struct DetectedSSHSession: Equatable {
 
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
-        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
-        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
+        let cleanupScript = "rm -f -- " + remotePaths.map(ShellArgumentQuoting.singleQuoted).joined(separator: " ")
+        let cleanupCommand = "sh -c \(ShellArgumentQuoting.singleQuoted(cleanupScript))"
         _ = try? Self.runProcess(
             executable: "/usr/bin/ssh",
             arguments: sshArguments(command: cleanupCommand),
@@ -378,10 +378,6 @@ struct DetectedSSHSession: Equatable {
             trimmedHost.contains(":") &&
             !trimmedHost.hasPrefix("[") &&
             !trimmedHost.hasSuffix("]")
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
 #if DEBUG

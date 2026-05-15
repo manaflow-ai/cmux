@@ -1,10 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
 
-fileprivate func shellSingleQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
-
 enum AgentResumeCommandBuilder {
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -45,12 +41,12 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
+        var shellCommand = commandParts.map(ShellArgumentQuoting.singleQuoted).joined(separator: " ")
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
         if let cwd {
-            shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
+            shellCommand = "cd \(ShellArgumentQuoting.singleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
     }
@@ -400,7 +396,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return nil
         }
 
-        let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
+        let scriptInput = "/bin/zsh \(ShellArgumentQuoting.singleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 }

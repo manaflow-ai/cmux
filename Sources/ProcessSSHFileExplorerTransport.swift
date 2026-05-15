@@ -374,7 +374,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         guard result.terminationStatus == 0 else {
-            throw FileExplorerError.sshCommandFailed(result.stderr)
+            throw FileExplorerError.sshCommandFailed(
+                remoteCommandFailureDetail(status: result.terminationStatus)
+            )
         }
         return result.stdout
     }
@@ -413,7 +415,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         let lsFlags = showHidden ? "-1paFA" : "-1paF"
         let output = try await runSSHCommand(
             connection: connection,
-            command: "ls \(lsFlags) \(shellSingleQuoted(path)) 2>/dev/null"
+            command: "ls \(lsFlags) \(ShellArgumentQuoting.singleQuoted(path)) 2>/dev/null"
         )
 
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
@@ -451,9 +453,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         )
         let result = try await runSCPCommand(arguments: args, timeout: 30 * 60)
         guard result.terminationStatus == 0 else {
-            let detail = bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
-                "scp exited \(result.terminationStatus)"
-            throw FileExplorerError.downloadFailed(detail)
+            throw FileExplorerError.downloadFailed(
+                remoteCommandFailureDetail(status: result.terminationStatus)
+            )
         }
         return target.path
     }
@@ -522,30 +524,20 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         args += [
-            "\(scpRemoteDestination(connection.destination)):\(shellSingleQuoted(remotePath))",
+            "\(scpRemoteDestination(connection.destination)):\(ShellArgumentQuoting.singleQuoted(remotePath))",
             localDestinationPath,
         ]
         return args
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
-        let escapedValue = value.replacingOccurrences(of: "'", with: "'\\''")
-        return "'\(escapedValue)'"
-    }
-
-    private static func bestErrorLine(stderr: String, stdout: String) -> String? {
-        let stderrLine = stderr
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
-        if let stderrLine {
-            return stderrLine
-        }
-
-        return stdout
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
+    private static func remoteCommandFailureDetail(status: Int32) -> String {
+        String.localizedStringWithFormat(
+            String(
+                localized: "fileExplorer.error.remoteCommandExited",
+                defaultValue: "Remote command exited with status %d."
+            ),
+            Int(status)
+        )
     }
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {

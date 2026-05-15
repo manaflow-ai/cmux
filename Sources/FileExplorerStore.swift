@@ -567,19 +567,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func setDefaultLocalDownloadDirectory(_ path: String?) {
-        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
-            defaultLocalDownloadDirectory = nil
-            return
-        }
-        let normalizedPath = (path as NSString).expandingTildeInPath
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: normalizedPath, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            defaultLocalDownloadDirectory = nil
-            return
-        }
-        defaultLocalDownloadDirectory = normalizedPath
+        defaultLocalDownloadDirectory = LocalDirectoryPathNormalization.existingDirectoryPath(path)
     }
 
     func setRootPath(_ path: String) {

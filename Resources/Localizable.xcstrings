@@ -86825,6 +86825,23 @@
         }
       }
     },
+    "fileExplorer.error.remoteCommandExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote command exited with status %d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートコマンドはステータス %d で終了しました。"
+          }
+        }
+      }
+    },
     "fileExplorer.error.sshFailed": {
       "extractionState": "manual",
       "localizations": {
