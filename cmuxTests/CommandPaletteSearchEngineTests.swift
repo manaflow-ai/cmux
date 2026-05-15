@@ -431,6 +431,46 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCommandIDs.first, "command.finder")
     }
 
+    func testNucleoEmptyResultsFallBackToSwiftSingleEditMatching() throws {
+        let entries = [
+            FixtureEntry(
+                id: "palette.renameTab",
+                rank: 0,
+                title: "Rename Tab...",
+                searchableTexts: ["Rename Tab...", "rename", "tab", "title"]
+            ),
+            FixtureEntry(
+                id: "palette.openFolder",
+                rank: 1,
+                title: "Open Folder...",
+                searchableTexts: ["Open Folder...", "open", "folder", "directory"]
+            ),
+        ]
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        guard let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+
+        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            searchIndex: searchIndex,
+            searchCorpus: corpus,
+            query: "renamd",
+            usageHistory: [:],
+            queryIsEmpty: CommandPaletteFuzzyMatcher.preparedQuery("renamd").isEmpty,
+            historyTimestamp: 0,
+            resultLimit: 10
+        )
+
+        XCTAssertEqual(matches.first?.commandID, "palette.renameTab")
+    }
+
     func testCommandSearchPrefersOpenFolderForOpenFolderQuery() {
         let entries = [
             FixtureEntry(

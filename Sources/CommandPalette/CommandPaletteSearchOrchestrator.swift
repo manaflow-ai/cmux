@@ -41,12 +41,15 @@ enum CommandPaletteSearchOrchestrator {
             )
         }
 
-        if let results = searchIndex?.search(
-            query: query,
-            resultLimit: limit,
-            historyBoost: historyBoost,
-            shouldCancel: shouldCancel
-        ) {
+        func swiftSearchMatches() -> [CommandPaletteResolvedSearchMatch] {
+            let results = CommandPaletteSearchEngine.search(
+                entries: searchCorpus,
+                query: query,
+                resultLimit: limit,
+                historyBoost: historyBoost ?? { _, _ in 0 },
+                shouldCancel: shouldCancel
+            )
+
             return results.map { result in
                 CommandPaletteResolvedSearchMatch(
                     commandID: result.payload,
@@ -56,21 +59,31 @@ enum CommandPaletteSearchOrchestrator {
             }
         }
 
-        let results = CommandPaletteSearchEngine.search(
-            entries: searchCorpus,
+        if let results = searchIndex?.search(
             query: query,
             resultLimit: limit,
-            historyBoost: historyBoost ?? { _, _ in 0 },
+            historyBoost: historyBoost,
             shouldCancel: shouldCancel
-        )
-
-        return results.map { result in
-            CommandPaletteResolvedSearchMatch(
-                commandID: result.payload,
-                score: result.score,
-                titleMatchIndices: result.titleMatchIndices
-            )
+        ) {
+            if results.isEmpty,
+               Self.shouldFallBackToSwiftSearchForEmptyNucleoResults(query: query, queryIsEmpty: queryIsEmpty) {
+                return swiftSearchMatches()
+            }
+            return results.map { result in
+                CommandPaletteResolvedSearchMatch(
+                    commandID: result.payload,
+                    score: result.score,
+                    titleMatchIndices: result.titleMatchIndices
+                )
+            }
         }
+
+        return swiftSearchMatches()
+    }
+
+    private static func shouldFallBackToSwiftSearchForEmptyNucleoResults(query: String, queryIsEmpty: Bool) -> Bool {
+        guard !queryIsEmpty else { return false }
+        return CommandPaletteFuzzyMatcher.preparedQuery(query).tokens.contains { $0.allowsSingleEdit }
     }
 
     static func previewSearchMatches(
