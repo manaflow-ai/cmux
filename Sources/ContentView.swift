@@ -5898,6 +5898,10 @@ struct ContentView: View {
         isRemoteTerminal: Bool = false
     ) -> CommandPaletteForkSnapshotAvailability {
         guard snapshot.forkCommand != nil else { return .unsupported }
+        if isRemoteTerminal,
+           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
+            return .unsupported
+        }
         switch snapshot.kind {
         case .claude, .codex:
             return .supportedWithoutProbe
