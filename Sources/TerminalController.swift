@@ -9002,6 +9002,65 @@ class TerminalController {
         """
     }
 
+    private func v2BrowserChromiumJavaScriptExpression(
+        surfaceId: UUID,
+        script: String,
+        useEval: Bool
+    ) -> String {
+        let scriptLiteral = v2JSONLiteral(script)
+        let framePrelude: String
+        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
+            let selectorLiteral = v2JSONLiteral(frameSelector)
+            framePrelude = """
+            let __cmuxDoc = document;
+            try {
+              const __cmuxFrame = document.querySelector(\(selectorLiteral));
+              if (__cmuxFrame && __cmuxFrame.contentDocument) {
+                __cmuxDoc = __cmuxFrame.contentDocument;
+              }
+            } catch (_) {}
+            """
+        } else {
+            framePrelude = "const __cmuxDoc = document;"
+        }
+
+        let executionBlock: String
+        if useEval {
+            executionBlock = "const __r = eval(\(scriptLiteral));"
+        } else {
+            executionBlock = "const __r = \(script);"
+        }
+
+        return """
+        (() => {
+          \(framePrelude)
+
+          try {
+            const __cmuxEvalInFrame = function() {
+              const document = __cmuxDoc;
+              \(executionBlock)
+              if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
+                return {
+                  __cmux_t: 'error',
+                  __cmux_m: 'promise_result_not_supported'
+                };
+              }
+              return {
+                __cmux_t: (typeof __r === 'undefined') ? 'undefined' : 'value',
+                __cmux_v: __r
+              };
+            };
+            return __cmuxEvalInFrame();
+          } catch (err) {
+            return {
+              __cmux_t: 'error',
+              __cmux_m: String((err && err.message) || err || 'JavaScript execution failed')
+            };
+          }
+        })()
+        """
+    }
+
     private func v2UnwrapBrowserJavaScriptResult(_ rawResult: V2JavaScriptResult) -> V2JavaScriptResult {
         switch rawResult {
         case .failure(let message):
@@ -9046,7 +9105,7 @@ class TerminalController {
             )
         }
 
-        let expression = v2BrowserJavaScriptExpression(surfaceId: surfaceId, script: script, useEval: useEval)
+        let expression = v2BrowserChromiumJavaScriptExpression(surfaceId: surfaceId, script: script, useEval: useEval)
         let timeoutSeconds = max(0.01, timeout)
         let outcome: V2JavaScriptResult? = v2AwaitCallback(timeout: timeoutSeconds) { finish in
             let evaluate = {
