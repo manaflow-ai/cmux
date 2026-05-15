@@ -475,6 +475,53 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
+def test_codex_monitor_exits_when_owner_pid_is_gone(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-owner-gone.sock"
+    transcript_path = root / "codex-session-owner-gone.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    owner = subprocess.Popen(["/bin/sleep", "0.1"])
+    owner.wait(timeout=2)
+
+    session_id = f"codex-monitor-owner-gone-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    FAKE_WORKSPACE_ID,
+                    "--session",
+                    session_id,
+                    "--transcript",
+                    str(transcript_path),
+                    "--owner-pid",
+                    str(owner.pid),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError("monitor stayed alive after owner process exited") from exc
+        if result.returncode != 0:
+            raise AssertionError(
+                f"hooks codex monitor failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+
+
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
@@ -1612,6 +1659,7 @@ def main() -> int:
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
+            test_codex_monitor_exits_when_owner_pid_is_gone(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
