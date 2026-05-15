@@ -253,6 +253,100 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(scope?.surfaceID, panelID)
     }
 
+    @MainActor
+    func testLaunchdParentedCodexMonitorArgumentsAttachToOwningSurface() throws {
+        let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let surfaceID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+        let monitorPID = 4242
+        let bytes = kernProcArgs(
+            arguments: [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                workspaceID.uuidString,
+                "--surface",
+                surfaceID.uuidString,
+                "--session",
+                "session-1"
+            ],
+            environment: []
+        )
+        let scope = try XCTUnwrap(CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes))
+        XCTAssertEqual(scope.workspaceID, workspaceID)
+        XCTAssertEqual(scope.surfaceID, surfaceID)
+
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: monitorPID,
+                    parentPID: 1,
+                    name: "cmux",
+                    path: "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: scope.workspaceID,
+                    cmuxSurfaceID: scope.surfaceID,
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 64 * 1024 * 1024,
+                    virtualBytes: 128 * 1024 * 1024,
+                    threadCount: 4
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        var windows: [[String: Any]] = [[
+            "kind": "window",
+            "id": UUID().uuidString,
+            "index": 0,
+            "key": true,
+            "visible": true,
+            "app_process_pids": [],
+            "workspaces": [[
+                "kind": "workspace",
+                "id": workspaceID.uuidString,
+                "index": 0,
+                "title": "hook monitor fixture",
+                "selected": true,
+                "pinned": false,
+                "tags": [],
+                "panes": [[
+                    "kind": "pane",
+                    "id": UUID().uuidString,
+                    "index": 0,
+                    "surfaces": [[
+                        "kind": "surface",
+                        "id": surfaceID.uuidString,
+                        "index": 0,
+                        "type": "terminal",
+                        "title": "codex monitor owner",
+                        "webviews": []
+                    ] as [String: Any]]
+                ] as [String: Any]]
+            ] as [String: Any]]
+        ]]
+
+        let totalPIDs = TerminalController.shared.v2AnnotateTopWindows(
+            &windows,
+            processSnapshot: snapshot,
+            browserPIDOccurrences: [:],
+            includeProcesses: true
+        )
+        let surface = try firstSurface(in: windows)
+        let resources = try XCTUnwrap(surface["resources"] as? [String: Any])
+        let processes = try XCTUnwrap(surface["processes"] as? [[String: Any]])
+        let monitorProcess = try XCTUnwrap(processes.first)
+
+        XCTAssertEqual(intArray(resources["pids"]), [monitorPID])
+        XCTAssertEqual(int(resources["process_count"]), 1)
+        XCTAssertEqual(int(monitorProcess["pid"]), monitorPID)
+        XCTAssertEqual(int(monitorProcess["ppid"]), 1)
+        XCTAssertTrue(totalPIDs.contains(monitorPID))
+    }
+
     private func kernProcArgs(
         arguments: [String] = ["zsh"],
         environment: [String]
@@ -469,10 +563,24 @@ while allocations:
         }
     }
 
+    private func firstSurface(in windows: [[String: Any]]) throws -> [String: Any] {
+        let workspaces = try XCTUnwrap(windows[0]["workspaces"] as? [[String: Any]])
+        let panes = try XCTUnwrap(workspaces[0]["panes"] as? [[String: Any]])
+        let surfaces = try XCTUnwrap(panes[0]["surfaces"] as? [[String: Any]])
+        return try XCTUnwrap(surfaces.first)
+    }
+
     private func int64(_ raw: Any?) -> Int64 {
         if let value = raw as? Int64 { return value }
         if let value = raw as? Int { return Int64(value) }
         if let value = raw as? NSNumber { return value.int64Value }
+        return 0
+    }
+
+    private func int(_ raw: Any?) -> Int {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        if let value = raw as? String { return Int(value) ?? 0 }
         return 0
     }
 

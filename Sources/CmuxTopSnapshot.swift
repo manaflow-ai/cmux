@@ -69,7 +69,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         )
     }
 
-    private init(
+    init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool
