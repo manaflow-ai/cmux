@@ -10277,7 +10277,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         tabId: tabId1,
                         surfaceId: surfaceId1
                     )
-                    self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
+                    self.publishMultiWindowNotificationSocketStateIfNeeded(
+                        at: path,
+                        window1Id: window1.windowId,
+                        window2Id: window2.windowId
+                    )
                 }
                 }
             }
@@ -10418,7 +10422,128 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         attemptFocus()
     }
 
-    private func publishMultiWindowNotificationSocketStateIfNeeded(at path: String) {
+    private func runMultiWindowWindowRouteCLIIfNeeded(
+        at path: String,
+        window1Id: UUID,
+        window2Id: UUID,
+        socketPath: String
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_WINDOW_ROUTE_CLI"] == "1" else { return }
+        let currentStatus = loadMultiWindowNotificationTestData(at: path)["windowRouteStatus"] ?? ""
+        guard currentStatus.isEmpty else { return }
+
+        let title = env["CMUX_UI_TEST_WINDOW_ROUTE_CLI_TITLE"] ?? "window-route-\(UUID().uuidString.prefix(8))"
+        writeMultiWindowNotificationTestData([
+            "windowRouteTitle": title,
+            "windowRouteStatus": "pending",
+            "windowRouteFailure": "",
+        ], at: path)
+
+        guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            writeMultiWindowNotificationTestData([
+                "windowRouteStatus": "0",
+                "windowRouteFailure": "missing_cli",
+            ], at: path)
+            return
+        }
+
+        let processEnv = env.merging([
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "6",
+        ]) { _, new in new }
+
+        struct CLIResult {
+            let status: String
+            let stdout: String
+            let stderr: String
+        }
+
+        func runCLI(_ arguments: [String]) -> CLIResult {
+            let process = Process()
+            process.executableURL = cliURL
+            process.arguments = ["--socket", socketPath] + arguments
+            process.environment = processEnv
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            do {
+                try process.run()
+            } catch {
+                return CLIResult(status: "-1", stdout: "", stderr: String(describing: error))
+            }
+            process.waitUntilExit()
+
+            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            return CLIResult(
+                status: String(process.terminationStatus),
+                stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+                stderr: String(data: stderrData, encoding: .utf8) ?? ""
+            )
+        }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        guard health.socketPathExists else {
+            writeMultiWindowNotificationTestData([
+                "windowRouteStatus": "0",
+                "windowRouteFailure": "socket_not_ready",
+            ], at: path)
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let create = runCLI([
+                "new-workspace",
+                "--window",
+                window2Id.uuidString,
+                "--name",
+                title,
+                "--focus",
+                "false",
+            ])
+            let window2List = runCLI([
+                "--json",
+                "--id-format",
+                "uuids",
+                "list-workspaces",
+                "--window",
+                window2Id.uuidString,
+            ])
+            let window1List = runCLI([
+                "--json",
+                "--id-format",
+                "uuids",
+                "list-workspaces",
+                "--window",
+                window1Id.uuidString,
+            ])
+
+            DispatchQueue.main.async {
+                self?.writeMultiWindowNotificationTestData([
+                    "windowRouteStatus": "1",
+                    "windowRouteCreateStatus": create.status,
+                    "windowRouteCreateStdout": create.stdout,
+                    "windowRouteCreateStderr": create.stderr,
+                    "windowRouteWindow2Status": window2List.status,
+                    "windowRouteWindow2Stdout": window2List.stdout,
+                    "windowRouteWindow2Stderr": window2List.stderr,
+                    "windowRouteWindow1Status": window1List.status,
+                    "windowRouteWindow1Stdout": window1List.stdout,
+                    "windowRouteWindow1Stderr": window1List.stderr,
+                ], at: path)
+            }
+        }
+    }
+
+    private func publishMultiWindowNotificationSocketStateIfNeeded(
+        at path: String,
+        window1Id: UUID? = nil,
+        window2Id: UUID? = nil
+    ) {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
 
@@ -10478,6 +10603,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketPathExists": health.socketPathExists ? "1" : "0",
                         "socketFailureSignals": failureSignals,
                     ], at: dataPath)
+                    if isReady, let window1Id, let window2Id {
+                        self.runMultiWindowWindowRouteCLIIfNeeded(
+                            at: dataPath,
+                            window1Id: window1Id,
+                            window2Id: window2Id,
+                            socketPath: socketPath
+                        )
+                    }
                     guard isReady || isTimedOut else { return }
                     timeoutWorkItem?.cancel()
                     if let observer {

@@ -44,6 +44,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ]
                 )
             case "workspace.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowID)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -85,7 +87,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["vm", "ssh", vmID],
+            arguments: ["vm", "ssh", vmID, "--window", windowID],
             environment: environment,
             timeout: 5
         )

@@ -3228,10 +3228,20 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        if includeAllWindows, requestedWindowId != nil {
+            return .err(code: "invalid_params", message: "window_id cannot be combined with all_windows", data: nil)
+        }
 
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
+        }
+        if let requestedWindowId {
+            identifyParams["window_id"] = requestedWindowId.uuidString
         }
         let identifyPayload = v2Identify(params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
@@ -3240,13 +3250,18 @@ class TerminalController {
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (requestedWindowId == nil)
 
         v2MainSync {
             guard let app = AppDelegate.shared else { return }
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = requestedWindowId ?? focusedWindowId ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
+                if let requestedWindowId, summary.windowId != requestedWindowId {
+                    continue
+                }
+                windowFound = true
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
@@ -3299,6 +3314,16 @@ class TerminalController {
                 data: [
                     "workspace_id": workspaceFilter.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+        if let requestedWindowId, !windowFound {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: [
+                    "window_id": requestedWindowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
                 ]
             )
         }
@@ -3456,12 +3481,22 @@ class TerminalController {
         }
         if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil { return .err(code: "invalid_params", message: "Missing or invalid all_windows", data: nil) }
         let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        if includeAllWindows, requestedWindowId != nil {
+            return .err(code: "invalid_params", message: "window_id cannot be combined with all_windows", data: nil)
+        }
         if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
         let includeProcesses = v2Bool(params, "include_processes") ?? false
 
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
+        }
+        if let requestedWindowId {
+            identifyParams["window_id"] = requestedWindowId.uuidString
         }
         let identifyPayload = v2Identify(params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
@@ -3470,12 +3505,17 @@ class TerminalController {
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (requestedWindowId == nil)
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = requestedWindowId ?? focusedWindowId ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
+                if let requestedWindowId, summary.windowId != requestedWindowId {
+                    continue
+                }
+                windowFound = true
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
@@ -3532,6 +3572,16 @@ class TerminalController {
                 data: [
                     "workspace_id": workspaceFilter.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+        if let requestedWindowId, !windowFound {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: [
+                    "window_id": requestedWindowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
                 ]
             )
         }
