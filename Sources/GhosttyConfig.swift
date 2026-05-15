@@ -45,6 +45,10 @@ struct GhosttyConfig {
     // Palette colors (0-15)
     var palette: [Int: NSColor] = [:]
 
+    // Mouse behavior — mirrors Ghostty's `right-click-action` config key.
+    // Valid values: "context-menu" (default), "paste", "copy", "copy-or-paste", "ignore".
+    var rightClickAction: String = "context-menu"
+
     var unfocusedSplitOverlayOpacity: Double {
         let clamped = min(1.0, max(0.15, unfocusedSplitOpacity))
         return min(1.0, max(0.0, 1.0 - clamped))
@@ -445,6 +449,8 @@ struct GhosttyConfig {
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
                     }
+                case "right-click-action":
+                    rightClickAction = value
                 default:
                     break
                 }

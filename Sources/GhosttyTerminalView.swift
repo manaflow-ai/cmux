@@ -9029,6 +9029,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return nil
         }
 
+        // Honor Ghostty's `right-click-action` config. When the user has
+        // chosen anything other than the default context menu, return nil
+        // so AppKit doesn't show cmux's NSMenu and the click flows through
+        // rightMouseDown/Up to Ghostty's mouse handler, which performs the
+        // configured action (paste / copy / copy-or-paste / ignore).
+        if GhosttyConfig.load().rightClickAction != "context-menu" {
+            return nil
+        }
+
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
