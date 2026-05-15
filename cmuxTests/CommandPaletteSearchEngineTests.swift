@@ -543,6 +543,55 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(matches.first?.commandID, "palette.renameTab")
     }
 
+    func testNucleoExactPartialResultsDoNotRunSwiftSingleEditFallback() throws {
+        let entries = [
+            FixtureEntry(
+                id: "workspace.project642",
+                rank: 0,
+                title: "Project 642 Command Palette",
+                searchableTexts: ["Project 642 Command Palette", "Workspace", "project-642", "cmd-p-search"]
+            ),
+            FixtureEntry(
+                id: "workspace.project641",
+                rank: 1,
+                title: "Project 641 Markdown Preview",
+                searchableTexts: ["Project 641 Markdown Preview", "Workspace", "project-641", "markdown-preview"]
+            ),
+        ]
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        guard let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+        let nucleoOnlyMatches = try XCTUnwrap(
+            searchIndex.search(query: "project-642", resultLimit: 10)
+        )
+        XCTAssertLessThan(nucleoOnlyMatches.count, 10)
+
+        var cancellationChecks = 0
+        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            searchIndex: searchIndex,
+            searchCorpus: corpus,
+            query: "project-642",
+            usageHistory: [:],
+            queryIsEmpty: CommandPaletteFuzzyMatcher.preparedQuery("project-642").isEmpty,
+            historyTimestamp: 0,
+            resultLimit: 10
+        ) {
+            cancellationChecks += 1
+            return false
+        }
+
+        XCTAssertEqual(matches.first?.commandID, "workspace.project642")
+        XCTAssertEqual(cancellationChecks, 2)
+    }
+
     func testCommandSearchPrefersOpenFolderForOpenFolderQuery() {
         let entries = [
             FixtureEntry(

@@ -23,6 +23,7 @@ struct FFIMatch {
 
 final class NucleoLibrary {
     private static let supportedVersion: UInt32 = 2
+    private static let libraryFileName = "libcmux_command_palette_nucleo_ffi.dylib"
 
     typealias CreateIndex = @convention(c) (
         UnsafePointer<UInt8>?,
@@ -50,14 +51,9 @@ final class NucleoLibrary {
 
     init() throws {
         let environment = ProcessInfo.processInfo.environment
-        let defaultPath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib")
-            .path
-        let path = environment["CMUX_NUCLEO_FFI_LIB"].flatMap { $0.isEmpty ? nil : $0 } ?? defaultPath
-        guard FileManager.default.fileExists(atPath: path) else {
-            throw XCTSkip("Build the nucleo FFI dylib before running comparison tests")
+        let paths = Self.defaultLibraryPaths(environment: environment)
+        guard let path = paths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            throw XCTSkip("Build or bundle the nucleo FFI dylib before running comparison tests")
         }
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw NSError(
@@ -98,6 +94,53 @@ final class NucleoLibrary {
                 ]
             )
         }
+    }
+
+    private static func defaultLibraryPaths(environment: [String: String]) -> [String] {
+        var paths: [String] = []
+        if let environmentPath = environment["CMUX_NUCLEO_FFI_LIB"], !environmentPath.isEmpty {
+            paths.append(environmentPath)
+        }
+        if let privateFrameworksPath = Bundle.main.privateFrameworksPath {
+            paths.append(
+                URL(fileURLWithPath: privateFrameworksPath)
+                    .appendingPathComponent(libraryFileName)
+                    .path
+            )
+        }
+
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let crateTarget = sourceRoot.appendingPathComponent("Native/CommandPaletteNucleoFFI/target")
+        paths.append(
+            crateTarget
+                .appendingPathComponent("cmux-nucleo-ffi")
+                .appendingPathComponent(libraryFileName)
+                .path
+        )
+        paths.append(
+            crateTarget
+                .appendingPathComponent("release")
+                .appendingPathComponent(libraryFileName)
+                .path
+        )
+#if arch(arm64)
+        paths.append(
+            crateTarget
+                .appendingPathComponent("aarch64-apple-darwin/release")
+                .appendingPathComponent(libraryFileName)
+                .path
+        )
+#elseif arch(x86_64)
+        paths.append(
+            crateTarget
+                .appendingPathComponent("x86_64-apple-darwin/release")
+                .appendingPathComponent(libraryFileName)
+                .path
+        )
+#endif
+        return paths
     }
 
     deinit {

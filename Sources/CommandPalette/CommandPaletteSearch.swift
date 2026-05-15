@@ -476,6 +476,61 @@ enum CommandPaletteFuzzyMatcher {
         return matched
     }
 
+    static func tokenCanMatchWithoutSingleEdit(
+        _ token: PreparedToken,
+        preparedCandidate candidate: PreparedCandidateText
+    ) -> Bool {
+        guard !token.normalizedText.isEmpty else { return true }
+
+        let candidateText = candidate.normalizedText
+        if token.normalizedText == candidateText {
+            return true
+        }
+        if candidateText.hasPrefix(token.normalizedText) {
+            return true
+        }
+        if candidateText.range(of: token.normalizedText) != nil {
+            return true
+        }
+
+        guard !token.containsTokenBoundaryCharacter else {
+            return token.characters.count <= 3 && subsequenceScore(token: token, candidate: candidate) != nil
+        }
+
+        if bestWordScore(tokenChars: token.characters, candidate: candidate) != nil {
+            return true
+        }
+        if initialismScore(tokenChars: token.characters, candidate: candidate) != nil {
+            return true
+        }
+        if stitchedWordPrefixScore(tokenChars: token.characters, candidate: candidate) != nil {
+            return true
+        }
+        if token.characters.count <= 3, subsequenceScore(token: token, candidate: candidate) != nil {
+            return true
+        }
+        return false
+    }
+
+    static func usesSingleEditWordPrefix(
+        preparedQuery: PreparedQuery,
+        preparedCandidates: [PreparedCandidateText]
+    ) -> Bool {
+        for token in preparedQuery.tokens where token.allowsSingleEdit && !token.containsTokenBoundaryCharacter {
+            for candidate in preparedCandidates {
+                guard !tokenCanMatchWithoutSingleEdit(token, preparedCandidate: candidate) else { continue }
+                if singleEditWordPrefixMatch(
+                    tokenChars: token.characters,
+                    candidateChars: candidate.characters,
+                    segments: candidate.wordSegments
+                ) != nil {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private static func scoreToken(_ token: PreparedToken, in candidate: PreparedCandidateText) -> Int? {
         guard !token.normalizedText.isEmpty else { return 0 }
 

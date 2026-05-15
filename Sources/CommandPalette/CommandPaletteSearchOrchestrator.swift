@@ -18,6 +18,7 @@ struct CommandPaletteResolvedSearchMatch: Sendable {
 
 enum CommandPaletteSearchOrchestrator {
     private static let synchronousSeedCorpusLimit = 256
+    private static let singleEditFallbackNucleoProbeLimit = 12
 
     static let resolvedResultLimit = 100
 
@@ -32,6 +33,7 @@ enum CommandPaletteSearchOrchestrator {
         shouldCancel: @escaping () -> Bool = { false }
     ) -> [CommandPaletteResolvedSearchMatch] {
         let limit = resultLimit ?? resolvedResultLimit
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let historyBoost: ((String, Bool) -> Int)? = usageHistory.isEmpty ? nil : { commandId, queryIsEmpty in
             self.historyBoost(
                 for: commandId,
@@ -72,14 +74,31 @@ enum CommandPaletteSearchOrchestrator {
                     titleMatchIndices: result.titleMatchIndices
                 )
             }
-            if Self.shouldIncludeSwiftSingleEditFallback(
-                query: query,
+            if Self.shouldConsiderSwiftSingleEditFallback(
+                preparedQuery: preparedQuery,
                 queryIsEmpty: queryIsEmpty,
                 nucleoResultCount: nucleoMatches.count,
+                searchCorpusCount: searchCorpus.count,
                 limit: limit
             ) {
-                return mergedSwiftFallbackMatches(
+                let searchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
+                guard Self.shouldIncludeSwiftSingleEditFallback(
+                    preparedQuery: preparedQuery,
+                    nucleoMatches: nucleoMatches,
+                    searchCorpusByID: searchCorpusByID
+                ) else {
+                    return nucleoMatches
+                }
+                let fallbackMatches = swiftSingleEditFallbackMatches(
                     swiftSearchMatches(),
+                    preparedQuery: preparedQuery,
+                    searchCorpusByID: searchCorpusByID
+                )
+                guard !fallbackMatches.isEmpty else {
+                    return nucleoMatches
+                }
+                return mergedSwiftFallbackMatches(
+                    fallbackMatches,
                     nucleoMatches: nucleoMatches,
                     limit: limit
                 )
@@ -90,15 +109,52 @@ enum CommandPaletteSearchOrchestrator {
         return swiftSearchMatches()
     }
 
-    private static func shouldIncludeSwiftSingleEditFallback(
-        query: String,
+    private static func shouldConsiderSwiftSingleEditFallback(
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
         queryIsEmpty: Bool,
         nucleoResultCount: Int,
+        searchCorpusCount: Int,
         limit: Int
     ) -> Bool {
         guard !queryIsEmpty else { return false }
-        guard nucleoResultCount < limit else { return false }
-        return CommandPaletteFuzzyMatcher.preparedQuery(query).tokens.contains { $0.allowsSingleEdit }
+        guard preparedQuery.tokens.contains(where: { $0.allowsSingleEdit }) else { return false }
+        return nucleoResultCount < min(limit, searchCorpusCount)
+    }
+
+    private static func shouldIncludeSwiftSingleEditFallback(
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+        nucleoMatches: [CommandPaletteResolvedSearchMatch],
+        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>]
+    ) -> Bool {
+        guard !nucleoMatches.isEmpty else { return true }
+        let singleEditTokens = preparedQuery.tokens.filter { $0.allowsSingleEdit }
+
+        let probedMatches = nucleoMatches.prefix(singleEditFallbackNucleoProbeLimit)
+        return singleEditTokens.contains { token in
+            !probedMatches.contains { match in
+                guard let entry = searchCorpusByID[match.commandID] else { return false }
+                return entry.preparedSearchableTexts.contains {
+                    CommandPaletteFuzzyMatcher.tokenCanMatchWithoutSingleEdit(
+                        token,
+                        preparedCandidate: $0
+                    )
+                }
+            }
+        }
+    }
+
+    private static func swiftSingleEditFallbackMatches(
+        _ swiftMatches: [CommandPaletteResolvedSearchMatch],
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>]
+    ) -> [CommandPaletteResolvedSearchMatch] {
+        swiftMatches.filter { match in
+            guard let entry = searchCorpusByID[match.commandID] else { return false }
+            return CommandPaletteFuzzyMatcher.usesSingleEditWordPrefix(
+                preparedQuery: preparedQuery,
+                preparedCandidates: entry.preparedSearchableTexts
+            )
+        }
     }
 
     private static func mergedSwiftFallbackMatches(
