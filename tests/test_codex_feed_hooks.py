@@ -522,6 +522,59 @@ def test_codex_monitor_exits_when_owner_pid_is_gone(cli_path: str, root: Path) -
             )
 
 
+def test_codex_monitor_exits_when_live_owner_pid_exits(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-live-owner-exits.sock"
+    transcript_path = root / "codex-session-live-owner-exits.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    owner = subprocess.Popen(["/bin/sleep", "0.5"])
+    session_id = f"codex-monitor-live-owner-exits-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    "monitor",
+                    "--workspace",
+                    FAKE_WORKSPACE_ID,
+                    "--session",
+                    session_id,
+                    "--transcript",
+                    str(transcript_path),
+                    "--owner-pid",
+                    str(owner.pid),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as exc:
+            owner.terminate()
+            raise AssertionError("monitor stayed alive after live owner process exited") from exc
+        finally:
+            try:
+                owner.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                owner.terminate()
+                owner.wait(timeout=2)
+
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex monitor failed exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+
 def test_codex_monitor_rejects_invalid_owner_pid(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-invalid-owner.sock"
     transcript_path = root / "codex-session-invalid-owner.jsonl"
@@ -1704,6 +1757,7 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_monitor_exits_when_owner_pid_is_gone(cli_path, root)
+            test_codex_monitor_exits_when_live_owner_pid_exits(cli_path, root)
             test_codex_monitor_rejects_invalid_owner_pid(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)

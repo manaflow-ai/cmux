@@ -18603,12 +18603,91 @@ struct CMUXCLI {
         return nil
     }
 
-    private func codexMonitorOwnerProcessIsAlive(_ pid: Int?) -> Bool {
-        guard let pid, pid > 0 else { return true }
-        if kill(pid_t(pid), 0) == 0 {
+    private final class CodexMonitorOwnerExitWatcher {
+        private let lock = NSLock()
+        private var processSource: DispatchSourceProcess?
+        private var didExit = false
+        private var waiters: [DispatchSemaphore] = []
+
+        init?(ownerPID: Int?) {
+            guard let ownerPID, ownerPID > 0 else { return nil }
+            guard Self.processExists(ownerPID) else {
+                didExit = true
+                return
+            }
+
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid_t(ownerPID),
+                eventMask: .exit,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler { [weak self] in
+                self?.markExited()
+            }
+            processSource = source
+            source.resume()
+        }
+
+        deinit {
+            let sourceToCancel: DispatchSourceProcess?
+            lock.lock()
+            sourceToCancel = processSource
+            processSource = nil
+            waiters.removeAll()
+            lock.unlock()
+            sourceToCancel?.cancel()
+        }
+
+        var hasExited: Bool {
+            lock.lock()
+            let value = didExit
+            lock.unlock()
+            return value
+        }
+
+        func registerWaiter(_ semaphore: DispatchSemaphore) -> Bool {
+            lock.lock()
+            if didExit {
+                lock.unlock()
+                semaphore.signal()
+                return false
+            }
+            waiters.append(semaphore)
+            lock.unlock()
             return true
         }
-        return errno == EPERM
+
+        func unregisterWaiter(_ semaphore: DispatchSemaphore) {
+            lock.lock()
+            waiters.removeAll { $0 === semaphore }
+            lock.unlock()
+        }
+
+        private func markExited() {
+            let waitersToSignal: [DispatchSemaphore]
+            let sourceToCancel: DispatchSourceProcess?
+            lock.lock()
+            guard !didExit else {
+                lock.unlock()
+                return
+            }
+            didExit = true
+            waitersToSignal = waiters
+            waiters.removeAll()
+            sourceToCancel = processSource
+            processSource = nil
+            lock.unlock()
+
+            waitersToSignal.forEach { $0.signal() }
+            sourceToCancel?.cancel()
+        }
+
+        private static func processExists(_ pid: Int) -> Bool {
+            if kill(pid_t(pid), 0) == 0 {
+                return true
+            }
+            return errno == EPERM
+        }
     }
 
     private func startCodexTranscriptMonitor(
@@ -18708,10 +18787,11 @@ struct CMUXCLI {
 
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        let ownerExitWatcher = CodexMonitorOwnerExitWatcher(ownerPID: ownerPID)
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
-            if !codexMonitorOwnerProcessIsAlive(ownerPID) {
+            if ownerExitWatcher?.hasExited == true {
                 return
             }
             if isCodexMonitorLeaseRetired(path: leasePath) {
@@ -18775,7 +18855,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                ownerExitWatcher: ownerExitWatcher,
+                timeout: min(30, remaining)
+            )
         }
     }
 
@@ -18818,11 +18903,23 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
+    private func waitForCodexTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        ownerExitWatcher: CodexMonitorOwnerExitWatcher?,
+        timeout: TimeInterval
+    ) {
         guard timeout > 0 else { return }
 
         let semaphore = DispatchSemaphore(value: 0)
+        let registeredOwnerWaiter = ownerExitWatcher?.registerWaiter(semaphore) ?? false
         var sources: [DispatchSourceFileSystemObject] = []
+        defer {
+            if registeredOwnerWaiter {
+                ownerExitWatcher?.unregisterWaiter(semaphore)
+            }
+            sources.forEach { $0.cancel() }
+        }
 
         func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
             guard let path, !path.isEmpty else { return }
@@ -18847,13 +18944,12 @@ struct CMUXCLI {
         addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
 
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+        guard !sources.isEmpty || ownerExitWatcher != nil else {
+            _ = semaphore.wait(timeout: .now() + timeout)
             return
         }
 
         _ = semaphore.wait(timeout: .now() + timeout)
-        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
