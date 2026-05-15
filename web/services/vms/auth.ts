@@ -64,6 +64,8 @@ async function authedUserFromStackUser(
 ): Promise<AuthedUser> {
   const selectedTeam = teamLike(user.selectedTeam);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
+  // When the selected team is enough, entitlements resolve from it before any
+  // multi-team guard needs a full team list.
   const needsListedTeams = !selectedTeam || (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
   const listedTeams = needsListedTeams && typeof user.listTeams === "function"
     ? (await user.listTeams()).map(teamLike).filter((team): team is TeamLike => !!team)

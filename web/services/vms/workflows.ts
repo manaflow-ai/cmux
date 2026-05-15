@@ -104,6 +104,19 @@ export function createVm(input: {
     }
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
+    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation).pipe(
+      Effect.catchAll((err) =>
+        Effect.gen(function* () {
+          yield* refundCredit(billing, repo, create.vm, creditReservation);
+          yield* repo.markCreateFailed({
+            id: create.vm.id,
+            code: "usage_event_failed",
+            message: "Cloud VM usage tracking failed.",
+          }).pipe(Effect.catchAll(() => Effect.void));
+          return yield* Effect.fail(err);
+        }),
+      ),
+    );
 
     const handle = yield* measureVmEffect(
       input.timing,
@@ -149,14 +162,21 @@ export function createVm(input: {
           yield* repo.markCreateFailed({
             id: create.vm.id,
             code: "database_finalize_failed",
-            message: err.message,
+            message: "Cloud VM state update failed.",
           }).pipe(Effect.catchAll(() => Effect.void));
+          yield* recordCreateFailureEvent(
+            repo,
+            input,
+            create.vm,
+            "database_finalize_failed",
+            errorMessage(err.cause),
+          ).pipe(Effect.catchAll(() => Effect.void));
           return yield* Effect.fail(err);
         }),
       ),
     );
 
-    yield* recordCreateSuccessEvents(repo, input, create.vm, running, creditReservation);
+    yield* recordCreateSuccessEvents(repo, input, running);
 
     return vmEntryFromRow(running);
   });
@@ -179,7 +199,7 @@ function beginCreateWithLazyProviderRefresh(
           input.timing,
           "limit_reconcile",
           refreshActiveLimitProviderStatuses(repo, providers, input),
-        );
+        ).pipe(Effect.catchAll(() => Effect.void));
         return yield* measureVmEffect(input.timing, "begin_create", repo.beginCreate(input));
       });
     }),
@@ -525,7 +545,7 @@ function reserveCreateCredit(
   );
 }
 
-function recordCreateSuccessEvents(
+function recordCreateRequestedEvents(
   repo: VmRepositoryShape,
   input: {
     readonly userId: string;
@@ -538,7 +558,6 @@ function recordCreateSuccessEvents(
     readonly timing?: VmTimingSink;
   },
   requestedVm: CloudVmRow,
-  running: CloudVmRow,
   creditReservation: VmCreateCreditReservation,
 ) {
   return measureVmEffect(
@@ -561,8 +580,24 @@ function recordCreateSuccessEvents(
           imageVersion: input.imageVersion ?? null,
         },
       },
+    ]),
+  );
+}
+
+function recordCreateSuccessEvents(
+  repo: VmRepositoryShape,
+  input: {
+    readonly idempotencyKey?: string;
+    readonly timing?: VmTimingSink;
+  },
+  running: CloudVmRow,
+) {
+  return measureVmEffect(
+    input.timing,
+    "usage_events",
+    repo.recordUsageEvents([
       {
-        userId: input.userId,
+        userId: running.userId,
         billingTeamId: running.billingTeamId,
         billingPlanId: running.billingPlanId,
         vmId: running.id,
@@ -576,6 +611,31 @@ function recordCreateSuccessEvents(
       },
     ]).pipe(Effect.catchAll(() => Effect.void)),
   );
+}
+
+function recordCreateFailureEvent(
+  repo: VmRepositoryShape,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+    readonly image: string;
+  },
+  requestedVm: CloudVmRow,
+  operation: string,
+  message: string,
+) {
+  return repo.recordUsageEvent({
+    userId: input.userId,
+    billingTeamId: input.billingTeamId,
+    billingPlanId: input.billingPlanId,
+    vmId: requestedVm.id,
+    eventType: "vm.create.failed",
+    provider: input.provider,
+    imageId: input.image,
+    metadata: { operation, message },
+  });
 }
 
 function creditUsageEvent(

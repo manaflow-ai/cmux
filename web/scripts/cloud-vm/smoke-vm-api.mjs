@@ -13,11 +13,12 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle] [--url https://preview.example] [--vercel-curl]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
 const useVercelCurl = rest.includes("--vercel-curl");
+const skipAttach = rest.includes("--skip-attach");
 const provider = optionValue(rest, "--provider") ?? "e2b";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -164,17 +165,22 @@ try {
     }
     vmId = created.id;
 
-    const attachStartedAt = performance.now();
-    const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
-      method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json" },
-      body: JSON.stringify({ requireDaemon: true }),
-    });
-    const attachDurationMs = Math.round(performance.now() - attachStartedAt);
-    const attachText = await attach.text();
-    if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
-    const attached = JSON.parse(attachText);
-    if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
+    let attachTransport;
+    let attachDurationMs;
+    if (!skipAttach) {
+      const attachStartedAt = performance.now();
+      const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
+        method: "POST",
+        headers: { ...authHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ requireDaemon: true }),
+      });
+      attachDurationMs = Math.round(performance.now() - attachStartedAt);
+      const attachText = await attach.text();
+      if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
+      const attached = JSON.parse(attachText);
+      if (attached.transport !== "websocket") throw new Error(`expected websocket attach, got ${attached.transport}`);
+      attachTransport = attached.transport;
+    }
 
     const destroyStartedAt = performance.now();
     const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
@@ -190,8 +196,9 @@ try {
       createdProvider: created.provider,
       imageVersion: created.imageVersion,
       createDurationMs,
-      attachTransport: attached.transport,
-      attachDurationMs,
+      ...(skipAttach
+        ? { attachSkipped: true }
+        : { attachTransport, attachDurationMs }),
       destroyed: true,
       destroyDurationMs,
     });

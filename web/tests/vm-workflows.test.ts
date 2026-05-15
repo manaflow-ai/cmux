@@ -1122,7 +1122,12 @@ describe("VM Effect workflows", () => {
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const provider: VmProviderGatewayShape = {
-      create: () => Effect.fail(new Error("provider unavailable") as never),
+      create: () =>
+        Effect.fail(new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "create",
+          cause: new Error("provider unavailable"),
+        })),
       destroy: () => Effect.void,
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
@@ -1161,6 +1166,17 @@ describe("VM Effect workflows", () => {
     ).rejects.toThrow();
 
     expect(refundCalls).toBe(1);
+    const usageEvents = await sql<{ eventType: string }[]>`
+      select event_type as "eventType" from cloud_vm_usage_events
+      where user_id = 'user-workflow-credit-refund'
+      order by created_at, event_type
+    `;
+    expect(usageEvents.map((event) => event.eventType).sort()).toEqual([
+      "vm.create.credit.refunded",
+      "vm.create.credit.reserved",
+      "vm.create.failed",
+      "vm.create.requested",
+    ]);
   });
 
   dbTest("does not attach another user's VM", async () => {

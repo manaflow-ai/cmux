@@ -399,9 +399,9 @@ function summarizeDurations(values) {
 
 function percentile(sortedNumbers, fraction) {
   if (sortedNumbers.length === 1) return sortedNumbers[0];
-  const index = Math.min(
+  const index = Math.max(0, Math.min(
     sortedNumbers.length - 1,
     Math.ceil(sortedNumbers.length * fraction) - 1,
-  );
+  ));
   return sortedNumbers[index];
 }

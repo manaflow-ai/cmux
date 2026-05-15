@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<Response> {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
       let user: AuthedUser = initialUser;
-      let responseStatus = 0;
+      let responseStatus = 500;
       const done = (response: Response): Response => {
         responseStatus = response.status;
         return response;
