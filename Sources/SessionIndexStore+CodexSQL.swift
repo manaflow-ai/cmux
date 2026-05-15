@@ -214,19 +214,20 @@ extension SessionIndexStore {
         return (root as NSString).standardizingPath
     }
 
-    @concurrent
     nonisolated private static func codexRolloutPathsMatchingNeedle(
         _ needle: String,
         sessionsRoot: String
     ) async -> Set<String>? {
-        guard let matches = await SessionIndexCore.ripgrepMatchingPaths(
-            needle: needle,
-            root: sessionsRoot,
-            fileGlob: "*.jsonl"
-        ) else {
-            return nil
+        await runSessionIndexBackgroundScan {
+            guard let matches = await SessionIndexCore.ripgrepMatchingPaths(
+                needle: needle,
+                root: sessionsRoot,
+                fileGlob: "*.jsonl"
+            ) else {
+                return nil
+            }
+            return Set(matches.map { ($0.path as NSString).standardizingPath })
         }
-        return Set(matches.map { ($0.path as NSString).standardizingPath })
     }
 
     nonisolated private static func codexRecordMatchesRolloutContent(

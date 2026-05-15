@@ -981,6 +981,19 @@ final class SessionIndexStore: ObservableObject {
 
     typealias ErrorBag = SessionIndexErrorBag
 
+    nonisolated static func runSessionIndexBackgroundScan<Value: Sendable>(
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> Value {
+        let task = Task.detached(priority: .utility) {
+            await operation()
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
     /// SQLite (OpenCode). Empty query is allowed and returns the most-recent
     /// entries (used when the user just opens the popover and scrolls).
@@ -1139,8 +1152,20 @@ final class SessionIndexStore: ObservableObject {
     ///   set; we only parse files that actually contain the needle.
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
     ///   Foundation enumeration + 64 KB head + 32 KB tail substring scan.
-    @concurrent
     nonisolated private static func loadClaudeEntries(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) async -> [SessionEntry] {
+        await runSessionIndexBackgroundScan {
+            await loadClaudeEntriesOnBackground(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
+        }
+    }
+
+    nonisolated private static func loadClaudeEntriesOnBackground(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let roots = claudeSessionRoots()
@@ -1307,8 +1332,20 @@ final class SessionIndexStore: ObservableObject {
 
     /// Disk-scan fallback for Codex when state_5.sqlite isn't present (very old
     /// Codex installs, or non-default config). Same shape as the original loader.
-    @concurrent
     nonisolated private static func loadCodexEntriesFromDisk(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) async -> [SessionEntry] {
+        await runSessionIndexBackgroundScan {
+            await loadCodexEntriesFromDiskOnBackground(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
+        }
+    }
+
+    nonisolated private static func loadCodexEntriesFromDiskOnBackground(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let root = ("~/.codex/sessions" as NSString).expandingTildeInPath

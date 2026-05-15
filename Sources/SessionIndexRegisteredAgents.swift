@@ -9,8 +9,25 @@ extension SessionIndexStore {
         var sessionId: String?
     }
 
-    @concurrent
     nonisolated static func loadRegisteredAgentEntries(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
+        await runSessionIndexBackgroundScan {
+            await loadRegisteredAgentEntriesOnBackground(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
+        }
+    }
+
+    nonisolated static func loadRegisteredAgentEntriesOnBackground(
         registration: CmuxVaultAgentRegistration,
         needle: String,
         cwdFilter: String?,
