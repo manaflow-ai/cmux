@@ -14807,12 +14807,13 @@ private extension NSWindow {
                 cmuxBrowserArrowForwardingDepth += 1
                 defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
 
-                if focusedOmnibarField.currentEditor() == nil ||
-                    browserOmnibarPanelId(for: self.firstResponder) != focusedOmnibarField.panelId {
+                var currentEditorResponder = focusedOmnibarField.currentEditor() as? NSResponder
+                if currentEditorResponder == nil || self.firstResponder !== currentEditorResponder {
                     _ = self.makeFirstResponder(focusedOmnibarField)
+                    currentEditorResponder = focusedOmnibarField.currentEditor() as? NSResponder
                 }
 
-                let omnibarResponder = (focusedOmnibarField.currentEditor() as? NSResponder) ?? focusedOmnibarField
+                let omnibarResponder = currentEditorResponder ?? focusedOmnibarField
                 guard !browserResponderHasMarkedText(omnibarResponder) else {
                     return false
                 }

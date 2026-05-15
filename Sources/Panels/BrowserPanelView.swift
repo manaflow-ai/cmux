@@ -19,6 +19,12 @@ private final class WeakOmnibarNativeTextField {
 final class BrowserOmnibarNativeFieldRegistry {
     static let shared = BrowserOmnibarNativeFieldRegistry()
 
+    // Ownership invariant: OmnibarNativeTextField.panelId is the single source
+    // of truth for field-to-panel ownership, and a live omnibar field owns its
+    // current field editor. AppKit's field-editor responder chain is the normal
+    // lookup path, but it can keep a stale nextResponder during browser
+    // focus/layout transitions. This weak registry is only a live-field lookup
+    // cache for those stale-responder windows; it does not create ownership.
     private var fields: [UUID: [WeakOmnibarNativeTextField]] = [:]
 
     func register(_ field: OmnibarNativeTextField, panelId: UUID) {
@@ -4235,6 +4241,8 @@ func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeT
         return nil
     }
 
+    // Fallback for SwiftUI/AppKit reconnect windows where the live native field
+    // has been attached but registration has not yet observed it.
     var stack: [NSView] = [root]
     while let view = stack.popLast() {
         if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
