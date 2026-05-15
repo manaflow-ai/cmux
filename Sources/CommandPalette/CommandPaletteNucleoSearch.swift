@@ -236,8 +236,8 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
 }
 
 // Sendable is safe here because the Swift payload entries are immutable, the
-// raw index pointer is destroyed only in deinit, and Rust serializes mutable
-// matcher scratch state behind a Mutex.
+// raw index pointer is destroyed only in deinit, and Rust keeps per-thread
+// matcher scratch state outside the immutable index.
 final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where Payload: Sendable {
     private let library: CommandPaletteNucleoSearchLibrary
     private let pointer: OpaquePointer

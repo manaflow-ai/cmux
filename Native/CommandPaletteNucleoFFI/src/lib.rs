@@ -1,8 +1,8 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::slice;
 use std::str;
-use std::sync::Mutex;
 
 use nucleo::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo::{Config, Matcher, Utf32Str};
@@ -81,7 +81,13 @@ impl SearchState {
 
 pub struct CmuxNucleoIndex {
     candidates: Vec<Candidate>,
-    state: Mutex<SearchState>,
+}
+
+thread_local! {
+    static SEARCH_STATE: RefCell<SearchState> = RefCell::new(SearchState {
+        matcher: Matcher::new(Config::DEFAULT),
+        utf32_buf: Vec::new(),
+    });
 }
 
 #[no_mangle]
@@ -128,13 +134,7 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
         });
     }
 
-    Box::into_raw(Box::new(CmuxNucleoIndex {
-        candidates,
-        state: Mutex::new(SearchState {
-            matcher: Matcher::new(Config::DEFAULT),
-            utf32_buf: Vec::new(),
-        }),
-    }))
+    Box::into_raw(Box::new(CmuxNucleoIndex { candidates }))
 }
 
 #[no_mangle]
@@ -259,44 +259,43 @@ unsafe fn cmux_nucleo_index_search_impl(
             AtomKind::Fuzzy,
         );
         let initialism_query = initialism_query(&normalized_query);
-        let mut state = index
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut best_matches = BinaryHeap::with_capacity(output_limit);
 
-        for (candidate_index, candidate) in index.candidates.iter().enumerate() {
-            if candidate.ascii_prefilter_safe {
-                if let Some((query_low, query_high)) = query_mask {
-                    if query_low & !candidate.ascii_mask_low != 0
-                        || query_high & !candidate.ascii_mask_high != 0
-                    {
-                        continue;
+        SEARCH_STATE.with(|state| {
+            let mut state = state.borrow_mut();
+            for (candidate_index, candidate) in index.candidates.iter().enumerate() {
+                if candidate.ascii_prefilter_safe {
+                    if let Some((query_low, query_high)) = query_mask {
+                        if query_low & !candidate.ascii_mask_low != 0
+                            || query_high & !candidate.ascii_mask_high != 0
+                        {
+                            continue;
+                        }
                     }
                 }
-            }
 
-            let title_score = state.score_text(&pattern, &candidate.title);
-            let search_score = state.score_text(&pattern, &candidate.search_text);
-            let Some(score) = weighted_score(
-                &normalized_query,
-                initialism_query.as_ref(),
-                candidate,
-                title_score,
-                search_score,
-            ) else {
-                continue;
-            };
-            append_scored_candidate(
-                ScoredCandidate {
-                    index: candidate_index,
-                    score: score + candidate_boost(boosts, candidate_index),
-                    rank: candidate.rank,
-                },
-                &mut best_matches,
-                output_limit,
-            );
-        }
+                let title_score = state.score_text(&pattern, &candidate.title);
+                let search_score = state.score_text(&pattern, &candidate.search_text);
+                let Some(score) = weighted_score(
+                    &normalized_query,
+                    initialism_query.as_ref(),
+                    candidate,
+                    title_score,
+                    search_score,
+                ) else {
+                    continue;
+                };
+                append_scored_candidate(
+                    ScoredCandidate {
+                        index: candidate_index,
+                        score: score + candidate_boost(boosts, candidate_index),
+                        rank: candidate.rank,
+                    },
+                    &mut best_matches,
+                    output_limit,
+                );
+            }
+        });
 
         output = sorted_output(best_matches);
     }

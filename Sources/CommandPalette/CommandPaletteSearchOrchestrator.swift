@@ -65,25 +65,63 @@ enum CommandPaletteSearchOrchestrator {
             historyBoost: historyBoost,
             shouldCancel: shouldCancel
         ) {
-            if results.isEmpty,
-               Self.shouldFallBackToSwiftSearchForEmptyNucleoResults(query: query, queryIsEmpty: queryIsEmpty) {
-                return swiftSearchMatches()
-            }
-            return results.map { result in
+            let nucleoMatches = results.map { result in
                 CommandPaletteResolvedSearchMatch(
                     commandID: result.payload,
                     score: result.score,
                     titleMatchIndices: result.titleMatchIndices
                 )
             }
+            if Self.shouldIncludeSwiftSingleEditFallback(
+                query: query,
+                queryIsEmpty: queryIsEmpty,
+                nucleoResultCount: nucleoMatches.count,
+                limit: limit
+            ) {
+                return mergedSwiftFallbackMatches(
+                    swiftSearchMatches(),
+                    nucleoMatches: nucleoMatches,
+                    limit: limit
+                )
+            }
+            return nucleoMatches
         }
 
         return swiftSearchMatches()
     }
 
-    private static func shouldFallBackToSwiftSearchForEmptyNucleoResults(query: String, queryIsEmpty: Bool) -> Bool {
+    private static func shouldIncludeSwiftSingleEditFallback(
+        query: String,
+        queryIsEmpty: Bool,
+        nucleoResultCount: Int,
+        limit: Int
+    ) -> Bool {
         guard !queryIsEmpty else { return false }
+        guard nucleoResultCount < limit else { return false }
         return CommandPaletteFuzzyMatcher.preparedQuery(query).tokens.contains { $0.allowsSingleEdit }
+    }
+
+    private static func mergedSwiftFallbackMatches(
+        _ swiftMatches: [CommandPaletteResolvedSearchMatch],
+        nucleoMatches: [CommandPaletteResolvedSearchMatch],
+        limit: Int
+    ) -> [CommandPaletteResolvedSearchMatch] {
+        guard limit > 0 else { return [] }
+        var merged: [CommandPaletteResolvedSearchMatch] = []
+        merged.reserveCapacity(min(limit, swiftMatches.count + nucleoMatches.count))
+        var seenCommandIDs: Set<String> = []
+
+        for match in swiftMatches {
+            guard seenCommandIDs.insert(match.commandID).inserted else { continue }
+            merged.append(match)
+            if merged.count == limit { return merged }
+        }
+        for match in nucleoMatches {
+            guard seenCommandIDs.insert(match.commandID).inserted else { continue }
+            merged.append(match)
+            if merged.count == limit { return merged }
+        }
+        return merged
     }
 
     static func previewSearchMatches(
