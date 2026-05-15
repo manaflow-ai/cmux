@@ -5034,7 +5034,10 @@ struct ContentView: View {
                 commandPaletteSearchIndexBuildTask = nil
                 if isCommandPalettePresented,
                    Self.commandPaletteListScope(for: commandPaletteQuery) == scope {
-                    scheduleCommandPaletteResultsRefresh(query: commandPaletteQuery)
+                    scheduleCommandPaletteResultsRefresh(
+                        query: commandPaletteQuery,
+                        preservePendingActivation: true
+                    )
                 }
             }
         }
@@ -5114,7 +5117,8 @@ struct ContentView: View {
 
     private func scheduleCommandPaletteResultsRefresh(
         query: String? = nil,
-        forceSearchCorpusRefresh: Bool = false
+        forceSearchCorpusRefresh: Bool = false,
+        preservePendingActivation: Bool = false
     ) {
         let effectiveQuery = Self.commandPaletteRefreshQuery(
             stateQuery: commandPaletteQuery,
@@ -5142,7 +5146,9 @@ struct ContentView: View {
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
-        commandPalettePendingActivation = nil
+        if !preservePendingActivation {
+            commandPalettePendingActivation = nil
+        }
         cancelCommandPaletteSearch()
         if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
             hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
@@ -5152,6 +5158,7 @@ struct ContentView: View {
             let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
+                searchCorpusByID: searchCorpusByID,
                 query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
@@ -5243,6 +5250,7 @@ struct ContentView: View {
             let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
+                searchCorpusByID: searchCorpusByID,
                 query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,

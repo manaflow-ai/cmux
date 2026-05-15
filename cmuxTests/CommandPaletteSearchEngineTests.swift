@@ -543,6 +543,53 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(matches.first?.commandID, "palette.renameTab")
     }
 
+    func testNucleoFullPageResultsIncludeSwiftSingleEditFallback() throws {
+        var entries = (0..<150).map { index in
+            FixtureEntry(
+                id: "palette.reactNativeMarkdown.\(index)",
+                rank: index,
+                title: "React Native Markdown \(index)",
+                searchableTexts: ["React Native Markdown \(index)", "react", "native", "markdown"]
+            )
+        }
+        entries.append(
+            FixtureEntry(
+                id: "palette.renameTab",
+                rank: 200,
+                title: "Rename Tab...",
+                searchableTexts: ["Rename Tab...", "rename", "tab", "title"]
+            )
+        )
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        guard let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+        let nucleoOnlyMatches = try XCTUnwrap(
+            searchIndex.search(query: "renamd", resultLimit: 10)
+        )
+        XCTAssertEqual(nucleoOnlyMatches.count, 10)
+        XCTAssertNotEqual(nucleoOnlyMatches.first?.payload, "palette.renameTab")
+
+        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            searchIndex: searchIndex,
+            searchCorpus: corpus,
+            query: "renamd",
+            usageHistory: [:],
+            queryIsEmpty: CommandPaletteFuzzyMatcher.preparedQuery("renamd").isEmpty,
+            historyTimestamp: 0,
+            resultLimit: 10
+        )
+
+        XCTAssertEqual(matches.first?.commandID, "palette.renameTab")
+    }
+
     func testNucleoExactPartialResultsDoNotRunSwiftSingleEditFallback() throws {
         let entries = [
             FixtureEntry(

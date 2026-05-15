@@ -25,6 +25,7 @@ enum CommandPaletteSearchOrchestrator {
     static func resolvedSearchMatches(
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
+        searchCorpusByID providedSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>]? = nil,
         query: String,
         usageHistory: [String: CommandPaletteUsageEntry],
         queryIsEmpty: Bool,
@@ -77,11 +78,9 @@ enum CommandPaletteSearchOrchestrator {
             if Self.shouldConsiderSwiftSingleEditFallback(
                 preparedQuery: preparedQuery,
                 queryIsEmpty: queryIsEmpty,
-                nucleoResultCount: nucleoMatches.count,
-                searchCorpusCount: searchCorpus.count,
                 limit: limit
             ) {
-                let searchCorpusByID = Self.searchCorpusByID(searchCorpus)
+                let searchCorpusByID = providedSearchCorpusByID ?? Self.searchCorpusByID(searchCorpus)
                 guard Self.shouldIncludeSwiftSingleEditFallback(
                     preparedQuery: preparedQuery,
                     nucleoMatches: nucleoMatches,
@@ -123,13 +122,11 @@ enum CommandPaletteSearchOrchestrator {
     private static func shouldConsiderSwiftSingleEditFallback(
         preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
         queryIsEmpty: Bool,
-        nucleoResultCount: Int,
-        searchCorpusCount: Int,
         limit: Int
     ) -> Bool {
+        guard limit > 0 else { return false }
         guard !queryIsEmpty else { return false }
-        guard preparedQuery.tokens.contains(where: { $0.allowsSingleEdit }) else { return false }
-        return nucleoResultCount < min(limit, searchCorpusCount)
+        return preparedQuery.tokens.contains(where: { $0.allowsSingleEdit })
     }
 
     private static func shouldIncludeSwiftSingleEditFallback(
@@ -211,6 +208,7 @@ enum CommandPaletteSearchOrchestrator {
             return resolvedSearchMatches(
                 searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
+                searchCorpusByID: searchCorpusByID,
                 query: query,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
