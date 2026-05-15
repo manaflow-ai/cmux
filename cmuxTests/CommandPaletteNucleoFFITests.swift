@@ -79,6 +79,29 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertEqual(resultIDs.first, "palette.openWorkspacePRLinks")
     }
 
+    func testNucleoFFIPrefersTitleMatchOverLongExactKeyword() throws {
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "palette.checkForUpdates",
+                rank: 0,
+                title: "Check for Updates",
+                searchableTexts: ["Check for Updates", "Global", "update", "upgrade", "release"]
+            ),
+            FixtureEntry(
+                id: "palette.attemptUpdate",
+                rank: 1,
+                title: "Attempt Update",
+                searchableTexts: ["Attempt Update", "Global", "attempt", "check", "update", "upgrade", "release"]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "check", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "palette.checkForUpdates")
+    }
+
     func testNucleoFFIMatchesAsciiQueryAgainstDiacriticTitle() throws {
         let library = try NucleoLibrary()
         let entries = [

@@ -382,9 +382,7 @@ fn weighted_query_score(
         total_score += weighted_token_score(state, token, candidate)?;
     }
 
-    if let Some(exact_query_line_score) =
-        exact_search_text_line_score(&candidate.search_text, query)
-    {
+    if let Some(exact_query_line_score) = exact_search_text_line_score(candidate, query) {
         total_score = total_score.max(exact_query_line_score);
     }
     Some(total_score)
@@ -415,7 +413,7 @@ fn weighted_score(
 ) -> Option<f64> {
     let initialism_score =
         initialism_query.and_then(|query| title_initialism_score(query, candidate));
-    let exact_search_text_score = exact_search_text_line_score(&candidate.search_text, query);
+    let exact_search_text_score = exact_search_text_line_score(candidate, query);
     match (title_score, search_score) {
         (Some(title), Some(search)) => Some(
             f64::from(search)
@@ -437,14 +435,31 @@ fn weighted_score(
     }
 }
 
-fn exact_search_text_line_score(search_text: &str, query: &str) -> Option<f64> {
+fn exact_search_text_line_score(candidate: &Candidate, query: &str) -> Option<f64> {
     if query.is_empty() {
         return None;
     }
-    search_text
-        .lines()
-        .any(|line| line.trim().eq_ignore_ascii_case(query))
-        .then(|| 30_000.0 + f64::from(query.chars().count() as u32) * 10.0)
+
+    let query_char_count = query.chars().count();
+    let mut keyword_exact_score = None;
+    for line in candidate.search_text.lines() {
+        let trimmed = line.trim();
+        if !trimmed.eq_ignore_ascii_case(query) {
+            continue;
+        }
+        if trimmed.eq_ignore_ascii_case(candidate.title.trim()) {
+            return Some(30_000.0 + f64::from(query_char_count as u32) * 10.0);
+        }
+        keyword_exact_score = Some(keyword_exact_line_score(query_char_count));
+    }
+    keyword_exact_score
+}
+
+fn keyword_exact_line_score(query_char_count: usize) -> f64 {
+    if query_char_count <= 3 {
+        return 30_000.0 + f64::from(query_char_count as u32) * 10.0;
+    }
+    1_800.0 + f64::from(query_char_count as u32) * 10.0
 }
 
 fn initialism_query(query: &str) -> Option<InitialismQuery> {
