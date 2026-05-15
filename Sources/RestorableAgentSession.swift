@@ -299,6 +299,17 @@ enum AgentResumeCommandBuilder {
             }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
+        case "codexTeams":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "codex-teams" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
+            return [original.executable, "codex-teams", "fork"] + preserved + [sessionId]
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -862,7 +873,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }.value
     }
 
-    private static func load(
+    static func load(
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
@@ -927,7 +938,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
-            if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
+            if resolved[key] != nil {
                 continue
             }
             resolved[key] = detected

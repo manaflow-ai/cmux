@@ -213,20 +213,43 @@ extension RestorableAgentSessionIndex {
         observed: VaultObservedAgentProcess,
         environment: [String: String]
     ) -> String {
-        if let argumentExecutable = observed.arguments.first(where: { argument in
+        let argumentExecutable = observed.arguments.first(where: { argument in
             VaultObservedAgentProcess.argumentLooksLikeOpenCode(argument)
-        }) {
+        })
+        if let argumentExecutable,
+           argumentExecutable.contains("/") {
             return argumentExecutable
         }
+        if let argumentExecutable,
+           let resolved = executablePath(named: argumentExecutable, environment: environment) {
+            return resolved
+        }
+        if let processPath = observed.processPath,
+           processPath.contains("/"),
+           VaultObservedAgentProcess.argumentLooksLikeOpenCode(processPath) {
+            return processPath
+        }
+        if let resolved = executablePath(named: "opencode", environment: environment) {
+            return resolved
+        }
+        return argumentExecutable ?? "opencode"
+    }
+
+    private static func executablePath(
+        named name: String,
+        environment: [String: String]
+    ) -> String? {
+        let executableName = (name as NSString).lastPathComponent
+        guard !executableName.isEmpty else { return nil }
         for path in (environment["PATH"] ?? "").split(separator: ":") {
             let candidate = URL(fileURLWithPath: String(path), isDirectory: true)
-                .appendingPathComponent("opencode", isDirectory: false)
+                .appendingPathComponent(executableName, isDirectory: false)
                 .path
             if FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
-        return "opencode"
+        return nil
     }
 
     private static func latestOpenCodeSessionId(

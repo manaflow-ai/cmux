@@ -1997,6 +1997,28 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 source: "process"
             )
         )
+        let codexTeams = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-teams-session",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
         let directOpenCode = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "direct-opencode-session-456",
@@ -2123,6 +2145,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
         XCTAssertEqual(
+            codexTeams.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' 'codex-teams-session'"
+        )
+        XCTAssertEqual(
             directOpenCode.forkCommand,
             "cd '/tmp/direct opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
         )
@@ -2183,6 +2209,34 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 environment: [:]
             ),
             "/Users/lawrence/.bun/bin/opencode"
+        )
+    }
+
+    func testProcessDetectedOpenCodeResolvesBareExecutableWithCapturedPath() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-path-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let executable = bin.appendingPathComponent("opencode", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+                arguments: ["opencode"],
+                environment: ["PATH": "\(bin.path):/usr/bin"]
+            ),
+            executable.path
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+                arguments: [".opencode"],
+                environment: ["PATH": "\(bin.path):/usr/bin"]
+            ),
+            executable.path
         )
     }
 
@@ -2530,6 +2584,86 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' '--model' 'gpt-5.4' '--search' 'codex-session-123'"
+        )
+    }
+
+    func testRestorableAgentIndexKeepsHookSnapshotAheadOfProcessFallback() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let storeURL = storeDir.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "hook-session": {
+              "sessionId": "hook-session",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "/tmp/repo",
+              "updatedAt": 10,
+              "launchCommand": {
+                "launcher": "omo",
+                "executablePath": "/usr/local/bin/cmux",
+                "arguments": [
+                  "/usr/local/bin/cmux",
+                  "omo",
+                  "--model",
+                  "anthropic/claude-sonnet-4-6",
+                  "/tmp/repo",
+                  "old prompt"
+                ],
+                "workingDirectory": "/tmp/repo",
+                "environment": {
+                  "OPENCODE_CONFIG_DIR": "/tmp/opencode"
+                },
+                "capturedAt": 9,
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "process-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/repo",
+                environment: ["PATH": "/opt/homebrew/bin:/usr/bin"],
+                capturedAt: 999,
+                source: "process"
+            )
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999
+                ),
+            ]
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, "hook-session")
+        XCTAssertEqual(snapshot.launchCommand?.launcher, "omo")
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode' '/usr/local/bin/cmux' 'omo' '--session' 'hook-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/repo'"
         )
     }
 
