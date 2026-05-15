@@ -1431,6 +1431,18 @@ final class NotificationMenuSnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(snapshot.recentNotifications.map(\.id), Array(notifications.prefix(3)).map(\.id))
     }
 
+    func testSnapshotCountsWorkspaceUnreadIndicatorsWithoutNotificationRecords() {
+        let snapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: [],
+            workspaceUnreadIndicatorCount: 2
+        )
+
+        XCTAssertEqual(snapshot.unreadCount, 2)
+        XCTAssertTrue(snapshot.hasNotifications)
+        XCTAssertTrue(snapshot.hasUnreadNotifications)
+        XCTAssertTrue(snapshot.recentNotifications.isEmpty)
+    }
+
     func testStateHintTitleHandlesSingularPluralAndZero() {
         XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 0), "No unread notifications")
         XCTAssertEqual(NotificationMenuSnapshotBuilder.stateHintTitle(unreadCount: 1), "1 unread notification")
