@@ -389,6 +389,55 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testResolvedSearchMatchesReturnFullFinalResultSetWhenUnbounded() {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 150)
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+
+        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            searchIndex: nil,
+            searchCorpus: corpus,
+            query: "workspace",
+            usageHistory: [:],
+            queryIsEmpty: false,
+            historyTimestamp: 0
+        )
+
+        XCTAssertEqual(matches.count, entries.count)
+    }
+
+    func testNucleoResolvedSearchMatchesReturnFullFinalResultSetWhenUnbounded() throws {
+        let entries = makeLargeWorkspaceSwitcherEntries(count: 150)
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        guard let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus) else {
+            throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
+        }
+
+        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+            searchIndex: searchIndex,
+            searchCorpus: corpus,
+            query: "workspace",
+            usageHistory: [:],
+            queryIsEmpty: false,
+            historyTimestamp: 0
+        )
+
+        XCTAssertEqual(matches.count, entries.count)
+    }
+
     func testSearchCancellationReturnsNoResults() {
         let entries = makeCommandEntries(count: 512)
         let corpus = entries.map { entry in

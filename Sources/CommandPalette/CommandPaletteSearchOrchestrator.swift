@@ -20,8 +20,6 @@ enum CommandPaletteSearchOrchestrator {
     private static let synchronousSeedCorpusLimit = 256
     private static let singleEditFallbackNucleoProbeLimit = 12
 
-    static let resolvedResultLimit = 100
-
     static func resolvedSearchMatches(
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
@@ -33,7 +31,7 @@ enum CommandPaletteSearchOrchestrator {
         resultLimit: Int? = nil,
         shouldCancel: @escaping () -> Bool = { false }
     ) -> [CommandPaletteResolvedSearchMatch] {
-        let limit = resultLimit ?? resolvedResultLimit
+        let nucleoResultLimit = resultLimit ?? searchCorpus.count
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let historyBoost: ((String, Bool) -> Int)? = usageHistory.isEmpty ? nil : { commandId, queryIsEmpty in
             self.historyBoost(
@@ -48,7 +46,7 @@ enum CommandPaletteSearchOrchestrator {
             let results = CommandPaletteSearchEngine.search(
                 entries: searchCorpus,
                 query: query,
-                resultLimit: limit,
+                resultLimit: resultLimit,
                 historyBoost: historyBoost ?? { _, _ in 0 },
                 shouldCancel: shouldCancel
             )
@@ -64,7 +62,7 @@ enum CommandPaletteSearchOrchestrator {
 
         if let results = searchIndex?.search(
             query: query,
-            resultLimit: limit,
+            resultLimit: nucleoResultLimit,
             historyBoost: historyBoost,
             shouldCancel: shouldCancel
         ) {
@@ -78,7 +76,7 @@ enum CommandPaletteSearchOrchestrator {
             if Self.shouldConsiderSwiftSingleEditFallback(
                 preparedQuery: preparedQuery,
                 queryIsEmpty: queryIsEmpty,
-                limit: limit
+                limit: nucleoResultLimit
             ) {
                 let searchCorpusByID = providedSearchCorpusByID ?? Self.searchCorpusByID(searchCorpus)
                 guard Self.shouldIncludeSwiftSingleEditFallback(
@@ -99,7 +97,7 @@ enum CommandPaletteSearchOrchestrator {
                 return mergedSwiftFallbackMatches(
                     fallbackMatches,
                     nucleoMatches: nucleoMatches,
-                    limit: limit
+                    limit: nucleoResultLimit
                 )
             }
             return nucleoMatches
