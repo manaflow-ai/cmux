@@ -10,14 +10,17 @@ final class BrowserChromiumEngineUITests: XCTestCase {
     private let launchTag = "chromui"
     private var socketPath = ""
     private var diagnosticsPath = ""
+    private var screenshotPath = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         socketPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).json"
+        screenshotPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).png"
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        try? FileManager.default.removeItem(atPath: screenshotPath)
     }
 
     func testChromiumEngineRendersAndHandlesBrowserAutomation() throws {
@@ -155,6 +158,11 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         }
         XCTAssertGreaterThan(image.size.width, 10)
         XCTAssertGreaterThan(image.size.height, 10)
+        try pngData.write(to: URL(fileURLWithPath: screenshotPath), options: .atomic)
+        let attachment = XCTAttachment(data: pngData, uniformTypeIdentifier: "public.png")
+        attachment.name = "Chromium browser surface screenshot"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         if let path = screenshotResult["path"] as? String {
             XCTAssertTrue(FileManager.default.fileExists(atPath: path), "Expected screenshot file to exist at \(path)")
         }
@@ -208,9 +216,7 @@ final class BrowserChromiumEngineUITests: XCTestCase {
             for candidate in self.socketCandidates() {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
                 self.socketPath = candidate
-                let envelope = self.socketJSON(method: "system.ping", params: [:], responseTimeout: 3.0)
-                let result = envelope?["result"] as? [String: Any]
-                if (envelope?["ok"] as? Bool) == true, result?["pong"] as? Bool == true {
+                if self.socketV2Ready(responseTimeout: 3.0) {
                     resolvedPath = candidate
                     return true
                 }
@@ -222,6 +228,19 @@ final class BrowserChromiumEngineUITests: XCTestCase {
             socketPath = resolvedPath
         }
         return completed
+    }
+
+    private func socketV2Ready(responseTimeout: TimeInterval) -> Bool {
+        let ping = socketJSON(method: "system.ping", params: [:], responseTimeout: responseTimeout)
+        let pingResult = ping?["result"] as? [String: Any]
+        if (ping?["ok"] as? Bool) == true, pingResult?["pong"] as? Bool == true {
+            return true
+        }
+
+        let capabilities = socketJSON(method: "system.capabilities", params: [:], responseTimeout: responseTimeout)
+        let capabilitiesResult = capabilities?["result"] as? [String: Any]
+        let methods = capabilitiesResult?["methods"] as? [String] ?? []
+        return (capabilities?["ok"] as? Bool) == true && methods.contains("browser.open_split")
     }
 
     private func socketCandidates() -> [String] {

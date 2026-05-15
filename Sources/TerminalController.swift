@@ -2016,6 +2016,11 @@ class TerminalController {
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
+        if let request = parseV2SocketRequest(command),
+           request.method == "system.ping" {
+            return v2Ok(id: request.id, result: ["pong": true])
+        }
+
         if Thread.isMainThread,
            let request = parseV2SocketRequest(command),
            Self.executionPolicy(forV2Method: request.method) == .socketWorker {
