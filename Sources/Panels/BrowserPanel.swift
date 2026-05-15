@@ -1134,7 +1134,7 @@ enum BrowserFileSystemAccessBridge {
           }
           input.removeEventListener("change", handleChange);
           input.removeEventListener("cancel", handleCancel);
-          window.removeEventListener("focus", handleWindowFocus, true);
+          window.removeEventListener("focus", handleWindowFocus);
           cleanupInput(input);
         };
         const settle = (callback) => {
@@ -1184,7 +1184,7 @@ enum BrowserFileSystemAccessBridge {
 
         input.addEventListener("change", handleChange);
         input.addEventListener("cancel", handleCancel);
-        window.addEventListener("focus", handleWindowFocus, true);
+        window.addEventListener("focus", handleWindowFocus);
 
         try {
           (document.body || document.documentElement).appendChild(input);
