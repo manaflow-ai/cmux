@@ -8,6 +8,14 @@ import XCTest
 #endif
 
 final class RovoDevHookConfigTests: XCTestCase {
+    func testGeminiFeedHookUsesCurrentBeforeToolEventName() throws {
+        let def = try XCTUnwrap(CMUXCLI.agentDef(named: "gemini"))
+
+        XCTAssertEqual(def.feedHookEvents, ["BeforeTool"])
+        XCTAssertTrue(CMUXCLI.feedHookCommandString(for: def, agentEvent: "BeforeTool").contains("--event BeforeTool"))
+        XCTAssertFalse(def.feedHookEvents.contains("PreToolUse"))
+    }
+
     func testInstallAddsRootBlockAndUninstallRestoresOriginalConfig() {
         let existing = """
         sessions:
