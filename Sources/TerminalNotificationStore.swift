@@ -671,6 +671,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let createdAt: Date
     var isRead: Bool
     var paneFlash: Bool = true
+    var userInfo: [String: String] = [:]
 }
 
 @MainActor
@@ -1082,7 +1083,8 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         cooldownKey: String? = nil,
-        cooldownInterval: TimeInterval? = nil
+        cooldownInterval: TimeInterval? = nil,
+        userInfo: [String: String] = [:]
     ) {
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
@@ -1117,7 +1119,8 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
-                cooldownReservation: cooldownReservation
+                cooldownReservation: cooldownReservation,
+                userInfo: userInfo
             )
             return
         }
@@ -1133,7 +1136,8 @@ final class TerminalNotificationStore: ObservableObject {
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    userInfo: userInfo
                 )
                 return
             }
@@ -1148,14 +1152,16 @@ final class TerminalNotificationStore: ObservableObject {
                     request: policyContext.request,
                     envelope: envelope,
                     now: Date(),
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    userInfo: userInfo
                 )
             case .failure(let failure):
                 self.applyNotification(
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    userInfo: userInfo
                 )
                 self.reportNotificationHookFailure(failure)
             }
@@ -1242,7 +1248,8 @@ final class TerminalNotificationStore: ObservableObject {
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
-        cooldownReservation: NotificationCooldownReservation?
+        cooldownReservation: NotificationCooldownReservation?,
+        userInfo: [String: String]
     ) {
         let payload = envelope.notification
         applyNotification(
@@ -1258,7 +1265,8 @@ final class TerminalNotificationStore: ObservableObject {
             ),
             effects: envelope.effects,
             now: now,
-            cooldownReservation: cooldownReservation
+            cooldownReservation: cooldownReservation,
+            userInfo: userInfo
         )
     }
 
@@ -1266,7 +1274,8 @@ final class TerminalNotificationStore: ObservableObject {
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
-        cooldownReservation: NotificationCooldownReservation?
+        cooldownReservation: NotificationCooldownReservation?,
+        userInfo: [String: String]
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
@@ -1281,7 +1290,8 @@ final class TerminalNotificationStore: ObservableObject {
             body: request.body,
             createdAt: now,
             isRead: !effects.markUnread,
-            paneFlash: effects.paneFlash
+            paneFlash: effects.paneFlash,
+            userInfo: userInfo
         )
 
         if effects.record {
@@ -1725,13 +1735,16 @@ final class TerminalNotificationStore: ObservableObject {
             }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
             content.categoryIdentifier = Self.categoryIdentifier
-            content.userInfo = [
-                "tabId": notification.tabId.uuidString,
-                "notificationId": notification.id.uuidString,
-            ]
-            if let surfaceId = notification.surfaceId {
-                content.userInfo["surfaceId"] = surfaceId.uuidString
+            var contentUserInfo: [AnyHashable: Any] = [:]
+            for (key, value) in notification.userInfo {
+                contentUserInfo[key] = value
             }
+            contentUserInfo["tabId"] = notification.tabId.uuidString
+            contentUserInfo["notificationId"] = notification.id.uuidString
+            if let surfaceId = notification.surfaceId {
+                contentUserInfo["surfaceId"] = surfaceId.uuidString
+            }
+            content.userInfo = contentUserInfo
 
             let request = UNNotificationRequest(
                 identifier: notification.id.uuidString,

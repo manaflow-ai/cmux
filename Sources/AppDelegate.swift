@@ -1634,7 +1634,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 body: String(
                     localized: "crashBreadcrumb.body",
                     defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
-                )
+                ),
+                userInfo: GhosttyCrashBreadcrumb.notificationUserInfo(for: pendingCrash)
             )
             GhosttyCrashBreadcrumb.markShown(pendingCrash)
         }
@@ -13644,6 +13645,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
+        if handleGhosttyCrashBreadcrumbNotificationResponse(response) {
+            return
+        }
         if handleFeedNotificationResponse(response) {
             return
         }
@@ -13660,31 +13664,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
-            let notificationId: UUID? = {
-                if let id = UUID(uuidString: response.notification.request.identifier) {
-                    return id
-                }
-                if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
-                   let id = UUID(uuidString: idString) {
-                    return id
-                }
-                return nil
-            }()
+            let notificationId = notificationId(from: response)
             DispatchQueue.main.async {
                 _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
             }
         case UNNotificationDismissActionIdentifier:
+            let notificationId = notificationId(from: response)
             DispatchQueue.main.async {
-                if let notificationId = UUID(uuidString: response.notification.request.identifier) {
-                    self.notificationStore?.markRead(id: notificationId)
-                } else if let notificationIdString = response.notification.request.content.userInfo["notificationId"] as? String,
-                          let notificationId = UUID(uuidString: notificationIdString) {
+                if let notificationId {
                     self.notificationStore?.markRead(id: notificationId)
                 }
             }
         default:
             break
         }
+    }
+
+    private func handleGhosttyCrashBreadcrumbNotificationResponse(_ response: UNNotificationResponse) -> Bool {
+        guard let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(
+            from: response.notification.request.content.userInfo
+        ) else {
+            return false
+        }
+
+        let notificationId = notificationId(from: response)
+        switch response.actionIdentifier {
+        case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
+            Task { @MainActor [weak self] in
+                self?.revealGhosttyCrashBreadcrumbFile(crashFileURL)
+                if let notificationId {
+                    self?.notificationStore?.markRead(id: notificationId)
+                }
+            }
+        case UNNotificationDismissActionIdentifier:
+            Task { @MainActor [weak self] in
+                if let notificationId {
+                    self?.notificationStore?.markRead(id: notificationId)
+                }
+            }
+        default:
+            break
+        }
+        return true
+    }
+
+    private func notificationId(from response: UNNotificationResponse) -> UUID? {
+        if let id = UUID(uuidString: response.notification.request.identifier) {
+            return id
+        }
+        if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
+           let id = UUID(uuidString: idString) {
+            return id
+        }
+        return nil
+    }
+
+    @MainActor
+    private func revealGhosttyCrashBreadcrumbFile(_ fileURL: URL) {
+        let fileManager = FileManager.default
+        let resolvedURL = fileURL.standardizedFileURL
+        if fileManager.fileExists(atPath: resolvedURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([resolvedURL])
+            return
+        }
+
+        let parentURL = resolvedURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: parentURL.path) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: parentURL.path)
+            return
+        }
+
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path)
     }
 
     private func installMainWindowKeyObserver() {
