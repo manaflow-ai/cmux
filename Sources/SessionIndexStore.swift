@@ -193,9 +193,18 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    @Published private(set) var pinnedEntryIDs: Set<String> {
+        didSet {
+            guard pinnedEntryIDs != oldValue else { return }
+            Self.persistPinnedEntryIDs(pinnedEntryIDs)
+            invalidateSectionsCache()
+        }
+    }
+
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
+    private static let pinnedEntryIDsDefaultsKey = "sessionIndex.pinnedEntryIDs"
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
@@ -203,6 +212,7 @@ final class SessionIndexStore: ObservableObject {
     init() {
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
+        self.pinnedEntryIDs = Self.loadPinnedEntryIDs()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
     }
@@ -224,7 +234,7 @@ final class SessionIndexStore: ObservableObject {
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: entries
+                    entries: Self.sortedEntriesForDisplay(entries, pinnedEntryIDs: pinnedEntryIDs)
                 )
             }
         case .directory:
@@ -251,7 +261,7 @@ final class SessionIndexStore: ObservableObject {
                         key: .directory(path.isEmpty ? nil : path),
                         title: directoryDisplayName(path),
                         icon: .folder,
-                        entries: buckets[path] ?? []
+                        entries: Self.sortedEntriesForDisplay(buckets[path] ?? [], pinnedEntryIDs: pinnedEntryIDs)
                     )
                 }
         }
@@ -388,6 +398,35 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    func isPinned(_ entry: SessionEntry) -> Bool {
+        pinnedEntryIDs.contains(entry.id)
+    }
+
+    func togglePinned(_ entry: SessionEntry) {
+        if pinnedEntryIDs.contains(entry.id) {
+            pinnedEntryIDs.remove(entry.id)
+        } else {
+            pinnedEntryIDs.insert(entry.id)
+        }
+    }
+
+    static func sortedEntriesForDisplay(
+        _ entries: [SessionEntry],
+        pinnedEntryIDs: Set<String>
+    ) -> [SessionEntry] {
+        entries.sorted { lhs, rhs in
+            let leftPinned = pinnedEntryIDs.contains(lhs.id)
+            let rightPinned = pinnedEntryIDs.contains(rhs.id)
+            if leftPinned != rightPinned {
+                return leftPinned
+            }
+            if lhs.modified != rhs.modified {
+                return lhs.modified > rhs.modified
+            }
+            return lhs.id < rhs.id
+        }
+    }
+
     private static func loadAgentOrder() -> [SessionAgent] {
         let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
@@ -429,6 +468,11 @@ final class SessionIndexStore: ObservableObject {
         UserDefaults.standard.array(forKey: directoryOrderDefaultsKey) as? [String] ?? []
     }
 
+    private static func loadPinnedEntryIDs() -> Set<String> {
+        let stored = UserDefaults.standard.array(forKey: pinnedEntryIDsDefaultsKey) as? [String] ?? []
+        return Set(stored.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
     private static func persistAgentOrder(_ order: [SessionAgent]) {
         UserDefaults.standard.set(order.map { $0.rawValue }, forKey: agentOrderDefaultsKey)
     }
@@ -449,6 +493,10 @@ final class SessionIndexStore: ObservableObject {
 
     private static func persistDirectoryOrder(_ order: [String]) {
         UserDefaults.standard.set(order, forKey: directoryOrderDefaultsKey)
+    }
+
+    private static func persistPinnedEntryIDs(_ ids: Set<String>) {
+        UserDefaults.standard.set(ids.sorted(), forKey: pinnedEntryIDsDefaultsKey)
     }
 
     private var loadTask: Task<Void, Never>?
@@ -523,7 +571,7 @@ final class SessionIndexStore: ObservableObject {
         if noFolderScope {
             merged = merged.filter { ($0.cwd ?? "").isEmpty }
         }
-        let sorted = merged.sorted { $0.modified > $1.modified }
+        let sorted = Self.sortedEntriesForDisplay(merged, pinnedEntryIDs: pinnedEntryIDs)
         let snapshot = DirectorySnapshot(cwd: key, entries: sorted, errors: bag.snapshot())
         // Only cache this result if no `reload()` raced in while the
         // build was running. Otherwise the caller gets a fresh snapshot

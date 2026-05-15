@@ -97,6 +97,12 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "vault": [
+                    "defaultVisibleRows": VaultDisplaySettings.defaultVisibleRows,
+                    "agents": [],
+                ],
+            ],
+            [
                 "sidebar": [
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                     "showWorkspaceDescription": SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,

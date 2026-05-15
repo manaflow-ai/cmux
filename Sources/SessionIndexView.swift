@@ -57,9 +57,14 @@ struct SessionIndexView: View {
     /// Section whose "Show more" popover is currently open.
     @State private var openPopoverSection: SectionKey?
     @State private var previewEntry: SessionEntry?
+    @AppStorage(VaultDisplaySettings.defaultVisibleRowsKey)
+    private var collapsedRowLimitSetting = VaultDisplaySettings.defaultVisibleRows
     let onResume: ((SessionEntry) -> Void)?
+
     /// Rows shown per section before "Show more" is tapped.
-    private static let collapsedRowLimit = 5
+    private var collapsedRowLimit: Int {
+        VaultDisplaySettings.clampedVisibleRows(collapsedRowLimitSetting)
+    }
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -176,6 +181,7 @@ struct SessionIndexView: View {
         let store = self.store
         let dragCoordinator = self.dragCoordinator
         let onResumeClosure = onResume
+        let pinnedEntryIDs = store.pinnedEntryIDs
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -186,6 +192,9 @@ struct SessionIndexView: View {
         }
         let loadSnapshotFn: DirectorySnapshotFn = { cwd in
             await store.loadDirectorySnapshot(cwd: cwd)
+        }
+        let togglePinnedFn: SessionPinToggleFn = { entry in
+            store.togglePinned(entry)
         }
 
         return ScrollView(.vertical) {
@@ -199,7 +208,8 @@ struct SessionIndexView: View {
                     ).equatable()
                     IndexSectionView(
                         section: section,
-                        rowLimit: Self.collapsedRowLimit,
+                        rowLimit: collapsedRowLimit,
+                        pinnedEntryIDs: pinnedEntryIDs,
                         isDragged: draggedKey == section.key,
                         previewEntryId: previewEntry?.id,
                         isCollapsed: Binding(
@@ -229,6 +239,7 @@ struct SessionIndexView: View {
                                 }
                             },
                             onResume: onResumeClosure,
+                            onTogglePinned: togglePinnedFn,
                             search: searchFn,
                             loadSnapshot: loadSnapshotFn
                         )
@@ -309,6 +320,8 @@ typealias SessionSearchFn = @MainActor (
 /// becomes an in-memory slice instead of repeated store round-trips.
 typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySnapshot
 
+typealias SessionPinToggleFn = @MainActor (_ entry: SessionEntry) -> Void
+
 /// Callback bundle handed to `IndexSectionView` in place of a store reference.
 /// Every capability the row needs is expressed as a closure so no child view
 /// below the snapshot boundary can subscribe to broad store updates;
@@ -319,6 +332,7 @@ struct IndexSectionActions {
     let onPreviewEntry: (SessionEntry) -> Void
     let onDismissPreview: (SessionEntry.ID) -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let onTogglePinned: SessionPinToggleFn
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
 }
@@ -333,6 +347,7 @@ struct SectionGapActions {
 private struct IndexSectionView: View, Equatable {
     let section: IndexSection
     let rowLimit: Int
+    let pinnedEntryIDs: Set<String>
     /// True iff this section is the one currently being dragged. Precomputed
     /// in the parent from a single `draggedKey` snapshot so the section's
     /// opacity fade doesn't require observing the drag coordinator here.
@@ -353,6 +368,7 @@ private struct IndexSectionView: View, Equatable {
     static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
         lhs.section == rhs.section
             && lhs.rowLimit == rhs.rowLimit
+            && lhs.pinnedEntryIDs == rhs.pinnedEntryIDs
             && lhs.isDragged == rhs.isDragged
             && lhs.previewEntryId == rhs.previewEntryId
             && lhs.isCollapsed == rhs.isCollapsed
@@ -366,6 +382,7 @@ private struct IndexSectionView: View, Equatable {
                 ForEach(Array(section.entries.prefix(rowLimit))) { entry in
                     SessionRow(
                         entry: entry,
+                        isPinned: pinnedEntryIDs.contains(entry.id),
                         isPreviewPresented: previewEntryId == entry.id,
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
@@ -374,6 +391,7 @@ private struct IndexSectionView: View, Equatable {
                                 actions.onDismissPreview(entry.id)
                             }
                         },
+                        onTogglePinned: actions.onTogglePinned,
                         onResume: actions.onResume
                     )
                         .equatable()
@@ -406,8 +424,10 @@ private struct IndexSectionView: View, Equatable {
             SectionPopoverHost(
                 isPresented: $isPopoverOpen,
                 section: section,
+                pinnedEntryIDs: pinnedEntryIDs,
                 search: actions.search,
                 loadSnapshot: actions.loadSnapshot,
+                onTogglePinned: actions.onTogglePinned,
                 onResume: actions.onResume
             )
         )
@@ -541,8 +561,10 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
+    let isPinned: Bool
     let isPreviewPresented: Bool
     let onPreviewPresentationChange: (Bool) -> Void
+    let onTogglePinned: SessionPinToggleFn
     let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
 
@@ -550,6 +572,7 @@ private struct SessionRow: View, Equatable {
         // Skip body re-eval during scroll when the entry is unchanged.
         // The closure isn't compared (it comes from stable parent state).
         lhs.entry == rhs.entry &&
+            lhs.isPinned == rhs.isPinned &&
             lhs.isPreviewPresented == rhs.isPreviewPresented
     }
 
@@ -562,6 +585,12 @@ private struct SessionRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .accessibilityLabel(String(localized: "sessionIndex.row.pinned", defaultValue: "Pinned in Vault"))
+            }
             Text(relativeTime(entry.modified))
                 .font(.system(size: 12).monospacedDigit())
                 .foregroundColor(.secondary.opacity(0.65))
@@ -594,7 +623,12 @@ private struct SessionRow: View, Equatable {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+            sessionRowMenuItems(
+                entry: entry,
+                isPinned: isPinned,
+                onTogglePinned: onTogglePinned,
+                onResume: onResume
+            )
         }
     }
 
@@ -651,8 +685,21 @@ private struct SessionRow: View, Equatable {
 /// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
 /// without duplicating the button list or the action helpers.
 @ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+private func sessionRowMenuItems(
+    entry: SessionEntry,
+    isPinned: Bool,
+    onTogglePinned: @escaping SessionPinToggleFn,
+    onResume: ((SessionEntry) -> Void)?
+) -> some View {
+    Button {
+        onTogglePinned(entry)
+    } label: {
+        Text(isPinned
+             ? String(localized: "sessionIndex.row.unpin", defaultValue: "Unpin from Vault")
+             : String(localized: "sessionIndex.row.pin", defaultValue: "Pin in Vault"))
+    }
     if let onResume {
+        Divider()
         Button {
             onResume(entry)
         } label: {
@@ -1873,6 +1920,7 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
 
 private struct SectionPopoverView: View {
     let section: IndexSection
+    let pinnedEntryIDs: Set<String>
     /// Closure-typed search handle. The popover never holds a reference to
     /// `SessionIndexStore`; the parent view is the only owner.
     let search: SessionSearchFn
@@ -1880,6 +1928,7 @@ private struct SectionPopoverView: View {
     /// Used on the empty-query directory-scope scroll path so pagination
     /// is an in-memory array slice, not repeated store round-trips.
     let loadSnapshot: DirectorySnapshotFn
+    let onTogglePinned: SessionPinToggleFn
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
 
@@ -1905,6 +1954,10 @@ private struct SectionPopoverView: View {
     @State private var fullSnapshot: [SessionEntry]?
 
     private static let pageSize = 100
+
+    private var visibleLoadedEntries: [SessionEntry] {
+        SessionIndexStore.sortedEntriesForDisplay(loaded, pinnedEntryIDs: pinnedEntryIDs)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1986,8 +2039,12 @@ private struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
+                        ForEach(visibleLoadedEntries) { entry in
+                            PopoverRow(
+                                entry: entry,
+                                isPinned: pinnedEntryIDs.contains(entry.id),
+                                onTogglePinned: onTogglePinned
+                            ) {
                                 onResume?(entry)
                                 onDismiss()
                             }
@@ -2216,12 +2273,15 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let isPinned: Bool
+    let onTogglePinned: SessionPinToggleFn
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry &&
+            lhs.isPinned == rhs.isPinned
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2263,6 +2323,12 @@ private struct PopoverRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .accessibilityLabel(String(localized: "sessionIndex.row.pinned", defaultValue: "Pinned in Vault"))
+            }
             modifiedText
         }
         .padding(.horizontal, 12)
@@ -2277,7 +2343,12 @@ private struct PopoverRow: View, Equatable {
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            sessionRowMenuItems(
+                entry: entry,
+                isPinned: isPinned,
+                onTogglePinned: onTogglePinned,
+                onResume: { _ in onActivate() }
+            )
         }
     }
 }
@@ -2388,10 +2459,12 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
+    let pinnedEntryIDs: Set<String>
     /// Closure-typed search handle passed through to the SwiftUI popover
     /// body. The host no longer holds a `SessionIndexStore` reference.
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+    let onTogglePinned: SessionPinToggleFn
     let onResume: ((SessionEntry) -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -2410,8 +2483,10 @@ struct SectionPopoverHost: NSViewRepresentable {
         coordinator.anchorView = nsView
         coordinator.update(
             section: section,
+            pinnedEntryIDs: pinnedEntryIDs,
             search: search,
             loadSnapshot: loadSnapshot,
+            onTogglePinned: onTogglePinned,
             onResume: onResume
         )
         if isPresented {
@@ -2448,10 +2523,13 @@ struct SectionPopoverHost: NSViewRepresentable {
         }()
         private var popover: NSPopover?
         private var currentSection: IndexSection?
+        private var currentPinnedEntryIDs: Set<String> = []
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
+        private var currentOnTogglePinned: SessionPinToggleFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
         private var lastRenderedSection: IndexSection?
+        private var lastRenderedPinnedEntryIDs: Set<String> = []
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
         /// open gets fresh view-local state.
@@ -2463,13 +2541,17 @@ struct SectionPopoverHost: NSViewRepresentable {
 
         func update(
             section: IndexSection,
+            pinnedEntryIDs: Set<String>,
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
+            onTogglePinned: @escaping SessionPinToggleFn,
             onResume: ((SessionEntry) -> Void)?
         ) {
             currentSection = section
+            currentPinnedEntryIDs = pinnedEntryIDs
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
+            currentOnTogglePinned = onTogglePinned
             currentOnResume = onResume
             // When hidden, defer rebuilding the hosting view until `present()`.
             // Rewriting rootView + forcing layout on every parent re-render was
@@ -2480,22 +2562,27 @@ struct SectionPopoverHost: NSViewRepresentable {
             // identical visible-section updates avoids re-laying out the popover
             // during unrelated parent re-renders while still refreshing when the
             // visible content actually changes.
-            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
+            guard lastRenderedSection != section ||
+                    lastRenderedPinnedEntryIDs != pinnedEntryIDs ||
+                    lastRenderedPresentationCount != presentationCount else { return }
             refreshContent()
         }
 
         private func refreshContent() {
             guard let section = currentSection,
                   let search = currentSearch,
-                  let loadSnapshot = currentLoadSnapshot else { return }
+                  let loadSnapshot = currentLoadSnapshot,
+                  let onTogglePinned = currentOnTogglePinned else { return }
             debugRefreshContentCallCount += 1
             let onResume = currentOnResume
             let identity = presentationCount
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
+                    pinnedEntryIDs: currentPinnedEntryIDs,
                     search: search,
                     loadSnapshot: loadSnapshot,
+                    onTogglePinned: onTogglePinned,
                     onResume: onResume
                 ) { [weak self] in
                     self?.closeFromContent()
@@ -2505,6 +2592,7 @@ struct SectionPopoverHost: NSViewRepresentable {
                 .id(identity)
             )
             lastRenderedSection = section
+            lastRenderedPinnedEntryIDs = currentPinnedEntryIDs
             lastRenderedPresentationCount = presentationCount
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()

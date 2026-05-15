@@ -4,6 +4,17 @@ Vault restores built-in agent sessions and can also read custom agent registrati
 `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
 
+Set `vault.defaultVisibleRows` to choose how many sessions each Vault section shows before
+the Show more control appears:
+
+```jsonc
+{
+  "vault": {
+    "defaultVisibleRows": 8
+  }
+}
+```
+
 Pi Coding Agent is registered by default:
 
 ```jsonc

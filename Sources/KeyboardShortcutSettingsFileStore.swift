@@ -314,6 +314,9 @@ final class CmuxSettingsFileStore {
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let vaultSection = root["vault"] as? [String: Any] {
+            parseVaultSection(vaultSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let sidebarSection = root["sidebar"] as? [String: Any] {
             parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -469,6 +472,22 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseVaultSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonInt(section["defaultVisibleRows"]) {
+            guard VaultDisplaySettings.isValidVisibleRows(value) else {
+                logInvalid("vault.defaultVisibleRows", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[VaultDisplaySettings.defaultVisibleRowsKey] = .int(value)
+        } else if section.keys.contains("defaultVisibleRows") {
+            logInvalid("vault.defaultVisibleRows", sourcePath: sourcePath)
         }
     }
 

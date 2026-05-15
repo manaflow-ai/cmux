@@ -20,6 +20,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
+        assertSearch("vault show more", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-visible-rows"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
@@ -41,6 +42,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.autoResumeAgentSessions"),
             SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesVaultVisibleRows() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "vault.defaultVisibleRows"),
+            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-visible-rows")
         )
     }
 
@@ -72,6 +80,37 @@ final class SettingsSearchIndexTests: XCTestCase {
         )
     }
 
+    func testVaultVisibleRowsUsesDefaultAndClampsStoredValues() throws {
+        let suiteName = "cmux-vault-display-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(VaultDisplaySettings.visibleRows(defaults: defaults), 5)
+
+        defaults.set(12, forKey: VaultDisplaySettings.defaultVisibleRowsKey)
+        XCTAssertEqual(VaultDisplaySettings.visibleRows(defaults: defaults), 12)
+
+        defaults.set(0, forKey: VaultDisplaySettings.defaultVisibleRowsKey)
+        XCTAssertEqual(VaultDisplaySettings.visibleRows(defaults: defaults), 1)
+
+        defaults.set(500, forKey: VaultDisplaySettings.defaultVisibleRowsKey)
+        XCTAssertEqual(VaultDisplaySettings.visibleRows(defaults: defaults), 100)
+    }
+
+    @MainActor
+    func testPinnedVaultEntriesSortBeforeRecentUnpinnedEntries() {
+        let oldPinned = sessionEntry(id: "old-pinned", modified: Date(timeIntervalSince1970: 100))
+        let recentUnpinned = sessionEntry(id: "recent-unpinned", modified: Date(timeIntervalSince1970: 300))
+        let oldUnpinned = sessionEntry(id: "old-unpinned", modified: Date(timeIntervalSince1970: 200))
+
+        let sorted = SessionIndexStore.sortedEntriesForDisplay(
+            [recentUnpinned, oldUnpinned, oldPinned],
+            pinnedEntryIDs: [oldPinned.id]
+        )
+
+        XCTAssertEqual(sorted.map(\.id), ["old-pinned", "recent-unpinned", "old-unpinned"])
+    }
+
     private func assertSearch(
         _ query: String,
         contains expectedID: String,
@@ -84,6 +123,21 @@ final class SettingsSearchIndexTests: XCTestCase {
             "Expected settings search for '\(query)' to include \(expectedID), got \(resultIDs.sorted())",
             file: file,
             line: line
+        )
+    }
+
+    private func sessionEntry(id: String, modified: Date) -> SessionEntry {
+        SessionEntry(
+            id: id,
+            agent: .codex,
+            sessionId: id,
+            title: id,
+            cwd: "/tmp",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: modified,
+            fileURL: nil,
+            specifics: .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
         )
     }
 }

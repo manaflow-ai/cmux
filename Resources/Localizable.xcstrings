@@ -107027,6 +107027,40 @@
         }
       }
     },
+    "settings.terminal.vaultDefaultVisibleRows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault Rows Before Show More"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もっと表示前の Vault 行数"
+          }
+        }
+      }
+    },
+    "settings.terminal.vaultDefaultVisibleRows.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number of sessions shown in each Vault section before Show more appears."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 Vault セクションで「もっと表示」が出る前に表示するセッション数です。"
+          }
+        }
+      }
+    },
     "sessionIndex.directory.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -107044,6 +107078,40 @@
         }
       }
     },
+    "sessionIndex.row.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin in Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault にピン留め"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned in Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault にピン留め済み"
+          }
+        }
+      }
+    },
     "sessionIndex.row.resume": {
       "extractionState": "manual",
       "localizations": {
@@ -107057,6 +107125,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいタブで再開"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.unpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin from Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault からピン留めを外す"
           }
         }
       }
