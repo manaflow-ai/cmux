@@ -12185,6 +12185,28 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    @discardableResult
+    func createReplacementTerminalPanelIfEmpty(focus: Bool) -> TerminalPanel? {
+        guard panels.isEmpty else { return nil }
+        let replacement = createReplacementTerminalPanel()
+        if focus {
+            focusReplacementTerminalPanel(replacement)
+        }
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
+        return replacement
+    }
+
+    private func focusReplacementTerminalPanel(_ replacement: TerminalPanel) {
+        guard let replacementTabId = surfaceIdFromPanelId(replacement.id),
+              let replacementPane = paneId(forPanelId: replacement.id) ?? bonsplitController.allPaneIds.first else {
+            return
+        }
+        bonsplitController.focusPane(replacementPane)
+        bonsplitController.selectTab(replacementTabId)
+        applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
+    }
+
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
         for (panelId, _) in panels {
@@ -13959,15 +13981,7 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             dlog("replacement.banner.fire target=\(pendingReplacementBannerRemoteTarget ?? "nil")")
             #endif
-            let replacement = createReplacementTerminalPanel()
-            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
-               let replacementPane = bonsplitController.allPaneIds.first {
-                bonsplitController.focusPane(replacementPane)
-                bonsplitController.selectTab(replacementTabId)
-                applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
-            }
-            scheduleTerminalGeometryReconcile()
-            scheduleFocusReconcile()
+            _ = createReplacementTerminalPanelIfEmpty(focus: true)
             return
         }
 

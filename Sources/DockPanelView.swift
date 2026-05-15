@@ -229,14 +229,14 @@ private enum DockControlRuntimeError: LocalizedError {
 }
 
 @MainActor
-final class DockControlRuntime: ObservableObject, Identifiable {
+final class DockControlRuntime: Identifiable {
     let id: String
     private(set) var definition: DockControlDefinition?
     private var detachedTransfer: Workspace.DetachedSurfaceTransfer?
     let baseDirectory: String
     let workspaceId: UUID
     let paneId: PaneID
-    @Published private(set) var panel: any Panel
+    let panel: any Panel
 
     init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) throws {
         self.id = definition.id
@@ -299,8 +299,6 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         return DockBrowserAttachment(paneId: paneId, panel: browserPanel)
     }
 
-    fileprivate var panelID: UUID { panel.id }
-
     func focus() {
         switch panel {
         case let terminalPanel as TerminalPanel:
@@ -314,13 +312,6 @@ final class DockControlRuntime: ObservableObject, Identifiable {
         default:
             break
         }
-    }
-
-    func restart() throws {
-        guard let definition else { return }
-        let oldPanel = panel
-        panel = try Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
-        oldPanel.close()
     }
 
     func close() {
@@ -952,9 +943,8 @@ final class DockControlsStore: ObservableObject {
             return false
         }
         guard let detached = workspace.detachSurface(panelId: panelId) else { return false }
-        if workspace.panels.isEmpty,
-           let fallbackPane = workspace.bonsplitController.allPaneIds.first {
-            _ = workspace.newTerminalSurface(inPane: fallbackPane, focus: true)
+        if workspace.panels.isEmpty {
+            _ = workspace.createReplacementTerminalPanelIfEmpty(focus: true)
         }
         let control = DockControlRuntime(
             detached: detached,
