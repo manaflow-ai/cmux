@@ -3,8 +3,9 @@ import Foundation
 public enum AgentLaunchSanitizer {
     // Runtime/interpreter flags may appear in captured process argv, but they
     // are not portable agent session options to replay after a resume command.
-    private static let runtimeOnlyOptions: Set<String> = [
-        "--use-system-ca",
+    // Values are token widths, including the option token itself.
+    private static let runtimeOnlyOptionWidths: [String: Int] = [
+        "--use-system-ca": 1,
     ]
 
     struct Policy {
@@ -179,8 +180,9 @@ public enum AgentLaunchSanitizer {
                 continue
             }
 
-            let width = optionWidth(args, index: index, policy: policy)
-            if shouldDropRuntimeOnlyOption(arg) || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
+            let runtimeOnlyWidth = runtimeOnlyOptionWidth(arg)
+            let width = runtimeOnlyWidth ?? optionWidth(args, index: index, policy: policy)
+            if runtimeOnlyWidth != nil || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
                 index += width
                 continue
             }
@@ -203,8 +205,12 @@ public enum AgentLaunchSanitizer {
         return droppedOptions.contains(String(arg[..<equals]))
     }
 
-    private static func shouldDropRuntimeOnlyOption(_ arg: String) -> Bool {
-        shouldDropOption(arg, droppedOptions: runtimeOnlyOptions)
+    private static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {
+        if let width = runtimeOnlyOptionWidths[arg] {
+            return width
+        }
+        guard let equals = arg.firstIndex(of: "=") else { return nil }
+        return runtimeOnlyOptionWidths[String(arg[..<equals])].map { _ in 1 }
     }
 
     private static func optionWidth(_ args: [String], index: Int, policy: Policy) -> Int {
