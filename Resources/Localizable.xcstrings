@@ -107243,13 +107243,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: cannot snapshot opencode.db (%@)"
+            "value": "OpenCode session history is temporarily unavailable."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: opencode.db のスナップショットを作成できません (%@)"
+            "value": "OpenCode のセッション履歴は一時的に利用できません。"
           }
         }
       }
@@ -107260,13 +107260,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: cannot read opencode.db (%@)"
+            "value": "OpenCode session history could not be read."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: opencode.db を読み込めません (%@)"
+            "value": "OpenCode のセッション履歴を読み込めませんでした。"
           }
         }
       }
@@ -107277,13 +107277,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: schema unsupported - %@"
+            "value": "OpenCode session history is unavailable in this version."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: スキーマがサポートされていません - %@"
+            "value": "このバージョンでは OpenCode のセッション履歴を利用できません。"
           }
         }
       }

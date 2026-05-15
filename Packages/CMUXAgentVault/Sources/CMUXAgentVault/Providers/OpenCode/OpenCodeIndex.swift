@@ -119,13 +119,13 @@ public enum OpenCodeIndex {
             }
             snapshot = madeSnapshot
         } catch {
-            let format = String(
+            let message = String(
                 localized: "sessionIndex.error.openCodeSnapshot",
-                defaultValue: "OpenCode: cannot snapshot opencode.db (%@)"
+                defaultValue: "OpenCode session history is temporarily unavailable."
             )
             return OpenCodeIndexResult(
                 sessions: [],
-                errors: [String(format: format, error.localizedDescription)]
+                errors: [message]
             )
         }
         defer { snapshot.remove() }
@@ -135,23 +135,23 @@ public enum OpenCodeIndex {
                 try loadSessions(db: db, needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
             }
         } catch {
-            if case let OpenCodeIndexError.unsupportedSchema(message) = error {
-                let format = String(
+            if case OpenCodeIndexError.unsupportedSchema = error {
+                let message = String(
                     localized: "sessionIndex.error.openCodeSchemaUnsupported",
-                    defaultValue: "OpenCode: schema unsupported - %@"
+                    defaultValue: "OpenCode session history is unavailable in this version."
                 )
                 return OpenCodeIndexResult(
                     sessions: [],
-                    errors: [String(format: format, message)]
+                    errors: [message]
                 )
             }
-            let format = String(
+            let message = String(
                 localized: "sessionIndex.error.openCodeRead",
-                defaultValue: "OpenCode: cannot read opencode.db (%@)"
+                defaultValue: "OpenCode session history could not be read."
             )
             return OpenCodeIndexResult(
                 sessions: [],
-                errors: [String(format: format, errorDescription(error))]
+                errors: [message]
             )
         }
     }
@@ -284,15 +284,6 @@ public enum OpenCodeIndex {
         return String(cString: cString)
     }
 
-    private static func errorDescription(_ error: Error) -> String {
-        if case let OpenCodeIndexError.sqlite(message) = error {
-            return message
-        }
-        if case let OpenCodeIndexError.unsupportedSchema(message) = error {
-            return message
-        }
-        return error.localizedDescription
-    }
 }
 
 private func normalized(_ value: String?) -> String? {

@@ -107,7 +107,7 @@ struct OpenCodeIndexTests {
 
         #expect(result.sessions.isEmpty)
         #expect(result.errors.count == 1)
-        #expect(result.errors[0].contains("OpenCode: schema unsupported"))
+        #expect(result.errors[0] == "OpenCode session history is unavailable in this version.")
     }
 
     private func temporaryDirectory() throws -> URL {
