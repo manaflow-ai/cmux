@@ -91,7 +91,7 @@ class TerminalController {
     private static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
-            defaultValue: "The terminal cannot accept more queued input right now; retry in a moment or reopen the session."
+            defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
 
@@ -6931,8 +6931,14 @@ class TerminalController {
                 return
             }
             let surfaceWasReady = runtimeSurface != nil
-            guard terminalPanel.surface.sendNamedKey(key) else {
+            switch terminalPanel.surface.sendNamedKey(key) {
+            case .sent:
+                break
+            case .unknownKey:
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
+                return
+            case .inputQueueFull:
+                result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             }
             if surfaceWasReady {
@@ -15614,10 +15620,17 @@ class TerminalController {
                 error = Self.terminalProcessExitedSocketError
                 return
             }
-            success = terminalPanel.surface.sendNamedKey(keyName)
+            switch terminalPanel.surface.sendNamedKey(keyName) {
+            case .sent:
+                success = true
+            case .unknownKey:
+                error = "ERROR: Unknown key '\(keyName)'"
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+            }
         }
         if let error { return error }
-        return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
+        return success ? "OK" : "ERROR: Failed to send key"
     }
 
     private func sendKeyToSurface(_ args: String) -> String {
@@ -15640,11 +15653,18 @@ class TerminalController {
                 error = Self.terminalProcessExitedSocketError
                 return
             }
-            success = terminalPanel.surface.sendNamedKey(keyName)
+            switch terminalPanel.surface.sendNamedKey(keyName) {
+            case .sent:
+                success = true
+            case .unknownKey:
+                error = "ERROR: Unknown key '\(keyName)'"
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+            }
         }
 
         if let error { return error }
-        return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
+        return success ? "OK" : "ERROR: Failed to send key"
     }
 
     private func openExternallyWhenBrowserDisabled(rawURL: String? = nil, url: URL?) -> String {

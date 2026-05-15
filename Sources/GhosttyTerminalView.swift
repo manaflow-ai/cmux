@@ -4426,6 +4426,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case key(PendingKeyEvent)
     }
 
+    enum NamedKeySendResult: Equatable {
+        case sent
+        case unknownKey
+        case inputQueueFull
+    }
+
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
@@ -5616,15 +5622,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func sendNamedKey(_ keyName: String) -> Bool {
-        guard let event = pendingKeyEvent(for: keyName) else { return false }
+    func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+        guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         if let surface = surface {
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
-            guard enqueuePendingSocketInput(.key(event)) else { return false }
+            guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             requestBackgroundSurfaceStartIfNeeded()
         }
-        return true
+        return .sent
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
