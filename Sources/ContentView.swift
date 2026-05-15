@@ -1117,6 +1117,14 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
+    @State private var commandPaletteForkableAgentActivePanelKey: String?
+    @State private var commandPaletteForkableAgentProbeIDsByPanelKey: [String: UUID] = [:]
+    @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
+    @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
+    @State var commandPaletteForkableAgentSnapshotFingerprintsByPanelKey: [String: String] = [:]
+    @State var commandPaletteForkableAgentRemoteContextsByPanelKey: [String: Bool] = [:]
+    @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
+    @State private var commandPaletteForkableAgentProbeFingerprintsByPanelKey: [String: String] = [:]
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -1468,6 +1476,7 @@ struct ContentView: View {
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
         static let panelHasPane = "panel.hasPane"
+        static let panelHasForkableAgent = "panel.hasForkableAgent"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -5050,6 +5059,7 @@ struct ContentView: View {
         if commandPaletteTerminalOpenTargetAvailability != terminalOpenTargets {
             commandPaletteTerminalOpenTargetAvailability = terminalOpenTargets
         }
+        refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: scope)
         let commandsContext = scope == .commands
             ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
             : nil
@@ -5104,7 +5114,7 @@ struct ContentView: View {
                     queryIsEmpty: queryIsEmpty,
                     history: usageHistory,
                     now: historyTimestamp
-                )
+                ) + Self.commandPaletteForkPriorityBoost(commandId: commandId, query: query)
             },
             shouldCancel: shouldCancel
         )
@@ -5116,6 +5126,14 @@ struct ContentView: View {
                 titleMatchIndices: result.titleMatchIndices
             )
         }
+    }
+
+    nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
+        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
+              commandId == "palette.forkAgentConversationRight" else {
+            return 0
+        }
+        return 10_000
     }
 
     private static func commandPaletteMaterializedSearchResults(
@@ -5866,6 +5884,274 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
+    static func commandPaletteForkableAgentPanelKey(workspaceId: UUID, panelId: UUID) -> String {
+        "\(workspaceId.uuidString):\(panelId.uuidString)"
+    }
+
+    private enum CommandPaletteForkSnapshotAvailability {
+        case unsupported
+        case supportedWithoutProbe
+        case requiresProbe
+    }
+
+    private static func commandPaletteSnapshotForkAvailability(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        isRemoteTerminal: Bool = false
+    ) -> CommandPaletteForkSnapshotAvailability {
+        guard snapshot.forkCommand != nil else { return .unsupported }
+        if isRemoteTerminal,
+           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
+            return .unsupported
+        }
+        switch snapshot.kind {
+        case .claude, .codex:
+            return .supportedWithoutProbe
+        case .opencode:
+            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+        default:
+            return .unsupported
+        }
+    }
+
+    static func commandPaletteForkSnapshotFingerprint(
+        _ snapshot: SessionRestorableAgentSnapshot
+    ) -> String {
+        let launchCommand = snapshot.launchCommand
+        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
+        let parts: [String] = [
+            snapshot.kind.rawValue,
+            snapshot.sessionId,
+            snapshot.workingDirectory ?? "",
+            launchCommand?.launcher ?? "",
+            launchCommand?.executablePath ?? "",
+            launchArguments,
+            launchCommand?.workingDirectory ?? "",
+            launchCommand?.source ?? "",
+            snapshot.forkCommand ?? ""
+        ]
+        return parts.joined(separator: "\u{1e}")
+    }
+
+    static func commandPaletteForkCacheFingerprint(
+        snapshot: SessionRestorableAgentSnapshot,
+        fallbackFingerprint: String?
+    ) -> String {
+        fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
+    }
+
+    static func commandPalettePanelHasForkableAgent(
+        workspaceId: UUID,
+        panelId: UUID,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false
+    ) -> Bool {
+        let panelKey = commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        if supportedPanelKeys.contains(panelKey) {
+            if let fallbackSnapshot {
+                return commandPaletteSnapshotForkAvailability(
+                    fallbackSnapshot,
+                    isRemoteTerminal: isRemoteTerminal
+                ) != .unsupported
+            }
+            guard let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey] else {
+                return true
+            }
+            return supportedRemoteContext == isRemoteTerminal
+        }
+        if let fallbackSnapshot {
+            return commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) == .supportedWithoutProbe
+        }
+        return false
+    }
+
+    private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
+        guard scope == .commands,
+              let panelContext = focusedPanelContext,
+              panelContext.panel.panelType == .terminal else {
+            commandPaletteForkableAgentActivePanelKey = nil
+            cancelCommandPaletteForkableAgentAvailabilityProbe()
+            return
+        }
+
+        let workspaceId = panelContext.workspace.id
+        let panelId = panelContext.panelId
+        let isRemoteTerminal = panelContext.workspace.isRemoteTerminalSurface(panelId)
+        let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
+        let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
+        commandPaletteForkableAgentActivePanelKey = panelKey
+        let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+
+        if let fallbackSnapshot {
+            let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
+            if let cachedFingerprint = commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey],
+               cachedFingerprint != fallbackFingerprint {
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            }
+            switch Self.commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) {
+            case .supportedWithoutProbe:
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = fallbackFingerprint
+                commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                return
+            case .unsupported:
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                return
+            case .requiresProbe:
+                if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
+                   commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] == fallbackFingerprint,
+                   commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+                   !panelChanged {
+                    return
+                }
+                startCommandPaletteForkableAgentAvailabilityProbe(
+                    panelKey: panelKey,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    fallbackSnapshot: fallbackSnapshot,
+                    fallbackFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal
+                )
+                return
+            }
+        }
+
+        if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
+           commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+           !panelChanged {
+            return
+        }
+
+        startCommandPaletteForkableAgentAvailabilityProbe(
+            panelKey: panelKey,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: nil,
+            fallbackFingerprint: nil,
+            isRemoteTerminal: isRemoteTerminal
+        )
+    }
+
+    private func startCommandPaletteForkableAgentAvailabilityProbe(
+        panelKey: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        fallbackFingerprint: String?,
+        isRemoteTerminal: Bool
+    ) {
+        let probeFingerprint = "\(fallbackFingerprint ?? "")\u{1f}\(isRemoteTerminal ? "remote" : "local")"
+        if let task = commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] {
+            guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] != probeFingerprint else { return }
+            task.cancel()
+            commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        }
+        let probeID = UUID()
+        commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] = probeID
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
+
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
+            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard !Task.isCancelled else { return }
+            let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
+            let supportsFork: Bool
+            if let snapshot {
+                supportsFork = await AgentForkSupport.supportsFork(
+                    snapshot: snapshot,
+                    isRemoteContext: isRemoteTerminal
+                )
+            } else {
+                supportsFork = false
+            }
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
+                guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                if let fallbackFingerprint,
+                   let currentContext = focusedPanelContext,
+                   currentContext.workspace.id == workspaceId,
+                   currentContext.panelId == panelId,
+                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
+                   Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
+                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                    return
+                }
+                let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
+                let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
+                let shouldRefreshResults: Bool
+                if supportsFork {
+                    shouldRefreshResults = !wasSupported
+                    commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+                    commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                    if let snapshot {
+                        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
+                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+                            snapshot: snapshot,
+                            fallbackFingerprint: fallbackFingerprint
+                        )
+                    }
+                } else {
+                    shouldRefreshResults = wasSupported || hadCachedSnapshot
+                    commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                    commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                }
+                commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                if shouldRefreshResults,
+                   isCommandPalettePresented,
+                   commandPaletteForkableAgentActivePanelKey == panelKey {
+                    scheduleCommandPaletteResultsRefresh(
+                        query: commandPaletteQuery,
+                        forceSearchCorpusRefresh: true
+                    )
+                }
+            }
+        }
+    }
+
+    private func cancelCommandPaletteForkableAgentAvailabilityProbe() {
+        for task in commandPaletteForkableAgentAvailabilityTasksByPanelKey.values {
+            task.cancel()
+        }
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeAll()
+        commandPaletteForkableAgentProbeIDsByPanelKey.removeAll()
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeAll()
+    }
+
+    private func cancelCommandPaletteForkableAgentAvailabilityProbe(for panelKey: String) {
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)?.cancel()
+        commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+    }
+
     private func commandPaletteCommandsContext(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
     ) -> CommandPaletteCommandsContext {
@@ -6051,11 +6337,24 @@ struct ContentView: View {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
+            let panelIsRemoteTerminal = workspace.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
+            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasForkableAgent,
+                Self.commandPalettePanelHasForkableAgent(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+                    supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                    fallbackSnapshot: fallbackForkableSnapshot,
+                    isRemoteTerminal: panelIsRemoteTerminal
+                )
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
@@ -6937,6 +7236,66 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationRight",
+                title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "right", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationLeft",
+                title: constant(String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "left", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationTop",
+                title: constant(String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "top", "up", "above", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationBottom",
+                title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationNewWorkspace",
+                title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
+                subtitle: workspaceSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "workspace"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
                 title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
                 subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
@@ -7515,6 +7874,21 @@ struct ContentView: View {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {
                 tabManager.createSplit(direction: .right)
             }
+        }
+        registry.register(commandId: "palette.forkAgentConversationRight") {
+            forkFocusedAgentConversationRight()
+        }
+        registry.register(commandId: "palette.forkAgentConversationLeft") {
+            forkFocusedAgentConversationLeft()
+        }
+        registry.register(commandId: "palette.forkAgentConversationTop") {
+            forkFocusedAgentConversationTop()
+        }
+        registry.register(commandId: "palette.forkAgentConversationBottom") {
+            forkFocusedAgentConversationBottom()
+        }
+        registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
+            forkFocusedAgentConversationToNewWorkspace()
         }
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
@@ -8129,6 +8503,7 @@ struct ContentView: View {
             commandPaletteRestoreFocusTarget = nil
         }
         isCommandPalettePresented = true
+        commandPaletteForkableAgentActivePanelKey = nil
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
     }
@@ -8174,6 +8549,8 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
+        cancelCommandPaletteForkableAgentAvailabilityProbe()
+        commandPaletteForkableAgentActivePanelKey = nil
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands
