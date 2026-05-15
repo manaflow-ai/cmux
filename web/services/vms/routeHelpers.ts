@@ -6,6 +6,7 @@ import {
   isVmDatabaseError,
   isVmProviderOperationError,
 } from "./errors";
+import { recordSpanTiming } from "./timings";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -23,6 +24,8 @@ export function parseBearer(request: Request): StackBearer | null {
 export type AuthedVmRouteContext = {
   user: AuthedUser;
   span: Span;
+  authDurationMs: number;
+  routeStartedAtMs: number;
 };
 
 export async function withAuthedVmApiRoute(
@@ -38,13 +41,17 @@ export async function withAuthedVmApiRoute(
     { "cmux.subsystem": "vm-cloud", ...attributes },
     async (span) => {
       try {
+        const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
-        const user = await verifyRequest(request);
+        const authStart = performance.now();
+        const user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        const authDurationMs = performance.now() - authStart;
+        recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
         if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
           return jsonResponse({ error: "forbidden" }, 403);
         }
-        return await handler({ user, span });
+        return await handler({ user, span, authDurationMs, routeStartedAtMs });
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);

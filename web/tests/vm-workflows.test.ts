@@ -281,6 +281,58 @@ describe("VM Effect workflows", () => {
     expect(statusCalls).toBe(0);
   });
 
+  dbTest("skips Freestyle provider refresh when the billing team is below the active limit", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-under-limit-old', 'team-workflow-under-limit', 'free', 'freestyle', 'provider-vm-under-limit-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-under-limit-new",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-under-limit-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-under-limit",
+        billingPlanId: "free",
+        maxActiveVms: 2,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "under-limit-new",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-under-limit-new");
+    expect(statusCalls).toBe(0);
+    expect(createCalls).toBe(1);
+  });
+
   dbTest("refreshes Freestyle running rows before active limit enforcement", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -540,6 +592,55 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-provider-creating-old'
     `;
     expect(oldVm?.status).toBe("running");
+  });
+
+  dbTest("keeps active limit enforcement when every Freestyle row is still running", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-provider-running-old', 'team-workflow-provider-running', 'free', 'freestyle', 'provider-vm-provider-running-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          throw new Error("provider create should not be called");
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-provider-running-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-running",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-running-new",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(providerLayer(provider)),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmLimitExceededError);
+    expect(statusCalls).toBe(1);
+    expect(createCalls).toBe(0);
   });
 
   dbTest("does not overwrite a VM destroyed during provider status refresh", async () => {
