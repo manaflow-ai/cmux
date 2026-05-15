@@ -200,12 +200,13 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 }
 
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
-    func testHoverTrackingOnlyEnabledForHoverBackgroundStyles() {
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.classic.config))
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.compact.config))
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.roomy.config))
-        XCTAssertTrue(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.pillGroup.config))
-        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.softButtons.config))
+    func testHoverTrackingEnabledForEveryTitlebarStyle() {
+        for style in TitlebarControlsStyle.allCases {
+            XCTAssertTrue(
+                titlebarControlsShouldTrackButtonHover(config: style.config),
+                "Expected hover tracking for titlebar style \(style)"
+            )
+        }
     }
 }
 

@@ -349,9 +349,15 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
 
 private enum TitlebarControlIconStyle {
     static let opacity = 0.72
+    static let hoveredOpacity = 0.88
+    static let pressedOpacity = 0.96
     static let weight: Font.Weight = .regular
     static let foregroundColor = Color(nsColor: .secondaryLabelColor)
     static let sidebarGlyphStrokeWidth: CGFloat = 1
+
+    static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
+        max(14, config.iconSize + 2)
+    }
 }
 
 struct TitlebarControlButton<Content: View>: View {
@@ -361,40 +367,96 @@ struct TitlebarControlButton<Content: View>: View {
     let action: () -> Void
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
-    @State private var isHovering = false
 
     var body: some View {
-        let baseButton = Button(action: action) {
+        Button(action: action) {
             content()
-                .frame(width: config.buttonSize, height: config.buttonSize)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TitlebarControlButtonStyle(config: config))
         .frame(width: config.buttonSize, height: config.buttonSize)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
-        .background(hoverBackground)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
             }
         }
+    }
+}
 
-        if titlebarControlsShouldTrackButtonHover(config: config) {
-            baseButton.onHover { isHovering = $0 }
-        } else {
-            baseButton
-        }
+private struct TitlebarControlButtonStyle: ButtonStyle {
+    let config: TitlebarControlsStyleConfig
+
+    func makeBody(configuration: Configuration) -> some View {
+        TitlebarControlButtonStyleBody(configuration: configuration, config: config)
+    }
+}
+
+private struct TitlebarControlButtonStyleBody: View {
+    let configuration: ButtonStyle.Configuration
+    let config: TitlebarControlsStyleConfig
+    @State private var isHovering = false
+
+    var body: some View {
+        configuration.label
+            .frame(width: config.buttonSize, height: config.buttonSize)
+            .foregroundStyle(TitlebarControlIconStyle.foregroundColor.opacity(foregroundOpacity))
+            .background {
+                if backgroundOpacity > 0 {
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                        .fill(Color.primary.opacity(backgroundOpacity))
+                } else if config.buttonBackground {
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+                }
+            }
+            .overlay {
+                if borderOpacity > 0 {
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                        .stroke(Color.primary.opacity(borderOpacity), lineWidth: 0.5)
+                }
+            }
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.12), value: isHovering)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if titlebarControlsShouldTrackButtonHover(config: config) {
+                    isHovering = hovering
+                }
+            }
     }
 
-    @ViewBuilder
-    private var hoverBackground: some View {
-        if config.hoverBackground && isHovering {
-            RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                .fill(Color.primary.opacity(0.08))
+    private var foregroundOpacity: Double {
+        if configuration.isPressed {
+            return TitlebarControlIconStyle.pressedOpacity
         }
+        if isHovering {
+            return TitlebarControlIconStyle.hoveredOpacity
+        }
+        return TitlebarControlIconStyle.opacity
+    }
+
+    private var backgroundOpacity: Double {
+        if configuration.isPressed {
+            return 0.14
+        }
+        if isHovering {
+            return config.hoverBackground ? 0.09 : 0.07
+        }
+        return 0
+    }
+
+    private var borderOpacity: Double {
+        if configuration.isPressed {
+            return 0.11
+        }
+        if isHovering {
+            return 0.07
+        }
+        return config.buttonBackground ? 0.05 : 0
     }
 }
 
@@ -760,19 +822,11 @@ struct TitlebarControlsView: View {
         config: TitlebarControlsStyleConfig,
         @ViewBuilder icon: () -> Icon
     ) -> some View {
-        if config.buttonBackground {
-            icon()
-                .foregroundStyle(TitlebarControlIconStyle.foregroundColor.opacity(TitlebarControlIconStyle.opacity))
-                .frame(width: config.buttonSize, height: config.buttonSize)
-                .background(
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                )
-        } else {
-            icon()
-                .foregroundStyle(TitlebarControlIconStyle.foregroundColor.opacity(TitlebarControlIconStyle.opacity))
-                .frame(width: config.buttonSize, height: config.buttonSize)
-        }
+        icon()
+            .frame(
+                width: TitlebarControlIconStyle.iconFrameSize(for: config),
+                height: TitlebarControlIconStyle.iconFrameSize(for: config)
+            )
     }
 }
 
@@ -788,7 +842,7 @@ private struct TitlebarSidebarGlyph: View {
                     lineJoin: .round
                 )
             )
-            .frame(width: max(12, iconSize + 2), height: max(9, iconSize - 2))
+            .frame(width: max(13, iconSize + 2), height: max(11, iconSize - 1))
     }
 }
 
@@ -1384,7 +1438,7 @@ struct TitlebarControlsLayoutSnapshot: Equatable {
 }
 
 func titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyleConfig) -> Bool {
-    config.hoverBackground
+    true
 }
 
 func titlebarControlsShouldScheduleForViewSizeChange(
