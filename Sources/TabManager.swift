@@ -5139,22 +5139,33 @@ class TabManager: ObservableObject {
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
         let workspace = tabs.first(where: { $0.id == tabId })
         let hasManualPanelUnread = surfaceId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
+        let hasRestoredPanelUnread = surfaceId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
         let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
-        let canDismissManualUnread = context == .terminalInteraction && (hasManualPanelUnread || hasManualWorkspaceUnread)
+        let hasRestoredWorkspaceUnread = notificationStore.hasRestoredUnreadIndicator(forTabId: tabId)
+        let canDismissUnreadIndicator = context == .terminalInteraction &&
+            (hasManualPanelUnread || hasRestoredPanelUnread || hasManualWorkspaceUnread || hasRestoredWorkspaceUnread)
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissManualUnread else { return false }
+        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
         if hasUnreadNotification {
             notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
         }
-        var didDismissManualUnread = false
+        var didDismissUnreadIndicator = false
         if context == .terminalInteraction {
             if let panelId = surfaceId, hasManualPanelUnread {
                 workspace?.clearManualUnread(panelId: panelId)
-                didDismissManualUnread = true
+                didDismissUnreadIndicator = true
+            }
+            if let panelId = surfaceId, hasRestoredPanelUnread {
+                workspace?.clearRestoredUnreadIndicator(panelId: panelId)
+                didDismissUnreadIndicator = true
             }
             if hasManualWorkspaceUnread {
-                didDismissManualUnread = notificationStore.clearManualUnread(forTabId: tabId) || didDismissManualUnread
+                didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
+            }
+            if hasRestoredWorkspaceUnread {
+                didDismissUnreadIndicator = notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) ||
+                    didDismissUnreadIndicator
             }
         }
         notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
@@ -5162,7 +5173,7 @@ class TabManager: ObservableObject {
            let workspace {
             if hasUnreadNotification || hasFocusedIndicator {
                 workspace.triggerNotificationDismissFlash(panelId: panelId)
-            } else if didDismissManualUnread {
+            } else if didDismissUnreadIndicator {
                 workspace.triggerManualUnreadDismissFlash(panelId: panelId)
             }
         }
@@ -7306,6 +7317,7 @@ extension TabManager {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
+        let notificationStore = AppDelegate.shared?.notificationStore
 
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
@@ -7325,11 +7337,21 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+            hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
+            hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
 
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
+                hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
+                hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
+                hasher.combine(
+                    notificationStore?.hasVisibleNotificationIndicator(
+                        forTabId: workspace.id,
+                        surfaceId: panelId
+                    ) ?? false
+                )
                 Self.hashRestorableAgentSnapshot(
                     restorableAgentIndex.snapshot(
                         workspaceId: workspace.id,
