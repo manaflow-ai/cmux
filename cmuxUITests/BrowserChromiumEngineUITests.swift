@@ -428,20 +428,18 @@ final class BrowserChromiumEngineUITests: XCTestCase {
             }
             guard wrote else { return nil }
 
-            let deadline = Date().addingTimeInterval(responseTimeout)
             var buffer = [UInt8](repeating: 0, count: 4096)
             var accumulator = ""
-            while Date() < deadline {
-                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let ready = poll(&pollDescriptor, 1, 100)
-                if ready < 0 {
+            while true {
+                let count = read(fd, &buffer, buffer.count)
+                if count < 0 {
+                    let readErrno = errno
+                    if readErrno == EAGAIN || readErrno == EWOULDBLOCK {
+                        break
+                    }
                     return nil
                 }
-                if ready == 0 {
-                    continue
-                }
-                let count = read(fd, &buffer, buffer.count)
-                if count <= 0 { break }
+                if count == 0 { break }
                 if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
                     accumulator.append(chunk)
                     if let newline = accumulator.firstIndex(of: "\n") {
