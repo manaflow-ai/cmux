@@ -127,7 +127,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        AppDelegate.shared?.dismissNotificationsPopoverIfShown()
+        AppDelegate.shared?.dismissNotificationsPopoverIfShown(animated: false)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
             if actionsWithPersistedShortcut.contains(action),
@@ -973,6 +973,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+    }
+
+    func testNotificationsPopoverDismissCanSkipAnimationsForTestTeardown() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.attachUpdateAccessory(to: window)
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        appDelegate.toggleNotificationsPopover(animated: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(appDelegate.isNotificationsPopoverShown())
+
+        XCTAssertTrue(appDelegate.dismissNotificationsPopoverIfShown(animated: false))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertFalse(appDelegate.isNotificationsPopoverShown())
     }
 
     func testCmdNResolvesEventWindowWhenObjectKeyLookupIsMismatched() {
