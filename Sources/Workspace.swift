@@ -10530,9 +10530,6 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled else {
-            if let url {
-                _ = NSWorkspace.shared.open(url)
-            }
             return nil
         }
 

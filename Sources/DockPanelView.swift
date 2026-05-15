@@ -650,7 +650,7 @@ final class DockControlsStore: ObservableObject {
     private var activeConfigURL: URL?
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
-    private var focusedControlID: String?
+    @Published private var focusedControlID: String?
 
     fileprivate var controlSnapshots: [DockControlSnapshot] {
         controls.map(\.snapshot)
