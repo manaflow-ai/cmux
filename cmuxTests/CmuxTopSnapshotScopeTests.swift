@@ -253,6 +253,46 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(scope?.surfaceID, panelID)
     }
 
+    func testCodexMonitorArgumentsSupportJoinedUUIDOptions() throws {
+        let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let surfaceID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+
+        let scope = try XCTUnwrap(CmuxTopProcessSnapshot.cmuxScope(
+            arguments: [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace=\(workspaceID.uuidString)",
+                "--surface=\(surfaceID.uuidString)"
+            ],
+            environment: [:]
+        ))
+
+        XCTAssertEqual(scope.workspaceID, workspaceID)
+        XCTAssertEqual(scope.surfaceID, surfaceID)
+        XCTAssertEqual(scope.attributionReason, "cmux-hook-arguments")
+    }
+
+    func testCodexMonitorArgumentsIgnorePathValuedSubcommandLookalikes() {
+        let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+
+        let scope = CmuxTopProcessSnapshot.cmuxScope(
+            arguments: [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "other",
+                "/tmp/hooks",
+                "/tmp/codex",
+                "/tmp/monitor",
+                "--workspace",
+                workspaceID.uuidString
+            ],
+            environment: [:]
+        )
+
+        XCTAssertNil(scope)
+    }
+
     @MainActor
     func testLaunchdParentedCodexMonitorArgumentsAttachToOwningSurface() throws {
         let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
@@ -359,7 +399,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
                 CmuxTopProcessInfo(
                     pid: webContentPID,
                     parentPID: 1,
-                    name: "com.apple.WebKit",
+                    name: "com.apple.WebKit.WebContent",
                     path: "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
                     ttyDevice: nil,
                     cmuxWorkspaceID: nil,

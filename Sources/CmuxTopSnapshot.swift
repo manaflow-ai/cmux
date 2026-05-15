@@ -54,7 +54,7 @@ nonisolated struct CmuxTopProcessScope: Sendable {
     let surfaceID: UUID?
     let attributionReason: String
 
-    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String = "cmux-environment") {
+    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.attributionReason = attributionReason
@@ -416,7 +416,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     }
 
     private func isWebKitWebContentProcess(_ process: CmuxTopProcessInfo) -> Bool {
-        if process.name.localizedCaseInsensitiveContains("WebKit") {
+        if process.name.localizedCaseInsensitiveContains("WebContent") {
             return true
         }
         return process.path?.localizedCaseInsensitiveContains("com.apple.WebKit.WebContent") == true

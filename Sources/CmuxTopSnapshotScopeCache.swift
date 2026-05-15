@@ -127,18 +127,27 @@ nonisolated extension CmuxTopProcessSnapshot {
     }
 
     private static func containsSubcommandPath(_ path: [String], in arguments: [String]) -> Bool {
-        guard !path.isEmpty, arguments.count >= path.count else { return false }
-        let normalizedArguments = arguments.map {
-            URL(fileURLWithPath: $0).lastPathComponent.lowercased()
-        }
-        for startIndex in normalizedArguments.indices {
-            let endIndex = startIndex + path.count
-            guard endIndex <= normalizedArguments.count else { break }
-            if Array(normalizedArguments[startIndex..<endIndex]) == path {
+        let normalizedPath = path.map { $0.lowercased() }
+        guard !normalizedPath.isEmpty else { return false }
+
+        if arguments.count >= normalizedPath.count + 1 {
+            let executableName = URL(fileURLWithPath: arguments[0])
+                .lastPathComponent
+                .lowercased()
+            let subcommands = arguments
+                .dropFirst()
+                .prefix(normalizedPath.count)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            if executableName == "cmux", Array(subcommands) == normalizedPath {
                 return true
             }
         }
-        return false
+
+        guard arguments.count >= normalizedPath.count else { return false }
+        let leadingArguments = arguments
+            .prefix(normalizedPath.count)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return Array(leadingArguments) == normalizedPath
     }
 
     private static func uuidValue(in environment: [String: String], keys: [String]) -> UUID? {
@@ -155,7 +164,17 @@ nonisolated extension CmuxTopProcessSnapshot {
 
     private static func uuidOptionValue(in arguments: [String], names: Set<String>) -> UUID? {
         for index in arguments.indices {
-            guard names.contains(arguments[index]) else { continue }
+            let argument = arguments[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            for name in names {
+                let prefix = "\(name)="
+                guard argument.hasPrefix(prefix) else { continue }
+                let raw = String(argument.dropFirst(prefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !raw.isEmpty, let uuid = UUID(uuidString: raw) else { continue }
+                return uuid
+            }
+
+            guard names.contains(argument) else { continue }
             let valueIndex = arguments.index(after: index)
             guard valueIndex < arguments.endIndex else { continue }
             let raw = arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)
