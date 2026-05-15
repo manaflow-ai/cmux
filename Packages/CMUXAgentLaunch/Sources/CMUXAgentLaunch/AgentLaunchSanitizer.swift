@@ -33,7 +33,7 @@ public enum AgentLaunchSanitizer {
             if tail.first == "codex-teams" {
                 tail.removeFirst()
             }
-            guard let preserved = preservedArguments(kind: "codex", args: tail) else { return nil }
+            guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
             return [executable, "codex-teams"] + preserved
         case "omo":
             if tail.first == "omo" {
@@ -48,6 +48,9 @@ public enum AgentLaunchSanitizer {
         }
 
         switch fallbackKind {
+        case "codex":
+            guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
+            return [executable] + preserved
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
@@ -136,6 +139,13 @@ public enum AgentLaunchSanitizer {
             tail = dropPositionals(tail, policy: codexPolicy)
         }
         return preserveOptions(tail, policy: codexPolicy)
+    }
+
+    private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
+        if args.first == "fork" {
+            return preservedCodexForkArguments(args: args)
+        }
+        return preservedArguments(kind: "codex", args: args)
     }
 
     private static func preserveOptions(_ args: [String], policy: Policy) -> [String]? {

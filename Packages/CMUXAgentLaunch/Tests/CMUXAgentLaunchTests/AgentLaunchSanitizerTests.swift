@@ -36,6 +36,66 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves direct Codex fork launch context")
+    func preservesDirectCodexForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "fork",
+                    "--model",
+                    "gpt-5.4",
+                    "parent-thread-id",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Preserves Codex Teams fork launch context")
+    func preservesCodexTeamsForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "fork",
+                    "--model",
+                    "gpt-5.4",
+                    "parent-thread-id",
+                    "--ask-for-approval",
+                    "never",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+                "--ask-for-approval",
+                "never",
+            ]
+        )
+    }
+
     @Test("Consumes terminal optional values")
     func consumesTerminalOptionalValues() {
         #expect(
