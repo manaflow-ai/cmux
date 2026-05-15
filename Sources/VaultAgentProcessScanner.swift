@@ -165,7 +165,7 @@ extension RestorableAgentSessionIndex {
             let hasExplicitSessionId = process.observed.arguments.value(afterOption: "--session") != nil ||
                 process.observed.arguments.value(afterOption: "-s") != nil
             let latestSessionId: String?
-            if hasExplicitSessionId || sameWorkingDirectoryPanelCount != 1 {
+            if hasExplicitSessionId || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
                 latestSessionId = nil
             } else if let cached = sessionByWorkingDirectory[process.workingDirectoryKey] {
                 latestSessionId = cached
@@ -214,8 +214,7 @@ extension RestorableAgentSessionIndex {
         environment: [String: String]
     ) -> String {
         if let argumentExecutable = observed.arguments.first(where: { argument in
-            let basename = (argument as NSString).lastPathComponent.lowercased()
-            return basename == "opencode" || basename == "opencode-ai"
+            VaultObservedAgentProcess.argumentLooksLikeOpenCode(argument)
         }) {
             return argumentExecutable
         }
@@ -320,12 +319,18 @@ private struct VaultObservedAgentProcess: Sendable {
                 normalized == ".opencode" ||
                 normalized == "opencode-ai"
         } || arguments.contains { argument in
-            let normalized = argument.lowercased()
-            let basename = (normalized as NSString).lastPathComponent
-            return basename == "opencode" ||
-                basename == ".opencode" ||
-                normalized.contains("opencode-ai")
+            Self.argumentLooksLikeOpenCode(argument)
         }
+    }
+
+    static func argumentLooksLikeOpenCode(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename == "opencode" ||
+            basename == ".opencode" ||
+            basename == "opencode-ai" ||
+            pathComponents.contains("opencode-ai")
     }
 }
 

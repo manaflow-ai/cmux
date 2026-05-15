@@ -13184,7 +13184,13 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String?,
         initialInput: String?
     ) -> TerminalPanel? {
-        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        if remoteTerminalStartupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
 
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -13192,11 +13198,15 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
+            initialCommand: remoteTerminalStartupCommand,
             initialInput: initialInput
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if remoteTerminalStartupCommand != nil {
+            trackRemoteTerminalSurface(newPanel.id)
+        }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         let newTab = Bonsplit.Tab(
@@ -13214,6 +13224,9 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            if remoteTerminalStartupCommand != nil {
+                untrackRemoteTerminalSurface(newPanel.id)
+            }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
@@ -13274,7 +13287,8 @@ final class Workspace: Identifiable, ObservableObject {
         Self.firstNonEmptyPath([
             snapshot.workingDirectory,
             panelDirectories[panelId],
-            terminalPanel(for: panelId)?.requestedWorkingDirectory
+            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            currentDirectory
         ])
     }
 

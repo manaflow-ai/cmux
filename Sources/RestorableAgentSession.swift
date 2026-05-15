@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import Darwin
 
 fileprivate func shellSingleQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
@@ -466,6 +467,26 @@ enum AgentResumeCommandBuilder {
 
 enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
+    private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
+    private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
+
+    private final class CommandOutputBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func value() -> Data {
+            lock.lock()
+            let snapshot = data
+            lock.unlock()
+            return snapshot
+        }
+    }
 
     static func supportsFork(snapshot: SessionRestorableAgentSnapshot) async -> Bool {
         guard snapshot.forkCommand != nil else { return false }
@@ -508,6 +529,12 @@ enum AgentForkSupport {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe
+            let outputBuffer = CommandOutputBuffer()
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                outputBuffer.append(data)
+            }
 
             var processEnvironment = ProcessInfo.processInfo.environment
             if let environment {
@@ -517,16 +544,30 @@ enum AgentForkSupport {
                 }
             }
             process.environment = processEnvironment
+            let completion = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in completion.signal() }
 
             do {
                 try process.run()
             } catch {
+                pipe.fileHandleForReading.readabilityHandler = nil
                 return nil
             }
-            process.waitUntilExit()
+            var timedOut = false
+            if completion.wait(timeout: .now() + .nanoseconds(Int(Self.commandOutputTimeoutNanoseconds))) == .timedOut {
+                timedOut = true
+                process.terminate()
+                if completion.wait(timeout: .now() + .nanoseconds(Int(Self.commandTerminateTimeoutNanoseconds))) == .timedOut {
+                    kill(process.processIdentifier, SIGKILL)
+                    completion.wait()
+                }
+            }
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)
+            pipe.fileHandleForReading.readabilityHandler = nil
+            let remainingData = pipe.fileHandleForReading.readDataToEndOfFile()
+            outputBuffer.append(remainingData)
+            guard !timedOut else { return nil }
+            return String(data: outputBuffer.value(), encoding: .utf8)
         }.value
     }
 }

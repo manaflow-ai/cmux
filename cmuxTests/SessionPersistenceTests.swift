@@ -2167,6 +2167,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/tmp/not-opencode-ai-helper"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
             )
         )
@@ -2201,6 +2208,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode"],
+                latestSessionIdForSolePanel: nil,
+                sameWorkingDirectoryPanelCount: 1
             )
         )
     }

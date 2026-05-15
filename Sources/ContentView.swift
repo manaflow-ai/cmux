@@ -1118,10 +1118,10 @@ struct ContentView: View {
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
     @State private var commandPaletteForkableAgentActivePanelKey: String?
-    @State private var commandPaletteForkableAgentProbeKey: String?
+    @State private var commandPaletteForkableAgentProbeIDsByPanelKey: [String: UUID] = [:]
     @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
     @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
-    @State private var commandPaletteForkableAgentAvailabilityTask: Task<Void, Never>?
+    @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -5946,16 +5946,12 @@ struct ContentView: View {
         if let fallbackSnapshot {
             switch Self.commandPaletteSnapshotForkAvailability(fallbackSnapshot) {
             case .supportedWithoutProbe:
-                commandPaletteForkableAgentAvailabilityTask?.cancel()
-                commandPaletteForkableAgentAvailabilityTask = nil
-                commandPaletteForkableAgentProbeKey = nil
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
                 commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                 commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
                 return
             case .unsupported:
-                commandPaletteForkableAgentAvailabilityTask?.cancel()
-                commandPaletteForkableAgentAvailabilityTask = nil
-                commandPaletteForkableAgentProbeKey = nil
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
                 commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 return
@@ -5991,11 +5987,11 @@ struct ContentView: View {
         panelId: UUID,
         fallbackSnapshot: SessionRestorableAgentSnapshot?
     ) {
-        guard commandPaletteForkableAgentProbeKey != panelKey else { return }
-        commandPaletteForkableAgentAvailabilityTask?.cancel()
-        commandPaletteForkableAgentProbeKey = panelKey
+        guard commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] == nil else { return }
+        let probeID = UUID()
+        commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] = probeID
 
-        commandPaletteForkableAgentAvailabilityTask = Task {
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled else { return }
             let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
@@ -6008,7 +6004,7 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
-                guard commandPaletteForkableAgentProbeKey == panelKey else { return }
+                guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
                 let shouldRefreshResults: Bool
@@ -6023,9 +6019,11 @@ struct ContentView: View {
                     commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 }
-                commandPaletteForkableAgentProbeKey = nil
-                commandPaletteForkableAgentAvailabilityTask = nil
-                if shouldRefreshResults, isCommandPalettePresented {
+                commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                if shouldRefreshResults,
+                   isCommandPalettePresented,
+                   commandPaletteForkableAgentActivePanelKey == panelKey {
                     scheduleCommandPaletteResultsRefresh(
                         query: commandPaletteQuery,
                         forceSearchCorpusRefresh: true
@@ -6036,9 +6034,16 @@ struct ContentView: View {
     }
 
     private func cancelCommandPaletteForkableAgentAvailabilityProbe() {
-        commandPaletteForkableAgentAvailabilityTask?.cancel()
-        commandPaletteForkableAgentAvailabilityTask = nil
-        commandPaletteForkableAgentProbeKey = nil
+        for task in commandPaletteForkableAgentAvailabilityTasksByPanelKey.values {
+            task.cancel()
+        }
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeAll()
+        commandPaletteForkableAgentProbeIDsByPanelKey.removeAll()
+    }
+
+    private func cancelCommandPaletteForkableAgentAvailabilityProbe(for panelKey: String) {
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)?.cancel()
+        commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
     }
 
     private func commandPaletteCommandsContext(

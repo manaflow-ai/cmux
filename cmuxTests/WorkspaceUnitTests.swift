@@ -4197,6 +4197,26 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
+    private func rootSplit(in workspace: Workspace) throws -> ExternalSplitNode {
+        switch workspace.bonsplitController.treeSnapshot() {
+        case .split(let split):
+            return split
+        case .pane:
+            let split: ExternalSplitNode? = nil
+            return try XCTUnwrap(split, "Expected workspace root to be a split")
+        }
+    }
+
+    private func paneId(in node: ExternalTreeNode) throws -> String {
+        switch node {
+        case .pane(let pane):
+            return pane.id
+        case .split:
+            let paneId: String? = nil
+            return try XCTUnwrap(paneId, "Expected split child to be a pane")
+        }
+    }
+
     func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() {
         let workspace = Workspace()
         guard let originalFocusedPanelId = workspace.focusedPanelId else {
@@ -4690,6 +4710,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+        let split = try rootSplit(in: workspace)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId)).id.uuidString
+        let forkPaneId = try XCTUnwrap(workspace.paneId(forPanelId: forkPanel.id)).id.uuidString
+        XCTAssertEqual(split.orientation, "horizontal")
+        XCTAssertEqual(try paneId(in: split.first), sourcePaneId)
+        XCTAssertEqual(try paneId(in: split.second), forkPaneId)
     }
 
     func testForkAgentConversationSupportsAllSplitDirections() throws {
@@ -4722,8 +4748,97 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             XCTAssertNotEqual(forkPanel.id, sourcePanelId)
             XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
             XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
+            XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
             XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+            let split = try rootSplit(in: workspace)
+            let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId)).id.uuidString
+            let forkPaneId = try XCTUnwrap(workspace.paneId(forPanelId: forkPanel.id)).id.uuidString
+            XCTAssertEqual(split.orientation, direction.isHorizontal ? "horizontal" : "vertical")
+            XCTAssertEqual(
+                try paneId(in: split.first),
+                direction.insertFirst ? forkPaneId : sourcePaneId
+            )
+            XCTAssertEqual(
+                try paneId(in: split.second),
+                direction.insertFirst ? sourcePaneId : forkPaneId
+            )
         }
+    }
+
+    func testForkAgentConversationUsesWorkspaceDirectoryFallback() throws {
+        let workspace = Workspace()
+        workspace.currentDirectory = "/tmp/workspace fork repo"
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversation(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                direction: .right
+            )
+        )
+
+        XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
+    }
+
+    func testForkAgentConversationInRemoteWorkspaceUsesRemoteStartupCommand() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64000,
+                relayID: "relay-fork",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-fork-remote.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversation(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                direction: .right
+            )
+        )
+
+        XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
+        XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 2)
     }
 
     func testSidebarGitBranchesFollowLeftToRightSplitOrder() {
