@@ -52,6 +52,27 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.canNavigateForward)
     }
 
+    func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let closedPanelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
+        let fallbackPanelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        firstWorkspace.focusPanel(closedPanelId)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        _ = firstWorkspace.closePanel(closedPanelId, force: true)
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertEqual(firstWorkspace.focusedPanelId, fallbackPanelId)
+        XCTAssertNil(firstWorkspace.panels[closedPanelId])
+    }
+
     func testFocusHistoryNavigatesBetweenFreshWorkspaces() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -78,6 +99,25 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         manager.navigateForward()
 
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+    }
+
+    func testFocusHistoryRevisionPostsMenuInvalidationNotification() {
+        let manager = TabManager()
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .tabManagerFocusHistoryRevisionDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        _ = manager.addWorkspace(select: true)
+
+        XCTAssertGreaterThan(notificationCount, 0)
     }
 
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {

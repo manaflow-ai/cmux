@@ -208,6 +208,56 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             )
         }
     }
+
+    func testButtonsStayVisuallyEvenAcrossTitlebarStyles() {
+        let sizes = TitlebarControlsStyle.allCases.map { $0.config.buttonSize }
+        let smallest = sizes.min() ?? 0
+        let largest = sizes.max() ?? 0
+
+        XCTAssertLessThanOrEqual(largest - smallest, 4)
+
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+            let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+
+            XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+            for range in ranges {
+                XCTAssertEqual(
+                    range.upperBound - range.lowerBound,
+                    config.buttonSize,
+                    accuracy: 0.001,
+                    "Expected every titlebar button lane to use one visual height for style \(style)"
+                )
+            }
+        }
+    }
+
+    func testHoverAndPressedStatesHaveVisibleDelta() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+            let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+            let hoverForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: false)
+            let pressedForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: true)
+
+            XCTAssertGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
+            XCTAssertGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
+            XCTAssertGreaterThan(
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                titlebarControlBackgroundOpacity(config: config, isHovering: false, isPressed: false),
+                "Expected hover background delta for style \(style)"
+            )
+            XCTAssertGreaterThan(
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: true),
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                "Expected pressed background delta for style \(style)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: true),
+                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: false),
+                "Expected pressed border to stay at least as visible as hover for style \(style)"
+            )
+        }
+    }
 }
 
 final class AppIconAppearanceObserverTests: XCTestCase {

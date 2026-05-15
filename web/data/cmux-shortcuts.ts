@@ -88,9 +88,20 @@ export const shortcutCategories: ShortcutCategory[] = [
         id: "focusHistoryBack",
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
-        note: { en: "Unbind Focus Back/Forward in Settings to let Ghostty handle Cmd+[ and Cmd+].", ja: "Ghostty で Cmd+[ と Cmd+] を使うには、設定で Focus Back/Forward の割り当てを解除します。" },
+        note: {
+          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
+          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+        },
       },
-      { id: "focusHistoryForward", combos: [["⌘", "]"]], description: { en: "Focus forward", ja: "フォーカスを進める" } },
+      {
+        id: "focusHistoryForward",
+        combos: [["⌘", "]"]],
+        description: { en: "Focus forward", ja: "フォーカスを進める" },
+        note: {
+          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
+          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+        },
+      },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },

@@ -15,6 +15,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @State private var focusHistoryMenuRevision: UInt64 = 0
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -208,6 +209,12 @@ struct cmuxApp: App {
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
+                    invalidateFocusHistoryMenuState()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+                    invalidateFocusHistoryMenuState()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -877,15 +884,21 @@ struct cmuxApp: App {
     }
 
     private var canNavigateFocusHistoryBack: Bool {
+        let _ = focusHistoryMenuRevision
         let manager = activeTabManager
-        let _ = manager.focusHistoryRevision
         return manager.canNavigateBack
     }
 
     private var canNavigateFocusHistoryForward: Bool {
+        let _ = focusHistoryMenuRevision
         let manager = activeTabManager
-        let _ = manager.focusHistoryRevision
         return manager.canNavigateForward
+    }
+
+    private func invalidateFocusHistoryMenuState() {
+        Task { @MainActor in
+            focusHistoryMenuRevision &+= 1
+        }
     }
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)

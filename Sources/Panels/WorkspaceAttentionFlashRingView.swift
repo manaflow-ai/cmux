@@ -8,13 +8,13 @@ struct WorkspaceAttentionFlashRingView: View {
         let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
         let color = Color(nsColor: presentation.accent.strokeColor)
 
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+        RoundedRectangle(cornerRadius: CGFloat(FocusFlashPattern.ringCornerRadius))
             .stroke(color.opacity(opacity), lineWidth: PanelOverlayRingMetrics.lineWidth)
             .shadow(
                 color: color.opacity(opacity * presentation.glowOpacity),
                 radius: presentation.glowRadius
             )
-            .padding(FocusFlashPattern.ringInset)
+            .padding(CGFloat(FocusFlashPattern.ringInset))
             .allowsHitTesting(false)
     }
 }

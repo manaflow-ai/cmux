@@ -1077,7 +1077,12 @@ class TabManager: ObservableObject {
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
     private var workspacePullRequestFollowUpShouldBypassRepoCache = false
 
-    @Published private(set) var focusHistoryRevision: UInt64 = 0
+    @Published private(set) var focusHistoryRevision: UInt64 = 0 {
+        didSet {
+            guard focusHistoryRevision != oldValue else { return }
+            NotificationCenter.default.post(name: .tabManagerFocusHistoryRevisionDidChange, object: self)
+        }
+    }
     // Recent focus history for back/forward navigation across workspaces and panes.
     private var focusHistory: [FocusHistoryEntry] = []
     private var historyIndex: Int = -1
@@ -5642,14 +5647,40 @@ class TabManager: ObservableObject {
         return workspace.panels[panelId] != nil
     }
 
+    private func focusHistoryWorkspace(for entry: FocusHistoryEntry) -> Workspace? {
+        tabs.first(where: { $0.id == entry.workspaceId })
+    }
+
+    private func resolvedFocusHistoryPanelId(for entry: FocusHistoryEntry, in workspace: Workspace) -> UUID? {
+        if let panelId = entry.panelId, workspace.panels[panelId] != nil {
+            return panelId
+        }
+
+        if let rememberedPanelId = focusedPanelId(for: workspace.id),
+           workspace.panels[rememberedPanelId] != nil {
+            return rememberedPanelId
+        }
+
+        if let workspacePanelId = workspace.focusedPanelId,
+           workspace.panels[workspacePanelId] != nil {
+            return workspacePanelId
+        }
+
+        return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+    }
+
     private var currentFocusHistoryEntry: FocusHistoryEntry? {
         guard let selectedTabId else { return nil }
         return FocusHistoryEntry(workspaceId: selectedTabId, panelId: focusedPanelId(for: selectedTabId))
     }
 
     private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
-        guard focusHistoryEntryIsValid(entry) else { return false }
-        if let currentEntry, entry == currentEntry { return false }
+        guard let workspace = focusHistoryWorkspace(for: entry) else { return false }
+        let resolvedEntry = FocusHistoryEntry(
+            workspaceId: workspace.id,
+            panelId: resolvedFocusHistoryPanelId(for: entry, in: workspace)
+        )
+        if let currentEntry, resolvedEntry == currentEntry { return false }
         return true
     }
 
@@ -5667,10 +5698,7 @@ class TabManager: ObservableObject {
             selectedTabId = workspace.id
         }
 
-        let targetPanelId = entry.panelId.flatMap { workspace.panels[$0] == nil ? nil : $0 }
-            ?? focusedPanelId(for: workspace.id)
-            ?? workspace.focusedPanelId
-            ?? workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+        let targetPanelId = resolvedFocusHistoryPanelId(for: entry, in: workspace)
 
         if let targetPanelId {
             rememberFocusedSurface(tabId: workspace.id, surfaceId: targetPanelId)
@@ -5690,7 +5718,7 @@ class TabManager: ObservableObject {
         var targetIndex = historyIndex - 1
         while targetIndex >= 0 {
             let entry = focusHistory[targetIndex]
-            guard focusHistoryEntryIsValid(entry) else {
+            guard focusHistoryWorkspace(for: entry) != nil else {
                 focusHistory.remove(at: targetIndex)
                 historyIndex -= 1
                 targetIndex -= 1
@@ -5719,7 +5747,7 @@ class TabManager: ObservableObject {
         var targetIndex = historyIndex + 1
         while targetIndex < focusHistory.count {
             let entry = focusHistory[targetIndex]
-            guard focusHistoryEntryIsValid(entry) else {
+            guard focusHistoryWorkspace(for: entry) != nil else {
                 focusHistory.remove(at: targetIndex)
                 focusHistoryRevision &+= 1
                 continue
@@ -7711,4 +7739,5 @@ extension Notification.Name {
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+    static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }

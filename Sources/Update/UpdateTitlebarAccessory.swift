@@ -360,6 +360,44 @@ private enum TitlebarControlIconStyle {
     }
 }
 
+func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Double {
+    if isPressed {
+        return TitlebarControlIconStyle.pressedOpacity
+    }
+    if isHovering {
+        return TitlebarControlIconStyle.hoveredOpacity
+    }
+    return TitlebarControlIconStyle.opacity
+}
+
+func titlebarControlBackgroundOpacity(
+    config: TitlebarControlsStyleConfig,
+    isHovering: Bool,
+    isPressed: Bool
+) -> Double {
+    if isPressed {
+        return 0.14
+    }
+    if isHovering {
+        return config.hoverBackground ? 0.09 : 0.07
+    }
+    return 0
+}
+
+func titlebarControlBorderOpacity(
+    config: TitlebarControlsStyleConfig,
+    isHovering: Bool,
+    isPressed: Bool
+) -> Double {
+    if isPressed {
+        return 0.11
+    }
+    if isHovering {
+        return 0.07
+    }
+    return config.buttonBackground ? 0.05 : 0
+}
+
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let accessibilityIdentifier: String
@@ -430,33 +468,15 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var foregroundOpacity: Double {
-        if configuration.isPressed {
-            return TitlebarControlIconStyle.pressedOpacity
-        }
-        if isHovering {
-            return TitlebarControlIconStyle.hoveredOpacity
-        }
-        return TitlebarControlIconStyle.opacity
+        titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: configuration.isPressed)
     }
 
     private var backgroundOpacity: Double {
-        if configuration.isPressed {
-            return 0.14
-        }
-        if isHovering {
-            return config.hoverBackground ? 0.09 : 0.07
-        }
-        return 0
+        titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: configuration.isPressed)
     }
 
     private var borderOpacity: Double {
-        if configuration.isPressed {
-            return 0.11
-        }
-        if isHovering {
-            return 0.07
-        }
-        return config.buttonBackground ? 0.05 : 0
+        titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: configuration.isPressed)
     }
 }
 
