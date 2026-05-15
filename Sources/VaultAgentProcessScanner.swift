@@ -428,8 +428,7 @@ private struct VaultObservedAgentProcess: Sendable {
         let basename = pathComponents.last ?? normalized
         return basename == "opencode" ||
             basename == ".opencode" ||
-            basename == "opencode-ai" ||
-            pathComponents.contains("opencode-ai")
+            basename == "opencode-ai"
     }
 
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {

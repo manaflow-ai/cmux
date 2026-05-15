@@ -2276,6 +2276,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
+                arguments: [
+                    "node",
+                    "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/src/cli/cmd/tui/worker.js"
+                ]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
             )
         )
