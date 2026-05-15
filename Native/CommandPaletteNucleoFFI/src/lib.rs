@@ -45,6 +45,12 @@ struct InitialismQuery {
     chars: Vec<char>,
 }
 
+struct SearchToken {
+    text: String,
+    pattern: Pattern,
+    initialism_query: Option<InitialismQuery>,
+}
+
 struct WorstFirstScoredCandidate(ScoredCandidate);
 
 impl PartialEq for WorstFirstScoredCandidate {
@@ -252,13 +258,7 @@ unsafe fn cmux_nucleo_index_search_impl(
         output = sorted_output(best_matches);
     } else {
         let query_mask = ascii_mask_query(&normalized_query);
-        let pattern = Pattern::new(
-            &normalized_query,
-            CaseMatching::Ignore,
-            Normalization::Smart,
-            AtomKind::Fuzzy,
-        );
-        let initialism_query = initialism_query(&normalized_query);
+        let search_tokens = search_tokens(&normalized_query);
         let mut best_matches = BinaryHeap::with_capacity(output_limit);
 
         SEARCH_STATE.with(|state| {
@@ -274,15 +274,9 @@ unsafe fn cmux_nucleo_index_search_impl(
                     }
                 }
 
-                let title_score = state.score_text(&pattern, &candidate.title);
-                let search_score = state.score_text(&pattern, &candidate.search_text);
-                let Some(score) = weighted_score(
-                    &normalized_query,
-                    initialism_query.as_ref(),
-                    candidate,
-                    title_score,
-                    search_score,
-                ) else {
+                let Some(score) =
+                    weighted_query_score(&mut state, &normalized_query, &search_tokens, candidate)
+                else {
                     continue;
                 };
                 append_scored_candidate(
@@ -355,6 +349,61 @@ fn text_from_blob(blob: &[u8], offset: usize, len: usize) -> Option<&str> {
         return None;
     }
     str::from_utf8(&blob[offset..end]).ok()
+}
+
+fn search_tokens(query: &str) -> Vec<SearchToken> {
+    query
+        .split_whitespace()
+        .map(|token| SearchToken {
+            text: token.to_owned(),
+            pattern: Pattern::new(
+                token,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            ),
+            initialism_query: initialism_query(token),
+        })
+        .collect()
+}
+
+fn weighted_query_score(
+    state: &mut SearchState,
+    query: &str,
+    tokens: &[SearchToken],
+    candidate: &Candidate,
+) -> Option<f64> {
+    if tokens.len() == 1 {
+        return weighted_token_score(state, &tokens[0], candidate);
+    }
+
+    let mut total_score = 0.0;
+    for token in tokens {
+        total_score += weighted_token_score(state, token, candidate)?;
+    }
+
+    if let Some(exact_query_line_score) =
+        exact_search_text_line_score(&candidate.search_text, query)
+    {
+        total_score = total_score.max(exact_query_line_score);
+    }
+    Some(total_score)
+}
+
+fn weighted_token_score(
+    state: &mut SearchState,
+    token: &SearchToken,
+    candidate: &Candidate,
+) -> Option<f64> {
+    let title_score = state.score_text(&token.pattern, &candidate.title);
+    let search_score = state.score_text(&token.pattern, &candidate.search_text);
+    weighted_score(
+        &token.text,
+        token.initialism_query.as_ref(),
+        candidate,
+        title_score,
+        search_score,
+    )
 }
 
 fn weighted_score(
