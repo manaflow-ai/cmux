@@ -6338,8 +6338,9 @@ class TabManager: ObservableObject {
                 if restoreClosedWorkspace(workspaceEntry) {
                     return true
                 }
-            case .window:
-                continue
+            case .window(let windowEntry):
+                ClosedItemHistoryStore.shared.push(.window(windowEntry))
+                return false
             }
         }
 

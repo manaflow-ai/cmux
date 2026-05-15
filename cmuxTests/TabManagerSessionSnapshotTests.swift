@@ -491,6 +491,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
     }
 
+    func testReopenClosedWindowWithoutAppDelegatePreservesHistoryEntry() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let snapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: manager.sessionSnapshot(includeScrollback: false),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(snapshot: snapshot)))
+
+        XCTAssertFalse(manager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.entries.count, 1)
+        guard case .window = ClosedItemHistoryStore.shared.entries.last else {
+            XCTFail("Expected closed window history to remain queued")
+            return
+        }
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(
