@@ -10243,6 +10243,13 @@ final class GhosttySurfaceScrollView: NSView {
                   readySurfaceId == self.surfaceView.terminalSurface?.id else {
                 return
             }
+            if self.surfaceView.isVisibleInUI && self.window != nil && !self.isHidden {
+                // A newly selected workspace starts visible from its first SwiftUI render, so it
+                // never passes through the normal setVisibleInUI(false -> true) refresh path.
+                // Reuse that redraw nudge when the runtime Ghostty surface becomes ready so the
+                // first Metal frame does not wait for a later tab switch or visibility churn.
+                self.refreshSurfaceNow(reason: "surfaceDidBecomeReady")
+            }
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {

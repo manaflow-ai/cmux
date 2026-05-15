@@ -5002,6 +5002,10 @@ class TabManager: ObservableObject {
         // Route workspace reactivation through the normal focus machinery so panel-local
         // activation intents like browser find-field focus are restored on return.
         tab.focusPanel(panelId)
+        // Workspace selection can remount portal-hosted terminals/web views that were hidden
+        // while inactive. Kick the shared selection follow-up loop so the first visible frame
+        // is reconciled after attach instead of waiting for a second workspace switch.
+        tab.scheduleSelectionRenderFollowUp(panelId: panelId)
     }
 
     func completePendingWorkspaceUnfocus(reason: String) {

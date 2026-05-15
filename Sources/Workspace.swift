@@ -8054,7 +8054,21 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
-    private var portalRenderingEnabled = true
+    private enum LayoutFollowUpTargetUpdate {
+        case mergePendingTargets
+        case replaceSelectionTargets(panelId: UUID)
+    }
+    private enum PortalRenderingPhase {
+        case unmounted
+        case mounted
+
+        var isMounted: Bool {
+            self == .mounted
+        }
+    }
+
+    private var portalRenderingPhase: PortalRenderingPhase = .unmounted
+    private var portalRenderingEnabled: Bool { portalRenderingPhase.isMounted }
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -10985,7 +10999,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
-        portalRenderingEnabled = false
+        portalRenderingPhase = .unmounted
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
@@ -12087,8 +12101,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
-        let changed = portalRenderingEnabled != enabled
-        portalRenderingEnabled = enabled
+        let nextPhase: PortalRenderingPhase = enabled ? .mounted : .unmounted
+        let changed = portalRenderingPhase != nextPhase
+        portalRenderingPhase = nextPhase
         if enabled {
             if changed {
                 beginEventDrivenLayoutFollowUp(
@@ -12299,10 +12314,18 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanelId: UUID? = nil,
         browserExitFocusPanelId: UUID? = nil,
         terminalFocusPanelId: UUID? = nil,
-        includeGeometry: Bool = false
+        includeGeometry: Bool = false,
+        targetUpdate: LayoutFollowUpTargetUpdate = .mergePendingTargets
     ) {
         guard portalRenderingEnabled else { return }
         layoutFollowUpReason = reason
+        if case .replaceSelectionTargets(let selectedPanelId) = targetUpdate {
+            layoutFollowUpBrowserPanelId = nil
+            layoutFollowUpTerminalFocusPanelId = nil
+            if layoutFollowUpBrowserExitFocusPanelId != selectedPanelId {
+                layoutFollowUpBrowserExitFocusPanelId = nil
+            }
+        }
         if let browserPanelId {
             layoutFollowUpBrowserPanelId = browserPanelId
         }
@@ -12334,6 +12357,18 @@ final class Workspace: Identifiable, ObservableObject {
         // scheduleLayoutFollowUpAttempt() defers via asyncAfter(0) so the flush always
         // happens after the current layout pass completes.
         scheduleLayoutFollowUpAttempt()
+    }
+
+    func scheduleSelectionRenderFollowUp(panelId: UUID) {
+        let browserPanelId = browserPanel(for: panelId) != nil ? panelId : nil
+        let terminalPanelId = terminalPanel(for: panelId) != nil ? panelId : nil
+        beginEventDrivenLayoutFollowUp(
+            reason: "workspace.selection",
+            browserPanelId: browserPanelId,
+            terminalFocusPanelId: terminalPanelId,
+            includeGeometry: true,
+            targetUpdate: .replaceSelectionTargets(panelId: panelId)
+        )
     }
 
     private func installLayoutFollowUpObservers() {
