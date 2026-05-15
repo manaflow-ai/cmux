@@ -92,6 +92,20 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowserOmnibar: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsBrowserOmnibar else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard (123...126).contains(keyCode) else { return false }
+
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags.isEmpty
+}
+
 struct BrowserAddressBarTrackingContext {
     let trackedPanelMatchesWebView: Bool
     let omnibarResponderActive: Bool

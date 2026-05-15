@@ -906,7 +906,7 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
-            guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
+            guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
@@ -1300,7 +1300,7 @@ struct BrowserPanelView: View {
                     setAddressBarFocused(false, reason: "omnibar.fieldLostFocus")
                 },
                 onMoveSelection: { delta in
-                    guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
+                    guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
                     let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
                     applyOmnibarEffects(effects)
                     refreshInlineCompletion()
@@ -1479,6 +1479,21 @@ struct BrowserPanelView: View {
 #endif
         }
         cmuxWebView.allowsFirstResponderAcquisition = next
+    }
+
+    private func canHandleOmnibarSelectionNavigation() -> Bool {
+        if addressBarFocused {
+            return true
+        }
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == panel.id {
+            return true
+        }
+        let fieldWindow = panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if let field = browserOmnibarField(panelId: panel.id, in: fieldWindow),
+           field.currentEditor() != nil {
+            return true
+        }
+        return false
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {

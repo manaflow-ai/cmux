@@ -12366,6 +12366,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return panelId
         }
 
+        if shouldPreserveBrowserAddressBarTrackingDuringTransientShortcutResponder(
+            for: panel,
+            responder: shortcutResponder,
+            in: shortcutWindow,
+            liveOmnibarFieldExists: liveOmnibarFieldExists
+        ) {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=transient_omnibar_focus workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return panelId
+        }
+
 #if DEBUG
         let focusedPanel = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
@@ -12376,6 +12392,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return nil
+    }
+
+    private func shouldPreserveBrowserAddressBarTrackingDuringTransientShortcutResponder(
+        for panel: BrowserPanel,
+        responder: NSResponder?,
+        in window: NSWindow?,
+        liveOmnibarFieldExists: Bool
+    ) -> Bool {
+        guard browserAddressBarFocusedPanelId == panel.id else { return false }
+        guard panel.preferredFocusIntent == .addressBar else { return false }
+        guard panel.shouldSuppressWebViewFocus() ||
+            liveOmnibarFieldExists ||
+            panel.pendingAddressBarFocusRequestId != nil else {
+            return false
+        }
+
+        guard let responder else { return true }
+        if let window, responder === window {
+            return true
+        }
+        if responder is NSWindow {
+            return true
+        }
+        if browserOmnibarPanelId(for: responder) == panel.id {
+            return true
+        }
+        if cmuxOwningGhosttyView(for: responder) != nil {
+            return false
+        }
+        if responder is NSTextView || responder is NSTextField {
+            return false
+        }
+        if let window, panel.ownedFocusIntent(for: responder, in: window) != nil {
+            return false
+        }
+        return false
     }
 
     private func browserAddressBarIntentPanelId(
@@ -14857,6 +14909,31 @@ private extension NSWindow {
             }
             cmuxCommandPaletteArrowForwardingDepth += 1
             defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
+        if shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsBrowserOmnibar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserArrowForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar arrow reentry; using normal dispatch")
+#endif
+                return cmux_performKeyEquivalent(with: event)
+            }
+            cmuxBrowserArrowForwardingDepth += 1
+            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar arrow routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
             self.firstResponder?.keyDown(with: event)
             return true
         }
