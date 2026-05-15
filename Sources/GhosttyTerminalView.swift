@@ -7389,6 +7389,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
+        // Some IMEs show candidate UI before marked text exists. Route their
+        // candidate-command probes through keyDown so NSTextInputContext gets first refusal.
+        if shouldRouteTextInputKeyEquivalentToKeyDown(event) {
+            keyDown(with: event)
+            return true
+        }
+
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
