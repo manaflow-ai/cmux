@@ -25,6 +25,7 @@ enum RemoteShellIntegrationSnippet {
           value="${value//=/%3D}"
           value="${value//+/%2B}"
           value="${value//;/%3B}"
+          value="${value//:/%3A}"
           value="${value//\\//%2F}"
           value="${value//@/%40}"
           value="${value//\\[/%5B}"
