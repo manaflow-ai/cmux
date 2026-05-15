@@ -970,6 +970,23 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(pending.bytes, 0)
     }
 
+    func testColdSocketInputRejectsOversizedQueueInsteadOfDroppingExistingInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("echo keep-me\n"))
+
+        let oversizedInput = String(repeating: "x", count: 1_100_000)
+        XCTAssertFalse(
+            panel.surface.sendInput(oversizedInput),
+            "Cold socket input that cannot fit in the pending queue must be rejected instead of evicting previously accepted input."
+        )
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertLessThan(pending.bytes, 1_100_000)
+    }
+
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
         let manager = TabManager()
         TerminalController.shared.setActiveTabManager(manager)

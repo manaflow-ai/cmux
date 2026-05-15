@@ -6842,7 +6842,10 @@ class TerminalController {
                     result = .err(code: "process_exited", message: "Terminal process has exited", data: ["surface_id": surfaceId.uuidString])
                     return
                 }
-                terminalPanel.surface.sendInput(text)
+                guard terminalPanel.surface.sendInput(text) else {
+                    result = .err(code: "input_queue_full", message: "Terminal input queue is full", data: ["surface_id": surfaceId.uuidString])
+                    return
+                }
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
@@ -6850,7 +6853,10 @@ class TerminalController {
                 queued = false
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
-                terminalPanel.surface.sendInput(text)
+                guard terminalPanel.surface.sendInput(text) else {
+                    result = .err(code: "input_queue_full", message: "Terminal input queue is full", data: ["surface_id": surfaceId.uuidString])
+                    return
+                }
                 queued = true
             }
 #if DEBUG
@@ -15421,7 +15427,10 @@ class TerminalController {
                 .replacingOccurrences(of: "\\t", with: "\t")
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
-            terminalPanel.surface.sendInput(unescaped)
+            guard terminalPanel.surface.sendInput(unescaped) else {
+                error = "ERROR: Terminal input queue is full"
+                return
+            }
             if surfaceWasReady {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
             }
@@ -15471,15 +15480,13 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            // This DEBUG-only command is used by UI tests to enqueue shell work in an
-            // existing workspace. Return once the input is queued on main so a long
-            // payload does not hold the control-socket response open in CI.
-            TerminalMutationBus.shared.enqueueMainActorMutation {
-                let surfaceWasReady = terminalPanel.surface.surface != nil
-                terminalPanel.surface.sendInput(unescaped)
-                if surfaceWasReady {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
-                }
+            let surfaceWasReady = terminalPanel.surface.surface != nil
+            guard terminalPanel.surface.sendInput(unescaped) else {
+                error = "ERROR: Terminal input queue is full"
+                return
+            }
+            if surfaceWasReady {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
             }
             success = true
         }
@@ -15553,7 +15560,10 @@ class TerminalController {
                 .replacingOccurrences(of: "\\t", with: "\t")
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
-            terminalPanel.surface.sendInput(unescaped)
+            guard terminalPanel.surface.sendInput(unescaped) else {
+                error = "ERROR: Terminal input queue is full"
+                return
+            }
             if surfaceWasReady {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
             }

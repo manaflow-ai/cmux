@@ -4405,13 +4405,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private enum PendingSocketInput {
-        case text(Data)
+        case pasteText(Data)
+        case inputText(String)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .text(let data):
+            case .pasteText(let data):
                 return data.count
+            case .inputText(let text):
+                return text.utf8.count
             case .key(let event):
                 return max(event.label.utf8.count, 1)
             }
@@ -5584,14 +5587,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
-    func sendText(_ text: String) {
-        guard let data = text.data(using: .utf8), !data.isEmpty else { return }
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         guard let surface = surface else {
-            enqueuePendingSocketInput(.text(data))
+            let queued = enqueuePendingSocketInput(.pasteText(data))
             requestBackgroundSurfaceStartIfNeeded()
-            return
+            return queued
         }
         writeTextData(data, to: surface)
+        return true
     }
 
     @discardableResult
@@ -5600,7 +5605,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let surface = surface {
             sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
         } else {
-            enqueuePendingSocketInput(.key(event))
+            guard enqueuePendingSocketInput(.key(event)) else { return false }
             requestBackgroundSurfaceStartIfNeeded()
         }
         return true
@@ -5610,14 +5615,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path. Cold surfaces queue the same ordered events and
     /// flush them after runtime creation.
-    func sendInput(_ text: String) {
-        guard !text.isEmpty else { return }
+    @discardableResult
+    func sendInput(_ text: String) -> Bool {
+        guard !text.isEmpty else { return true }
         guard let surface = surface else {
-            enqueuePendingSocketInput(text)
+            let queued = enqueuePendingSocketInput(text)
             requestBackgroundSurfaceStartIfNeeded()
-            return
+            return queued
         }
         sendInput(text, to: surface)
+        return true
     }
 
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
@@ -5632,16 +5639,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    private func enqueuePendingSocketInput(_ text: String) {
-        for event in Self.parsedSocketInputEvents(for: text) {
+    private func enqueuePendingSocketInput(_ text: String) -> Bool {
+        let inputs = Self.parsedSocketInputEvents(for: text).compactMap { event -> PendingSocketInput? in
             switch event {
             case .text(let value):
-                guard let data = value.data(using: .utf8), !data.isEmpty else { continue }
-                enqueuePendingSocketInput(.text(data))
+                return value.isEmpty ? nil : .inputText(value)
             case .key(let event):
-                enqueuePendingSocketInput(.key(event))
+                return .key(event)
             }
         }
+        return enqueuePendingSocketInputs(inputs)
     }
 
     private static func parsedSocketInputEvents(for text: String) -> [ParsedSocketInput] {
@@ -5906,15 +5913,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    private func enqueuePendingSocketInput(_ input: PendingSocketInput) {
-        let incomingBytes = input.estimatedBytes
-        while !pendingSocketInputQueue.isEmpty,
-              pendingSocketInputBytes + incomingBytes > maxPendingSocketInputBytes {
-            let dropped = pendingSocketInputQueue.removeFirst()
-            pendingSocketInputBytes -= dropped.estimatedBytes
+    private func enqueuePendingSocketInput(_ input: PendingSocketInput) -> Bool {
+        enqueuePendingSocketInputs([input])
+    }
+
+    private func enqueuePendingSocketInputs(_ inputs: [PendingSocketInput]) -> Bool {
+        let incomingBytes = inputs.reduce(0) { $0 + $1.estimatedBytes }
+        guard incomingBytes > 0 else { return true }
+
+        guard incomingBytes <= maxPendingSocketInputBytes,
+              pendingSocketInputBytes + incomingBytes <= maxPendingSocketInputBytes else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.socket_input.reject surface=\(id.uuidString.prefix(8)) " +
+                "items=\(inputs.count) incomingBytes=\(incomingBytes) pendingBytes=\(pendingSocketInputBytes)"
+            )
+#endif
+            return false
         }
 
-        pendingSocketInputQueue.append(input)
+        pendingSocketInputQueue.append(contentsOf: inputs)
         pendingSocketInputBytes += incomingBytes
 #if DEBUG
         let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
@@ -5927,6 +5945,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             "keys=\(pendingKeys) bytes=\(pendingSocketInputBytes)"
         )
 #endif
+        return true
     }
 
     private func flushPendingSocketInputIfNeeded() {
@@ -5939,8 +5958,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var queuedKeys = 0
         for item in queued {
             switch item {
-            case .text(let chunk):
+            case .pasteText(let chunk):
                 writeTextData(chunk, to: surface)
+            case .inputText(let text):
+                var bufferedText = text
+                flushText(&bufferedText, surface: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
