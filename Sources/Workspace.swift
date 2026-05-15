@@ -12086,21 +12086,22 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
+    @discardableResult
+    func setPortalRenderingEnabled(_ enabled: Bool, reason: String) -> Bool {
         let changed = portalRenderingEnabled != enabled
+        guard changed else { return false }
         portalRenderingEnabled = enabled
         if enabled {
-            if changed {
-                beginEventDrivenLayoutFollowUp(
-                    reason: reason,
-                    includeGeometry: true
-                )
-            }
+            beginEventDrivenLayoutFollowUp(
+                reason: reason,
+                includeGeometry: true
+            )
         } else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
             hideAllBrowserPortalViews()
         }
+        return true
     }
 
     // MARK: - Utility

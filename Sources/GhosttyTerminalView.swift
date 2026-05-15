@@ -11313,7 +11313,8 @@ final class GhosttySurfaceScrollView: NSView {
                 object: self,
                 userInfo: [
                     GhosttyNotificationKey.surfaceId: surfaceView.terminalSurface?.id as Any,
-                    GhosttyNotificationKey.tabId: surfaceView.tabId as Any
+                    GhosttyNotificationKey.tabId: surfaceView.tabId as Any,
+                    GhosttyNotificationKey.terminalVisibleInUI: visible
                 ]
             )
         }

@@ -94,6 +94,7 @@ enum GhosttyNotificationKey {
     static let cellSize = "ghostty.cellSize"
     static let tabId = "ghostty.tabId"
     static let surfaceId = "ghostty.surfaceId"
+    static let terminalVisibleInUI = "ghostty.terminalVisibleInUI"
     static let explicitFocusIntent = "ghostty.explicitFocusIntent"
     static let title = "ghostty.title"
     static let backgroundColor = "ghostty.backgroundColor"

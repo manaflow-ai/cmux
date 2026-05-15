@@ -831,6 +831,20 @@ enum WorkspaceMountPolicy {
         return ordered
     }
 
+    static func pinnedWorkspaceIds(
+        retiringWorkspaceId: UUID?,
+        backgroundWorkspaceLoadIds: Set<UUID>,
+        debugPinnedWorkspaceLoadIds: Set<UUID>,
+        isCycleHot: Bool
+    ) -> Set<UUID> {
+        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
+        let shouldMountBackgroundLoads = retiringWorkspaceId == nil && !isCycleHot
+        let backgroundPinnedIds = shouldMountBackgroundLoads ? backgroundWorkspaceLoadIds : []
+        return handoffPinnedIds
+            .union(backgroundPinnedIds)
+            .union(debugPinnedWorkspaceLoadIds)
+    }
+
     private static func cycleWarmIds(selected: UUID, orderedTabIds: [UUID]) -> [UUID] {
         guard orderedTabIds.contains(selected) else { return [selected] }
         // Keep warming focused to the selected workspace. Retiring/target workspaces are
@@ -2786,6 +2800,13 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .terminalPortalVisibilityDidChange)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId,
+                  notification.userInfo?[GhosttyNotificationKey.terminalVisibleInUI] as? Bool == true else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "terminal_visible")
+        })
+
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
             guard GhosttyApp.shared.backgroundLogEnabled else { return }
             GhosttyApp.shared.logBackground(
@@ -3271,11 +3292,14 @@ struct ContentView: View {
         let currentTabs = tabs ?? tabManager.tabs
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
-        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds
-            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
-            .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
+        let pinnedIds = WorkspaceMountPolicy.pinnedWorkspaceIds(
+            retiringWorkspaceId: retiringWorkspaceId,
+            backgroundWorkspaceLoadIds: tabManager.mountedBackgroundWorkspaceLoadIds,
+            debugPinnedWorkspaceLoadIds: tabManager.debugPinnedWorkspaceLoadIds,
+            isCycleHot: isCycleHot
+        )
+        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
             ? WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle

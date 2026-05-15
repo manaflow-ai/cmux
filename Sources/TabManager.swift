@@ -4398,9 +4398,16 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+        guard selectedTabId != workspace.id else {
+#if DEBUG
+            debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
+#endif
+            return
+        }
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
+        activateWorkspaceCycleHotWindow()
         selectedTabId = workspace.id
     }
 
@@ -5454,14 +5461,24 @@ class TabManager: ObservableObject {
 
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }
+        let tabId = tabs[index].id
+        guard selectedTabId != tabId else {
 #if DEBUG
-        debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
+            debugPrimeWorkspaceSwitchTrigger("select_index", to: tabId)
 #endif
-        selectedTabId = tabs[index].id
+            return
+        }
+#if DEBUG
+        debugPrimeWorkspaceSwitchTrigger("select_index", to: tabId)
+#endif
+        activateWorkspaceCycleHotWindow()
+        selectedTabId = tabId
     }
 
     func selectLastTab() {
         guard let lastTab = tabs.last else { return }
+        guard selectedTabId != lastTab.id else { return }
+        activateWorkspaceCycleHotWindow()
         selectedTabId = lastTab.id
     }
 

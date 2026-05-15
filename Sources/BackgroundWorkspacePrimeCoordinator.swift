@@ -3,6 +3,8 @@ import Combine
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
+    private let timeoutSeconds: TimeInterval
+
     private nonisolated enum PrimeCompletionReason: String {
         case alreadyCleared = "already_cleared"
         case cancelled
@@ -93,9 +95,25 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
     }
 
+    init(timeoutSeconds: TimeInterval = Policy.timeoutSeconds) {
+        self.timeoutSeconds = timeoutSeconds
+    }
+
     deinit {
         // Explicit for the required_deinit lint; per-prime resources live on Waiter.
     }
+
+#if DEBUG
+    func debugPrimeBackgroundWorkspaceOnceForTesting(
+        workspaceId: UUID,
+        tabManager: TabManager
+    ) async -> String {
+        await primeBackgroundWorkspaceIfNeeded(
+            workspaceId: workspaceId,
+            tabManager: tabManager
+        ).rawValue
+    }
+#endif
 
     func taskKey(for tabManager: TabManager) -> [String] {
         tabManager.pendingBackgroundWorkspaceLoadIds
@@ -114,8 +132,6 @@ final class BackgroundWorkspacePrimeCoordinator {
 
                 switch reason {
                 case .timeout:
-                    // Keep the hidden mount retained; pending background initial commands
-                    // must stay eligible to start until the surface is actually ready.
                     continue
                 case .cancelled:
                     continue
@@ -141,14 +157,22 @@ final class BackgroundWorkspacePrimeCoordinator {
         cmuxDebugLog("workspace.backgroundPrime.start workspace=\(workspaceId.uuidString.prefix(5))")
 #endif
 
-        let completionReason: PrimeCompletionReason
+        var completionReason: PrimeCompletionReason = .cancelled
+        defer {
+            switch completionReason {
+            case .timeout, .cancelled:
+                tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
+            case .alreadyCleared, .surfaceReady, .workspaceRemoved:
+                break
+            }
+        }
         switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, tabManager: tabManager) {
         case .completed(let reason):
             completionReason = reason
         case .pending:
             completionReason = await waitForBackgroundWorkspacePrimeCompletion(
                 workspaceId: workspaceId,
-                timeoutSeconds: Policy.timeoutSeconds,
+                timeoutSeconds: timeoutSeconds,
                 tabManager: tabManager
             )
         }
