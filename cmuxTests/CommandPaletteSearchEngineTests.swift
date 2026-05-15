@@ -870,6 +870,34 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNil(ContentView.commandPalettePendingActivation(nil, rebasedTo: 42))
     }
 
+    func testPendingActivationResolutionClearsAndResolvesRebasedSynchronousSearch() {
+        let resultIDs = ["command.0", "command.1", "command.2"]
+        let rebasedActivation = ContentView.commandPalettePendingActivation(
+            .selected(requestID: 41, fallbackSelectedIndex: 0, preferredCommandID: "command.2"),
+            rebasedTo: 42
+        )
+
+        let resolution = ContentView.commandPalettePendingActivationResolution(
+            rebasedActivation,
+            requestID: 42,
+            resultIDs: resultIDs
+        )
+
+        XCTAssertEqual(resolution.resolvedActivation, .selected(index: 2))
+        XCTAssertTrue(resolution.shouldClearPendingActivation)
+    }
+
+    func testPendingActivationResolutionKeepsStaleActivation() {
+        let resolution = ContentView.commandPalettePendingActivationResolution(
+            .command(requestID: 41, commandID: "command.1"),
+            requestID: 42,
+            resultIDs: ["command.1"]
+        )
+
+        XCTAssertNil(resolution.resolvedActivation)
+        XCTAssertFalse(resolution.shouldClearPendingActivation)
+    }
+
     func testSelectionAnchorTracksVisiblePendingSelection() {
         let resultIDs = ["command.0", "command.1", "command.2"]
         let visibleAnchor = ContentView.commandPaletteSelectionAnchorCommandID(

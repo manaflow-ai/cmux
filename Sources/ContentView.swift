@@ -1152,6 +1152,11 @@ struct ContentView: View {
         case command(commandID: String)
     }
 
+    struct CommandPalettePendingActivationResolutionResult: Equatable {
+        let resolvedActivation: CommandPaletteResolvedActivation?
+        let shouldClearPendingActivation: Bool
+    }
+
     private struct CommandPaletteRenameTarget: Equatable {
         enum Kind: Equatable {
             case workspace(workspaceId: UUID)
@@ -5173,6 +5178,12 @@ struct ContentView: View {
                 matches: matches,
                 commandsByID: commandsByID
             )
+            let resultIDs = cachedCommandPaletteResults.map(\.id)
+            let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
+                commandPalettePendingActivation,
+                requestID: requestID,
+                resultIDs: resultIDs
+            )
             commandPaletteResolvedSearchRequestID = requestID
             commandPaletteResolvedSearchScope = scope
             commandPaletteResolvedSearchFingerprint = fingerprint
@@ -5183,7 +5194,13 @@ struct ContentView: View {
                 scope: scope,
                 fingerprint: fingerprint
             )
+            if pendingActivationResolution.shouldClearPendingActivation {
+                commandPalettePendingActivation = nil
+            }
             commandPaletteResultsRevision &+= 1
+            if let resolvedActivation = pendingActivationResolution.resolvedActivation {
+                runCommandPaletteResolvedActivation(resolvedActivation)
+            }
             return
         }
         let previewCandidateCommandIDs: [String]
@@ -5287,9 +5304,8 @@ struct ContentView: View {
                     commandsByID: commandPaletteSearchCommandsByID
                 )
                 let resultIDs = cachedCommandPaletteResults.map(\.id)
-                let pendingActivation = commandPalettePendingActivation
-                let resolvedActivation = Self.commandPaletteResolvedPendingActivation(
-                    pendingActivation,
+                let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
+                    commandPalettePendingActivation,
                     requestID: requestID,
                     resultIDs: resultIDs
                 )
@@ -5303,14 +5319,14 @@ struct ContentView: View {
                     scope: scope,
                     fingerprint: fingerprint
                 )
-                if Self.commandPalettePendingActivationRequestID(pendingActivation) == requestID {
+                if pendingActivationResolution.shouldClearPendingActivation {
                     commandPalettePendingActivation = nil
                 }
                 commandPaletteResultsRevision &+= 1
                 if commandPaletteSearchRequestID == requestID {
                     commandPaletteSearchTask = nil
                 }
-                if let resolvedActivation {
+                if let resolvedActivation = pendingActivationResolution.resolvedActivation {
                     runCommandPaletteResolvedActivation(resolvedActivation)
                 }
             }
@@ -7646,6 +7662,21 @@ struct ContentView: View {
         case nil:
             return nil
         }
+    }
+
+    static func commandPalettePendingActivationResolution(
+        _ pendingActivation: CommandPalettePendingActivation?,
+        requestID: UInt64,
+        resultIDs: [String]
+    ) -> CommandPalettePendingActivationResolutionResult {
+        CommandPalettePendingActivationResolutionResult(
+            resolvedActivation: commandPaletteResolvedPendingActivation(
+                pendingActivation,
+                requestID: requestID,
+                resultIDs: resultIDs
+            ),
+            shouldClearPendingActivation: commandPalettePendingActivationRequestID(pendingActivation) == requestID
+        )
     }
 
     static func commandPaletteContextFingerprint(
