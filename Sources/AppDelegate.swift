@@ -1556,7 +1556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func teardownAllWorkspacePanelsBeforeAppTeardown() {
         var seenManagers = Set<ObjectIdentifier>()
-        let managers = allMainWindowTabManagersForDebug() + [tabManager].compactMap { $0 }
+        let managers = mainWindowContexts.values.map(\.tabManager) + [tabManager].compactMap { $0 }
         for manager in managers {
             guard seenManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
             manager.tabs.forEach { $0.teardownAllPanels() }

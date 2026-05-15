@@ -522,6 +522,50 @@ def test_codex_monitor_exits_when_owner_pid_is_gone(cli_path: str, root: Path) -
             )
 
 
+def test_codex_monitor_rejects_invalid_owner_pid(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-monitor-invalid-owner.sock"
+    transcript_path = root / "codex-session-invalid-owner.jsonl"
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-invalid-owner-session-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "codex",
+                "monitor",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--session",
+                session_id,
+                "--transcript",
+                str(transcript_path),
+                "--owner-pid",
+                "not-a-pid",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=3,
+        )
+    if result.returncode == 0:
+        raise AssertionError("hooks codex monitor accepted malformed --owner-pid")
+    combined_output = result.stdout + result.stderr
+    if "Invalid --owner-pid" not in combined_output:
+        raise AssertionError(
+            f"missing invalid owner pid diagnostic exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+
 def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
@@ -1660,6 +1704,7 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_monitor_exits_when_owner_pid_is_gone(cli_path, root)
+            test_codex_monitor_rejects_invalid_owner_pid(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)

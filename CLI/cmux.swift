@@ -18690,7 +18690,16 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
-        let ownerPID = optionValue(commandArgs, name: "--owner-pid").flatMap(Int.init)
+        let ownerPIDRaw = optionValue(commandArgs, name: "--owner-pid")
+        let ownerPID: Int?
+        if let ownerPIDRaw {
+            guard let parsedOwnerPID = Int(ownerPIDRaw), parsedOwnerPID > 0 else {
+                throw CLIError(message: "Invalid --owner-pid: expected a positive integer", exitCode: 2)
+            }
+            ownerPID = parsedOwnerPID
+        } else {
+            ownerPID = nil
+        }
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
