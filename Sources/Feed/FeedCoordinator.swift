@@ -1,7 +1,7 @@
 import AppKit
 import CMUXWorkstream
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
@@ -563,21 +563,13 @@ private func deliverFeedNotification(
 ) {
     guard effects.desktop || effects.sound || effects.command else { return }
 
-    func runFallbackEffects() {
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if effects.command {
-            NotificationSoundSettings.runCustomCommand(
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
-    }
-
     if !effects.desktop {
-        runFallbackEffects()
+        runFeedNotificationFallback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects
+        )
         return
     }
 
@@ -600,28 +592,35 @@ private func deliverFeedNotification(
 
     let center = UNUserNotificationCenter.current()
     center.getNotificationSettings { settings in
+        let runFallbackEffects = {
+            _ = Task { @MainActor in
+                runFeedNotificationFallback(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: effects
+                )
+            }
+        }
+        let runCustomCommand = {
+            guard effects.command else { return }
+            NotificationSoundSettings.runCustomCommand(
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
+
         switch settings.authorizationStatus {
         case .authorized, .provisional:
             center.add(request) { _ in
-                if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: content.title,
-                        subtitle: content.subtitle,
-                        body: content.body
-                    )
-                }
+                runCustomCommand()
             }
         case .notDetermined:
             center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
                 if granted {
                     center.add(request) { _ in
-                        if effects.command {
-                            NotificationSoundSettings.runCustomCommand(
-                                title: content.title,
-                                subtitle: content.subtitle,
-                                body: content.body
-                            )
-                        }
+                        runCustomCommand()
                     }
                 }
                 if !granted {
@@ -631,6 +630,25 @@ private func deliverFeedNotification(
         default:
             runFallbackEffects()
         }
+    }
+}
+
+@MainActor
+private func runFeedNotificationFallback(
+    title: String,
+    subtitle: String,
+    body: String,
+    effects: TerminalNotificationPolicyEffects
+) {
+    if effects.sound {
+        NotificationSoundSettings.playSelectedSound()
+    }
+    if effects.command {
+        NotificationSoundSettings.runCustomCommand(
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
     }
 }
 

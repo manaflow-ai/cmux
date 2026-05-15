@@ -13,6 +13,718 @@ import UserNotifications
 @testable import cmux
 #endif
 
+final class BrowserChromiumArtifactVerifierTests: XCTestCase {
+    func testAcceptsDiaStyleChromiumFrameworkWithoutCEF() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ChromeMain RenderWidgetHostViewMac DisplayCALayerTree IOSurface",
+            resources: ["resources.pak", "icudtl.dat", "chrome_100_percent.pak"],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: ["resources.pak", "icudtl.dat", "chrome_100_percent.pak"],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion
+            )
+        )
+
+        let manifest = try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)
+        XCTAssertEqual(manifest.engine, "chromium")
+        XCTAssertEqual(manifest.chromiumVersion, "148.0.7778.168")
+        XCTAssertEqual(manifest.frameworkName, BrowserChromiumArtifactManifest.frameworkName)
+        XCTAssertEqual(manifest.hostClassName, BrowserChromiumArtifactManifest.hostClassName)
+        XCTAssertEqual(manifest.hostAPIVersion, BrowserChromiumArtifactManifest.hostAPIVersion)
+
+        let status = BrowserEngineRuntimePolicy.status(frameworkURL: frameworkURL)
+        XCTAssertEqual(status.kind, .chromium)
+        XCTAssertNil(status.fallbackReason)
+        XCTAssertEqual(status.socketPayload["kind"] as? String, BrowserEngineRuntimeKind.chromium.rawValue)
+        XCTAssertEqual(status.socketPayload["chromium_ready"] as? Bool, true)
+        XCTAssertEqual(status.socketPayload["host_class_name"] as? String, BrowserChromiumArtifactManifest.hostClassName)
+        XCTAssertEqual(status.socketPayload["host_factory_class_name"] as? String, BrowserChromiumArtifactManifest.hostFactoryClassName)
+        XCTAssertEqual(status.socketPayload["host_api_version"] as? Int, BrowserChromiumArtifactManifest.hostAPIVersion)
+    }
+
+    func testAcceptsContentShellChromiumFrameworkWithoutCEF() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: ["content_shell.pak", "icudtl.dat", "v8_context_snapshot.arm64.bin"],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-content-shell",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: ["content_shell.pak", "icudtl.dat", "v8_context_snapshot.arm64.bin"],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion
+            )
+        )
+
+        let manifest = try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)
+        XCTAssertEqual(manifest.engine, "chromium-content-shell")
+        XCTAssertEqual(manifest.resourceNames, ["content_shell.pak", "icudtl.dat", "v8_context_snapshot.arm64.bin"])
+        let status = BrowserEngineRuntimePolicy.status(frameworkURL: frameworkURL)
+        XCTAssertEqual(status.kind, .chromium)
+        XCTAssertEqual(status.socketPayload["chromium_ready"] as? Bool, true)
+    }
+
+    func testAcceptsProductionOwlRuntimeLaunchPolicy() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                launchPolicy: Self.productionOwlLaunchPolicy(),
+                renderingAPI: Self.productionOwlRenderingAPI()
+            )
+        )
+
+        let manifest = try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)
+        XCTAssertEqual(manifest.launchPolicy?.sandboxDisabled, false)
+        XCTAssertEqual(manifest.launchPolicy?.usesInProcessGPUByDefault, false)
+        XCTAssertEqual(manifest.renderingAPI?.compositorLayer, "CALayerHost")
+        XCTAssertEqual(manifest.renderingAPI?.surfaceTransport, "IOSurface/Metal")
+
+        let status = BrowserEngineRuntimePolicy.status(frameworkURL: frameworkURL)
+        XCTAssertEqual(status.kind, .chromium)
+        XCTAssertEqual(status.socketPayload["chromium_sandbox_disabled"] as? Bool, false)
+        XCTAssertEqual(status.socketPayload["chromium_uses_in_process_gpu_by_default"] as? Bool, false)
+        XCTAssertEqual(status.socketPayload["chromium_compositor_layer"] as? String, "CALayerHost")
+    }
+
+    func testRejectsOwlRuntimeMissingLaunchPolicy() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion
+            )
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(error as? BrowserChromiumArtifactVerificationError, .missingLaunchPolicy)
+        }
+    }
+
+    func testRejectsManifestlessOwlRuntimeMissingLaunchPolicy() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ]
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(error as? BrowserChromiumArtifactVerificationError, .missingLaunchPolicy)
+        }
+    }
+
+    func testRejectsOwlRuntimeThatDisablesSandbox() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                launchPolicy: BrowserChromiumLaunchPolicy(
+                    sandboxDisabled: true,
+                    usesInProcessGPUByDefault: false,
+                    defaultSwitches: ["fresh-owl-embed"],
+                    forbiddenSwitchesVerifiedAbsent: ["no-sandbox"]
+                )
+            )
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .insecureLaunchPolicy("sandbox is disabled")
+            )
+        }
+    }
+
+    func testRejectsOwlRuntimeThatUsesInProcessGPUByDefault() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                launchPolicy: BrowserChromiumLaunchPolicy(
+                    sandboxDisabled: false,
+                    usesInProcessGPUByDefault: true,
+                    defaultSwitches: ["fresh-owl-embed"],
+                    forbiddenSwitchesVerifiedAbsent: ["no-sandbox"]
+                )
+            )
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .insecureLaunchPolicy("in-process GPU is enabled by default")
+            )
+        }
+    }
+
+    func testRejectsOwlRuntimeDefaultNoSandboxSwitch() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                launchPolicy: BrowserChromiumLaunchPolicy(
+                    sandboxDisabled: false,
+                    usesInProcessGPUByDefault: false,
+                    defaultSwitches: ["fresh-owl-embed", "no-sandbox"],
+                    forbiddenSwitchesVerifiedAbsent: ["no-sandbox"]
+                )
+            )
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .insecureLaunchPolicy("default switches include no-sandbox")
+            )
+        }
+    }
+
+    func testRejectsOwlRuntimeWithoutNoSandboxAbsenceProof() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                launchPolicy: BrowserChromiumLaunchPolicy(
+                    sandboxDisabled: false,
+                    usesInProcessGPUByDefault: false,
+                    defaultSwitches: ["fresh-owl-embed"],
+                    forbiddenSwitchesVerifiedAbsent: []
+                )
+            )
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .insecureLaunchPolicy("no-sandbox absence was not verified")
+            )
+        }
+    }
+
+    func testRejectsOwlRuntimeWithoutInProcessGPUAbsenceProof() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ContentShellMain DisplayCALayerTree IOSurface",
+            resources: [
+                "content_shell.pak",
+                "icudtl.dat",
+                "v8_context_snapshot.arm64.bin",
+                "libowl_fresh_mojo_runtime.dylib",
+            ],
+            manifest: BrowserChromiumArtifactManifest(
+                engine: "chromium-owl-fresh-mojo",
+                chromiumVersion: "148.0.7778.168",
+                chromiumRevision: "test-revision",
+                frameworkName: BrowserChromiumArtifactManifest.frameworkName,
+                resourceNames: [
+                    "content_shell.pak",
+                    "icudtl.dat",
+                    "v8_context_snapshot.arm64.bin",
+                    "libowl_fresh_mojo_runtime.dylib",
+                ],
+                hostClassName: BrowserChromiumArtifactManifest.hostClassName,
+                hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+                hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                launchPolicy: BrowserChromiumLaunchPolicy(
+                    sandboxDisabled: false,
+                    usesInProcessGPUByDefault: false,
+                    defaultSwitches: ["fresh-owl-embed"],
+                    forbiddenSwitchesVerifiedAbsent: ["no-sandbox"]
+                )
+            )
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .insecureLaunchPolicy("in-process-gpu absence was not verified")
+            )
+        }
+    }
+
+
+    func testRejectsCEFMarkers() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ChromeMain CefInitialize libcef",
+            resources: ["resources.pak", "icudtl.dat", "chrome_100_percent.pak"]
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .cefDisallowed("libcef")
+            )
+        }
+
+        let status = BrowserEngineRuntimePolicy.status(frameworkURL: frameworkURL)
+        XCTAssertEqual(status.kind, .webKit)
+        XCTAssertEqual(status.socketPayload["chromium_ready"] as? Bool, false)
+        XCTAssertNotNil(status.fallbackReason)
+    }
+
+    func testRejectsCEFMarkersInBundledChromiumExecutable() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "CmuxChromiumCore",
+            resources: ["content_shell.pak", "icudtl.dat", "v8_context_snapshot.arm64.bin"]
+        )
+        let contentShellExecutable = frameworkURL
+            .appendingPathComponent("Versions/A/Resources/Content Shell.app", isDirectory: true)
+            .appendingPathComponent("Contents/MacOS/Content Shell", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: contentShellExecutable.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "ContentShellMain libcef".write(to: contentShellExecutable, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumArtifactVerificationError,
+                .cefDisallowed("libcef")
+            )
+        }
+    }
+
+    func testRejectsIncompleteChromiumResources() throws {
+        let frameworkURL = try makeFrameworkFixture(
+            executableText: "ChromeMain",
+            resources: ["resources.pak"]
+        )
+
+        XCTAssertThrowsError(try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)) { error in
+            guard case .missingResources(let missing)? = error as? BrowserChromiumArtifactVerificationError else {
+                XCTFail("Expected missingResources, got \(error)")
+                return
+            }
+            XCTAssertTrue(missing.contains("icudtl.dat"))
+            XCTAssertTrue(
+                missing.contains("resources.pak with chrome_100_percent.pak or chrome_200_percent.pak or content_shell.pak")
+            )
+        }
+    }
+
+    @MainActor
+    func testChromiumHostBridgeForwardsCoreBrowserOperations() async throws {
+        let host = FakeChromiumHost()
+        let bridge = try BrowserChromiumHostBridge(exportedHost: host)
+
+        XCTAssertTrue(bridge.nativeView === host.view)
+        XCTAssertEqual(bridge.estimatedProgress, 0)
+
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        try bridge.load(URLRequest(url: url))
+        XCTAssertEqual(host.loadedURL, url)
+        XCTAssertEqual(bridge.currentURL, url)
+
+        try bridge.reload()
+        try bridge.stopLoading()
+        try bridge.goBack()
+        try bridge.goForward()
+
+        XCTAssertEqual(host.calls, ["load", "reload", "stopLoading", "goBack", "goForward"])
+
+        let value = try await bridge.evaluateJavaScript("document.title")
+        XCTAssertEqual(value as? String, "Example Domain")
+
+        let snapshotExpectation = expectation(description: "snapshot")
+        try bridge.takeSnapshot { image in
+            XCTAssertTrue(image === host.snapshotImage)
+            snapshotExpectation.fulfill()
+        }
+        await fulfillment(of: [snapshotExpectation], timeout: 1)
+    }
+
+    @MainActor
+    func testChromiumHostBridgeForwardsStateChangeHandler() throws {
+        let host = FakeChromiumHost()
+        let bridge = try BrowserChromiumHostBridge(exportedHost: host)
+        var callbackCount = 0
+
+        bridge.setStateChangedHandler {
+            callbackCount += 1
+        }
+        host.stateChangedHandler?()
+
+        XCTAssertEqual(callbackCount, 1)
+    }
+
+    @MainActor
+    func testChromiumEngineHostUsesBridgeAsBrowserHost() async throws {
+        let exportedHost = FakeChromiumHost()
+        let bridge = try BrowserChromiumHostBridge(exportedHost: exportedHost)
+        let engineHost = BrowserChromiumEngineHost(bridge: bridge)
+
+        XCTAssertTrue(engineHost.nativeView === exportedHost.view)
+        XCTAssertFalse(engineHost.isLoading)
+        XCTAssertTrue(engineHost.canGoBack)
+        XCTAssertTrue(engineHost.canGoForward)
+
+        let url = try XCTUnwrap(URL(string: "https://example.com/path"))
+        try engineHost.load(URLRequest(url: url))
+        XCTAssertEqual(exportedHost.loadedURL, url)
+        XCTAssertEqual(engineHost.currentURL, url)
+
+        let title = try await engineHost.evaluateJavaScript("document.title")
+        XCTAssertEqual(title as? String, "Example Domain")
+    }
+
+    @MainActor
+    func testChromiumHostBridgeRejectsMissingRequiredView() {
+        XCTAssertThrowsError(try BrowserChromiumHostBridge(exportedHost: MissingViewChromiumHost())) { error in
+            XCTAssertEqual(error as? BrowserChromiumHostBridgeError, .missingRequiredView)
+        }
+    }
+
+    @MainActor
+    func testChromiumHostFactoryCreatesBridgeWithProfileDirectory() throws {
+        FakeChromiumHostFactory.lastProfileIdentifier = nil
+        FakeChromiumHostFactory.lastDataDirectory = nil
+        FakeChromiumHostFactory.lastProxyConfiguration = nil
+        let profileID = UUID()
+        let dataDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-chromium-profile-\(UUID().uuidString)", isDirectory: true)
+        let proxyConfiguration = ["proxyServer": "socks5://127.0.0.1:9191"] as NSDictionary
+
+        let bridge = try BrowserChromiumHostFactory.makeBridge(
+            factoryClass: FakeChromiumHostFactory.self,
+            factoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
+            profileIdentifier: profileID,
+            dataDirectory: dataDirectory,
+            proxyConfiguration: proxyConfiguration
+        )
+
+        XCTAssertTrue(bridge.exportedHost is FakeChromiumHost)
+        XCTAssertEqual(FakeChromiumHostFactory.lastProfileIdentifier, profileID.uuidString)
+        XCTAssertEqual(FakeChromiumHostFactory.lastDataDirectory, dataDirectory)
+        XCTAssertEqual(FakeChromiumHostFactory.lastProxyConfiguration?["proxyServer"] as? String, "socks5://127.0.0.1:9191")
+    }
+
+    @MainActor
+    func testChromiumHostFactoryRejectsNilFactoryResult() {
+        XCTAssertThrowsError(
+            try BrowserChromiumHostFactory.makeBridge(
+                factoryClass: NilChromiumHostFactory.self,
+                factoryClassName: "NilChromiumHostFactory",
+                profileIdentifier: UUID(),
+                dataDirectory: URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true),
+                proxyConfiguration: nil
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BrowserChromiumHostFactoryError,
+                .factoryReturnedNil("NilChromiumHostFactory")
+            )
+        }
+    }
+
+    private func makeFrameworkFixture(
+        executableText: String,
+        resources: [String],
+        manifest: BrowserChromiumArtifactManifest? = nil
+    ) throws -> URL {
+        let rootURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-chromium-fixture-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let frameworkURL = rootURL.appendingPathComponent(
+            BrowserChromiumArtifactManifest.frameworkName,
+            isDirectory: true
+        )
+        let versionURL = frameworkURL.appendingPathComponent("Versions/A", isDirectory: true)
+        let resourcesURL = versionURL.appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+
+        try executableText.write(
+            to: versionURL.appendingPathComponent("CmuxChromiumCore", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        for resource in resources {
+            try Data([0x63, 0x6d, 0x75, 0x78]).write(
+                to: resourcesURL.appendingPathComponent(resource, isDirectory: false)
+            )
+        }
+
+        if let manifest {
+            let data = try JSONEncoder().encode(manifest)
+            try data.write(
+                to: resourcesURL.appendingPathComponent("cmux-chromium-manifest.json", isDirectory: false)
+            )
+        }
+
+        return frameworkURL
+    }
+
+    private static func productionOwlLaunchPolicy() -> BrowserChromiumLaunchPolicy {
+        BrowserChromiumLaunchPolicy(
+            sandboxDisabled: false,
+            usesInProcessGPUByDefault: false,
+            defaultSwitches: [
+                "fresh-owl-embed",
+                "fresh-owl-hosted-frame-pump",
+                "content-shell-hide-toolbar",
+                "no-first-run",
+                "no-default-browser-check",
+            ],
+            forbiddenSwitchesVerifiedAbsent: ["no-sandbox", "in-process-gpu"]
+        )
+    }
+
+    private static func productionOwlRenderingAPI() -> BrowserChromiumRenderingAPI {
+        BrowserChromiumRenderingAPI(
+            nativeViewHost: "Chromium remote_cocoa WebContents NSView",
+            compositorLayer: "CALayerHost",
+            surfaceTransport: "IOSurface/Metal"
+        )
+    }
+
+    private final class FakeChromiumHost: NSObject, BrowserChromiumHostExporting {
+        let view = NSView()
+        let snapshotImage = NSImage(size: NSSize(width: 2, height: 2))
+        var loadedURL: URL?
+        var calls: [String] = []
+        var stateChangedHandler: (() -> Void)?
+        var proxyConfiguration: NSDictionary?
+
+        @objc var cmuxNativeView: NSView? { view }
+        @objc var cmuxCurrentURL: NSURL? { loadedURL as NSURL? }
+        @objc var cmuxTitle: String? { "Example Domain" }
+        @objc var cmuxIsLoading: Bool { false }
+        @objc var cmuxCanGoBack: Bool { true }
+        @objc var cmuxCanGoForward: Bool { true }
+        @objc var cmuxEstimatedProgress: Double { loadedURL == nil ? 0 : 1 }
+
+        @objc func cmuxLoad(_ request: NSURLRequest) {
+            calls.append("load")
+            loadedURL = request.url
+        }
+
+        @objc func cmuxReload() {
+            calls.append("reload")
+        }
+
+        @objc func cmuxStopLoading() {
+            calls.append("stopLoading")
+        }
+
+        @objc func cmuxGoBack() {
+            calls.append("goBack")
+        }
+
+        @objc func cmuxGoForward() {
+            calls.append("goForward")
+        }
+
+        @objc func cmuxEvaluateJavaScript(_ script: String, completionHandler: @escaping (Any?, String?) -> Void) {
+            completionHandler(script == "document.title" ? "Example Domain" : nil, nil)
+        }
+
+        @objc func cmuxTakeSnapshot(_ completionHandler: @escaping (NSImage?) -> Void) {
+            completionHandler(snapshotImage)
+        }
+
+        @objc func cmuxSetStateChangedHandler(_ handler: @escaping () -> Void) {
+            stateChangedHandler = handler
+        }
+
+        @objc func cmuxSetProxyConfiguration(_ proxyConfiguration: NSDictionary?) {
+            self.proxyConfiguration = proxyConfiguration
+        }
+    }
+
+    private final class MissingViewChromiumHost: NSObject, BrowserChromiumHostExporting {
+        @objc var cmuxNativeView: NSView? { nil }
+    }
+
+    private final class FakeChromiumHostFactory: NSObject {
+        static var lastProfileIdentifier: String?
+        static var lastDataDirectory: URL?
+        static var lastProxyConfiguration: NSDictionary?
+
+        @objc(cmuxCreateBrowserHostWithProfileIdentifier:dataDirectory:proxyConfiguration:)
+        static func cmuxCreateBrowserHost(
+            profileIdentifier: String,
+            dataDirectory: NSURL,
+            proxyConfiguration: NSDictionary?
+        ) -> NSObject? {
+            lastProfileIdentifier = profileIdentifier
+            lastDataDirectory = dataDirectory as URL
+            lastProxyConfiguration = proxyConfiguration
+            return FakeChromiumHost()
+        }
+    }
+
+    private final class NilChromiumHostFactory: NSObject {
+        @objc(cmuxCreateBrowserHostWithProfileIdentifier:dataDirectory:proxyConfiguration:)
+        static func cmuxCreateBrowserHost(
+            profileIdentifier: String,
+            dataDirectory: NSURL,
+            proxyConfiguration: NSDictionary?
+        ) -> NSObject? {
+            nil
+        }
+    }
+}
+
+@MainActor
+final class BrowserNativeEngineHostContainerViewTests: XCTestCase {
+    func testHostsAndReplacesNativeEngineView() {
+        let host = BrowserNativeEngineHostContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let firstNativeView = NSView(frame: .zero)
+        let secondNativeView = NSView(frame: .zero)
+
+        host.hostNativeView(firstNativeView)
+
+        XCTAssertTrue(firstNativeView.superview === host)
+        XCTAssertTrue(host.currentHostedNativeView === firstNativeView)
+        XCTAssertFalse(firstNativeView.translatesAutoresizingMaskIntoConstraints)
+
+        host.hostNativeView(secondNativeView)
+
+        XCTAssertNil(firstNativeView.superview)
+        XCTAssertTrue(secondNativeView.superview === host)
+        XCTAssertTrue(host.currentHostedNativeView === secondNativeView)
+
+        host.detachHostedNativeView()
+
+        XCTAssertNil(secondNativeView.superview)
+        XCTAssertNil(host.currentHostedNativeView)
+    }
+
+    func testDetachDoesNotRemoveReparentedNativeEngineView() {
+        let firstHost = BrowserNativeEngineHostContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let secondHost = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let nativeView = NSView(frame: .zero)
+
+        firstHost.hostNativeView(nativeView)
+        nativeView.removeFromSuperview()
+        secondHost.addSubview(nativeView)
+        firstHost.detachHostedNativeView()
+
+        XCTAssertTrue(nativeView.superview === secondHost)
+        XCTAssertNil(firstHost.currentHostedNativeView)
+    }
+}
+
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {

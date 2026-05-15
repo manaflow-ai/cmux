@@ -7,12 +7,15 @@ import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
+import OSLog
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
 #if canImport(Security)
 import Security
 #endif
+
+private let browserEngineLogger = Logger(subsystem: "com.cmuxterm.app", category: "browser-engine")
 
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
@@ -36,6 +39,900 @@ struct BrowserRemoteWorkspaceStatus: Equatable {
     let connectionState: WorkspaceRemoteConnectionState
     let heartbeatCount: Int
     let lastHeartbeatAt: Date?
+}
+
+enum BrowserEngineRuntimeKind: String, Equatable {
+    case chromium
+    case unknown
+    case webKit = "webkit"
+}
+
+struct BrowserChromiumArtifactManifest: Codable, Equatable, Sendable {
+    static let unknownChromiumVersion = "unknown"
+    static let frameworkName = "CmuxChromiumCore.framework"
+    static let hostClassName = "CmuxChromiumBrowserHost"
+    static let hostFactoryClassName = "CmuxChromiumBrowserHostFactory"
+    static let hostAPIVersion = 1
+
+    var engine: String
+    var chromiumVersion: String
+    var chromiumRevision: String?
+    var frameworkName: String
+    var resourceNames: [String]
+    var hostClassName: String?
+    var hostFactoryClassName: String?
+    var hostAPIVersion: Int?
+    var launchPolicy: BrowserChromiumLaunchPolicy? = nil
+    var renderingAPI: BrowserChromiumRenderingAPI? = nil
+
+    static func inferred(resourceNames: [String]) -> BrowserChromiumArtifactManifest {
+        BrowserChromiumArtifactManifest(
+            engine: "chromium",
+            chromiumVersion: unknownChromiumVersion,
+            chromiumRevision: nil,
+            frameworkName: frameworkName,
+            resourceNames: resourceNames.sorted(),
+            hostClassName: hostClassName,
+            hostFactoryClassName: hostFactoryClassName,
+            hostAPIVersion: hostAPIVersion,
+            launchPolicy: nil,
+            renderingAPI: nil
+        )
+    }
+}
+
+struct BrowserChromiumLaunchPolicy: Codable, Equatable, Sendable {
+    var sandboxDisabled: Bool
+    var usesInProcessGPUByDefault: Bool
+    var defaultSwitches: [String]
+    var forbiddenSwitchesVerifiedAbsent: [String]
+}
+
+struct BrowserChromiumRenderingAPI: Codable, Equatable, Sendable {
+    var nativeViewHost: String
+    var compositorLayer: String
+    var surfaceTransport: String
+}
+
+struct BrowserEngineRuntimeStatus: Equatable {
+    var kind: BrowserEngineRuntimeKind
+    var manifest: BrowserChromiumArtifactManifest?
+    var fallbackReason: String?
+    var fallbackDiagnostic: String? = nil
+
+    var socketPayload: [String: Any] {
+        var payload: [String: Any] = [
+            "kind": kind.rawValue,
+            "chromium_ready": kind == .chromium
+        ]
+        if let manifest {
+            payload["chromium_version"] = manifest.chromiumVersion
+            payload["chromium_revision"] = manifest.chromiumRevision ?? NSNull()
+            payload["framework_name"] = manifest.frameworkName
+            payload["resources"] = manifest.resourceNames
+            payload["host_class_name"] = manifest.hostClassName ?? NSNull()
+            payload["host_factory_class_name"] = manifest.hostFactoryClassName ?? NSNull()
+            payload["host_api_version"] = manifest.hostAPIVersion ?? NSNull()
+            if let launchPolicy = manifest.launchPolicy {
+                payload["chromium_sandbox_disabled"] = launchPolicy.sandboxDisabled
+                payload["chromium_uses_in_process_gpu_by_default"] = launchPolicy.usesInProcessGPUByDefault
+                payload["chromium_default_switches"] = launchPolicy.defaultSwitches
+                payload["chromium_forbidden_switches_verified_absent"] = launchPolicy.forbiddenSwitchesVerifiedAbsent
+            }
+            if let renderingAPI = manifest.renderingAPI {
+                payload["chromium_native_view_host"] = renderingAPI.nativeViewHost
+                payload["chromium_compositor_layer"] = renderingAPI.compositorLayer
+                payload["chromium_surface_transport"] = renderingAPI.surfaceTransport
+            }
+        }
+        if let fallbackReason {
+            payload["fallback_reason"] = fallbackReason
+        }
+#if DEBUG
+        if let fallbackDiagnostic {
+            payload["fallback_diagnostic"] = fallbackDiagnostic
+        }
+#endif
+        return payload
+    }
+}
+
+enum BrowserChromiumArtifactVerificationError: Error, Equatable, CustomStringConvertible {
+    case missingFramework(URL)
+    case missingExecutable(URL)
+    case missingResources([String])
+    case cefDisallowed(String)
+    case missingLaunchPolicy
+    case insecureLaunchPolicy(String)
+    case manifestDecodeFailed(String)
+
+    var description: String {
+        switch self {
+        case .missingFramework(let url):
+            return "Missing Chromium framework at \(url.path)"
+        case .missingExecutable(let url):
+            return "Missing Chromium framework executable at \(url.path)"
+        case .missingResources(let names):
+            return "Missing Chromium resources: \(names.joined(separator: ", "))"
+        case .cefDisallowed(let marker):
+            return "Disallowed CEF marker found in Chromium framework: \(marker)"
+        case .missingLaunchPolicy:
+            return "Chromium OWL runtime manifest is missing launchPolicy"
+        case .insecureLaunchPolicy(let message):
+            return "Chromium OWL runtime launch policy is not production-safe: \(message)"
+        case .manifestDecodeFailed(let message):
+            return "Chromium manifest decode failed: \(message)"
+        }
+    }
+}
+
+enum BrowserChromiumArtifactVerifier {
+    private static let manifestFileName = "cmux-chromium-manifest.json"
+    private static let requiredCommonResourceNames = ["icudtl.dat"]
+    private static let requiredChromeResourceNames = ["resources.pak"]
+    private static let requiredChromeScaleResourceNames = ["chrome_100_percent.pak", "chrome_200_percent.pak"]
+    private static let requiredContentShellResourceNames = ["content_shell.pak"]
+    private static let disallowedCEFMarkers = [
+        "Chromium Embedded Framework",
+        "libcef",
+        "CefInitialize",
+        "CefBrowser",
+        "CEF.framework"
+    ]
+
+    static func defaultFrameworkURL(bundle: Bundle = .main) -> URL? {
+        bundle.privateFrameworksURL?.appendingPathComponent(
+            BrowserChromiumArtifactManifest.frameworkName,
+            isDirectory: true
+        )
+    }
+
+    static func verifyFramework(at frameworkURL: URL, fileManager: FileManager = .default) throws -> BrowserChromiumArtifactManifest {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: frameworkURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw BrowserChromiumArtifactVerificationError.missingFramework(frameworkURL)
+        }
+
+        let executableURL = try executableURL(for: frameworkURL, fileManager: fileManager)
+        try rejectCEFMarkers(in: executableURL)
+
+        let resourceURL = resourcesURL(for: frameworkURL, fileManager: fileManager)
+        try rejectCEFMarkersInBundledChromium(at: resourceURL, fileManager: fileManager)
+        let resourceNames = try verifyRequiredResources(in: resourceURL, fileManager: fileManager)
+
+        if let manifest = try loadManifest(from: resourceURL, fileManager: fileManager) {
+            try verifyLaunchPolicy(for: manifest)
+            return manifest
+        }
+
+        let inferredManifest = BrowserChromiumArtifactManifest.inferred(resourceNames: resourceNames)
+        try verifyLaunchPolicy(for: inferredManifest)
+        return inferredManifest
+    }
+
+    private static func executableURL(for frameworkURL: URL, fileManager: FileManager) throws -> URL {
+        let executableName = frameworkURL.deletingPathExtension().lastPathComponent
+        let candidates = [
+            frameworkURL.appendingPathComponent("Versions/A/\(executableName)", isDirectory: false),
+            frameworkURL.appendingPathComponent(executableName, isDirectory: false),
+        ]
+        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate.path) || fileManager.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        throw BrowserChromiumArtifactVerificationError.missingExecutable(candidates[0])
+    }
+
+    private static func resourcesURL(for frameworkURL: URL, fileManager: FileManager) -> URL {
+        let versioned = frameworkURL.appendingPathComponent("Versions/A/Resources", isDirectory: true)
+        if fileManager.fileExists(atPath: versioned.path) {
+            return versioned
+        }
+        return frameworkURL.appendingPathComponent("Resources", isDirectory: true)
+    }
+
+    private static func verifyRequiredResources(in resourceURL: URL, fileManager: FileManager) throws -> [String] {
+        let present = Set((try? fileManager.contentsOfDirectory(atPath: resourceURL.path)) ?? [])
+        var missing = requiredCommonResourceNames.filter { !present.contains($0) }
+        let hasChromeResourceSet =
+            requiredChromeResourceNames.allSatisfy { present.contains($0) } &&
+            requiredChromeScaleResourceNames.contains(where: present.contains)
+        let hasContentShellResourceSet =
+            requiredContentShellResourceNames.allSatisfy { present.contains($0) }
+        if !hasChromeResourceSet && !hasContentShellResourceSet {
+            missing.append(
+                "resources.pak with \(requiredChromeScaleResourceNames.joined(separator: " or ")) or content_shell.pak"
+            )
+        }
+        guard missing.isEmpty else {
+            throw BrowserChromiumArtifactVerificationError.missingResources(missing)
+        }
+        return Array(present)
+    }
+
+    private static func rejectCEFMarkers(in executableURL: URL) throws {
+        let data = try Data(contentsOf: executableURL, options: [.mappedIfSafe])
+        for marker in disallowedCEFMarkers where data.range(of: Data(marker.utf8)) != nil {
+            throw BrowserChromiumArtifactVerificationError.cefDisallowed(marker)
+        }
+    }
+
+    private static func rejectCEFMarkersInBundledChromium(at resourceURL: URL, fileManager: FileManager) throws {
+        let cefFrameworkURL = resourceURL
+            .appendingPathComponent("Content Shell.app", isDirectory: true)
+            .appendingPathComponent("Contents/Frameworks/Chromium Embedded Framework.framework", isDirectory: true)
+        if fileManager.fileExists(atPath: cefFrameworkURL.path) {
+            throw BrowserChromiumArtifactVerificationError.cefDisallowed("Chromium Embedded Framework")
+        }
+
+        let executableCandidates = [
+            resourceURL
+                .appendingPathComponent("Content Shell.app", isDirectory: true)
+                .appendingPathComponent("Contents/MacOS/Content Shell", isDirectory: false),
+            resourceURL
+                .appendingPathComponent("Content Shell.app", isDirectory: true)
+                .appendingPathComponent("Contents/Frameworks/Content Shell Framework.framework/Content Shell Framework", isDirectory: false),
+            resourceURL
+                .appendingPathComponent("Content Shell.app", isDirectory: true)
+                .appendingPathComponent("Contents/Frameworks/Content Shell Framework.framework/Versions/Current/Content Shell Framework", isDirectory: false),
+        ]
+        for candidate in executableCandidates where fileManager.fileExists(atPath: candidate.path) {
+            try rejectCEFMarkers(in: candidate)
+        }
+    }
+
+    private static func loadManifest(from resourceURL: URL, fileManager: FileManager) throws -> BrowserChromiumArtifactManifest? {
+        let url = resourceURL.appendingPathComponent(manifestFileName, isDirectory: false)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(BrowserChromiumArtifactManifest.self, from: data)
+        } catch {
+            throw BrowserChromiumArtifactVerificationError.manifestDecodeFailed(error.localizedDescription)
+        }
+    }
+
+    private static func verifyLaunchPolicy(for manifest: BrowserChromiumArtifactManifest) throws {
+        let requiresProductionLaunchPolicy =
+            manifest.engine.localizedCaseInsensitiveContains("owl") ||
+            manifest.resourceNames.contains("libowl_fresh_mojo_runtime.dylib")
+        guard requiresProductionLaunchPolicy else { return }
+
+        guard let launchPolicy = manifest.launchPolicy else {
+            throw BrowserChromiumArtifactVerificationError.missingLaunchPolicy
+        }
+        if launchPolicy.sandboxDisabled {
+            throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("sandbox is disabled")
+        }
+        if launchPolicy.usesInProcessGPUByDefault {
+            throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("in-process GPU is enabled by default")
+        }
+        let defaultSwitches = Set(launchPolicy.defaultSwitches)
+        if defaultSwitches.contains("no-sandbox") {
+            throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("default switches include no-sandbox")
+        }
+        if defaultSwitches.contains("in-process-gpu") {
+            throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("default switches include in-process-gpu")
+        }
+        if !launchPolicy.forbiddenSwitchesVerifiedAbsent.contains("no-sandbox") {
+            throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("no-sandbox absence was not verified")
+        }
+        if !launchPolicy.forbiddenSwitchesVerifiedAbsent.contains("in-process-gpu") {
+            throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("in-process-gpu absence was not verified")
+        }
+    }
+}
+
+enum BrowserEngineRuntimePolicy {
+    static func currentStatus(bundle: Bundle = .main, fileManager: FileManager = .default) -> BrowserEngineRuntimeStatus {
+        status(frameworkURL: BrowserChromiumArtifactVerifier.defaultFrameworkURL(bundle: bundle), fileManager: fileManager)
+    }
+
+    static func status(frameworkURL: URL?, fileManager: FileManager = .default) -> BrowserEngineRuntimeStatus {
+        guard let frameworkURL else {
+            return BrowserEngineRuntimeStatus(
+                kind: .webKit,
+                manifest: nil,
+                fallbackReason: "chromium_framework_missing"
+            )
+        }
+        do {
+            let manifest = try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL, fileManager: fileManager)
+            return BrowserEngineRuntimeStatus(kind: .chromium, manifest: manifest, fallbackReason: nil)
+        } catch {
+            return BrowserEngineRuntimeStatus(
+                kind: .webKit,
+                manifest: nil,
+                fallbackReason: BrowserEngineRuntimePolicy.fallbackReason(for: error)
+            )
+        }
+    }
+
+    private static func fallbackReason(for error: Error) -> String {
+        guard let verificationError = error as? BrowserChromiumArtifactVerificationError else {
+            return "unknown_error"
+        }
+        switch verificationError {
+        case .missingFramework:
+            return "chromium_framework_missing"
+        case .missingExecutable:
+            return "chromium_executable_missing"
+        case .missingResources:
+            return "chromium_resources_missing"
+        case .cefDisallowed:
+            return "cef_marker_detected"
+        case .missingLaunchPolicy, .insecureLaunchPolicy:
+            return "insecure_launch_policy"
+        case .manifestDecodeFailed:
+            return "manifest_decode_failed"
+        }
+    }
+
+    static func hostCreationFallbackDiagnostic(for error: Error) -> String {
+        if let factoryError = error as? BrowserChromiumHostFactoryError {
+            switch factoryError {
+            case .missingFactoryClass:
+                return "factory_class_missing"
+            case .missingFactoryMethod:
+                return "factory_method_missing"
+            case .factoryReturnedNil:
+                return "factory_returned_nil"
+            case .bridgeCreationFailed:
+                return "bridge_creation_failed"
+            case .bundleLoadFailed:
+                return "bundle_load_failed"
+            }
+        }
+        if let bridgeError = error as? BrowserChromiumHostBridgeError {
+            switch bridgeError {
+            case .missingRequiredView:
+                return "required_view_missing"
+            case .unsupportedOperation:
+                return "unsupported_operation"
+            case .operationFailed:
+                return "operation_failed"
+            }
+        }
+        return "unknown_host_error"
+    }
+}
+
+enum BrowserChromiumHostBridgeError: Error, Equatable, CustomStringConvertible {
+    case missingRequiredView
+    case unsupportedOperation(String)
+    case operationFailed(String)
+
+    var description: String {
+        switch self {
+        case .missingRequiredView:
+            return "Chromium host did not expose a native NSView"
+        case .unsupportedOperation(let operation):
+            return "Chromium host does not support \(operation)"
+        case .operationFailed(let message):
+            return "Chromium host operation failed: \(message)"
+        }
+    }
+}
+
+@objc(CMUXChromiumBrowserHostExporting)
+protocol BrowserChromiumHostExporting: NSObjectProtocol {
+    @objc var cmuxNativeView: NSView? { get }
+    @objc optional var cmuxCurrentURL: NSURL? { get }
+    @objc optional var cmuxTitle: String? { get }
+    @objc optional var cmuxIsLoading: Bool { get }
+    @objc optional var cmuxCanGoBack: Bool { get }
+    @objc optional var cmuxCanGoForward: Bool { get }
+    @objc optional var cmuxEstimatedProgress: Double { get }
+    @objc optional var cmuxPageZoomFactor: NSNumber { get }
+    @objc optional func cmuxLoad(_ request: NSURLRequest)
+    @objc optional func cmuxReload()
+    @objc optional func cmuxStopLoading()
+    @objc optional func cmuxGoBack()
+    @objc optional func cmuxGoForward()
+    @objc optional func cmuxEvaluateJavaScript(_ script: String, completionHandler: @escaping (Any?, String?) -> Void)
+    @objc optional func cmuxTakeSnapshot(_ completionHandler: @escaping (NSImage?) -> Void)
+    @objc optional func cmuxSetStateChangedHandler(_ handler: @escaping () -> Void)
+    @objc optional func cmuxSetProxyConfiguration(_ proxyConfiguration: NSDictionary?)
+    @objc optional func cmuxSetAppearanceName(_ appearanceName: NSString?)
+    @objc optional func cmuxSetPageZoomFactor(_ pageZoomFactor: NSNumber)
+    @objc optional func cmuxAddUserScript(_ source: NSString)
+    @objc optional func cmuxAddUserStyle(_ source: NSString)
+}
+
+final class BrowserChromiumHostBridge {
+    let exportedHost: NSObjectProtocol
+    private let hostObject: NSObject
+    let nativeView: NSView
+
+    init(exportedHost: NSObjectProtocol) throws {
+        guard let hostObject = exportedHost as? NSObject,
+              hostObject.responds(to: BrowserChromiumHostSelectors.nativeView),
+              let nativeView = hostObject.value(forKey: "cmuxNativeView") as? NSView else {
+            throw BrowserChromiumHostBridgeError.missingRequiredView
+        }
+        self.exportedHost = exportedHost
+        self.hostObject = hostObject
+        self.nativeView = nativeView
+    }
+
+    var currentURL: URL? {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.currentURL) else { return nil }
+        if let url = hostObject.value(forKey: "cmuxCurrentURL") as? URL {
+            return url.absoluteURL
+        }
+        if let url = hostObject.value(forKey: "cmuxCurrentURL") as? NSURL {
+            return (url as URL).absoluteURL
+        }
+        return nil
+    }
+
+    var title: String? {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.title) else { return nil }
+        return hostObject.value(forKey: "cmuxTitle") as? String
+    }
+
+    var isLoading: Bool {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.isLoading) else { return false }
+        return (hostObject.value(forKey: "cmuxIsLoading") as? NSNumber)?.boolValue ?? false
+    }
+
+    var canGoBack: Bool {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.canGoBack) else { return false }
+        return (hostObject.value(forKey: "cmuxCanGoBack") as? NSNumber)?.boolValue ?? false
+    }
+
+    var canGoForward: Bool {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.canGoForward) else { return false }
+        return (hostObject.value(forKey: "cmuxCanGoForward") as? NSNumber)?.boolValue ?? false
+    }
+
+    var estimatedProgress: Double {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.estimatedProgress) else { return 0.0 }
+        return (hostObject.value(forKey: "cmuxEstimatedProgress") as? NSNumber)?.doubleValue ?? 0.0
+    }
+
+    var pageZoomFactor: CGFloat {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.pageZoomFactor) else { return 1.0 }
+        return CGFloat((hostObject.value(forKey: "cmuxPageZoomFactor") as? NSNumber)?.doubleValue ?? 1.0)
+    }
+
+    func load(_ request: URLRequest) throws {
+        typealias LoadIMP = @convention(c) (AnyObject, Selector, NSURLRequest) -> Void
+        let function: LoadIMP = try implementation(for: BrowserChromiumHostSelectors.load, operation: "load")
+        function(hostObject, BrowserChromiumHostSelectors.load, request as NSURLRequest)
+    }
+
+    func reload() throws {
+        try invokeVoid(selector: BrowserChromiumHostSelectors.reload, operation: "reload")
+    }
+
+    func stopLoading() throws {
+        try invokeVoid(selector: BrowserChromiumHostSelectors.stopLoading, operation: "stopLoading")
+    }
+
+    func goBack() throws {
+        try invokeVoid(selector: BrowserChromiumHostSelectors.goBack, operation: "goBack")
+    }
+
+    func goForward() throws {
+        try invokeVoid(selector: BrowserChromiumHostSelectors.goForward, operation: "goForward")
+    }
+
+    func evaluateJavaScript(_ script: String, completion: @escaping (Result<Any?, Error>) -> Void) throws {
+        typealias CompletionBlock = @convention(block) (Any?, String?) -> Void
+        typealias EvaluateIMP = @convention(c) (AnyObject, Selector, NSString, CompletionBlock) -> Void
+        let function: EvaluateIMP = try implementation(
+            for: BrowserChromiumHostSelectors.evaluateJavaScript,
+            operation: "evaluateJavaScript"
+        )
+        let block: CompletionBlock = { value, errorMessage in
+            if let errorMessage, !errorMessage.isEmpty {
+                completion(.failure(BrowserChromiumHostBridgeError.operationFailed(errorMessage)))
+            } else {
+                completion(.success(value))
+            }
+        }
+        function(hostObject, BrowserChromiumHostSelectors.evaluateJavaScript, script as NSString, block)
+    }
+
+    func evaluateJavaScript(_ script: String) async throws -> Any? {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try evaluateJavaScript(script) { result in
+                    continuation.resume(with: result)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    func takeSnapshot(completion: @escaping (NSImage?) -> Void) throws {
+        typealias CompletionBlock = @convention(block) (NSImage?) -> Void
+        typealias SnapshotIMP = @convention(c) (AnyObject, Selector, CompletionBlock) -> Void
+        let function: SnapshotIMP = try implementation(
+            for: BrowserChromiumHostSelectors.takeSnapshot,
+            operation: "takeSnapshot"
+        )
+        let snapshotCompletion: CompletionBlock = { image in
+            completion(image)
+        }
+        function(hostObject, BrowserChromiumHostSelectors.takeSnapshot, snapshotCompletion)
+    }
+
+    func setStateChangedHandler(_ handler: @escaping () -> Void) {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.setStateChangedHandler),
+              let method = class_getInstanceMethod(type(of: hostObject), BrowserChromiumHostSelectors.setStateChangedHandler) else {
+            return
+        }
+        typealias StateChangedBlock = @convention(block) () -> Void
+        typealias StateChangedIMP = @convention(c) (AnyObject, Selector, StateChangedBlock) -> Void
+        let function = unsafeBitCast(method_getImplementation(method), to: StateChangedIMP.self)
+        let block: StateChangedBlock = {
+            handler()
+        }
+        function(hostObject, BrowserChromiumHostSelectors.setStateChangedHandler, block)
+    }
+
+    func setProxyConfiguration(_ proxyConfiguration: NSDictionary?) throws {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.setProxyConfiguration) else { return }
+        typealias ProxyIMP = @convention(c) (AnyObject, Selector, NSDictionary?) -> Void
+        let function: ProxyIMP = try implementation(
+            for: BrowserChromiumHostSelectors.setProxyConfiguration,
+            operation: "setProxyConfiguration"
+        )
+        function(hostObject, BrowserChromiumHostSelectors.setProxyConfiguration, proxyConfiguration)
+    }
+
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) throws {
+        guard hostObject.responds(to: BrowserChromiumHostSelectors.setAppearanceName) else { return }
+        let appearanceName: NSString? = {
+            switch mode {
+            case .dark:
+                return "dark"
+            case .light:
+                return "light"
+            case .system:
+                return nil
+            }
+        }()
+        typealias AppearanceIMP = @convention(c) (AnyObject, Selector, NSString?) -> Void
+        let function: AppearanceIMP = try implementation(
+            for: BrowserChromiumHostSelectors.setAppearanceName,
+            operation: "setBrowserThemeMode"
+        )
+        function(hostObject, BrowserChromiumHostSelectors.setAppearanceName, appearanceName)
+    }
+
+    func setPageZoomFactor(_ pageZoomFactor: CGFloat) throws {
+        typealias ZoomIMP = @convention(c) (AnyObject, Selector, NSNumber) -> Void
+        let function: ZoomIMP = try implementation(
+            for: BrowserChromiumHostSelectors.setPageZoomFactor,
+            operation: "setPageZoomFactor"
+        )
+        function(hostObject, BrowserChromiumHostSelectors.setPageZoomFactor, NSNumber(value: Double(pageZoomFactor)))
+    }
+
+    func addUserScript(_ source: String) throws {
+        typealias ScriptIMP = @convention(c) (AnyObject, Selector, NSString) -> Void
+        let function: ScriptIMP = try implementation(
+            for: BrowserChromiumHostSelectors.addUserScript,
+            operation: "addUserScript"
+        )
+        function(hostObject, BrowserChromiumHostSelectors.addUserScript, source as NSString)
+    }
+
+    func addUserStyle(_ source: String) throws {
+        typealias StyleIMP = @convention(c) (AnyObject, Selector, NSString) -> Void
+        let function: StyleIMP = try implementation(
+            for: BrowserChromiumHostSelectors.addUserStyle,
+            operation: "addUserStyle"
+        )
+        function(hostObject, BrowserChromiumHostSelectors.addUserStyle, source as NSString)
+    }
+
+    private func invokeVoid(selector: Selector, operation: String) throws {
+        typealias VoidIMP = @convention(c) (AnyObject, Selector) -> Void
+        let function: VoidIMP = try implementation(for: selector, operation: operation)
+        function(hostObject, selector)
+    }
+
+    private func implementation<Function>(for selector: Selector, operation: String) throws -> Function {
+        guard hostObject.responds(to: selector),
+              let method = class_getInstanceMethod(type(of: hostObject), selector) else {
+            throw BrowserChromiumHostBridgeError.unsupportedOperation(operation)
+        }
+        return unsafeBitCast(method_getImplementation(method), to: Function.self)
+    }
+}
+
+private enum BrowserChromiumHostSelectors {
+    static let nativeView = NSSelectorFromString("cmuxNativeView")
+    static let currentURL = NSSelectorFromString("cmuxCurrentURL")
+    static let title = NSSelectorFromString("cmuxTitle")
+    static let isLoading = NSSelectorFromString("cmuxIsLoading")
+    static let canGoBack = NSSelectorFromString("cmuxCanGoBack")
+    static let canGoForward = NSSelectorFromString("cmuxCanGoForward")
+    static let estimatedProgress = NSSelectorFromString("cmuxEstimatedProgress")
+    static let pageZoomFactor = NSSelectorFromString("cmuxPageZoomFactor")
+    static let load = NSSelectorFromString("cmuxLoad:")
+    static let reload = NSSelectorFromString("cmuxReload")
+    static let stopLoading = NSSelectorFromString("cmuxStopLoading")
+    static let goBack = NSSelectorFromString("cmuxGoBack")
+    static let goForward = NSSelectorFromString("cmuxGoForward")
+    static let evaluateJavaScript = NSSelectorFromString("cmuxEvaluateJavaScript:completionHandler:")
+    static let takeSnapshot = NSSelectorFromString("cmuxTakeSnapshot:")
+    static let setStateChangedHandler = NSSelectorFromString("cmuxSetStateChangedHandler:")
+    static let setProxyConfiguration = NSSelectorFromString("cmuxSetProxyConfiguration:")
+    static let setAppearanceName = NSSelectorFromString("cmuxSetAppearanceName:")
+    static let setPageZoomFactor = NSSelectorFromString("cmuxSetPageZoomFactor:")
+    static let addUserScript = NSSelectorFromString("cmuxAddUserScript:")
+    static let addUserStyle = NSSelectorFromString("cmuxAddUserStyle:")
+}
+
+protocol BrowserEngineHost: AnyObject {
+    var nativeView: NSView { get }
+    var currentURL: URL? { get }
+    var title: String? { get }
+    var isLoading: Bool { get }
+    var canGoBack: Bool { get }
+    var canGoForward: Bool { get }
+    var estimatedProgress: Double { get }
+    var pageZoomFactor: CGFloat { get }
+
+    func load(_ request: URLRequest) throws
+    func reload() throws
+    func stopLoading() throws
+    func goBack() throws
+    func goForward() throws
+    func evaluateJavaScript(_ script: String, completion: @escaping (Result<Any?, Error>) -> Void) throws
+    func evaluateJavaScript(_ script: String) async throws -> Any?
+    func takeSnapshot(completion: @escaping (NSImage?) -> Void) throws
+    func setProxyConfiguration(_ proxyConfiguration: NSDictionary?) throws
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) throws
+    func setPageZoomFactor(_ pageZoomFactor: CGFloat) throws
+    func addUserScript(_ source: String) throws
+    func addUserStyle(_ source: String) throws
+}
+
+final class BrowserWebKitEngineHost: BrowserEngineHost {
+    let webView: WKWebView
+
+    init(webView: WKWebView) {
+        self.webView = webView
+    }
+
+    var nativeView: NSView { webView }
+    var currentURL: URL? { webView.url }
+    var title: String? { webView.title }
+    var isLoading: Bool { webView.isLoading }
+    var canGoBack: Bool { webView.canGoBack }
+    var canGoForward: Bool { webView.canGoForward }
+    var estimatedProgress: Double { webView.estimatedProgress }
+    var pageZoomFactor: CGFloat { webView.pageZoom }
+
+    func load(_ request: URLRequest) throws {
+        _ = browserLoadRequest(request, in: webView)
+    }
+
+    func reload() throws {
+        webView.reload()
+    }
+
+    func stopLoading() throws {
+        webView.stopLoading()
+    }
+
+    func goBack() throws {
+        webView.goBack()
+    }
+
+    func goForward() throws {
+        webView.goForward()
+    }
+
+    func evaluateJavaScript(_ script: String, completion: @escaping (Result<Any?, Error>) -> Void) throws {
+        webView.evaluateJavaScript(script) { value, error in
+            if let error {
+                completion(.failure(error))
+            } else {
+                completion(.success(value))
+            }
+        }
+    }
+
+    func evaluateJavaScript(_ script: String) async throws -> Any? {
+        try await webView.evaluateJavaScript(script)
+    }
+
+    func takeSnapshot(completion: @escaping (NSImage?) -> Void) throws {
+        let config = WKSnapshotConfiguration()
+        webView.takeSnapshot(with: config) { image, error in
+            if let error = error {
+                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+                completion(nil)
+                return
+            }
+            completion(image)
+        }
+    }
+
+    func setProxyConfiguration(_ proxyConfiguration: NSDictionary?) throws {}
+
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) throws {
+        BrowserThemeSettings.apply(mode, to: webView)
+    }
+
+    func setPageZoomFactor(_ pageZoomFactor: CGFloat) throws {
+        webView.pageZoom = pageZoomFactor
+    }
+
+    func addUserScript(_ source: String) throws {
+        let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        webView.configuration.userContentController.addUserScript(userScript)
+    }
+
+    func addUserStyle(_ source: String) throws {
+        let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        webView.configuration.userContentController.addUserScript(userScript)
+    }
+}
+
+final class BrowserChromiumEngineHost: BrowserEngineHost {
+    let bridge: BrowserChromiumHostBridge
+
+    init(bridge: BrowserChromiumHostBridge) {
+        self.bridge = bridge
+    }
+
+    var nativeView: NSView { bridge.nativeView }
+    var currentURL: URL? { bridge.currentURL }
+    var title: String? { bridge.title }
+    var isLoading: Bool { bridge.isLoading }
+    var canGoBack: Bool { bridge.canGoBack }
+    var canGoForward: Bool { bridge.canGoForward }
+    var estimatedProgress: Double { bridge.estimatedProgress }
+    var pageZoomFactor: CGFloat { bridge.pageZoomFactor }
+
+    func load(_ request: URLRequest) throws {
+        try bridge.load(browserPreparedNavigationRequest(request))
+    }
+
+    func reload() throws {
+        try bridge.reload()
+    }
+
+    func stopLoading() throws {
+        try bridge.stopLoading()
+    }
+
+    func goBack() throws {
+        try bridge.goBack()
+    }
+
+    func goForward() throws {
+        try bridge.goForward()
+    }
+
+    func evaluateJavaScript(_ script: String, completion: @escaping (Result<Any?, Error>) -> Void) throws {
+        try bridge.evaluateJavaScript(script, completion: completion)
+    }
+
+    func evaluateJavaScript(_ script: String) async throws -> Any? {
+        try await bridge.evaluateJavaScript(script)
+    }
+
+    func takeSnapshot(completion: @escaping (NSImage?) -> Void) throws {
+        try bridge.takeSnapshot(completion: completion)
+    }
+
+    func setProxyConfiguration(_ proxyConfiguration: NSDictionary?) throws {
+        try bridge.setProxyConfiguration(proxyConfiguration)
+    }
+
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) throws {
+        try bridge.setBrowserThemeMode(mode)
+    }
+
+    func setPageZoomFactor(_ pageZoomFactor: CGFloat) throws {
+        try bridge.setPageZoomFactor(pageZoomFactor)
+    }
+
+    func addUserScript(_ source: String) throws {
+        try bridge.addUserScript(source)
+    }
+
+    func addUserStyle(_ source: String) throws {
+        try bridge.addUserStyle(source)
+    }
+}
+
+enum BrowserChromiumHostFactoryError: Error, Equatable, CustomStringConvertible {
+    case missingFactoryClass(String)
+    case missingFactoryMethod(String)
+    case factoryReturnedNil(String)
+    case bridgeCreationFailed(String)
+    case bundleLoadFailed(String)
+
+    var description: String {
+        switch self {
+        case .missingFactoryClass(let name):
+            return "Chromium host factory class not found: \(name)"
+        case .missingFactoryMethod(let name):
+            return "Chromium host factory class does not expose the required Objective-C factory method: \(name)"
+        case .factoryReturnedNil(let name):
+            return "Chromium host factory returned nil: \(name)"
+        case .bridgeCreationFailed(let message):
+            return "Chromium host bridge creation failed: \(message)"
+        case .bundleLoadFailed(let message):
+            return "Chromium framework bundle failed to load: \(message)"
+        }
+    }
+}
+
+enum BrowserChromiumHostFactory {
+    static func loadBridge(
+        manifest: BrowserChromiumArtifactManifest,
+        frameworkURL: URL,
+        profileIdentifier: UUID,
+        dataDirectory: URL,
+        proxyConfiguration: NSDictionary?
+    ) throws -> BrowserChromiumHostBridge {
+        if let bundle = Bundle(url: frameworkURL), !bundle.isLoaded {
+            do {
+                try bundle.loadAndReturnError()
+            } catch {
+                throw BrowserChromiumHostFactoryError.bundleLoadFailed(error.localizedDescription)
+            }
+        }
+
+        let factoryClassName = manifest.hostFactoryClassName
+            ?? BrowserChromiumArtifactManifest.hostFactoryClassName
+        guard let factoryClass = NSClassFromString(factoryClassName) else {
+            throw BrowserChromiumHostFactoryError.missingFactoryClass(factoryClassName)
+        }
+        return try makeBridge(
+            factoryClass: factoryClass,
+            factoryClassName: factoryClassName,
+            profileIdentifier: profileIdentifier,
+            dataDirectory: dataDirectory,
+            proxyConfiguration: proxyConfiguration
+        )
+    }
+
+    static func makeBridge(
+        factoryClass: AnyClass,
+        factoryClassName: String,
+        profileIdentifier: UUID,
+        dataDirectory: URL,
+        proxyConfiguration: NSDictionary?
+    ) throws -> BrowserChromiumHostBridge {
+        let selector = BrowserChromiumFactorySelectors.createHost
+        guard let method = class_getClassMethod(factoryClass, selector) else {
+            throw BrowserChromiumHostFactoryError.missingFactoryMethod(factoryClassName)
+        }
+        typealias CreateHostIMP = @convention(c) (AnyClass, Selector, NSString, NSURL, NSDictionary?) -> AnyObject?
+        let function = unsafeBitCast(method_getImplementation(method), to: CreateHostIMP.self)
+        guard let exportedObject = function(
+            factoryClass,
+            selector,
+            profileIdentifier.uuidString as NSString,
+            dataDirectory as NSURL,
+            proxyConfiguration
+        ),
+        let exportedHost = exportedObject as? NSObjectProtocol else {
+            throw BrowserChromiumHostFactoryError.factoryReturnedNil(factoryClassName)
+        }
+        do {
+            return try BrowserChromiumHostBridge(exportedHost: exportedHost)
+        } catch {
+            throw BrowserChromiumHostFactoryError.bridgeCreationFailed(String(describing: error))
+        }
+    }
+}
+
+private enum BrowserChromiumFactorySelectors {
+    static let createHost = NSSelectorFromString("cmuxCreateBrowserHostWithProfileIdentifier:dataDirectory:proxyConfiguration:")
 }
 
 enum GhosttyBackgroundTheme {
@@ -2015,15 +2912,29 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
+    @Published private(set) var browserEngineRuntimeStatus: BrowserEngineRuntimeStatus = BrowserEngineRuntimePolicy.currentStatus()
 
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    private var browserEngineHost: BrowserEngineHost
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
+
+    /// Monotonic identity for the active browser engine host. This changes when
+    /// cmux swaps between the WebKit fallback and a Chromium native view.
+    @Published private(set) var browserEngineHostInstanceID: UUID = UUID()
+
+    var browserEngineNativeView: NSView {
+        browserEngineHost.nativeView
+    }
+
+    var usesChromiumBrowserEngine: Bool {
+        browserEngineRuntimeStatus.kind == .chromium && browserEngineHost is BrowserChromiumEngineHost
+    }
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -2766,6 +3677,122 @@ final class BrowserPanel: Panel, ObservableObject {
         return instanceID == webViewInstanceID
     }
 
+    private static func chromiumDataDirectory(for profileID: UUID) -> URL {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+        let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
+        let namespace = BrowserHistoryStore.normalizedBrowserHistoryNamespaceForBundleIdentifier(bundleId)
+        return appSupport
+            .appendingPathComponent(namespace, isDirectory: true)
+            .appendingPathComponent("chromium_profiles", isDirectory: true)
+            .appendingPathComponent(profileID.uuidString.lowercased(), isDirectory: true)
+    }
+
+    private func installWebKitBrowserEngineHost(
+        fallbackReason: String?,
+        fallbackDiagnostic: String? = nil,
+        manifest: BrowserChromiumArtifactManifest? = nil,
+        reason: String
+    ) {
+        browserEngineHost = BrowserWebKitEngineHost(webView: webView)
+        browserEngineRuntimeStatus = BrowserEngineRuntimeStatus(
+            kind: .webKit,
+            manifest: manifest,
+            fallbackReason: fallbackReason,
+            fallbackDiagnostic: fallbackDiagnostic
+        )
+        browserEngineHostInstanceID = UUID()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.engine.webkit panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) fallback=\(fallbackReason ?? "nil")"
+        )
+#endif
+    }
+
+    private func installPreferredBrowserEngineHost(reason: String) {
+        let status = BrowserEngineRuntimePolicy.currentStatus()
+        guard status.kind == .chromium,
+              let manifest = status.manifest,
+              let frameworkURL = BrowserChromiumArtifactVerifier.defaultFrameworkURL() else {
+            installWebKitBrowserEngineHost(
+                fallbackReason: status.fallbackReason,
+                manifest: status.manifest,
+                reason: reason
+            )
+            return
+        }
+
+        do {
+            let dataDirectory = Self.chromiumDataDirectory(for: profileID)
+            try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+            let bridge = try BrowserChromiumHostFactory.loadBridge(
+                manifest: manifest,
+                frameworkURL: frameworkURL,
+                profileIdentifier: profileID,
+                dataDirectory: dataDirectory,
+                proxyConfiguration: chromiumProxyConfiguration()
+            )
+            bridge.setStateChangedHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.refreshBrowserEngineHostState(reason: "chromiumStateChanged")
+                }
+            }
+            browserEngineHost = BrowserChromiumEngineHost(bridge: bridge)
+            browserEngineRuntimeStatus = status
+            browserEngineHostInstanceID = UUID()
+            applyBrowserThemeModeIfNeeded()
+            refreshBrowserEngineHostState(reason: reason)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.engine.chromium panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) framework=\(frameworkURL.path)"
+            )
+#endif
+        } catch {
+            let diagnostic = BrowserEngineRuntimePolicy.hostCreationFallbackDiagnostic(for: error)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.engine.chromium.failed panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) diagnostic=\(diagnostic)"
+            )
+#endif
+            installWebKitBrowserEngineHost(
+                fallbackReason: "chromium_host_creation_failed",
+                fallbackDiagnostic: diagnostic,
+                manifest: manifest,
+                reason: reason
+            )
+        }
+    }
+
+    private func refreshBrowserEngineHostState(reason: String) {
+        currentURL = Self.remoteProxyDisplayURL(for: browserEngineHost.currentURL)
+        let trimmedTitle = (browserEngineHost.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTitle.isEmpty {
+            pageTitle = trimmedTitle
+        }
+        nativeCanGoBack = browserEngineHost.canGoBack
+        nativeCanGoForward = browserEngineHost.canGoForward
+        estimatedProgress = browserEngineHost.estimatedProgress
+        if usesChromiumBrowserEngine {
+            isLoading = browserEngineHost.isLoading
+        }
+        refreshNavigationAvailability()
+        GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.engine.state panel=\(id.uuidString.prefix(5)) reason=\(reason) " +
+            "kind=\(browserEngineRuntimeStatus.kind.rawValue) " +
+            "url=\(currentURL?.absoluteString ?? "nil") loading=\(isLoading ? 1 : 0) " +
+            "progress=\(String(format: "%.2f", estimatedProgress))"
+        )
+#endif
+    }
+
     init(
         workspaceId: UUID,
         profileID: UUID? = nil,
@@ -2798,6 +3825,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore
         )
         self.webView = webView
+        self.browserEngineHost = BrowserWebKitEngineHost(webView: webView)
         self.insecureHTTPAlertFactory = { NSAlert() }
         applyRemoteProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
@@ -2896,6 +3924,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        installPreferredBrowserEngineHost(reason: "init")
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
         ReactGrabScriptLoader.prefetch()
@@ -2944,6 +3973,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func applyRemoteProxyConfigurationIfAvailable() {
+        defer {
+            try? browserEngineHost.setProxyConfiguration(chromiumProxyConfiguration())
+        }
         guard #available(macOS 14.0, *) else { return }
 
         let store = webView.configuration.websiteDataStore
@@ -2966,6 +3998,22 @@ final class BrowserPanel: Panel, ObservableObject {
         store.proxyConfigurations = [socks, connect]
     }
 
+    private func chromiumProxyConfiguration() -> NSDictionary? {
+        guard let endpoint = remoteProxyEndpoint else { return nil }
+        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
+              endpoint.port > 0,
+              endpoint.port <= 65535 else {
+            return nil
+        }
+        let chromiumHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        return [
+            "proxyServer": "socks5://\(chromiumHost):\(endpoint.port)",
+            "host": host,
+            "port": endpoint.port,
+        ] as NSDictionary
+    }
+
     private func beginDownloadActivity() {
         let apply = {
             self.activeDownloadCount += 1
@@ -2974,7 +4022,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            DispatchQueue.main.async {
+                apply()
+            }
         }
     }
 
@@ -2986,7 +4036,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            DispatchQueue.main.async {
+                apply()
+            }
         }
     }
 
@@ -3075,6 +4127,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
+        installPreferredBrowserEngineHost(reason: "profile_switch")
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
 
@@ -3146,9 +4199,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
+        if let engineURL = Self.remoteProxyDisplayURL(for: browserEngineHost.currentURL),
+           Self.serializableSessionHistoryURLString(engineURL) != nil {
+            return engineURL
         }
         if let currentURL,
            Self.serializableSessionHistoryURLString(currentURL) != nil {
@@ -3425,6 +4478,7 @@ final class BrowserPanel: Panel, ObservableObject {
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
+        installPreferredBrowserEngineHost(reason: "webview_replace.\(reason)")
         shouldRenderWebView = wasRenderable
 
         bindWebView(replacement)
@@ -3475,21 +4529,22 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
+        let contentView = browserEngineNativeView
+        guard let window = contentView.window, !contentView.isHiddenOrHasHiddenAncestor else { return }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
-        if !webView.isLoading {
-            let urlString = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString ?? currentURL?.absoluteString
+        if !browserEngineHost.isLoading {
+            let urlString = Self.remoteProxyDisplayURL(for: browserEngineHost.currentURL)?.absoluteString ?? currentURL?.absoluteString
             if urlString == nil || urlString == "about:blank" {
                 return
             }
         }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if Self.responderChainContains(window.firstResponder, target: contentView) {
             noteWebViewFocused()
             return
         }
-        if window.makeFirstResponder(webView) {
+        if window.makeFirstResponder(contentView) {
             noteWebViewFocused()
         }
     }
@@ -3502,25 +4557,26 @@ final class BrowserPanel: Panel, ObservableObject {
         clearWebViewFocusSuppression()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
 
-        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+        let contentView = browserEngineNativeView
+        guard let window = contentView.window, !contentView.isHiddenOrHasHiddenAncestor else { return false }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if Self.responderChainContains(window.firstResponder, target: contentView) {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             suppressOmnibarAutofocus(for: 1.5)
             noteWebViewFocused()
             return true
         }
 
-        guard window.makeFirstResponder(webView) else { return false }
+        guard window.makeFirstResponder(contentView) else { return false }
         // Prevent omnibar auto-focus from immediately stealing first responder back.
         suppressOmnibarAutofocus(for: 1.5)
         noteWebViewFocused()
 
-        DispatchQueue.main.async { [weak self, weak window, weak webView] in
-            guard let self, let window, let webView else { return }
-            guard webView.window === window else { return }
-            if !Self.responderChainContains(window.firstResponder, target: webView),
-               window.makeFirstResponder(webView) {
+        DispatchQueue.main.async { [weak self, weak window, weak contentView] in
+            guard let self, let window, let contentView else { return }
+            guard contentView.window === window else { return }
+            if !Self.responderChainContains(window.firstResponder, target: contentView),
+               window.makeFirstResponder(contentView) {
                 self.suppressOmnibarAutofocus(for: 1.5)
                 self.noteWebViewFocused()
             }
@@ -3531,8 +4587,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
-        guard let window = webView.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        let contentView = browserEngineNativeView
+        guard let window = contentView.window else { return }
+        if Self.responderChainContains(window.firstResponder, target: contentView) {
             window.makeFirstResponder(nil)
         }
     }
@@ -4002,7 +5059,28 @@ final class BrowserPanel: Panel, ObservableObject {
             historyStore.recordTypedNavigation(url: originalURL)
         }
         navigationDelegate?.lastAttemptedURL = originalURL
-        browserLoadRequest(effectiveRequest, in: webView)
+        do {
+            try browserEngineHost.load(effectiveRequest)
+            refreshBrowserEngineHostState(reason: "load")
+        } catch {
+            handleBrowserEngineHostOperationFailure("load", error: error)
+            if browserEngineRuntimeStatus.kind == .webKit {
+                try? browserEngineHost.load(effectiveRequest)
+            }
+        }
+    }
+
+    private func handleBrowserEngineHostOperationFailure(_ operation: String, error: Error) {
+        browserEngineLogger.error(
+            "Browser engine host \(operation, privacy: .public) failed for panel \(self.id.uuidString, privacy: .public): \(String(describing: error), privacy: .private)"
+        )
+        if browserEngineRuntimeStatus.kind == .chromium {
+            installWebKitBrowserEngineHost(
+                fallbackReason: "browser_engine_operation_failed",
+                manifest: browserEngineRuntimeStatus.manifest,
+                reason: "operation_failed.\(operation)"
+            )
+        }
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -4300,6 +5378,7 @@ extension BrowserPanel {
         )
         webViewInstanceID = UUID()
         webView = replacement
+        installPreferredBrowserEngineHost(reason: "context_reset.\(reason)")
         shouldRenderWebView = false
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
@@ -4382,7 +5461,12 @@ extension BrowserPanel {
             }
 
             if nativeCanGoBack {
-                webView.goBack()
+                do {
+                    try browserEngineHost.goBack()
+                    refreshBrowserEngineHostState(reason: "goBack")
+                } catch {
+                    handleBrowserEngineHostOperationFailure("goBack", error: error)
+                }
                 return
             }
 
@@ -4390,7 +5474,12 @@ extension BrowserPanel {
             return
         }
 
-        webView.goBack()
+        do {
+            try browserEngineHost.goBack()
+            refreshBrowserEngineHostState(reason: "goBack")
+        } catch {
+            handleBrowserEngineHostOperationFailure("goBack", error: error)
+        }
     }
 
     /// Go forward in history
@@ -4400,7 +5489,12 @@ extension BrowserPanel {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
             if nativeCanGoForward {
-                webView.goForward()
+                do {
+                    try browserEngineHost.goForward()
+                    refreshBrowserEngineHostState(reason: "goForward")
+                } catch {
+                    handleBrowserEngineHostOperationFailure("goForward", error: error)
+                }
                 return
             }
 
@@ -4421,7 +5515,12 @@ extension BrowserPanel {
             return
         }
 
-        webView.goForward()
+        do {
+            try browserEngineHost.goForward()
+            refreshBrowserEngineHostState(reason: "goForward")
+        } catch {
+            handleBrowserEngineHostOperationFailure("goForward", error: error)
+        }
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -4499,7 +5598,7 @@ extension BrowserPanel {
     /// Reload the current page
     func reload() {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
-        if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
+        if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: browserEngineHost.currentURL)) == nil {
             let fallbackURL = resolvedCurrentSessionHistoryURL()
                 ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
 
@@ -4513,12 +5612,22 @@ extension BrowserPanel {
                 return
             }
         }
-        webView.reload()
+        do {
+            try browserEngineHost.reload()
+            refreshBrowserEngineHostState(reason: "reload")
+        } catch {
+            handleBrowserEngineHostOperationFailure("reload", error: error)
+        }
     }
 
     /// Stop loading
     func stopLoading() {
-        webView.stopLoading()
+        do {
+            try browserEngineHost.stopLoading()
+            refreshBrowserEngineHostState(reason: "stopLoading")
+        } catch {
+            handleBrowserEngineHostOperationFailure("stopLoading", error: error)
+        }
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
@@ -5102,12 +6211,12 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        applyPageZoom(browserEngineHost.pageZoomFactor + pageZoomStep)
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        applyPageZoom(browserEngineHost.pageZoomFactor - pageZoomStep)
     }
 
     @discardableResult
@@ -5116,7 +6225,7 @@ extension BrowserPanel {
     }
 
     func currentPageZoomFactor() -> CGFloat {
-        webView.pageZoom
+        browserEngineHost.pageZoomFactor
     }
 
     @discardableResult
@@ -5127,20 +6236,25 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
-        let config = WKSnapshotConfiguration()
-        webView.takeSnapshot(with: config) { image, error in
-            if let error = error {
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
-                completion(nil)
-                return
-            }
-            completion(image)
+        do {
+            try browserEngineHost.takeSnapshot(completion: completion)
+        } catch {
+            handleBrowserEngineHostOperationFailure("takeSnapshot", error: error)
+            completion(nil)
         }
     }
 
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script)
+        try await browserEngineHost.evaluateJavaScript(script)
+    }
+
+    func evaluateJavaScript(_ script: String, completion: @escaping (Result<Any?, Error>) -> Void) {
+        do {
+            try browserEngineHost.evaluateJavaScript(script, completion: completion)
+        } catch {
+            completion(.failure(error))
+        }
     }
 
     // MARK: - Find in Page
@@ -5189,7 +6303,7 @@ extension BrowserPanel {
     func findNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript())
+            let result = try? await self.evaluateJavaScript(BrowserFindJavaScript.nextScript())
             self.parseFindResult(result)
         }
     }
@@ -5197,7 +6311,7 @@ extension BrowserPanel {
     func findPrevious() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript())
+            let result = try? await self.evaluateJavaScript(BrowserFindJavaScript.previousScript())
             self.parseFindResult(result)
         }
     }
@@ -5230,7 +6344,7 @@ extension BrowserPanel {
             guard let self else { return }
             let js = BrowserFindJavaScript.searchScript(query: needle)
             do {
-                let result = try await self.webView.evaluateJavaScript(js)
+                let result = try await self.evaluateJavaScript(js)
                 self.parseFindResult(result)
             } catch {
                 NSLog("Find: browser JS search error: %@", error.localizedDescription)
@@ -5238,11 +6352,41 @@ extension BrowserPanel {
         }
     }
 
+    @discardableResult
+    func addPersistentUserScript(_ source: String) -> Bool {
+        do {
+            try browserEngineHost.addUserScript(source)
+            return true
+        } catch {
+            handleBrowserEngineHostOperationFailure("addUserScript", error: error)
+            if browserEngineRuntimeStatus.kind == .webKit {
+                try? browserEngineHost.addUserScript(source)
+                return true
+            }
+            return false
+        }
+    }
+
+    @discardableResult
+    func addPersistentUserStyle(_ source: String) -> Bool {
+        do {
+            try browserEngineHost.addUserStyle(source)
+            return true
+        } catch {
+            handleBrowserEngineHostOperationFailure("addUserStyle", error: error)
+            if browserEngineRuntimeStatus.kind == .webKit {
+                try? browserEngineHost.addUserStyle(source)
+                return true
+            }
+            return false
+        }
+    }
+
     private func executeFindClear() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
+                _ = try await self.evaluateJavaScript(BrowserFindJavaScript.clearScript())
             } catch {
                 NSLog("Find: browser JS clear error: %@", error.localizedDescription)
             }
@@ -5404,7 +6548,7 @@ extension BrowserPanel {
         }
 
         if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+           Self.responderChainContains(window.firstResponder, target: browserEngineNativeView) {
             return .browser(.webView)
         }
 
@@ -5479,7 +6623,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if Self.responderChainContains(responder, target: browserEngineNativeView) {
             return .browser(.webView)
         }
 
@@ -5513,7 +6657,7 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            guard Self.responderChainContains(window.firstResponder, target: browserEngineNativeView) else { return false }
             return window.makeFirstResponder(nil)
         }
     }
@@ -5567,25 +6711,26 @@ extension BrowserPanel {
     }
 
     private func captureAddressBarPageFocusIfNeeded() {
-        webView.evaluateJavaScript(Self.addressBarFocusCaptureScript) { [weak self] result, error in
-#if DEBUG
+        Task { @MainActor [weak self] in
             guard let self else { return }
-            if let error {
+            let result: Any?
+            do {
+                result = try await self.evaluateJavaScript(Self.addressBarFocusCaptureScript)
+            } catch {
+#if DEBUG
                 cmuxDebugLog(
-                    "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
+                    "browser.focus.addressBar.capture panel=\(id.uuidString.prefix(5)) " +
                     "result=error message=\(error.localizedDescription)"
                 )
+#endif
                 return
             }
+#if DEBUG
             let resultValue = (result as? String) ?? "unknown"
             cmuxDebugLog(
-                "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
+                "browser.focus.addressBar.capture panel=\(id.uuidString.prefix(5)) " +
                 "result=\(resultValue)"
             )
-#else
-            _ = self
-            _ = result
-            _ = error
 #endif
         }
     }
@@ -5639,7 +6784,7 @@ extension BrowserPanel {
             completion(false)
             return
         }
-        webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
+        Task { @MainActor [weak self] in
             guard let self else {
                 completion(false)
                 return
@@ -5647,6 +6792,16 @@ extension BrowserPanel {
             guard generation == self.addressBarFocusRestoreGeneration else {
                 completion(false)
                 return
+            }
+
+            let result: Any?
+            let error: Error?
+            do {
+                result = try await self.evaluateJavaScript(Self.addressBarFocusRestoreScript)
+                error = nil
+            } catch let caughtError {
+                result = nil
+                error = caughtError
             }
 
             let status = Self.addressBarPageFocusRestoreStatus(from: result, error: error)
@@ -5699,13 +6854,13 @@ extension BrowserPanel {
     }
 
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
-    /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
+    /// `currentURL` can lag behind navigation changes, so prefer the live engine URL.
     func preferredURLStringForOmnibar() -> String? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
+        if let engineURL = Self.remoteProxyDisplayURL(for: browserEngineHost.currentURL)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
-           !webViewURL.isEmpty,
-           webViewURL != blankURLString {
-            return webViewURL
+           !engineURL.isEmpty,
+           engineURL != blankURLString {
+            return engineURL
         }
 
         if let current = currentURL?.absoluteString
@@ -5719,9 +6874,9 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
-        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
-            return webViewURL
+        if let engineURL = Self.remoteProxyDisplayURL(for: browserEngineHost.currentURL),
+           Self.serializableSessionHistoryURLString(engineURL) != nil {
+            return engineURL
         }
         if let currentURL,
            Self.serializableSessionHistoryURLString(currentURL) != nil {
@@ -5781,6 +6936,7 @@ extension BrowserPanel {
 private extension BrowserPanel {
     func applyBrowserThemeModeIfNeeded() {
         BrowserThemeSettings.apply(browserThemeMode, to: webView)
+        try? browserEngineHost.setBrowserThemeMode(browserThemeMode)
     }
 
     func scheduleDeveloperToolsRestoreRetry() {
@@ -5893,11 +7049,20 @@ private extension BrowserPanel {
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
-        if abs(webView.pageZoom - clamped) < 0.0001 {
+        if abs(browserEngineHost.pageZoomFactor - clamped) < 0.0001 {
             return false
         }
-        webView.pageZoom = clamped
-        return true
+        do {
+            try browserEngineHost.setPageZoomFactor(clamped)
+            return true
+        } catch {
+            handleBrowserEngineHostOperationFailure("setPageZoomFactor", error: error)
+            if browserEngineRuntimeStatus.kind == .webKit {
+                try? browserEngineHost.setPageZoomFactor(clamped)
+                return true
+            }
+            return false
+        }
     }
 
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
