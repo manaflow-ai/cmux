@@ -147,10 +147,6 @@ final class BackgroundWorkspacePrimeCoordinator {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .surfaceReady
         }
-        guard workspace.needsBackgroundPrimeTerminalSurfaceStart() else {
-            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .surfaceReady
-        }
 
         tabManager.retainBackgroundWorkspaceMount(for: workspaceId)
 
@@ -195,10 +191,6 @@ final class BackgroundWorkspacePrimeCoordinator {
             return .completed(reason: .noSurfaceWork)
         }
         guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
-            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .completed(reason: .surfaceReady)
-        }
-        guard workspace.needsBackgroundPrimeTerminalSurfaceStart() else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .surfaceReady)
         }
