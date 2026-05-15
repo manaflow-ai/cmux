@@ -1165,6 +1165,100 @@ private struct WorkspaceDockPaneView: View {
 }
 
 /// View shown for empty panes
+private enum EmptyPaneCreationAction: Hashable, Identifiable {
+    case builtIn(CmuxSurfaceTabBarBuiltInAction)
+    case rightSidebarTool(RightSidebarMode)
+
+    static var all: [EmptyPaneCreationAction] {
+        [
+            .builtIn(.newTerminal),
+            .builtIn(.newBrowser),
+        ] + RightSidebarMode.paneModes.map { .rightSidebarTool($0) }
+    }
+
+    var id: String {
+        switch self {
+        case .builtIn(let action):
+            return action.configID
+        case .rightSidebarTool(let mode):
+            return "rightSidebarTool.\(mode.rawValue)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .builtIn(.newTerminal):
+            return String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal")
+        case .builtIn(.newBrowser):
+            return String(localized: "emptyPanel.action.browser", defaultValue: "Browser")
+        case .builtIn:
+            return ""
+        case .rightSidebarTool(let mode):
+            return mode.label
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .builtIn(.newTerminal):
+            return "terminal.fill"
+        case .builtIn(let action):
+            return action.defaultIcon
+        case .rightSidebarTool(let mode):
+            return mode.symbolName
+        }
+    }
+
+    func shortcut(settingsRevision: UInt64) -> StoredShortcut? {
+        _ = settingsRevision
+        switch self {
+        case .builtIn(.newTerminal):
+            return KeyboardShortcutSettings.shortcut(for: .newSurface)
+        case .builtIn(.newBrowser):
+            return KeyboardShortcutSettings.shortcut(for: .openBrowser)
+        case .builtIn, .rightSidebarTool:
+            return nil
+        }
+    }
+
+    var debugName: String {
+        switch self {
+        case .builtIn(.newTerminal):
+            return "newTerminal"
+        case .builtIn(.newBrowser):
+            return "newBrowser"
+        case .builtIn(let action):
+            return action.configID
+        case .rightSidebarTool(let mode):
+            return "rightSidebarTool.\(mode.rawValue)"
+        }
+    }
+
+    @MainActor
+    func perform(
+        workspace: Workspace,
+        paneId: PaneID,
+        controller: BonsplitController?
+    ) -> Bool {
+        (controller ?? workspace.bonsplitController).focusPane(paneId)
+        switch self {
+        case .builtIn(.newTerminal):
+            return workspace.newTerminalSurface(inPane: paneId, controller: controller, focus: true) != nil
+        case .builtIn(.newBrowser):
+            return workspace.newBrowserSurface(inPane: paneId, controller: controller, focus: true) != nil
+        case .builtIn:
+            return false
+        case .rightSidebarTool(let mode):
+            return workspace.newRightSidebarToolSurface(
+                inPane: paneId,
+                controller: controller,
+                mode: mode,
+                focus: true
+            ) != nil
+        }
+    }
+}
+
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
@@ -1190,60 +1284,47 @@ struct EmptyPanelView: View {
         }
     }
 
-    private func focusPane() {
-        (controller ?? workspace.bonsplitController).focusPane(paneId)
-    }
-
-    private func createTerminal() {
-        #if DEBUG
-        cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
-        #endif
-        focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId, controller: controller)
-    }
-
-    private func createBrowser() {
-        #if DEBUG
-        cmuxDebugLog("emptyPane.newBrowser pane=\(paneId.id.uuidString.prefix(5))")
-        #endif
-        focusPane()
-        _ = workspace.newBrowserSurface(inPane: paneId, controller: controller)
-    }
-
-    private var newSurfaceShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .newSurface)
-    }
-
-    private var openBrowserShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .openBrowser)
+    private var actionColumns: [GridItem] {
+        [
+            GridItem(
+                .adaptive(minimum: 108, maximum: 156),
+                spacing: 10,
+                alignment: .center
+            )
+        ]
     }
 
     @ViewBuilder
     private func emptyPaneActionButton(
-        title: String,
-        systemImage: String,
-        shortcut: StoredShortcut,
-        action: @escaping () -> Void
+        for action: EmptyPaneCreationAction
     ) -> some View {
-        if let key = shortcut.keyEquivalent {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
+        let shortcut = action.shortcut(settingsRevision: keyboardShortcutSettingsObserver.revision)
+        let button = Button {
+            #if DEBUG
+            cmuxDebugLog("emptyPane.\(action.debugName) pane=\(paneId.id.uuidString.prefix(5))")
+            #endif
+            if !action.perform(workspace: workspace, paneId: paneId, controller: controller) {
+                NSSound.beep()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Label(action.title, systemImage: action.systemImage)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                if let shortcut {
                     ShortcutHint(text: shortcut.displayString)
                 }
             }
-            .buttonStyle(.borderedProminent)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("EmptyPanel.action.\(action.id)")
+        .safeHelp(action.title)
+
+        if let shortcut, let key = shortcut.keyEquivalent {
+            button
             .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
-            Button(action: action) {
-                HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
-                }
-            }
-            .buttonStyle(.borderedProminent)
+            button
         }
     }
 
@@ -1257,21 +1338,12 @@ struct EmptyPanelView: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                emptyPaneActionButton(
-                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
-                    systemImage: "terminal.fill",
-                    shortcut: newSurfaceShortcut,
-                    action: createTerminal
-                )
-
-                emptyPaneActionButton(
-                    title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+            LazyVGrid(columns: actionColumns, spacing: 10) {
+                ForEach(EmptyPaneCreationAction.all) { action in
+                    emptyPaneActionButton(for: action)
+                }
             }
+            .frame(maxWidth: 620)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))

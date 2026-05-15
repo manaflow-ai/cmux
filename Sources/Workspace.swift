@@ -11116,6 +11116,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openOrFocusRightSidebarToolSurface(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         mode: RightSidebarMode,
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
@@ -11130,18 +11131,20 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return toolPanel
         }
-        return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
+        return newRightSidebarToolSurface(inPane: paneId, controller: targetController, mode: mode, focus: focus)
     }
 
     @discardableResult
     func newRightSidebarToolSurface(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         mode: RightSidebarMode,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
         guard mode.canOpenAsPane else { return nil }
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let controller = targetController ?? bonsplitController(containingPane: paneId) ?? bonsplitController
+        let shouldFocusNewTab = focus ?? (controller.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -11149,7 +11152,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[toolPanel.id] = toolPanel
         panelTitles[toolPanel.id] = toolPanel.displayTitle
 
-        guard let newTabId = bonsplitController.createTab(
+        guard let newTabId = controller.createTab(
             title: toolPanel.displayTitle,
             icon: toolPanel.displayIcon,
             kind: SurfaceKind.rightSidebarTool,
@@ -11165,12 +11168,15 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceIdToPanelId[newTabId] = toolPanel.id
         if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+            _ = controller.reorderTab(newTabId, toIndex: targetIndex)
         }
         publishCmuxSurfaceCreated(toolPanel.id, paneId: paneId, kind: "right_sidebar_tool", origin: "right_sidebar_tool_tab", focused: shouldFocusNewTab)
 
         if shouldFocusNewTab {
-            focusPanel(toolPanel.id)
+            controller.focusPane(paneId)
+            controller.selectTab(newTabId)
+            toolPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId, controller: controller)
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
