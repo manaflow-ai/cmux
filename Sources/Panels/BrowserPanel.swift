@@ -1037,6 +1037,8 @@ enum BrowserFileSystemAccessBridge {
               for (const extension of extensions) {
                 pushToken(extension);
               }
+            } else {
+              pushToken(extensions);
             }
           }
         }
@@ -1094,6 +1096,11 @@ enum BrowserFileSystemAccessBridge {
         return handle;
       };
 
+      const filePickerDismissedError = () => makeDOMException(
+        "AbortError",
+        "The file picker was dismissed."
+      );
+
       const cleanupInput = (input) => {
         if (input && input.parentNode) {
           input.parentNode.removeChild(input);
@@ -1117,29 +1124,67 @@ enum BrowserFileSystemAccessBridge {
         input.tabIndex = -1;
 
         let settled = false;
+        let focusFallbackScheduled = false;
+        let focusFallbackTimer = null;
+        const currentFiles = () => Array.from(input.files || []);
+        const cleanup = () => {
+          if (focusFallbackTimer !== null) {
+            clearTimeout(focusFallbackTimer);
+            focusFallbackTimer = null;
+          }
+          input.removeEventListener("change", handleChange);
+          input.removeEventListener("cancel", handleCancel);
+          window.removeEventListener("focus", handleWindowFocus, true);
+          cleanupInput(input);
+        };
         const settle = (callback) => {
           if (settled) {
             return;
           }
           settled = true;
-          cleanupInput(input);
+          cleanup();
           callback();
         };
 
-        input.addEventListener("change", () => {
-          const files = Array.from(input.files || []);
-          settle(() => {
-            if (files.length === 0) {
-              reject(makeDOMException("AbortError", "The file picker was dismissed."));
-            } else {
-              resolve(files.map(makeFileHandle));
-            }
-          });
-        }, { once: true });
+        const resolveFiles = () => {
+          const files = currentFiles();
+          settle(() => resolve(files.map(makeFileHandle)));
+        };
 
-        input.addEventListener("cancel", () => {
-          settle(() => reject(makeDOMException("AbortError", "The file picker was dismissed.")));
-        }, { once: true });
+        const dismissPicker = () => {
+          settle(() => reject(filePickerDismissedError()));
+        };
+
+        function handleChange() {
+          resolveFiles();
+        }
+
+        function handleCancel() {
+          dismissPicker();
+        }
+
+        function handleWindowFocus() {
+          if (settled || focusFallbackScheduled) {
+            return;
+          }
+          focusFallbackScheduled = true;
+          // Defer one turn so a selection-triggered change event can settle first.
+          focusFallbackTimer = setTimeout(() => {
+            focusFallbackTimer = null;
+            if (settled) {
+              return;
+            }
+            if (currentFiles().length > 0) {
+              resolveFiles();
+            } else {
+              dismissPicker();
+            }
+          }, 0);
+        }
+
+        input.addEventListener("change", handleChange);
+        input.addEventListener("cancel", handleCancel);
+        window.addEventListener("focus", handleWindowFocus, true);
 
         try {
           (document.body || document.documentElement).appendChild(input);
