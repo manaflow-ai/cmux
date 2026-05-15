@@ -803,6 +803,24 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testPendingActivationRebasesWhenIndexReadyRefreshRestartsSearch() {
+        XCTAssertEqual(
+            ContentView.commandPalettePendingActivation(
+                .selected(requestID: 41, fallbackSelectedIndex: 2, preferredCommandID: "command.2"),
+                rebasedTo: 42
+            ),
+            .selected(requestID: 42, fallbackSelectedIndex: 2, preferredCommandID: "command.2")
+        )
+        XCTAssertEqual(
+            ContentView.commandPalettePendingActivation(
+                .command(requestID: 41, commandID: "command.1"),
+                rebasedTo: 42
+            ),
+            .command(requestID: 42, commandID: "command.1")
+        )
+        XCTAssertNil(ContentView.commandPalettePendingActivation(nil, rebasedTo: 42))
+    }
+
     func testSelectionAnchorTracksVisiblePendingSelection() {
         let resultIDs = ["command.0", "command.1", "command.2"]
         let visibleAnchor = ContentView.commandPaletteSelectionAnchorCommandID(

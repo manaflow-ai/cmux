@@ -5146,7 +5146,12 @@ struct ContentView: View {
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
-        if !preservePendingActivation {
+        if preservePendingActivation {
+            commandPalettePendingActivation = Self.commandPalettePendingActivation(
+                commandPalettePendingActivation,
+                rebasedTo: requestID
+            )
+        } else {
             commandPalettePendingActivation = nil
         }
         cancelCommandPaletteSearch()
@@ -7596,6 +7601,24 @@ struct ContentView: View {
             return requestID
         case .command(let requestID, _):
             return requestID
+        case nil:
+            return nil
+        }
+    }
+
+    static func commandPalettePendingActivation(
+        _ pendingActivation: CommandPalettePendingActivation?,
+        rebasedTo requestID: UInt64
+    ) -> CommandPalettePendingActivation? {
+        switch pendingActivation {
+        case .selected(_, let fallbackSelectedIndex, let preferredCommandID):
+            return .selected(
+                requestID: requestID,
+                fallbackSelectedIndex: fallbackSelectedIndex,
+                preferredCommandID: preferredCommandID
+            )
+        case .command(_, let commandID):
+            return .command(requestID: requestID, commandID: commandID)
         case nil:
             return nil
         }
