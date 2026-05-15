@@ -284,6 +284,208 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancellationChecks, 4)
     }
 
+    func testExactForkQueryPinsForkRightBeforeOtherForkCommands() {
+        let entries = [
+            FixtureEntry(
+                id: "palette.forkAgentConversationLeft",
+                rank: 0,
+                title: "Fork Conversation to the Left",
+                searchableTexts: ["Fork Conversation to the Left", "Terminal", "fork", "left"]
+            ),
+            FixtureEntry(
+                id: "palette.forkAgentConversationRight",
+                rank: 4,
+                title: "Fork Conversation to the Right",
+                searchableTexts: ["Fork Conversation to the Right", "Terminal", "fork", "right"]
+            ),
+            FixtureEntry(
+                id: "palette.forkAgentConversationNewWorkspace",
+                rank: 1,
+                title: "Fork Conversation to New Workspace",
+                searchableTexts: ["Fork Conversation to New Workspace", "Workspace", "fork", "new", "workspace"]
+            ),
+        ]
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+
+        let results = CommandPaletteSearchEngine.search(
+            entries: corpus,
+            query: "fork"
+        ) { commandId, _ in
+            ContentView.commandPaletteForkPriorityBoost(commandId: commandId, query: "fork")
+        }
+
+        XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversationRight")
+    }
+
+    func testForkableAgentCacheKeepsPanelVisibleWithoutFallbackSnapshot() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                fallbackSnapshot: nil
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                fallbackSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: UUID(),
+                supportedPanelKeys: [supportedKey],
+                fallbackSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: UUID(),
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                fallbackSnapshot: nil
+            )
+        )
+    }
+
+    func testForkableAgentFallbackSnapshotUsesSynchronousSupportOnly() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let codex = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session",
+            workingDirectory: nil,
+            launchCommand: nil
+        )
+        let directOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omoOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "omo-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omo",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: ["/usr/local/bin/cmux", "omo"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                fallbackSnapshot: codex
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                fallbackSnapshot: directOpenCode
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                fallbackSnapshot: omoOpenCode
+            )
+        )
+    }
+
+    func testForkableAgentCacheDoesNotOverrideUnsupportedCurrentSnapshot() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let unsupported = SessionRestorableAgentSnapshot(
+            kind: .custom("unsupported-agent"),
+            sessionId: "unsupported-session",
+            workingDirectory: nil,
+            launchCommand: nil
+        )
+
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                fallbackSnapshot: unsupported
+            )
+        )
+    }
+
+    func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let directOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                fallbackSnapshot: directOpenCode
+            )
+        )
+    }
+
     func testCommandPreviewSearchUsesFullCommandCorpus() {
         let entries = [
             FixtureEntry(

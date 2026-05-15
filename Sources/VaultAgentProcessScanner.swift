@@ -1,14 +1,20 @@
 import Foundation
+import SQLite3
 
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
-        guard !registry.registrations.isEmpty else { return [:] }
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var resolved = processDetectedOpenCodeSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            fileManager: fileManager
+        )
+
+        guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
@@ -71,6 +77,218 @@ extension RestorableAgentSessionIndex {
         return resolved
     }
 
+    static func processLooksLikeOpenCode(
+        processName: String,
+        processPath: String?,
+        arguments: [String]
+    ) -> Bool {
+        VaultObservedAgentProcess(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: [:]
+        ).isOpenCodeProcess
+    }
+
+    static func openCodeExecutablePathForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        return openCodeExecutablePath(observed: observed, environment: environment)
+    }
+
+    static func openCodeFallbackSessionIdForProcess(
+        arguments: [String],
+        latestSessionIdForSolePanel: String?,
+        sameWorkingDirectoryPanelCount: Int
+    ) -> String? {
+        if let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s") {
+            return explicitSessionId
+        }
+        guard sameWorkingDirectoryPanelCount == 1 else { return nil }
+        return latestSessionIdForSolePanel
+    }
+
+    private static func processDetectedOpenCodeSnapshots(
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval,
+        fileManager: FileManager
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var sessionByWorkingDirectory: [String: String?] = [:]
+        var openCodeProcesses: [
+            (
+                panelKey: PanelKey,
+                observed: VaultObservedAgentProcess,
+                environment: [String: String],
+                workingDirectory: String?,
+                workingDirectoryKey: String
+            )
+        ] = []
+        var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard observed.isOpenCodeProcess else { continue }
+
+            let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
+            let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
+            let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            openCodeProcesses.append((
+                panelKey: panelKey,
+                observed: observed,
+                environment: processArguments.environment,
+                workingDirectory: cwd,
+                workingDirectoryKey: cwdKey
+            ))
+            panelKeysByWorkingDirectory[cwdKey, default: []].insert(panelKey)
+        }
+
+        for process in openCodeProcesses {
+            let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
+            let hasExplicitSessionId = process.observed.arguments.value(afterOption: "--session") != nil ||
+                process.observed.arguments.value(afterOption: "-s") != nil
+            let latestSessionId: String?
+            if hasExplicitSessionId || sameWorkingDirectoryPanelCount != 1 {
+                latestSessionId = nil
+            } else if let cached = sessionByWorkingDirectory[process.workingDirectoryKey] {
+                latestSessionId = cached
+            } else {
+                latestSessionId = latestOpenCodeSessionId(
+                    workingDirectory: process.workingDirectory,
+                    fileManager: fileManager
+                )
+                sessionByWorkingDirectory[process.workingDirectoryKey] = latestSessionId
+            }
+            guard let sessionId = openCodeFallbackSessionIdForProcess(
+                arguments: process.observed.arguments,
+                latestSessionIdForSolePanel: latestSessionId,
+                sameWorkingDirectoryPanelCount: sameWorkingDirectoryPanelCount
+            ) else { continue }
+
+            let executablePath = openCodeExecutablePath(
+                observed: process.observed,
+                environment: process.environment
+            )
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .opencode,
+                sessionId: sessionId,
+                workingDirectory: process.workingDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "opencode",
+                    executablePath: executablePath,
+                    arguments: [executablePath],
+                    workingDirectory: process.workingDirectory,
+                    environment: process.observed.environment,
+                    capturedAt: capturedAt,
+                    source: "process"
+                )
+            )
+            resolved[process.panelKey] = (
+                snapshot: snapshot,
+                updatedAt: capturedAt
+            )
+        }
+
+        return resolved
+    }
+
+    private static func openCodeExecutablePath(
+        observed: VaultObservedAgentProcess,
+        environment: [String: String]
+    ) -> String {
+        if let argumentExecutable = observed.arguments.first(where: { argument in
+            let basename = (argument as NSString).lastPathComponent.lowercased()
+            return basename == "opencode" || basename == "opencode-ai"
+        }) {
+            return argumentExecutable
+        }
+        for path in (environment["PATH"] ?? "").split(separator: ":") {
+            let candidate = URL(fileURLWithPath: String(path), isDirectory: true)
+                .appendingPathComponent("opencode", isDirectory: false)
+                .path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return "opencode"
+    }
+
+    private static func latestOpenCodeSessionId(
+        workingDirectory: String?,
+        fileManager: FileManager
+    ) -> String? {
+        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        do {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-process") else {
+                return nil
+            }
+            snapshot = madeSnapshot
+        } catch {
+            return nil
+        }
+        defer { snapshot.remove() }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        defer { sqlite3_close(db) }
+
+        let cwd = normalized(workingDirectory).map { ($0 as NSString).standardizingPath }
+        let sql: String
+        if cwd != nil {
+            sql = """
+                SELECT id FROM session
+                WHERE directory = ?
+                ORDER BY time_updated DESC
+                LIMIT 1
+                """
+        } else {
+            sql = """
+                SELECT id FROM session
+                ORDER BY time_updated DESC
+                LIMIT 1
+                """
+        }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        if let cwd {
+            let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+            sqlite3_bind_text(stmt, 1, cwd, -1, SQLITE_TRANSIENT_FN)
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let sessionId = SessionIndexStore.sqliteText(stmt, 0),
+              !sessionId.isEmpty else {
+            return nil
+        }
+        return sessionId
+    }
+
     private static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
@@ -93,6 +311,21 @@ private struct VaultObservedAgentProcess: Sendable {
         if let first = arguments.first, !first.isEmpty { names.append((first as NSString).lastPathComponent) }
         var seen = Set<String>()
         return names.filter { seen.insert($0).inserted }
+    }
+
+    var isOpenCodeProcess: Bool {
+        executableBasenames.contains { basename in
+            let normalized = basename.lowercased()
+            return normalized == "opencode" ||
+                normalized == ".opencode" ||
+                normalized == "opencode-ai"
+        } || arguments.contains { argument in
+            let normalized = argument.lowercased()
+            let basename = (normalized as NSString).lastPathComponent
+            return basename == "opencode" ||
+                basename == ".opencode" ||
+                normalized.contains("opencode-ai")
+        }
     }
 }
 

@@ -1899,6 +1899,312 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
+        let claude = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+            workingDirectory: "/Users/lawrence/fun",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-load-development-channels",
+                    "server:custom-dev-channel",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "SHELL": "/bin/zsh"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let claudeFork = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-fork-child",
+            workingDirectory: "/Users/lawrence/fun",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+                    "--fork-session",
+                    "--model",
+                    "sonnet",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let codex = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--ask-for-approval",
+                    "never",
+                    "--search",
+                    "--cd",
+                    "/Users/example/repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let codexFork = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e1eca-ee32-7001-ab30-edcae57430bb",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "stale fork prompt",
+                    "--search"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let directOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "direct-opencode-session-456",
+            workingDirectory: "/tmp/direct opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--session",
+                    "old-session",
+                    "--prompt",
+                    "old prompt",
+                    "--port",
+                    "4096",
+                    "/tmp/direct opencode repo",
+                    "initial prompt"
+                ],
+                workingDirectory: "/tmp/direct opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let directOpenCodeFork = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "direct-opencode-child-session",
+            workingDirectory: "/tmp/direct opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--session",
+                    "direct-opencode-session-456",
+                    "--fork",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--port",
+                    "4096",
+                    "/tmp/direct opencode repo"
+                ],
+                workingDirectory: "/tmp/direct opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omoOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omo",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "omo",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo",
+                    "initial prompt"
+                ],
+                workingDirectory: "/tmp/opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omoOpenCodeFork = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-child-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omo",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "omo",
+                    "--session",
+                    "opencode-session-123",
+                    "--fork",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo"
+                ],
+                workingDirectory: "/tmp/opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let unsupported = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "gemini-session",
+            workingDirectory: "/tmp/gemini repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "gemini",
+                executablePath: "gemini",
+                arguments: ["gemini"],
+                workingDirectory: "/tmp/gemini repo",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            claude.forkCommand,
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
+        )
+        XCTAssertEqual(
+            claudeFork.forkCommand,
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'"
+        )
+        XCTAssertEqual(
+            codex.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951'"
+        )
+        XCTAssertEqual(
+            codexFork.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search' '019e1eca-ee32-7001-ab30-edcae57430bb'"
+        )
+        XCTAssertEqual(
+            directOpenCode.forkCommand,
+            "cd '/tmp/direct opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+        )
+        XCTAssertEqual(
+            directOpenCodeFork.forkCommand,
+            "cd '/tmp/direct opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+        )
+        XCTAssertEqual(
+            omoOpenCode.forkCommand,
+            "cd '/tmp/opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+        )
+        XCTAssertEqual(
+            omoOpenCodeFork.forkCommand,
+            "cd '/tmp/opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+        )
+        XCTAssertNil(unsupported.forkCommand)
+    }
+
+    func testOpenCodeForkSupportRequiresVersionWithForkFix() {
+        XCTAssertFalse(AgentForkSupport.openCodeVersionSupportsFork("opencode 1.14.48"))
+        XCTAssertTrue(AgentForkSupport.openCodeVersionSupportsFork("opencode 1.14.50"))
+        XCTAssertTrue(AgentForkSupport.openCodeVersionSupportsFork("opencode version 1.15.0"))
+        XCTAssertFalse(AgentForkSupport.openCodeVersionSupportsFork("not a version"))
+    }
+
+    func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: ".opencode",
+                processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
+                arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
+                environment: [:]
+            ),
+            "/Users/lawrence/.bun/bin/opencode"
+        )
+    }
+
+    func testProcessDetectedOpenCodeSessionFallbackAvoidsAmbiguousSameDirectoryPanels() {
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-explicit"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 2
+            ),
+            "ses-explicit"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-latest"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 2
+            )
+        )
+    }
+
     func testClaudeTeamsResumeCommandPreservesRemoteControlLauncher() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,

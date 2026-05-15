@@ -13224,6 +13224,70 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
+    @discardableResult
+    func forkAgentConversationToRight(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> TerminalPanel? {
+        forkAgentConversation(
+            fromPanelId: panelId,
+            snapshot: snapshot,
+            direction: .right,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        )
+    }
+
+    @discardableResult
+    func forkAgentConversation(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        direction: SplitDirection,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> TerminalPanel? {
+        guard panels[panelId] is TerminalPanel,
+              let paneId = paneId(forPanelId: panelId),
+              let startupInput = snapshot.forkStartupInput(
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory
+              ) else {
+            return nil
+        }
+
+        clearSplitZoom()
+        return splitPaneWithNewTerminal(
+            targetPane: paneId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            workingDirectory: forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot),
+            initialInput: startupInput
+        )
+    }
+
+    func forkAgentWorkingDirectory(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> String? {
+        Self.firstNonEmptyPath([
+            snapshot.workingDirectory,
+            panelDirectories[panelId],
+            terminalPanel(for: panelId)?.requestedWorkingDirectory
+        ])
+    }
+
+    private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
         // Session-index drag → spawn a brand new terminal at the destination instead
         // of moving an existing tab.

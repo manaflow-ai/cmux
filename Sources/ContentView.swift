@@ -1117,6 +1117,11 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
+    @State private var commandPaletteForkableAgentActivePanelKey: String?
+    @State private var commandPaletteForkableAgentProbeKey: String?
+    @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
+    @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
+    @State private var commandPaletteForkableAgentAvailabilityTask: Task<Void, Never>?
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -1468,6 +1473,7 @@ struct ContentView: View {
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
         static let panelHasPane = "panel.hasPane"
+        static let panelHasForkableAgent = "panel.hasForkableAgent"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -5050,6 +5056,7 @@ struct ContentView: View {
         if commandPaletteTerminalOpenTargetAvailability != terminalOpenTargets {
             commandPaletteTerminalOpenTargetAvailability = terminalOpenTargets
         }
+        refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: scope)
         let commandsContext = scope == .commands
             ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
             : nil
@@ -5104,7 +5111,7 @@ struct ContentView: View {
                     queryIsEmpty: queryIsEmpty,
                     history: usageHistory,
                     now: historyTimestamp
-                )
+                ) + Self.commandPaletteForkPriorityBoost(commandId: commandId, query: query)
             },
             shouldCancel: shouldCancel
         )
@@ -5116,6 +5123,14 @@ struct ContentView: View {
                 titleMatchIndices: result.titleMatchIndices
             )
         }
+    }
+
+    nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
+        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
+              commandId == "palette.forkAgentConversationRight" else {
+            return 0
+        }
+        return 10_000
     }
 
     private static func commandPaletteMaterializedSearchResults(
@@ -5866,6 +5881,166 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
+    static func commandPaletteForkableAgentPanelKey(workspaceId: UUID, panelId: UUID) -> String {
+        "\(workspaceId.uuidString):\(panelId.uuidString)"
+    }
+
+    private enum CommandPaletteForkSnapshotAvailability {
+        case unsupported
+        case supportedWithoutProbe
+        case requiresProbe
+    }
+
+    private static func commandPaletteSnapshotForkAvailability(
+        _ snapshot: SessionRestorableAgentSnapshot
+    ) -> CommandPaletteForkSnapshotAvailability {
+        guard snapshot.forkCommand != nil else { return .unsupported }
+        switch snapshot.kind {
+        case .claude, .codex:
+            return .supportedWithoutProbe
+        case .opencode:
+            return snapshot.launchCommand?.launcher == "omo" ? .supportedWithoutProbe : .requiresProbe
+        default:
+            return .unsupported
+        }
+    }
+
+    static func commandPalettePanelHasForkableAgent(
+        workspaceId: UUID,
+        panelId: UUID,
+        supportedPanelKeys: Set<String>,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?
+    ) -> Bool {
+        let panelKey = commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        if supportedPanelKeys.contains(panelKey) {
+            if let fallbackSnapshot {
+                return commandPaletteSnapshotForkAvailability(fallbackSnapshot) != .unsupported
+            }
+            return true
+        }
+        if let fallbackSnapshot {
+            return commandPaletteSnapshotForkAvailability(fallbackSnapshot) == .supportedWithoutProbe
+        }
+        return false
+    }
+
+    private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
+        guard scope == .commands,
+              let panelContext = focusedPanelContext,
+              panelContext.panel.panelType == .terminal else {
+            commandPaletteForkableAgentActivePanelKey = nil
+            cancelCommandPaletteForkableAgentAvailabilityProbe()
+            return
+        }
+
+        let workspaceId = panelContext.workspace.id
+        let panelId = panelContext.panelId
+        let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
+        let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
+        commandPaletteForkableAgentActivePanelKey = panelKey
+        let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+
+        if let fallbackSnapshot {
+            switch Self.commandPaletteSnapshotForkAvailability(fallbackSnapshot) {
+            case .supportedWithoutProbe:
+                commandPaletteForkableAgentAvailabilityTask?.cancel()
+                commandPaletteForkableAgentAvailabilityTask = nil
+                commandPaletteForkableAgentProbeKey = nil
+                commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
+                return
+            case .unsupported:
+                commandPaletteForkableAgentAvailabilityTask?.cancel()
+                commandPaletteForkableAgentAvailabilityTask = nil
+                commandPaletteForkableAgentProbeKey = nil
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                return
+            case .requiresProbe:
+                if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey), !panelChanged {
+                    return
+                }
+                startCommandPaletteForkableAgentAvailabilityProbe(
+                    panelKey: panelKey,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    fallbackSnapshot: fallbackSnapshot
+                )
+                return
+            }
+        }
+
+        if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey), !panelChanged {
+            return
+        }
+
+        startCommandPaletteForkableAgentAvailabilityProbe(
+            panelKey: panelKey,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: nil
+        )
+    }
+
+    private func startCommandPaletteForkableAgentAvailabilityProbe(
+        panelKey: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?
+    ) {
+        guard commandPaletteForkableAgentProbeKey != panelKey else { return }
+        commandPaletteForkableAgentAvailabilityTask?.cancel()
+        commandPaletteForkableAgentProbeKey = panelKey
+
+        commandPaletteForkableAgentAvailabilityTask = Task {
+            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard !Task.isCancelled else { return }
+            let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
+            let supportsFork: Bool
+            if let snapshot {
+                supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+            } else {
+                supportsFork = false
+            }
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard commandPaletteForkableAgentProbeKey == panelKey else { return }
+                let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
+                let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
+                let shouldRefreshResults: Bool
+                if supportsFork {
+                    shouldRefreshResults = !wasSupported
+                    commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+                    if let snapshot {
+                        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
+                    }
+                } else {
+                    shouldRefreshResults = wasSupported || hadCachedSnapshot
+                    commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                    commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                }
+                commandPaletteForkableAgentProbeKey = nil
+                commandPaletteForkableAgentAvailabilityTask = nil
+                if shouldRefreshResults, isCommandPalettePresented {
+                    scheduleCommandPaletteResultsRefresh(
+                        query: commandPaletteQuery,
+                        forceSearchCorpusRefresh: true
+                    )
+                }
+            }
+        }
+    }
+
+    private func cancelCommandPaletteForkableAgentAvailabilityProbe() {
+        commandPaletteForkableAgentAvailabilityTask?.cancel()
+        commandPaletteForkableAgentAvailabilityTask = nil
+        commandPaletteForkableAgentProbeKey = nil
+    }
+
     private func commandPaletteCommandsContext(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
     ) -> CommandPaletteCommandsContext {
@@ -6056,6 +6231,16 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
+            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasForkableAgent,
+                Self.commandPalettePanelHasForkableAgent(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+                    fallbackSnapshot: fallbackForkableSnapshot
+                )
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
@@ -6937,6 +7122,66 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationRight",
+                title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "right", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationLeft",
+                title: constant(String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "left", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationTop",
+                title: constant(String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "top", "up", "above", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationBottom",
+                title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationNewWorkspace",
+                title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
+                subtitle: workspaceSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "workspace"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
                 title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
                 subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
@@ -7515,6 +7760,21 @@ struct ContentView: View {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitRight.configID) {
                 tabManager.createSplit(direction: .right)
             }
+        }
+        registry.register(commandId: "palette.forkAgentConversationRight") {
+            forkFocusedAgentConversationRight()
+        }
+        registry.register(commandId: "palette.forkAgentConversationLeft") {
+            forkFocusedAgentConversationLeft()
+        }
+        registry.register(commandId: "palette.forkAgentConversationTop") {
+            forkFocusedAgentConversationTop()
+        }
+        registry.register(commandId: "palette.forkAgentConversationBottom") {
+            forkFocusedAgentConversationBottom()
+        }
+        registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
+            forkFocusedAgentConversationToNewWorkspace()
         }
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
@@ -8129,6 +8389,7 @@ struct ContentView: View {
             commandPaletteRestoreFocusTarget = nil
         }
         isCommandPalettePresented = true
+        commandPaletteForkableAgentActivePanelKey = nil
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
     }
@@ -8174,6 +8435,8 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
+        cancelCommandPaletteForkableAgentAvailabilityProbe()
+        commandPaletteForkableAgentActivePanelKey = nil
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands

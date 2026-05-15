@@ -55,6 +55,57 @@ enum AgentResumeCommandBuilder {
         return shellCommand
     }
 
+    static func forkShellCommand(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true
+    ) -> String? {
+        let customRegistration = registrationOverride
+        guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let argv = forkArguments(
+                  kind: kind,
+                  sessionId: sessionId,
+                  launchCommand: launchCommand
+              ),
+              !argv.isEmpty else {
+            return nil
+        }
+
+        var commandParts: [String] = []
+        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        if !environmentParts.isEmpty {
+            commandParts.append("env")
+            commandParts.append(contentsOf: environmentParts)
+        }
+        commandParts.append(contentsOf: argv)
+
+        var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
+        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
+            ? nil
+            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        if let cwd {
+            shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
+        }
+        return shellCommand
+    }
+
+    static func openCodeVersionProbe(
+        launchCommand: AgentLaunchCommandSnapshot?
+    ) -> (executable: String, arguments: [String])? {
+        switch launchCommand?.launcher {
+        case "omo":
+            return nil
+        case "omx", "omc":
+            return nil
+        default:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
+            return (original.executable, ["--version"])
+        }
+    }
+
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
         environment: [String: String]?
@@ -220,6 +271,58 @@ enum AgentResumeCommandBuilder {
         }
     }
 
+    private static func forkArguments(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?
+    ) -> [String]? {
+        switch launchCommand?.launcher {
+        case "claudeTeams":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "claude-teams" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
+            return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
+        case "omo":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "omo" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
+            return [original.executable, "omo", "--session", sessionId, "--fork"] + preserved
+        case "omx", "omc":
+            return nil
+        default:
+            break
+        }
+
+        switch kind {
+        case .claude:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
+            return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
+        case .codex:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
+            return [original.executable, "fork"] + preserved + [sessionId]
+        case .opencode:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
+            return [original.executable, "--session", sessionId, "--fork"] + preserved
+        default:
+            return nil
+        }
+    }
+
     private static func customResumeArguments(
         registration: CmuxVaultAgentRegistration,
         sessionId: String,
@@ -361,6 +464,111 @@ enum AgentResumeCommandBuilder {
     }
 }
 
+enum AgentForkSupport {
+    static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
+
+    static func supportsFork(snapshot: SessionRestorableAgentSnapshot) async -> Bool {
+        guard snapshot.forkCommand != nil else { return false }
+        guard snapshot.kind == .opencode else { return true }
+        if snapshot.launchCommand?.launcher == "omo" {
+            return true
+        }
+        guard let probe = AgentResumeCommandBuilder.openCodeVersionProbe(
+            launchCommand: snapshot.launchCommand
+        ) else {
+            return false
+        }
+        guard let output = await commandOutput(
+            executable: probe.executable,
+            arguments: probe.arguments,
+            environment: snapshot.launchCommand?.environment
+        ) else {
+            return false
+        }
+        return openCodeVersionSupportsFork(output)
+    }
+
+    static func openCodeVersionSupportsFork(_ output: String) -> Bool {
+        guard let version = SemanticVersion.first(in: output) else {
+            return false
+        }
+        return version >= minimumOpenCodeForkVersion
+    }
+
+    private static func commandOutput(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]?
+    ) async -> String? {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [executable] + arguments
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            var processEnvironment = ProcessInfo.processInfo.environment
+            if let environment {
+                let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+                for (key, value) in selectedEnvironment {
+                    processEnvironment[key] = value
+                }
+            }
+            process.environment = processEnvironment
+
+            do {
+                try process.run()
+            } catch {
+                return nil
+            }
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)
+        }.value
+    }
+}
+
+struct SemanticVersion: Comparable, Sendable {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    static func < (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
+        if lhs.major != rhs.major { return lhs.major < rhs.major }
+        if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
+        return lhs.patch < rhs.patch
+    }
+
+    static func first(in output: String) -> SemanticVersion? {
+        let pattern = #"(\d+)\.(\d+)(?:\.(\d+))?"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = expression.firstMatch(in: output, range: range) else {
+            return nil
+        }
+
+        func integer(at captureIndex: Int, fallback defaultValue: Int? = nil) -> Int? {
+            let captureRange = match.range(at: captureIndex)
+            guard captureRange.location != NSNotFound,
+                  let range = Range(captureRange, in: output) else {
+                return defaultValue
+            }
+            return Int(output[range])
+        }
+
+        guard let major = integer(at: 1),
+              let minor = integer(at: 2) else {
+            return nil
+        }
+        return SemanticVersion(major: major, minor: minor, patch: integer(at: 3, fallback: 0) ?? 0)
+    }
+}
+
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
     static let maxInlineStartupInputBytes = 900
 
@@ -380,12 +588,44 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         )
     }
 
+    var forkCommand: String? {
+        AgentResumeCommandBuilder.forkShellCommand(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            registrationOverride: registration
+        )
+    }
+
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> String? {
-        guard let command = resumeCommand else { return nil }
+        startupInput(
+            command: resumeCommand,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        )
+    }
 
+    func forkStartupInput(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        startupInput(
+            command: forkCommand,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        )
+    }
+
+    private func startupInput(
+        command: String?,
+        fileManager: FileManager,
+        temporaryDirectory: URL
+    ) -> String? {
+        guard let command else { return nil }
         let inlineInput = command + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput

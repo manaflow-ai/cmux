@@ -4652,6 +4652,80 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.gitBranch?.isDirty, false)
     }
 
+    func testForkAgentConversationToRightCreatesRightSplitWithForkStartupInput() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePanel = try XCTUnwrap(workspace.terminalPanel(for: sourcePanelId))
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/tmp/fork repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--search",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/fork repo",
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversationToRight(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot
+            )
+        )
+
+        XCTAssertNotEqual(forkPanel.id, sourcePanelId)
+        XCTAssertEqual(workspace.terminalPanel(for: sourcePanelId)?.id, sourcePanel.id)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
+        XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
+        XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+    }
+
+    func testForkAgentConversationSupportsAllSplitDirections() throws {
+        for direction in [SplitDirection.left, .right, .up, .down] {
+            let workspace = Workspace()
+            let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+                workingDirectory: "/tmp/fork repo",
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "codex",
+                    executablePath: "/Users/example/.bun/bin/codex",
+                    arguments: ["/Users/example/.bun/bin/codex", "--search"],
+                    workingDirectory: "/tmp/fork repo",
+                    environment: nil,
+                    capturedAt: 123,
+                    source: "process"
+                )
+            )
+
+            let forkPanel = try XCTUnwrap(
+                workspace.forkAgentConversation(
+                    fromPanelId: sourcePanelId,
+                    snapshot: snapshot,
+                    direction: direction
+                )
+            )
+
+            XCTAssertNotEqual(forkPanel.id, sourcePanelId)
+            XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+            XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
+            XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+        }
+    }
+
     func testSidebarGitBranchesFollowLeftToRightSplitOrder() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId else {

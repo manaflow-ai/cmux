@@ -129,6 +129,15 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    public static func preservedCodexForkArguments(args: [String]) -> [String]? {
+        var tail = args
+        if tail.first == "fork" {
+            tail.removeFirst()
+            tail = dropPositionals(tail, policy: codexPolicy)
+        }
+        return preserveOptions(tail, policy: codexPolicy)
+    }
+
     private static func preserveOptions(_ args: [String], policy: Policy) -> [String]? {
         var result: [String] = []
         var index = 0
@@ -184,6 +193,28 @@ public enum AgentLaunchSanitizer {
                 continue
             }
 
+            result.append(contentsOf: args[index..<min(args.count, index + width)])
+            index += width
+        }
+
+        return result
+    }
+
+    private static func dropPositionals(_ args: [String], policy: Policy) -> [String] {
+        var result: [String] = []
+        var index = 0
+
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                break
+            }
+            if !arg.hasPrefix("-") || arg == "-" {
+                index += 1
+                continue
+            }
+
+            let width = optionWidth(args, index: index, policy: policy)
             result.append(contentsOf: args[index..<min(args.count, index + width)])
             index += width
         }

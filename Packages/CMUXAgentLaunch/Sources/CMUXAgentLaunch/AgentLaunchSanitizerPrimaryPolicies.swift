@@ -17,7 +17,6 @@ extension AgentLaunchSanitizer {
             "--effort",
             "--fallback-model",
             "--file",
-            "--fork-session",
             "--from-pr",
             "--input-format",
             "--json-schema",
