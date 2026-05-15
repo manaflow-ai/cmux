@@ -61,6 +61,7 @@ extension ContentView {
                 panelKey
             )
             commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkSnapshotFingerprint(snapshot)
 
             let didFork: Bool
             switch destination {

@@ -486,6 +486,26 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentSnapshotFingerprintChangesWithSession() {
+        let first = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "first-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: nil
+        )
+        let second = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "second-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: nil
+        )
+
+        XCTAssertNotEqual(
+            ContentView.commandPaletteForkSnapshotFingerprint(first),
+            ContentView.commandPaletteForkSnapshotFingerprint(second)
+        )
+    }
+
     func testCommandPreviewSearchUsesFullCommandCorpus() {
         let entries = [
             FixtureEntry(

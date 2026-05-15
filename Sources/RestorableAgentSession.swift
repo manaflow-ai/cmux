@@ -38,22 +38,14 @@ enum AgentResumeCommandBuilder {
             return nil
         }
 
-        var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
-        if !environmentParts.isEmpty {
-            commandParts.append("env")
-            commandParts.append(contentsOf: environmentParts)
-        }
-        commandParts.append(contentsOf: argv)
-
-        var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
-            ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
-        if let cwd {
-            shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
-        }
-        return shellCommand
+        return shellCommand(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: customRegistration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
     }
 
     static func forkShellCommand(
@@ -75,6 +67,24 @@ enum AgentResumeCommandBuilder {
             return nil
         }
 
+        return shellCommand(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: customRegistration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
+    }
+
+    private static func shellCommand(
+        argv: [String],
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        includeWorkingDirectoryPrefix: Bool
+    ) -> String {
         var commandParts: [String] = []
         let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
         if !environmentParts.isEmpty {
@@ -465,10 +475,23 @@ enum AgentResumeCommandBuilder {
     }
 }
 
+private actor OpenCodeVersionProbeCache {
+    private var valuesByKey: [String: Bool] = [:]
+
+    func value(for key: String) -> Bool? {
+        valuesByKey[key]
+    }
+
+    func store(_ value: Bool, for key: String) {
+        valuesByKey[key] = value
+    }
+}
+
 enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
+    private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
 
     private final class CommandOutputBuffer: @unchecked Sendable {
         private let lock = NSLock()
@@ -499,14 +522,24 @@ enum AgentForkSupport {
         ) else {
             return false
         }
+        let cacheKey = openCodeVersionProbeCacheKey(
+            probe: probe,
+            environment: snapshot.launchCommand?.environment
+        )
+        if let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
+            return cached
+        }
         guard let output = await commandOutput(
             executable: probe.executable,
             arguments: probe.arguments,
             environment: snapshot.launchCommand?.environment
         ) else {
+            await openCodeVersionProbeCache.store(false, for: cacheKey)
             return false
         }
-        return openCodeVersionSupportsFork(output)
+        let supportsFork = openCodeVersionSupportsFork(output)
+        await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
+        return supportsFork
     }
 
     static func openCodeVersionSupportsFork(_ output: String) -> Bool {
@@ -514,6 +547,28 @@ enum AgentForkSupport {
             return false
         }
         return version >= minimumOpenCodeForkVersion
+    }
+
+    private static func openCodeVersionProbeCacheKey(
+        probe: (executable: String, arguments: [String]),
+        environment: [String: String]?
+    ) -> String {
+        var processEnvironment = ProcessInfo.processInfo.environment
+        if let environment {
+            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+            for (key, value) in selectedEnvironment {
+                processEnvironment[key] = value
+            }
+        }
+        let relevantEnvironmentKeys = [
+            "PATH",
+            "OPENCODE_BIN",
+            "OPENCODE_CONFIG_DIR"
+        ]
+        let environmentParts = relevantEnvironmentKeys.map { key in
+            "\(key)=\(processEnvironment[key] ?? "")"
+        }
+        return ([probe.executable] + probe.arguments + environmentParts).joined(separator: "\u{1f}")
     }
 
     private static func commandOutput(
