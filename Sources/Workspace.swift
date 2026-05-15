@@ -4796,9 +4796,13 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func backgroundSSHOptions(_ options: [String]) -> [String] {
+        // Options that must not propagate to background SSH calls (probe,
+        // daemon bootstrap, scp). RequestTTY=force breaks the platform probe
+        // because PTY allocation interferes with stdout parsing on resume.
         let batchSSHControlOptionKeys: Set<String> = [
             "controlmaster",
             "controlpersist",
+            "requesttty",
         ]
         return normalizedSSHOptions(options).filter { option in
             guard let key = sshOptionKey(option) else { return false }
