@@ -194,11 +194,45 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         let libraryPath = URL(fileURLWithPath: privateFrameworksPath)
             .appendingPathComponent("libcmux_command_palette_nucleo_ffi.dylib")
             .path
+        let libraryExists = FileManager.default.fileExists(atPath: libraryPath)
+
+        if !libraryExists,
+           !Self.cargoIsAvailable(),
+           !Self.requiresCargoForFFIBuild() {
+            throw XCTSkip("Cargo is unavailable, so the optional nucleo FFI bundle build was skipped")
+        }
 
         XCTAssertTrue(
-            FileManager.default.fileExists(atPath: libraryPath),
+            libraryExists,
             "Expected bundled nucleo search library at \(libraryPath)"
         )
+    }
+
+    private static func cargoIsAvailable() -> Bool {
+        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        return path.split(separator: ":").contains { directory in
+            let candidate = URL(fileURLWithPath: String(directory))
+                .appendingPathComponent("cargo")
+                .path
+            return FileManager.default.isExecutableFile(atPath: candidate)
+        }
+    }
+
+    private static func requiresCargoForFFIBuild() -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if environmentFlagIsEnabled(environment["CI"]) {
+            return true
+        }
+        return environmentFlagIsEnabled(environment["CMUX_NUCLEO_FFI_REQUIRE_CARGO"])
+    }
+
+    private static func environmentFlagIsEnabled(_ value: String?) -> Bool {
+        switch value {
+        case "1", "true", "TRUE", "yes", "YES":
+            return true
+        default:
+            return false
+        }
     }
 
     func testProductionNucleoSearchIndexAppliesHistoryBoostBeforeLimiting() throws {
