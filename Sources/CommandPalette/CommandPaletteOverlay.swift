@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 enum CommandPaletteRenderTrailingLabelStyle: Equatable {
@@ -31,11 +32,12 @@ struct CommandPaletteCommandListRenderState: Equatable {
 }
 
 @MainActor
-final class CommandPaletteOverlayRenderModel: ObservableObject {
-    @Published private(set) var commandList = CommandPaletteCommandListRenderState.empty
-    private var scheduledCommandListSequence: UInt64 = 0
-    private var appliedCommandListSequence: UInt64 = 0
-    private var appliedCommandListResultsVersion: UInt64 = 0
+@Observable
+final class CommandPaletteOverlayRenderModel {
+    private(set) var commandList = CommandPaletteCommandListRenderState.empty
+    @ObservationIgnored private var scheduledCommandListSequence: UInt64 = 0
+    @ObservationIgnored private var appliedCommandListSequence: UInt64 = 0
+    @ObservationIgnored private var appliedCommandListResultsVersion: UInt64 = 0
 
     deinit {}
 
@@ -60,7 +62,7 @@ final class CommandPaletteOverlayRenderModel: ObservableObject {
 }
 
 struct CommandPaletteCommandListRenderView: View {
-    @ObservedObject var renderModel: CommandPaletteOverlayRenderModel
+    let renderModel: CommandPaletteOverlayRenderModel
     let onRunResult: (String) -> Void
 
     var body: some View {

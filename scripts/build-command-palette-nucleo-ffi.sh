@@ -17,24 +17,24 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 0
 fi
 
-requested_archs="${CMUX_NUCLEO_FFI_ARCHS:-${ARCHS:-}}"
-if [ -z "${requested_archs}" ]; then
-  case "$(uname -m)" in
-    arm64|aarch64) requested_archs="arm64" ;;
-    x86_64) requested_archs="x86_64" ;;
-    *)
-      echo "error: cannot infer Rust macOS target for host arch $(uname -m)" >&2
-      exit 1
-      ;;
-  esac
-fi
-
 rust_target_for_arch() {
   case "$1" in
     arm64|arm64e) echo "aarch64-apple-darwin" ;;
     x86_64) echo "x86_64-apple-darwin" ;;
     *)
       echo "error: unsupported Rust macOS arch $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+rust_target_for_triple() {
+  case "$1" in
+    aarch64-apple-darwin|x86_64-apple-darwin) echo "$1" ;;
+    arm64-*|arm64e-*|aarch64-*) echo "aarch64-apple-darwin" ;;
+    x86_64-*) echo "x86_64-apple-darwin" ;;
+    *)
+      echo "error: unsupported Rust macOS target triple $1" >&2
       return 1
       ;;
   esac
@@ -50,11 +50,33 @@ ensure_rust_target() {
   fi
 }
 
+requested_targets="${CMUX_NUCLEO_FFI_TARGETS:-}"
+if [ -z "${requested_targets}" ] && [ -n "${TARGET_TRIPLE:-}" ]; then
+  requested_targets="$(rust_target_for_triple "${TARGET_TRIPLE}")"
+fi
+
+if [ -z "${requested_targets}" ]; then
+  requested_archs="${CMUX_NUCLEO_FFI_ARCHS:-${ARCHS:-}}"
+  if [ -z "${requested_archs}" ]; then
+    case "$(uname -m)" in
+      arm64|aarch64) requested_archs="arm64" ;;
+      x86_64) requested_archs="x86_64" ;;
+      *)
+        echo "error: cannot infer Rust macOS target for host arch $(uname -m)" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  for arch in ${requested_archs}; do
+    requested_targets="${requested_targets} $(rust_target_for_arch "$arch")"
+  done
+fi
+
 mkdir -p "${BUILD_OUTPUT_DIR}"
 libs=()
 seen_targets=""
-for arch in ${requested_archs}; do
-  target="$(rust_target_for_arch "$arch")"
+for target in ${requested_targets}; do
   case " ${seen_targets} " in
     *" ${target} "*) continue ;;
   esac

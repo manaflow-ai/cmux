@@ -81,7 +81,7 @@ enum CommandPaletteSearchOrchestrator {
                 searchCorpusCount: searchCorpus.count,
                 limit: limit
             ) {
-                let searchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
+                let searchCorpusByID = Self.searchCorpusByID(searchCorpus)
                 guard Self.shouldIncludeSwiftSingleEditFallback(
                     preparedQuery: preparedQuery,
                     nucleoMatches: nucleoMatches,
@@ -107,6 +107,17 @@ enum CommandPaletteSearchOrchestrator {
         }
 
         return swiftSearchMatches()
+    }
+
+    private static func searchCorpusByID(
+        _ searchCorpus: [CommandPaletteSearchCorpusEntry<String>]
+    ) -> [String: CommandPaletteSearchCorpusEntry<String>] {
+        var entriesByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
+        entriesByID.reserveCapacity(searchCorpus.count)
+        for entry in searchCorpus where entriesByID[entry.payload] == nil {
+            entriesByID[entry.payload] = entry
+        }
+        return entriesByID
     }
 
     private static func shouldConsiderSwiftSingleEditFallback(
