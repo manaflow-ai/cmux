@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.1
 //
 // CMUXCEF — cmux-owned Swift facade for embedding CEF Chrome runtime
 // browsers inside cmux. See CEF/README.md and CEF/INTEGRATION.md for
@@ -81,10 +81,7 @@ let package = Package(
         // imports.
         .target(
             name: "CMUXCEF",
-            dependencies: ["CMUXCEFBridge"],
-            swiftSettings: [
-                .defaultIsolation(MainActor.self),
-            ]
+            dependencies: ["CMUXCEFBridge"]
         ),
 
         // MARK: - Helper executables. Both are tiny — they exist solely

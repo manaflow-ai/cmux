@@ -98,7 +98,7 @@ public final class CEFBrowser: NSObject {
     }
 }
 
-extension CEFBrowser: CMUXCEFBrowserBridgeDelegate {
+extension CEFBrowser: @MainActor CMUXCEFBrowserBridgeDelegate {
     public func browserBridgeDidStartLoading(_ bridge: CMUXCEFBrowserBridge) {
         delegate?.cefBrowserDidStartLoading(self)
     }
