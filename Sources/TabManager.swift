@@ -1163,10 +1163,11 @@ class TabManager: ObservableObject {
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
+                let panelId = panelIdForFocusHistorySurface(surfaceId, workspaceId: tabId)
                 if selectedTabId == tabId {
-                    recordFocusInHistory(workspaceId: tabId, panelId: surfaceId)
+                    recordFocusInHistory(workspaceId: tabId, panelId: panelId)
                 }
-                dismissPanelNotificationOnFocus(tabId: tabId, panelId: surfaceId, explicitFocusIntent: explicitFocusIntent)
+                dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, explicitFocusIntent: explicitFocusIntent)
             }
         })
 
@@ -5649,6 +5650,10 @@ class TabManager: ObservableObject {
         recordFocusInHistory(workspaceId: entry.workspaceId, panelId: entry.panelId)
     }
 
+    private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
+        tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
+    }
+
     private func focusHistoryEntryIsValid(_ entry: FocusHistoryEntry) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else { return false }
         guard let panelId = entry.panelId else { return true }
@@ -5682,16 +5687,26 @@ class TabManager: ObservableObject {
         return FocusHistoryEntry(workspaceId: selectedTabId, panelId: focusedPanelId(for: selectedTabId))
     }
 
-    private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
-        guard let workspace = focusHistoryWorkspace(for: entry) else { return false }
+    private func resolvedFocusHistoryEntry(for entry: FocusHistoryEntry) -> FocusHistoryEntry? {
+        guard let workspace = focusHistoryWorkspace(for: entry) else { return nil }
         // Closed panels still leave a useful workspace-level history entry.
         // Resolve them to the workspace's current remembered panel instead of
         // discarding the user's ability to jump back to that workspace.
-        let resolvedEntry = FocusHistoryEntry(
+        return FocusHistoryEntry(
             workspaceId: workspace.id,
             panelId: resolvedFocusHistoryPanelId(for: entry, in: workspace)
         )
-        if let currentEntry, resolvedEntry == currentEntry { return false }
+    }
+
+    private func focusHistoryEntryResolvesToCurrent(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
+        guard let currentEntry,
+              let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else { return false }
+        return resolvedEntry == currentEntry
+    }
+
+    private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
+        guard resolvedFocusHistoryEntry(for: entry) != nil else { return false }
+        if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) { return false }
         return true
     }
 
@@ -5747,7 +5762,7 @@ class TabManager: ObservableObject {
                 focusHistoryRevision &+= 1
                 continue
             }
-            if let currentEntry, entry == currentEntry {
+            if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) {
                 targetIndex -= 1
                 continue
             }
@@ -5773,7 +5788,7 @@ class TabManager: ObservableObject {
                 focusHistoryRevision &+= 1
                 continue
             }
-            if let currentEntry, entry == currentEntry {
+            if focusHistoryEntryResolvesToCurrent(entry, currentEntry: currentEntry) {
                 targetIndex += 1
                 continue
             }
