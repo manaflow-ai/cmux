@@ -923,7 +923,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testWindowKeyEquivalentRoutesApplePinyinCandidateArrowThroughKeyDownWithoutMarkedText() throws {
+    func testWindowKeyEquivalentRoutesApplePinyinCandidateSpaceThroughKeyDownWithoutMarkedText() throws {
         let hostedTerminal = try makeHostedTerminalWindow()
         let terminalSurface = hostedTerminal.surface
         let window = hostedTerminal.window
@@ -957,8 +957,8 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
 
         let event = try keyEvent(
-            text: "\u{F701}",
-            keyCode: UInt16(kVK_DownArrow),
+            text: " ",
+            keyCode: UInt16(kVK_Space),
             windowNumber: window.windowNumber
         )
 
@@ -966,19 +966,19 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         withExtendedLifetime(terminalSurface) {
             XCTAssertTrue(
                 window.performKeyEquivalent(with: event),
-                "Window-level Apple Pinyin candidate arrows must re-enter keyDown for NSTextInputContext"
+                "Window-level Apple Pinyin candidate Space must re-enter keyDown for NSTextInputContext"
             )
         }
 
         XCTAssertEqual(
             textInputKeyCodes,
-            [UInt16(kVK_DownArrow)],
-            "Window key-equivalent routing should give the candidate arrow to text input first"
+            [UInt16(kVK_Space)],
+            "Window key-equivalent routing should give candidate Space to text input first"
         )
         XCTAssertEqual(
             forwardedPressKeyCodes,
             [],
-            "Text-input-handled Apple Pinyin candidate arrows must not leak to Ghostty"
+            "Text-input-handled Apple Pinyin candidate Space must not leak to Ghostty"
         )
     }
 
