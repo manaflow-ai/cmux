@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Regression: `new-workspace --command` should execute without selecting the workspace."""
+"""Regression: `new-workspace --layout` terminal commands should execute without focus."""
 
 from __future__ import annotations
 
 import glob
+import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -79,7 +81,7 @@ def _run_cli(cli: str, args: list[str]) -> tuple[subprocess.CompletedProcess[str
 
 def main() -> int:
     cli = _find_cli_binary()
-    marker = Path(tempfile.gettempdir()) / f"cmux_new_workspace_command_{os.getpid()}.txt"
+    marker = Path(tempfile.gettempdir()) / f"cmux_new_workspace_layout_command_{os.getpid()}.txt"
     created_ws_id: str | None = None
 
     try:
@@ -90,26 +92,38 @@ def main() -> int:
     with cmux(SOCKET_PATH) as c:
         try:
             baseline_ws_id = c.current_workspace()
-            token = f"queued-{os.getpid()}-{int(time.time() * 1000)}"
-            cmd_text = f"echo {token} > {marker}"
+            token = f"layout-{os.getpid()}-{int(time.time() * 1000)}"
+            command = (
+                "python3 -c "
+                + shlex.quote(
+                    f"from pathlib import Path; Path({marker.as_posix()!r}).write_text({token!r}, encoding='utf-8')"
+                )
+            )
+            layout = {
+                "pane": {
+                    "surfaces": [
+                        {
+                            "type": "terminal",
+                            "command": command,
+                        }
+                    ]
+                }
+            }
 
-            proc, elapsed = _run_cli(cli, ["new-workspace", "--command", cmd_text])
+            proc, elapsed = _run_cli(cli, ["new-workspace", "--layout", json.dumps(layout)])
             combined = f"{proc.stdout}\n{proc.stderr}".strip()
             _must(proc.returncode == 0, f"CLI failed ({proc.returncode}): {combined}")
-            quick_return_timeout = _float_env("NEW_WORKSPACE_COMMAND_TIMEOUT", 5.0)
+            quick_return_timeout = _float_env("NEW_WORKSPACE_LAYOUT_TIMEOUT", 5.0)
             _must(
                 elapsed < quick_return_timeout,
-                f"new-workspace --command should return quickly, took {elapsed:.2f}s",
+                f"new-workspace --layout should return quickly, took {elapsed:.2f}s",
             )
 
             output = (proc.stdout or "").strip()
             _must(output.startswith("OK "), f"Expected OK response, got: {output!r}")
-            _must("Surface not ready" not in combined, f"Unexpected surface readiness error: {combined}")
             created_ws_id = output[3:].strip()
             _must(bool(created_ws_id), f"Missing workspace id in output: {output!r}")
-
-            # Creation with --command should not steal focus.
-            _must(c.current_workspace() == baseline_ws_id, "new-workspace --command should preserve selected workspace")
+            _must(c.current_workspace() == baseline_ws_id, "new-workspace --layout should preserve selected workspace")
 
             observed = ""
             deadline = time.time() + 12.0
@@ -123,9 +137,9 @@ def main() -> int:
                         break
                 time.sleep(0.05)
 
-            _must(marker.exists(), f"Command marker file was not created: {marker}")
-            _must(observed == token, f"Queued command did not execute as expected: expected={token!r} observed={observed!r}")
-            _must(c.current_workspace() == baseline_ws_id, "Command execution should not switch selected workspace")
+            _must(marker.exists(), f"Layout command marker file was not created: {marker}")
+            _must(observed == token, f"Layout command did not execute as expected: expected={token!r} observed={observed!r}")
+            _must(c.current_workspace() == baseline_ws_id, "Layout command execution should not switch selected workspace")
         finally:
             if created_ws_id:
                 try:
@@ -138,7 +152,7 @@ def main() -> int:
     except OSError:
         pass
 
-    print("PASS: new-workspace --command executes without opening the created workspace")
+    print("PASS: new-workspace --layout commands execute without opening the created workspace")
     return 0
 
 
