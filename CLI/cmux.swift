@@ -5508,6 +5508,7 @@ struct CMUXCLI {
         var identityFile: String?
         var workspaceName: String?
         var noFocus = false
+        var skipDaemonBootstrap = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
 
@@ -5549,6 +5550,16 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--no-daemon-bootstrap":
+                // Skip the cmuxd-remote upload + bootstrap. Required when
+                // the remote sshd is a forwarding-only gateway (e.g. the
+                // russh-based gateway in front of Freestyle VMs) that
+                // stalls on the exec channel scp/cmuxd-remote bootstrap
+                // uses. Without this flag, workspaces hang in
+                // `Remote daemon bootstrap failed: failed to upload
+                // cmuxd-remote` and never connect.
+                skipDaemonBootstrap = true
+                index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -5588,7 +5599,8 @@ struct CMUXCLI {
             sshOptions: sshOptions,
             extraArguments: extraArguments,
             localSocketPath: localSocketPath,
-            remoteRelayPort: remoteRelayPort
+            remoteRelayPort: remoteRelayPort,
+            skipDaemonBootstrap: skipDaemonBootstrap
         )
     }
 
@@ -9915,16 +9927,25 @@ struct CMUXCLI {
             cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
 
             Flags:
-              --name <title>          Optional workspace title
-              --port <n>              SSH port
-              --identity <path>       SSH identity file path
-              --ssh-option <opt>      Extra SSH -o option (repeatable)
-              --no-focus              Create workspace without switching to it
+              --name <title>           Optional workspace title
+              --port <n>               SSH port
+              --identity <path>        SSH identity file path
+              --ssh-option <opt>       Extra SSH -o option (repeatable)
+              --no-focus               Create workspace without switching to it
+              --no-daemon-bootstrap    Skip the cmuxd-remote upload + bootstrap.
+                                       Required for forwarding-only SSH gateways
+                                       (e.g. Freestyle VMs) that stall on the
+                                       exec-channel scp the bootstrap uses.
+                                       The workspace becomes a plain ssh shell
+                                       without cmuxd-remote features (no proxy
+                                       endpoint, no shell features).
 
             Example:
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+              cmux ssh vm123+cmux:TOKEN@vm-ssh.freestyle.sh --no-daemon-bootstrap \\
+                --ssh-option PreferredAuthentications=none --ssh-option IdentitiesOnly=yes
             """
         case "remote-daemon-status":
             return """
