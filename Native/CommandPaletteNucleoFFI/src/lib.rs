@@ -279,6 +279,7 @@ unsafe fn cmux_nucleo_index_search_impl(
             let title_score = state.score_text(&pattern, &candidate.title);
             let search_score = state.score_text(&pattern, &candidate.search_text);
             let Some(score) = weighted_score(
+                &normalized_query,
                 initialism_query.as_ref(),
                 candidate,
                 title_score,
@@ -358,6 +359,7 @@ fn text_from_blob(blob: &[u8], offset: usize, len: usize) -> Option<&str> {
 }
 
 fn weighted_score(
+    query: &str,
     initialism_query: Option<&InitialismQuery>,
     candidate: &Candidate,
     title_score: Option<u32>,
@@ -365,20 +367,36 @@ fn weighted_score(
 ) -> Option<f64> {
     let initialism_score =
         initialism_query.and_then(|query| title_initialism_score(query, candidate));
+    let exact_search_text_score = exact_search_text_line_score(&candidate.search_text, query);
     match (title_score, search_score) {
         (Some(title), Some(search)) => Some(
             f64::from(search)
                 .max(f64::from(title) + 2_000.0)
+                .max(exact_search_text_score.unwrap_or(f64::NEG_INFINITY))
                 .max(initialism_score.unwrap_or(f64::NEG_INFINITY)),
         ),
-        (Some(title), None) => {
-            Some((f64::from(title) + 2_000.0).max(initialism_score.unwrap_or(f64::NEG_INFINITY)))
-        }
-        (None, Some(search)) => {
-            Some(f64::from(search).max(initialism_score.unwrap_or(f64::NEG_INFINITY)))
-        }
-        (None, None) => initialism_score,
+        (Some(title), None) => Some(
+            (f64::from(title) + 2_000.0)
+                .max(exact_search_text_score.unwrap_or(f64::NEG_INFINITY))
+                .max(initialism_score.unwrap_or(f64::NEG_INFINITY)),
+        ),
+        (None, Some(search)) => Some(
+            f64::from(search)
+                .max(exact_search_text_score.unwrap_or(f64::NEG_INFINITY))
+                .max(initialism_score.unwrap_or(f64::NEG_INFINITY)),
+        ),
+        (None, None) => exact_search_text_score.or(initialism_score),
     }
+}
+
+fn exact_search_text_line_score(search_text: &str, query: &str) -> Option<f64> {
+    if query.is_empty() {
+        return None;
+    }
+    search_text
+        .lines()
+        .any(|line| line.trim().eq_ignore_ascii_case(query))
+        .then(|| 30_000.0 + f64::from(query.chars().count() as u32) * 10.0)
 }
 
 fn initialism_query(query: &str) -> Option<InitialismQuery> {

@@ -5032,6 +5032,10 @@ struct ContentView: View {
                 }
                 commandPaletteNucleoSearchIndex = index
                 commandPaletteSearchIndexBuildTask = nil
+                if isCommandPalettePresented,
+                   Self.commandPaletteListScope(for: commandPaletteQuery) == scope {
+                    scheduleCommandPaletteResultsRefresh(query: commandPaletteQuery)
+                }
             }
         }
     }

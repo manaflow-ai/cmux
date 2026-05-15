@@ -31,6 +31,41 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         XCTAssertEqual(resultIDs.first, "workspace.indigoMarkdownStudio")
     }
 
+    func testNucleoFFIPrefersExactAliasOverTitleInitialism() throws {
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "palette.openWorkspacePRLinks",
+                rank: 0,
+                title: "Open All Workspace PR Links",
+                searchableTexts: [
+                    "Open All Workspace PR Links",
+                    "Workspace",
+                    "pull",
+                    "request",
+                    "review",
+                    "merge",
+                    "pr",
+                    "mr",
+                    "open",
+                    "links",
+                    "workspace",
+                ]
+            ),
+            FixtureEntry(
+                id: "palette.markWorkspaceRead",
+                rank: 1,
+                title: "Mark Workspace as Read",
+                searchableTexts: ["Mark Workspace as Read", "Workspace", "workspace", "read", "notification"]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "mr", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "palette.openWorkspacePRLinks")
+    }
+
     func testNucleoFFIMatchesAsciiQueryAgainstDiacriticTitle() throws {
         let library = try NucleoLibrary()
         let entries = [
