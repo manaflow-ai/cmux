@@ -10571,7 +10571,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func jumpToLatestUnread(excludingNotificationId excludedNotificationId: UUID? = nil) -> TerminalNotification? {
+    func jumpToLatestUnread(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+    ) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -10589,13 +10592,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
-        _ = openLatestWorkspaceUnread()
+        _ = openLatestWorkspaceUnread(excludingWorkspaceId: excludedWorkspaceId)
         return nil
     }
 
-    private func openLatestWorkspaceUnread() -> Bool {
+    private func openLatestWorkspaceUnread(excludingWorkspaceId excludedWorkspaceId: UUID? = nil) -> Bool {
         guard let notificationStore else { return false }
-        let unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        var unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        if let excludedWorkspaceId {
+            unreadWorkspaceIds.remove(excludedWorkspaceId)
+        }
         guard !unreadWorkspaceIds.isEmpty else { return false }
 
         var seenWindowIds = Set<UUID>()
@@ -10646,8 +10652,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch result {
         case .deferredNotification(let notificationId):
             return jumpToLatestUnread(excludingNotificationId: notificationId)
-        case .markedWorkspaceWithoutNotification:
-            return jumpToLatestUnread()
+        case .markedWorkspaceWithoutNotification(let tabId):
+            return jumpToLatestUnread(excludingWorkspaceId: tabId)
         }
     }
 
@@ -10658,7 +10664,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private enum FocusedNotificationMarkResult {
         case deferredNotification(UUID)
-        case markedWorkspaceWithoutNotification
+        case markedWorkspaceWithoutNotification(UUID)
     }
 
     private func markFocusedNotificationAsOldestUnread(preferredWindow: NSWindow?) -> FocusedNotificationMarkResult? {
@@ -10672,7 +10678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return .deferredNotification(notificationId)
         }
-        return .markedWorkspaceWithoutNotification
+        return .markedWorkspaceWithoutNotification(target.tabId)
     }
 
     private func focusedNotificationTarget(preferredWindow: NSWindow?) -> FocusedNotificationTarget? {
