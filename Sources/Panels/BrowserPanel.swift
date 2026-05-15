@@ -1017,12 +1017,17 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
     // Prefer a broader root (e.g. user home) so sibling assets referenced
     // via `../assets/style.css` resolve. Only widen access to a root that
     // actually contains the target file.
-    let standardizedTarget = fileURL.standardizedFileURL.path
+    //
+    // Resolve symlinks on both the target and each root before comparing so
+    // a symlink inside `$HOME` that points outside cannot trick us into
+    // granting home-wide read access to a file that is, in canonical terms,
+    // not under `$HOME`.
+    let canonicalTarget = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
     for root in browserReadAccessRootCandidates(fileManager: fileManager) {
-        let rootPath = root.path
-        guard !rootPath.isEmpty, rootPath != "/" else { continue }
-        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
-        if standardizedTarget == rootPath || standardizedTarget.hasPrefix(prefix) {
+        let canonicalRoot = root.resolvingSymlinksInPath().standardizedFileURL.path
+        guard !canonicalRoot.isEmpty, canonicalRoot != "/" else { continue }
+        let prefix = canonicalRoot.hasSuffix("/") ? canonicalRoot : canonicalRoot + "/"
+        if canonicalTarget == canonicalRoot || canonicalTarget.hasPrefix(prefix) {
             return root
         }
     }

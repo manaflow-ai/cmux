@@ -3649,9 +3649,18 @@ final class BrowserReadAccessURLTests: XCTestCase {
         try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
 
         // Skip on machines where the system temp dir happens to live under
-        // the user's home (rare, e.g. some CI sandboxes).
-        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
-        try XCTSkipIf(tempRoot.path.hasPrefix(home + "/") || tempRoot.path == home)
+        // the user's home (rare, e.g. some CI sandboxes). Compare canonical
+        // (symlink-resolved) path components instead of doing a fragile
+        // string prefix match.
+        let homeURL = FileManager.default.homeDirectoryForCurrentUser
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let canonicalTempRoot = tempRoot.resolvingSymlinksInPath().standardizedFileURL
+        let homeComponents = homeURL.pathComponents
+        let tempComponents = canonicalTempRoot.pathComponents
+        let tempIsUnderHome = tempComponents.count >= homeComponents.count
+            && Array(tempComponents.prefix(homeComponents.count)) == homeComponents
+        try XCTSkipIf(tempIsUnderHome)
 
         let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
