@@ -1,6 +1,12 @@
 import Foundation
 
 public enum AgentLaunchSanitizer {
+    // Runtime/interpreter flags may appear in captured process argv, but they
+    // are not portable agent session options to replay after a resume command.
+    private static let runtimeOnlyOptions: Set<String> = [
+        "--use-system-ca",
+    ]
+
     struct Policy {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []
@@ -174,7 +180,7 @@ public enum AgentLaunchSanitizer {
             }
 
             let width = optionWidth(args, index: index, policy: policy)
-            if shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
+            if shouldDropRuntimeOnlyOption(arg) || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
                 index += width
                 continue
             }
@@ -195,6 +201,10 @@ public enum AgentLaunchSanitizer {
         if droppedOptions.contains(arg) { return true }
         guard let equals = arg.firstIndex(of: "=") else { return false }
         return droppedOptions.contains(String(arg[..<equals]))
+    }
+
+    private static func shouldDropRuntimeOnlyOption(_ arg: String) -> Bool {
+        shouldDropOption(arg, droppedOptions: runtimeOnlyOptions)
     }
 
     private static func optionWidth(_ args: [String], index: Int, policy: Policy) -> Int {
