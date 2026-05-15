@@ -315,6 +315,28 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
     }
 
+    func testMultiTokenSearchCanMatchAcrossTitleAndKeywordFields() {
+        let entries = [
+            FixtureEntry(
+                id: "workspace.projectA",
+                rank: 0,
+                title: "Project A",
+                searchableTexts: ["Project A", "Workspace"]
+            ),
+            FixtureEntry(
+                id: "workspace.notes",
+                rank: 1,
+                title: "Notes",
+                searchableTexts: ["Notes", "Workspace"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "project workspace").first?.id,
+            "workspace.projectA"
+        )
+    }
+
     func testLimitedSearchReturnsSameTopResultsAsFullSearch() {
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let queries = [

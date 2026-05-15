@@ -59,8 +59,20 @@ final class CommandPaletteOverlayRenderModel: ObservableObject {
     }
 }
 
-struct CommandPaletteCommandListRowsView: View {
+struct CommandPaletteCommandListRenderView: View {
     @ObservedObject var renderModel: CommandPaletteOverlayRenderModel
+    let onRunResult: (String) -> Void
+
+    var body: some View {
+        CommandPaletteCommandListRowsView(
+            state: renderModel.commandList,
+            onRunResult: onRunResult
+        )
+    }
+}
+
+struct CommandPaletteCommandListRowsView: View {
+    let state: CommandPaletteCommandListRenderState
     let onRunResult: (String) -> Void
     @State private var hoveredIndex: Int?
 
@@ -69,7 +81,6 @@ struct CommandPaletteCommandListRowsView: View {
     private static let emptyStateHeight: CGFloat = 44
 
     var body: some View {
-        let state = renderModel.commandList
         let contentHeight = state.rows.isEmpty
             ? Self.emptyStateHeight
             : CGFloat(state.rows.count) * Self.rowHeight
@@ -137,7 +148,7 @@ struct CommandPaletteCommandListRowsView: View {
             ),
             anchor: state.scrollTargetAnchor
         )
-        .onChange(of: renderModel.commandList.rows.count) { _, count in
+        .onChange(of: state.rows.count) { _, count in
             if let hoveredIndex, hoveredIndex >= count {
                 self.hoveredIndex = nil
             }

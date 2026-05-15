@@ -3723,7 +3723,7 @@ struct ContentView: View {
 
             Divider()
 
-            CommandPaletteCommandListRowsView(
+            CommandPaletteCommandListRenderView(
                 renderModel: commandPaletteOverlayRenderModel,
                 onRunResult: runCommandPaletteResult(commandID:)
             )

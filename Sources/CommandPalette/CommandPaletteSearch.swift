@@ -1075,10 +1075,9 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
     let rank: Int
     let title: String
     let preparedTitle: CommandPaletteFuzzyMatcher.PreparedCandidateText?
-    let preparedNonTitleSearchableTexts: [CommandPaletteFuzzyMatcher.PreparedCandidateText]
-    let nonTitleSearchableTextSet: Set<String>
-    let nonTitlePrefixScoreByToken: [String: Int]
-    let searchableTextsContainTitle: Bool
+    let preparedSearchableTexts: [CommandPaletteFuzzyMatcher.PreparedCandidateText]
+    let searchableTextSet: Set<String>
+    let searchablePrefixScoreByToken: [String: Int]
     let nucleoSearchText: String
 
     init(payload: Payload, rank: Int, title: String, searchableTexts: [String]) {
@@ -1104,16 +1103,14 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
             normalizedTexts.append(normalizedText)
         }
 
-        let nonTitleNormalizedTexts = normalizedTexts.filter { $0 != normalizedTitle }
-        let preparedNonTitleSearchableTexts = nonTitleNormalizedTexts.compactMap(
+        let preparedSearchableTexts = normalizedTexts.compactMap(
             CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText
         )
-        self.preparedNonTitleSearchableTexts = preparedNonTitleSearchableTexts
-        self.nonTitleSearchableTextSet = Set(nonTitleNormalizedTexts)
-        self.nonTitlePrefixScoreByToken = CommandPaletteFuzzyMatcher.wholeCandidatePrefixScoreByToken(
-            preparedCandidates: preparedNonTitleSearchableTexts
+        self.preparedSearchableTexts = preparedSearchableTexts
+        self.searchableTextSet = Set(normalizedTexts)
+        self.searchablePrefixScoreByToken = CommandPaletteFuzzyMatcher.wholeCandidatePrefixScoreByToken(
+            preparedCandidates: preparedSearchableTexts
         )
-        self.searchableTextsContainTitle = seen.contains(normalizedTitle)
         self.nucleoSearchText = nucleoSearchTexts.joined(separator: "\n")
     }
 }
@@ -1337,38 +1334,20 @@ enum CommandPaletteSearchEngine {
         preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
         entry: CommandPaletteSearchCorpusEntry<Payload>
     ) -> Int? {
-        let nonTitleScore = CommandPaletteFuzzyMatcher.score(
+        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
             preparedQuery: preparedQuery,
-            preparedCandidates: entry.preparedNonTitleSearchableTexts,
-            exactCandidateTexts: entry.nonTitleSearchableTextSet,
-            wholeCandidatePrefixScoreByToken: entry.nonTitlePrefixScoreByToken
-        )
-        let titleScore: Int?
-        if let preparedTitle = entry.preparedTitle,
-           preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }) {
-            titleScore = CommandPaletteFuzzyMatcher.score(
-                preparedQuery: preparedQuery,
-                preparedCandidate: preparedTitle
-            )
-        } else {
-            titleScore = nil
-        }
-        let searchableTitleScore = entry.searchableTextsContainTitle ? titleScore : nil
-        let fuzzyScore: Int?
-        switch (searchableTitleScore, nonTitleScore) {
-        case (.some(let titleScore), .some(let nonTitleScore)):
-            fuzzyScore = max(titleScore, nonTitleScore)
-        case (.some(let titleScore), .none):
-            fuzzyScore = titleScore
-        case (.none, .some(let nonTitleScore)):
-            fuzzyScore = nonTitleScore
-        case (.none, .none):
-            fuzzyScore = nil
-        }
-        guard let fuzzyScore else {
+            preparedCandidates: entry.preparedSearchableTexts,
+            exactCandidateTexts: entry.searchableTextSet,
+            wholeCandidatePrefixScoreByToken: entry.searchablePrefixScoreByToken
+        ) else {
             return nil
         }
-        if let titleScore {
+        if let preparedTitle = entry.preparedTitle,
+           preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }),
+           let titleScore = CommandPaletteFuzzyMatcher.score(
+                preparedQuery: preparedQuery,
+                preparedCandidate: preparedTitle
+            ) {
             return max(fuzzyScore, titleScore + titleMatchBonus)
         }
         return fuzzyScore
