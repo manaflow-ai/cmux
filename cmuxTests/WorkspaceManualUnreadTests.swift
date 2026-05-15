@@ -9,6 +9,17 @@ import AppKit
 
 @MainActor
 final class WorkspaceManualUnreadTests: XCTestCase {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
     override func tearDown() {
         TerminalNotificationStore.shared.replaceNotificationsForTesting([])
         super.tearDown()
@@ -300,6 +311,107 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         )
         XCTAssertEqual(store.notifications.map(\.id), [readNotificationId, currentNotificationId])
         XCTAssertFalse(store.notifications.last?.isRead ?? true)
+    }
+
+    func testJumpToLatestUnreadOpensManualPanelUnreadWithoutRetainedNotification() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalTabManager = appDelegate.tabManager
+
+        AppDelegate.shared = appDelegate
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        appDelegate.tabManager = manager
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        defer {
+            window.orderOut(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let unreadWorkspace = manager.addWorkspace(title: "Manual unread", select: false)
+        let unreadPanelId = try XCTUnwrap(unreadWorkspace.focusedPanelId)
+
+        unreadWorkspace.markPanelUnread(unreadPanelId)
+        manager.focusTab(currentWorkspace.id)
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertEqual(store.unreadCount(forTabId: unreadWorkspace.id), 1)
+
+        _ = appDelegate.jumpToLatestUnread()
+
+        XCTAssertEqual(manager.selectedTabId, unreadWorkspace.id)
+        XCTAssertEqual(manager.focusedSurfaceId(for: unreadWorkspace.id), unreadPanelId)
+        XCTAssertEqual(store.unreadCount(forTabId: unreadWorkspace.id), 0)
+    }
+
+    func testMarkOldestUnreadAndJumpNextSkipsCurrentManualUnreadWorkspace() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalTabManager = appDelegate.tabManager
+
+        AppDelegate.shared = appDelegate
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        appDelegate.tabManager = manager
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        defer {
+            window.orderOut(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextUnreadWorkspace = manager.addWorkspace(title: "Next unread", select: false)
+        let nextPanelId = try XCTUnwrap(nextUnreadWorkspace.focusedPanelId)
+
+        manager.focusTab(currentWorkspace.id, surfaceId: currentPanelId)
+        nextUnreadWorkspace.markPanelUnread(nextPanelId)
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertEqual(store.unreadCount(forTabId: currentWorkspace.id), 0)
+        XCTAssertEqual(store.unreadCount(forTabId: nextUnreadWorkspace.id), 1)
+
+        _ = appDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread()
+
+        XCTAssertEqual(manager.selectedTabId, nextUnreadWorkspace.id)
+        XCTAssertEqual(manager.focusedSurfaceId(for: nextUnreadWorkspace.id), nextPanelId)
+        XCTAssertEqual(store.unreadCount(forTabId: currentWorkspace.id), 1)
+        XCTAssertEqual(store.unreadCount(forTabId: nextUnreadWorkspace.id), 0)
     }
 
     func testManualPanelUnreadClearsOnDirectTerminalInteraction() {
