@@ -7272,7 +7272,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
-    @Published var manualUnreadPanelIds: Set<UUID> = []
+    @Published var manualUnreadPanelIds: Set<UUID> = [] {
+        didSet {
+            guard manualUnreadPanelIds != oldValue else { return }
+            syncPanelDerivedWorkspaceUnread()
+        }
+    }
     @Published private(set) var restoredUnreadPanelIds: Set<UUID> = []
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
@@ -8380,6 +8385,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func syncPanelDerivedWorkspaceUnread() {
+        AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(!manualUnreadPanelIds.isEmpty, forTabId: id)
+    }
+
     private func normalizePinnedTabs(in paneId: PaneID) {
         guard !isNormalizingPinnedTabOrder else { return }
         isNormalizingPinnedTabOrder = true
@@ -8522,6 +8531,23 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func preferredUnreadPanelIdForJump() -> UUID? {
+        let latestManualPanelId = manualUnreadMarkedAt
+            .filter { manualUnreadPanelIds.contains($0.key) && panels[$0.key] != nil }
+            .max { $0.value < $1.value }?
+            .key
+        if let latestManualPanelId {
+            return latestManualPanelId
+        }
+        if let manualPanelId = manualUnreadPanelIds.first(where: { panels[$0] != nil }) {
+            return manualPanelId
+        }
+        if let restoredPanelId = restoredUnreadPanelIds.first(where: { panels[$0] != nil }) {
+            return restoredPanelId
+        }
+        return representativePanelIdForWorkspaceManualUnread()
+    }
+
     func markPanelRead(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
@@ -8531,11 +8557,36 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func clearUnreadAfterJump(panelId: UUID?) {
+        if let panelId,
+           manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId) {
+            markPanelRead(panelId)
+            return
+        }
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+    }
+
     func clearManualUnread(panelId: UUID) {
         let didRemoveManual = clearManualUnreadState(panelId: panelId)
         let didRemoveRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
         guard didRemoveManual || didRemoveRestored else { return }
         syncUnreadBadgeStateForPanel(panelId)
+    }
+
+    @discardableResult
+    func clearAllPanelUnreadIndicatorsForWorkspaceRead() -> Bool {
+        let hadLocalUnreadIndicators = !manualUnreadPanelIds.isEmpty || !restoredUnreadPanelIds.isEmpty
+        let affectedPanelIds = Set(panels.keys)
+            .union(manualUnreadPanelIds)
+            .union(restoredUnreadPanelIds)
+        guard !affectedPanelIds.isEmpty else { return false }
+        manualUnreadPanelIds.removeAll()
+        restoredUnreadPanelIds.removeAll()
+        manualUnreadMarkedAt.removeAll()
+        for panelId in affectedPanelIds {
+            syncUnreadBadgeStateForPanel(panelId)
+        }
+        return hadLocalUnreadIndicators
     }
 
     private func clearManualUnreadState(panelId: UUID) -> Bool {
