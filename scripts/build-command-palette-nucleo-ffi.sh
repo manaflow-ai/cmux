@@ -81,6 +81,11 @@ else
   lipo -create -output "${SOURCE_LIB}" "${libs[@]}"
 fi
 
+if [ -z "${TARGET_BUILD_DIR:-}" ]; then
+  echo "built ${SOURCE_LIB}"
+  exit 0
+fi
+
 DEST_DIR="${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH:-${CONTENTS_FOLDER_PATH:-Contents}/Frameworks}"
 DEST_LIB="${DEST_DIR}/${LIB_NAME}"
 mkdir -p "${DEST_DIR}"

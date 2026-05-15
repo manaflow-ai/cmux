@@ -8065,8 +8065,8 @@ struct ContentView: View {
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        syncCommandPaletteOverlayCommandListState()
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
