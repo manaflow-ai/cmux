@@ -2317,6 +2317,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             ),
             "/Users/lawrence/.bun/bin/opencode"
         )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+                arguments: ["opencode", "run", "--session", "unsupported-session"],
+                environment: [:]
+            )
+        )
     }
 
     func testProcessDetectedOpenCodeResolvesBareExecutableWithCapturedPath() throws {
@@ -2359,7 +2365,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let arguments = RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+        let arguments = try XCTUnwrap(RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
             arguments: [
                 "node",
                 "opencode",
@@ -2376,7 +2382,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 "/tmp/opencode repo"
             ],
             environment: ["PATH": "\(bin.path):/usr/bin"]
-        )
+        ))
         XCTAssertEqual(
             arguments,
             [

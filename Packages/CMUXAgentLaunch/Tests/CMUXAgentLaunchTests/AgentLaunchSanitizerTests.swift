@@ -42,9 +42,9 @@ struct AgentLaunchSanitizerTests {
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
                     "codex",
-                    "fork",
                     "--model",
                     "gpt-5.4",
+                    "fork",
                     "parent-thread-id",
                     "--sandbox",
                     "danger-full-access",
@@ -72,9 +72,9 @@ struct AgentLaunchSanitizerTests {
                 [
                     "/Applications/cmux.app/Contents/Resources/bin/cmux",
                     "codex-teams",
-                    "fork",
                     "--model",
                     "gpt-5.4",
+                    "fork",
                     "parent-thread-id",
                     "--ask-for-approval",
                     "never",

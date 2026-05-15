@@ -107,7 +107,7 @@ extension RestorableAgentSessionIndex {
     static func openCodeLaunchArgumentsForProcess(
         arguments: [String],
         environment: [String: String]
-    ) -> [String] {
+    ) -> [String]? {
         let observed = VaultObservedAgentProcess(
             processName: "",
             processPath: nil,
@@ -209,10 +209,10 @@ extension RestorableAgentSessionIndex {
                 observed: process.observed,
                 environment: process.environment
             )
-            let launchArguments = openCodeLaunchArguments(
+            guard let launchArguments = openCodeLaunchArguments(
                 observed: process.observed,
                 executablePath: executablePath
-            )
+            ) else { continue }
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .opencode,
                 sessionId: sessionId,
@@ -263,10 +263,10 @@ extension RestorableAgentSessionIndex {
     private static func openCodeLaunchArguments(
         observed: VaultObservedAgentProcess,
         executablePath: String
-    ) -> [String] {
+    ) -> [String]? {
         let tail = openCodeLaunchTail(observed: observed)
         guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail) else {
-            return [executablePath]
+            return nil
         }
         return [executablePath] + preserved
     }
