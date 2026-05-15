@@ -26,6 +26,7 @@ export type AuthedVmRouteContext = {
   span: Span;
   authDurationMs: number;
   routeStartedAtMs: number;
+  setResponseFinalizer: (finalizer: ((response: Response) => void) | null) => void;
 };
 
 export async function withAuthedVmApiRoute(
@@ -40,6 +41,21 @@ export async function withAuthedVmApiRoute(
     route,
     { "cmux.subsystem": "vm-cloud", ...attributes },
     async (span) => {
+      let responseFinalizer: ((response: Response) => void) | null = null;
+      const setResponseFinalizer = (finalizer: ((response: Response) => void) | null) => {
+        responseFinalizer = finalizer;
+      };
+      const finalize = (response: Response): Response => {
+        if (!responseFinalizer) return response;
+        try {
+          responseFinalizer(response);
+        } catch (err) {
+          recordSpanError(span, err);
+          console.error(`${failureLog}: response finalizer failed`, err);
+        }
+        return response;
+      };
+
       try {
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
@@ -51,19 +67,19 @@ export async function withAuthedVmApiRoute(
         if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
           return jsonResponse({ error: "forbidden" }, 403);
         }
-        return await handler({ user, span, authDurationMs, routeStartedAtMs });
+        return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
         console.error(failureLog, err);
         const workflowError = vmWorkflowErrorResponse(err);
-        if (workflowError) return workflowError;
-        return vmErrorResponse({
+        if (workflowError) return finalize(workflowError);
+        return finalize(vmErrorResponse({
           error: "vm_internal_error",
           status: 500,
           message: "Cloud VM request failed unexpectedly.",
           action: "Try again. If it keeps failing, copy this error and contact support so we can inspect the server logs.",
           details: { route },
-        });
+        }));
       }
     },
   );

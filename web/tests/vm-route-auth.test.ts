@@ -48,6 +48,8 @@ const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
+const { VmProviderOperationError } = await import("../services/vms/errors");
+const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 
 beforeEach(() => {
   restoreVmEnv();
@@ -296,6 +298,40 @@ describe("VM REST auth", () => {
     }));
   });
 
+  test("rejects blank team ids before reaching workflows", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const requests = [
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", teamId: "   " }),
+      }),
+      new Request("https://cmux.test/api/vm?teamId=%20%20", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test", "x-cmux-team-id": "  " },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_invalid_request",
+        details: { field: "teamId" },
+      });
+      expect(payload.message).toContain("non-empty");
+      expectNoCloudVmImplementationLeaks(payload);
+    }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("rejects a requested Stack team the caller does not belong to", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
@@ -476,6 +512,40 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "forbidden" });
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("finalizes route observers with wrapper-mapped workflow statuses", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    let finalizedStatus: number | null = null;
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm", {
+          method: "POST",
+          headers: { origin: "https://cmux.test" },
+          body: "{}",
+        }),
+        "/api/vm",
+        { "cmux.vm.operation": "create" },
+        "/api/vm POST failed",
+        async ({ setResponseFinalizer }) => {
+          setResponseFinalizer((mappedResponse) => {
+            finalizedStatus = mappedResponse.status;
+          });
+          throw new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "create",
+            cause: new Error("provider unavailable"),
+          });
+        },
+      );
+
+      expect(response.status).toBe(502);
+      expect(finalizedStatus).toBe(502);
+    } finally {
+      console.error = originalError;
+    }
   });
 
   test("requires an Origin header for cookie-authenticated mutations", async () => {

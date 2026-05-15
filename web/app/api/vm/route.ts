@@ -96,16 +96,13 @@ export async function POST(request: Request): Promise<Response> {
     "/api/vm",
     { "cmux.vm.operation": "create" },
     "/api/vm POST failed",
-    async ({ user: initialUser, span, authDurationMs, routeStartedAtMs }) => {
+    async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
+      setResponseFinalizer((response) => timing.finish({ status: response.status }));
       let user: AuthedUser = initialUser;
-      let responseStatus = 500;
-      const done = (response: Response): Response => {
-        responseStatus = response.status;
-        return response;
-      };
-      try {
+      const done = (response: Response): Response => response;
+      {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
         // (client sending `"aws"` or `"docker"`) previously slipped past the type cast and
         // surfaced as a 500 from the driver after provisioning had already half-succeeded.
@@ -174,13 +171,13 @@ export async function POST(request: Request): Promise<Response> {
         }
         const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
         if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
-          return done(vmErrorResponse({
-            error: "vm_invalid_request",
-            status: 400,
-            message: "`teamId` must be a string when provided.",
-            action: "Use a team id from `cmux auth status`, or omit `teamId` when the signed-in account has one team.",
-            details: { field: "teamId" },
-          }));
+          return done(invalidTeamIdResponse());
+        }
+        if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
+          return done(invalidTeamIdResponse());
+        }
+        if (requestHasBlankVmTeamId(request)) {
+          return done(invalidTeamIdResponse());
         }
         const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
           image: typeof candidate.image === "string" ? candidate.image : undefined,
@@ -329,11 +326,40 @@ export async function POST(request: Request): Promise<Response> {
           imageVersion: created.imageVersion,
           createdAt: created.createdAt,
         }));
-      } finally {
-        timing.finish({ status: responseStatus });
       }
     },
   );
+}
+
+function invalidTeamIdResponse(): Response {
+  return vmErrorResponse({
+    error: "vm_invalid_request",
+    status: 400,
+    message: "`teamId` must be a non-empty string when provided.",
+    action: "Use a team id from `cmux auth status`, or omit `teamId` when the signed-in account has one team.",
+    details: { field: "teamId" },
+  });
+}
+
+function requestHasBlankVmTeamId(request: Request): boolean {
+  for (const header of ["x-cmux-team-id", "x-cmux-billing-team-id"]) {
+    const value = request.headers.get(header);
+    if (value !== null && value.trim().length === 0) return true;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return false;
+  }
+
+  for (const key of ["teamId", "team_id", "billingTeamId", "billing_team_id"]) {
+    for (const value of url.searchParams.getAll(key)) {
+      if (value.trim().length === 0) return true;
+    }
+  }
+  return false;
 }
 
 function billingTeamErrorResponse(err: {
