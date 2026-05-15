@@ -4418,6 +4418,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private enum ParsedSocketInput {
+        case text(String)
+        case key(PendingKeyEvent)
+    }
+
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
@@ -5616,53 +5621,46 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
-        var bufferedText = ""
-        var previousWasCR = false
-        for scalar in text.unicodeScalars {
-            switch scalar.value {
-            case 0x0A: // \n — skip if preceded by \r (already sent Return)
-                if !previousWasCR {
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
-                }
-                previousWasCR = false
-            case 0x0D:
+        for event in Self.parsedSocketInputEvents(for: text) {
+            switch event {
+            case .text(let value):
+                var bufferedText = value
                 flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
-                previousWasCR = true
-            case 0x09:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
-                previousWasCR = false
-            case 0x1B:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
-                previousWasCR = false
-            case 0x7F:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
-                previousWasCR = false
-            default:
-                bufferedText.unicodeScalars.append(scalar)
-                previousWasCR = false
+            case .key(let event):
+                sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             }
         }
-        flushText(&bufferedText, surface: surface)
     }
 
     private func enqueuePendingSocketInput(_ text: String) {
+        for event in Self.parsedSocketInputEvents(for: text) {
+            switch event {
+            case .text(let value):
+                guard let data = value.data(using: .utf8), !data.isEmpty else { continue }
+                enqueuePendingSocketInput(.text(data))
+            case .key(let event):
+                enqueuePendingSocketInput(.key(event))
+            }
+        }
+    }
+
+    private static func parsedSocketInputEvents(for text: String) -> [ParsedSocketInput] {
+        guard !text.isEmpty else { return [] }
+
+        var events: [ParsedSocketInput] = []
+        events.reserveCapacity(8)
         var bufferedText = ""
+        bufferedText.reserveCapacity(text.count)
         var previousWasCR = false
 
         func flushBufferedText() {
-            guard !bufferedText.isEmpty,
-                  let data = bufferedText.data(using: .utf8) else { return }
-            enqueuePendingSocketInput(.text(data))
+            guard !bufferedText.isEmpty else { return }
+            events.append(.text(bufferedText))
             bufferedText.removeAll(keepingCapacity: true)
         }
 
-        func enqueueKey(_ keycode: UInt32, label: String) {
-            enqueuePendingSocketInput(.key(PendingKeyEvent(
+        func appendKey(_ keycode: UInt32, label: String) {
+            events.append(.key(PendingKeyEvent(
                 keycode: keycode,
                 mods: GHOSTTY_MODS_NONE,
                 label: label
@@ -5674,24 +5672,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
             case 0x0A:
                 if !previousWasCR {
                     flushBufferedText()
-                    enqueueKey(UInt32(kVK_Return), label: "return")
+                    appendKey(UInt32(kVK_Return), label: "return")
                 }
                 previousWasCR = false
             case 0x0D:
                 flushBufferedText()
-                enqueueKey(UInt32(kVK_Return), label: "return")
+                appendKey(UInt32(kVK_Return), label: "return")
                 previousWasCR = true
             case 0x09:
                 flushBufferedText()
-                enqueueKey(UInt32(kVK_Tab), label: "tab")
+                appendKey(UInt32(kVK_Tab), label: "tab")
                 previousWasCR = false
             case 0x1B:
                 flushBufferedText()
-                enqueueKey(UInt32(kVK_Escape), label: "escape")
+                appendKey(UInt32(kVK_Escape), label: "escape")
                 previousWasCR = false
             case 0x7F:
                 flushBufferedText()
-                enqueueKey(UInt32(kVK_Delete), label: "delete")
+                appendKey(UInt32(kVK_Delete), label: "delete")
                 previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
@@ -5699,6 +5697,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
         flushBufferedText()
+        return events
     }
 
     private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
