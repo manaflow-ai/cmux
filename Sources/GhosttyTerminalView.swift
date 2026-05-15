@@ -4591,8 +4591,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
-        // Attach immediately so runtime startup is not gated on window membership.
-        hostedView.attachSurface(self)
+        view.terminalSurface = self
+        view.tabId = tabId
+        attachedView = view
+
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
+        let hasStartupWork = self.initialCommand != nil
+            || self.tmuxStartCommand != nil
+            || trimmedInput != nil
+            || inheritedCommand?.isEmpty == false
+            || inheritedInput?.isEmpty == false
+
+        // Bind the owned view immediately so cold socket input can start the runtime without
+        // waiting for window membership. Only surfaces with startup work create the runtime
+        // eagerly; ordinary empty test/helper surfaces still start lazily on attach or input.
+        if hasStartupWork {
+            hostedView.attachSurface(self)
+        }
     }
 
     func updateWorkspaceId(_ newTabId: UUID) {

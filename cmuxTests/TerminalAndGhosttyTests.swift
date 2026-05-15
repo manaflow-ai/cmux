@@ -940,6 +940,17 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
+    func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        XCTAssertNil(panel.hostedView.window)
+        XCTAssertEqual(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Empty terminal surfaces should stay lazy until they attach or receive input so tests and background helpers do not spawn idle PTYs."
+        )
+    }
+
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -951,6 +962,20 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
             0,
             "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
+        )
+    }
+
+    func testInitialCommandSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+
+        XCTAssertNil(panel.hostedView.window)
+        XCTAssertGreaterThan(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
         )
     }
 

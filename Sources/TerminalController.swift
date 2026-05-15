@@ -81,6 +81,28 @@ class TerminalController {
         return MemoryLayout.size(ofValue: addr.sun_path) - 1
     }()
 
+    private static var terminalProcessExitedMessage: String {
+        String(
+            localized: "socket.terminal.processExited",
+            defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
+        )
+    }
+
+    private static var terminalInputQueueFullMessage: String {
+        String(
+            localized: "socket.terminal.inputQueueFull",
+            defaultValue: "The terminal cannot accept more queued input right now; retry in a moment or reopen the session."
+        )
+    }
+
+    private static var terminalProcessExitedSocketError: String {
+        "ERROR: \(terminalProcessExitedMessage)"
+    }
+
+    private static var terminalInputQueueFullSocketError: String {
+        "ERROR: \(terminalInputQueueFullMessage)"
+    }
+
     private struct ListenerStateSnapshot {
         let socketPath: String
         let serverSocket: Int32
@@ -6839,11 +6861,11 @@ class TerminalController {
             let queued: Bool
             if let surface = terminalPanel.surface.surface {
                 guard !ghostty_surface_process_exited(surface) else {
-                    result = .err(code: "process_exited", message: "Terminal process has exited", data: ["surface_id": surfaceId.uuidString])
+                    result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
                     return
                 }
                 guard terminalPanel.surface.sendInput(text) else {
-                    result = .err(code: "input_queue_full", message: "Terminal input queue is full", data: ["surface_id": surfaceId.uuidString])
+                    result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
                     return
                 }
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
@@ -6854,7 +6876,7 @@ class TerminalController {
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
                 guard terminalPanel.surface.sendInput(text) else {
-                    result = .err(code: "input_queue_full", message: "Terminal input queue is full", data: ["surface_id": surfaceId.uuidString])
+                    result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
                     return
                 }
                 queued = true
@@ -6905,7 +6927,7 @@ class TerminalController {
             let runtimeSurface = terminalPanel.surface.surface
             if let runtimeSurface,
                ghostty_surface_process_exited(runtimeSurface) {
-                result = .err(code: "process_exited", message: "Terminal process has exited", data: ["surface_id": surfaceId.uuidString])
+                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             }
             let surfaceWasReady = runtimeSurface != nil
@@ -15415,7 +15437,7 @@ class TerminalController {
 
             if let surface = terminalPanel.surface.surface,
                ghostty_surface_process_exited(surface) {
-                error = "ERROR: Terminal process has exited"
+                error = Self.terminalProcessExitedSocketError
                 return
             }
 
@@ -15428,7 +15450,7 @@ class TerminalController {
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
             guard terminalPanel.surface.sendInput(unescaped) else {
-                error = "ERROR: Terminal input queue is full"
+                error = Self.terminalInputQueueFullSocketError
                 return
             }
             if surfaceWasReady {
@@ -15471,7 +15493,7 @@ class TerminalController {
 
             if let surface = terminalPanel.surface.surface,
                ghostty_surface_process_exited(surface) {
-                error = "ERROR: Terminal process has exited"
+                error = Self.terminalProcessExitedSocketError
                 return
             }
 
@@ -15482,7 +15504,7 @@ class TerminalController {
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
             guard terminalPanel.surface.sendInput(unescaped) else {
-                error = "ERROR: Terminal input queue is full"
+                error = Self.terminalInputQueueFullSocketError
                 return
             }
             if surfaceWasReady {
@@ -15550,7 +15572,7 @@ class TerminalController {
             }
             if let surface = terminalPanel.surface.surface,
                ghostty_surface_process_exited(surface) {
-                error = "ERROR: Terminal process has exited"
+                error = Self.terminalProcessExitedSocketError
                 return
             }
 
@@ -15561,7 +15583,7 @@ class TerminalController {
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
             guard terminalPanel.surface.sendInput(unescaped) else {
-                error = "ERROR: Terminal input queue is full"
+                error = Self.terminalInputQueueFullSocketError
                 return
             }
             if surfaceWasReady {
@@ -15589,7 +15611,7 @@ class TerminalController {
 
             if let surface = terminalPanel.surface.surface,
                ghostty_surface_process_exited(surface) {
-                error = "ERROR: Terminal process has exited"
+                error = Self.terminalProcessExitedSocketError
                 return
             }
             success = terminalPanel.surface.sendNamedKey(keyName)
@@ -15615,7 +15637,7 @@ class TerminalController {
             }
             if let surface = terminalPanel.surface.surface,
                ghostty_surface_process_exited(surface) {
-                error = "ERROR: Terminal process has exited"
+                error = Self.terminalProcessExitedSocketError
                 return
             }
             success = terminalPanel.surface.sendNamedKey(keyName)
