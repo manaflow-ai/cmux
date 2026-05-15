@@ -51,6 +51,8 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
     private var tabManager: TabManager?
     private var sidebarState: SidebarState?
     private var sidebarSelectionState: SidebarSelectionState?
+    private var fileExplorerState: FileExplorerState?
+    private var cmuxConfigStore: CmuxConfigStore?
     private var isVisible = false
     private var isAnimating = false
     private var lastFrame: NSRect?
@@ -433,6 +435,12 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
         let sidebarSelectionState = SidebarSelectionState(selection: .tabs)
         self.sidebarSelectionState = sidebarSelectionState
         let notificationStore = TerminalNotificationStore.shared
+        let fileExplorerState = FileExplorerState()
+        self.fileExplorerState = fileExplorerState
+        let cmuxConfigStore = CmuxConfigStore()
+        cmuxConfigStore.wireDirectoryTracking(tabManager: manager)
+        cmuxConfigStore.loadAll()
+        self.cmuxConfigStore = cmuxConfigStore
 
         // Apply pending session snapshot BEFORE creating the ContentView so
         // SwiftUI initializes with the restored workspaces, not empty state.
@@ -457,6 +465,8 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
         .environmentObject(notificationStore)
         .environmentObject(sidebarState)
         .environmentObject(sidebarSelectionState)
+        .environmentObject(fileExplorerState)
+        .environmentObject(cmuxConfigStore)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 400),
@@ -488,6 +498,8 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
             self.tabManager = nil
             self.sidebarState = nil
             self.sidebarSelectionState = nil
+            self.fileExplorerState = nil
+            self.cmuxConfigStore = nil
             self.isVisible = false
         }
 
@@ -498,7 +510,9 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
                 windowId: wId,
                 tabManager: manager,
                 sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState
+                sidebarSelectionState: sidebarSelectionState,
+                fileExplorerState: fileExplorerState,
+                cmuxConfigStore: cmuxConfigStore
             )
             appDelegate.applyWindowDecorations(to: window)
         }
