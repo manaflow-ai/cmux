@@ -14931,11 +14931,12 @@ private extension NSWindow {
 #endif
                     return false
                 }
-                guard !browserResponderHasMarkedText(omnibarResponder) else {
-                    return false
-                }
 #if DEBUG
-                cmuxDebugLog("  → browser arrow restored focused omnibar before keyDown")
+                if browserResponderHasMarkedText(omnibarResponder) {
+                    cmuxDebugLog("  → browser arrow restored focused omnibar with marked text before keyDown")
+                } else {
+                    cmuxDebugLog("  → browser arrow restored focused omnibar before keyDown")
+                }
 #endif
                 omnibarResponder.keyDown(with: event)
                 return true

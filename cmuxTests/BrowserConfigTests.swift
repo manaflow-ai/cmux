@@ -287,6 +287,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class FieldEditorProbeTextView: NSTextView {
         private(set) var delegateReadCount = 0
         private(set) var keyDownKeyCodes: [UInt16] = []
+        var reportsMarkedText = false
 
         override var delegate: NSTextViewDelegate? {
             get {
@@ -305,6 +306,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         override func keyDown(with event: NSEvent) {
             keyDownKeyCodes.append(event.keyCode)
+        }
+
+        override func hasMarkedText() -> Bool {
+            reportsMarkedText
         }
 
         func resetKeyDownKeyCodes() {
@@ -882,6 +887,70 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             [123],
             "When the omnibar is still logically focused, transient WebView first-responder state must not steal plain arrows from the omnibar field editor"
         )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            webView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+        window.testFieldEditor.reportsMarkedText = true
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: leftArrowEvent),
+            "After restoring the omnibar, the arrow must be delivered once instead of returning unhandled after mutating first responder"
+        )
+        XCTAssertEqual(window.testFieldEditor.keyDownKeyCodes, [123])
     }
 
     @MainActor
