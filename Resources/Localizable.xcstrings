@@ -106679,13 +106679,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: cannot open state_5.sqlite (%@)"
+            "value": "%@: Vault couldn't load sessions from this Codex home."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: state_5.sqlite を開けません (%@)"
+            "value": "%@: この Codex ホームから Vault のセッションを読み込めませんでした。"
           }
         }
       }
@@ -106696,13 +106696,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: state_5.sqlite schema unsupported - %@. Falling back to file scan."
+            "value": "%@: Vault couldn't read sessions from this Codex home."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: state_5.sqlite のスキーマに対応していません - %@。ファイルスキャンにフォールバックします。"
+            "value": "%@: この Codex ホームから Vault のセッションを読み取れませんでした。"
           }
         }
       }

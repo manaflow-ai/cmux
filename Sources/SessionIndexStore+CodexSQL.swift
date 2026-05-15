@@ -1,5 +1,8 @@
 import Foundation
+import OSLog
 import SQLite3
+
+nonisolated private let codexSQLLogger = Logger(subsystem: "ai.manaflow.cmux", category: "SessionIndexStore")
 
 extension SessionIndexStore {
     private struct CodexThreadRecord: Sendable {
@@ -52,11 +55,15 @@ extension SessionIndexStore {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            let detail = sqliteMessage(db) ?? "unknown error"
+            codexSQLLogger.warning(
+                "Codex home database open failed: home=\(home.path, privacy: .private) database=\(dbPath, privacy: .private) error=\(detail, privacy: .private)"
+            )
             let format = String(
                 localized: "sessionIndex.codexHome.error.openDatabase",
-                defaultValue: "%@: cannot open state_5.sqlite (%@)"
+                defaultValue: "%@: Vault couldn't load sessions from this Codex home."
             )
-            errorBag.add(String(format: format, home.label, sqliteMessage(db) ?? "unknown error"))
+            errorBag.add(String(format: format, home.label))
             sqlite3_close(db)
             return nil
         }
@@ -84,11 +91,15 @@ extension SessionIndexStore {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            let detail = sqliteMessage(db) ?? "prepare failed"
+            codexSQLLogger.warning(
+                "Codex home database schema unsupported: home=\(home.path, privacy: .private) database=\(dbPath, privacy: .private) error=\(detail, privacy: .private)"
+            )
             let format = String(
                 localized: "sessionIndex.codexHome.error.unsupportedSchema",
-                defaultValue: "%@: state_5.sqlite schema unsupported - %@. Falling back to file scan."
+                defaultValue: "%@: Vault couldn't read sessions from this Codex home."
             )
-            errorBag.add(String(format: format, home.label, sqliteMessage(db) ?? "prepare failed"))
+            errorBag.add(String(format: format, home.label))
             sqlite3_finalize(stmt)
             return nil
         }
