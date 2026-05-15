@@ -8,6 +8,11 @@ import XCTest
 
 @MainActor
 final class TabManagerSessionSnapshotTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ClosedItemHistoryStore.shared.removeAll()
+    }
+
     override func tearDown() {
         ClosedItemHistoryStore.shared.removeAll()
         super.tearDown()
@@ -427,6 +432,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         manager.navigateBack()
 
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+    }
+
+    func testReopenClosedPanelPreservesForwardFocusHistoryBranch() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertTrue(manager.canNavigateForward)
+
+        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+
+        firstWorkspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(firstWorkspace.closePanel(panelId, force: true))
+        drainMainQueue()
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(manager.canNavigateForward)
+
+        manager.navigateForward()
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
     func testReopenClosedItemRestoresClosedWorkspaceSnapshot() throws {
