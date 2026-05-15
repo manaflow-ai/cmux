@@ -278,6 +278,17 @@ sign_top_level_app_dylibs() {
   done < <(find "$macos_dir" -maxdepth 1 -type f -name '*.dylib' -print0)
 }
 
+sign_app_plugins() {
+  local app_path="$1"
+  local plugins_dir="$app_path/Contents/PlugIns"
+  [[ -d "$plugins_dir" ]] || return 0
+
+  local plugin
+  while IFS= read -r -d '' plugin; do
+    sign_path "$plugin"
+  done < <(find "$plugins_dir" -maxdepth 1 -type d \( -name '*.plugin' -o -name '*.appex' -o -name '*.xpc' \) -print0)
+}
+
 resolve_framework_version_dir() {
   local framework="$1"
   local versions_dir="$framework/Versions"
@@ -494,6 +505,7 @@ if [[ -n "$APP_PATH" ]]; then
     echo "Skipping outer app re-sign for Xcode test host bundle"
   else
     sign_top_level_app_dylibs "$APP_PATH"
+    sign_app_plugins "$APP_PATH"
     sign_path "$APP_PATH"
   fi
   echo "Embedded $FRAMEWORK_NAME into $APP_PATH"

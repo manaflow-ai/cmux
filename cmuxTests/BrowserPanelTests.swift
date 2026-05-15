@@ -502,7 +502,7 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
         let proxyConfiguration = ["proxyServer": "socks5://127.0.0.1:9191"] as NSDictionary
 
         let bridge = try BrowserChromiumHostFactory.makeBridge(
-            factoryType: FakeChromiumHostFactory.self,
+            factoryClass: FakeChromiumHostFactory.self,
             factoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
             profileIdentifier: profileID,
             dataDirectory: dataDirectory,
@@ -519,7 +519,7 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
     func testChromiumHostFactoryRejectsNilFactoryResult() {
         XCTAssertThrowsError(
             try BrowserChromiumHostFactory.makeBridge(
-                factoryType: NilChromiumHostFactory.self,
+                factoryClass: NilChromiumHostFactory.self,
                 factoryClassName: "NilChromiumHostFactory",
                 profileIdentifier: UUID(),
                 dataDirectory: URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true),
@@ -655,16 +655,17 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
         @objc var cmuxNativeView: NSView? { nil }
     }
 
-    private final class FakeChromiumHostFactory: NSObject, BrowserChromiumHostFactoryExporting {
+    private final class FakeChromiumHostFactory: NSObject {
         static var lastProfileIdentifier: String?
         static var lastDataDirectory: URL?
         static var lastProxyConfiguration: NSDictionary?
 
+        @objc(cmuxCreateBrowserHostWithProfileIdentifier:dataDirectory:proxyConfiguration:)
         static func cmuxCreateBrowserHost(
             profileIdentifier: String,
             dataDirectory: NSURL,
             proxyConfiguration: NSDictionary?
-        ) -> BrowserChromiumHostExporting? {
+        ) -> NSObject? {
             lastProfileIdentifier = profileIdentifier
             lastDataDirectory = dataDirectory as URL
             lastProxyConfiguration = proxyConfiguration
@@ -672,12 +673,13 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
         }
     }
 
-    private final class NilChromiumHostFactory: NSObject, BrowserChromiumHostFactoryExporting {
+    private final class NilChromiumHostFactory: NSObject {
+        @objc(cmuxCreateBrowserHostWithProfileIdentifier:dataDirectory:proxyConfiguration:)
         static func cmuxCreateBrowserHost(
             profileIdentifier: String,
             dataDirectory: NSURL,
             proxyConfiguration: NSDictionary?
-        ) -> BrowserChromiumHostExporting? {
+        ) -> NSObject? {
             nil
         }
     }
