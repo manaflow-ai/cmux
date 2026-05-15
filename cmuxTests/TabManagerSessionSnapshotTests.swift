@@ -120,6 +120,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(notificationCount, 0)
     }
 
+    func testFocusHistoryNavigationNotificationSeesUpdatedDirectionState() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        var observedCanNavigateForward = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .tabManagerFocusHistoryRevisionDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            observedCanNavigateForward = manager.canNavigateForward
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertTrue(observedCanNavigateForward)
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(

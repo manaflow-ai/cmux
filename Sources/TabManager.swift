@@ -1015,8 +1015,16 @@ class TabManager: ObservableObject {
                 if let previousTabId {
                     recordFocusInHistory(workspaceId: previousTabId, panelId: focusedPanelId(for: previousTabId))
                 }
-                if let selectedTabId {
-                    recordFocusInHistory(workspaceId: selectedTabId, panelId: focusedPanelId(for: selectedTabId))
+                if let selectedTabId,
+                   let selectedWorkspace = tabs.first(where: { $0.id == selectedTabId }) {
+                    let selectedEntry = FocusHistoryEntry(
+                        workspaceId: selectedTabId,
+                        panelId: lastFocusedPanelByTab[selectedTabId]
+                    )
+                    recordFocusInHistory(
+                        workspaceId: selectedTabId,
+                        panelId: resolvedFocusHistoryPanelId(for: selectedEntry, in: selectedWorkspace)
+                    )
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
@@ -5676,6 +5684,9 @@ class TabManager: ObservableObject {
 
     private func focusHistoryEntryIsNavigable(_ entry: FocusHistoryEntry, currentEntry: FocusHistoryEntry?) -> Bool {
         guard let workspace = focusHistoryWorkspace(for: entry) else { return false }
+        // Closed panels still leave a useful workspace-level history entry.
+        // Resolve them to the workspace's current remembered panel instead of
+        // discarding the user's ability to jump back to that workspace.
         let resolvedEntry = FocusHistoryEntry(
             workspaceId: workspace.id,
             panelId: resolvedFocusHistoryPanelId(for: entry, in: workspace)
@@ -5687,12 +5698,6 @@ class TabManager: ObservableObject {
     @discardableResult
     private func restoreFocusHistoryEntry(_ entry: FocusHistoryEntry) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else { return false }
-
-        isNavigatingHistory = true
-        defer {
-            isNavigatingHistory = false
-            focusHistoryRevision &+= 1
-        }
 
         if selectedTabId != workspace.id {
             selectedTabId = workspace.id
@@ -5708,6 +5713,23 @@ class TabManager: ObservableObject {
             focusSelectedTabPanel(previousTabId: nil)
         }
 
+        return true
+    }
+
+    @discardableResult
+    private func navigateToFocusHistoryEntry(_ entry: FocusHistoryEntry, targetIndex: Int) -> Bool {
+        isNavigatingHistory = true
+        var didNavigate = false
+        defer {
+            isNavigatingHistory = false
+            if didNavigate {
+                focusHistoryRevision &+= 1
+            }
+        }
+
+        guard restoreFocusHistoryEntry(entry) else { return false }
+        historyIndex = targetIndex
+        didNavigate = true
         return true
     }
 
@@ -5729,8 +5751,7 @@ class TabManager: ObservableObject {
                 targetIndex -= 1
                 continue
             }
-            if restoreFocusHistoryEntry(entry) {
-                historyIndex = targetIndex
+            if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
                 return
             }
             focusHistory.remove(at: targetIndex)
@@ -5756,8 +5777,7 @@ class TabManager: ObservableObject {
                 targetIndex += 1
                 continue
             }
-            if restoreFocusHistoryEntry(entry) {
-                historyIndex = targetIndex
+            if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
                 return
             }
             focusHistory.remove(at: targetIndex)
