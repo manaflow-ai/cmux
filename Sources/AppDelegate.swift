@@ -8938,6 +8938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "browserEngineKind": runtimeStatus.kind.rawValue,
                     "browserChromiumReady": runtimeStatus.kind == .chromium ? "1" : "0",
                     "browserChromiumFallbackReason": runtimeStatus.fallbackReason ?? "",
+                    "browserChromiumFallbackDiagnostic": runtimeStatus.fallbackDiagnostic ?? "",
                     "browserChromiumNativeViewHost": renderingAPI?.nativeViewHost ?? "",
                     "browserChromiumCompositorLayer": renderingAPI?.compositorLayer ?? "",
                     "browserChromiumSurfaceTransport": renderingAPI?.surfaceTransport ?? ""

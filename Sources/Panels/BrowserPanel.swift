@@ -98,6 +98,7 @@ struct BrowserEngineRuntimeStatus: Equatable {
     var kind: BrowserEngineRuntimeKind
     var manifest: BrowserChromiumArtifactManifest?
     var fallbackReason: String?
+    var fallbackDiagnostic: String? = nil
 
     var socketPayload: [String: Any] {
         var payload: [String: Any] = [
@@ -127,6 +128,11 @@ struct BrowserEngineRuntimeStatus: Equatable {
         if let fallbackReason {
             payload["fallback_reason"] = fallbackReason
         }
+#if DEBUG
+        if let fallbackDiagnostic {
+            payload["fallback_diagnostic"] = fallbackDiagnostic
+        }
+#endif
         return payload
     }
 }
@@ -361,6 +367,34 @@ enum BrowserEngineRuntimePolicy {
             return "manifest_decode_failed"
         }
     }
+
+    static func hostCreationFallbackDiagnostic(for error: Error) -> String {
+        if let factoryError = error as? BrowserChromiumHostFactoryError {
+            switch factoryError {
+            case .missingFactoryClass:
+                return "factory_class_missing"
+            case .missingFactoryMethod:
+                return "factory_method_missing"
+            case .factoryReturnedNil:
+                return "factory_returned_nil"
+            case .bridgeCreationFailed:
+                return "bridge_creation_failed"
+            case .bundleLoadFailed:
+                return "bundle_load_failed"
+            }
+        }
+        if let bridgeError = error as? BrowserChromiumHostBridgeError {
+            switch bridgeError {
+            case .missingRequiredView:
+                return "required_view_missing"
+            case .unsupportedOperation:
+                return "unsupported_operation"
+            case .operationFailed:
+                return "operation_failed"
+            }
+        }
+        return "unknown_host_error"
+    }
 }
 
 enum BrowserChromiumHostBridgeError: Error, Equatable, CustomStringConvertible {
@@ -403,15 +437,6 @@ protocol BrowserChromiumHostExporting: NSObjectProtocol {
     @objc optional func cmuxSetPageZoomFactor(_ pageZoomFactor: NSNumber)
     @objc optional func cmuxAddUserScript(_ source: NSString)
     @objc optional func cmuxAddUserStyle(_ source: NSString)
-}
-
-@objc(CMUXChromiumBrowserHostFactoryExporting)
-protocol BrowserChromiumHostFactoryExporting: NSObjectProtocol {
-    static func cmuxCreateBrowserHost(
-        profileIdentifier: String,
-        dataDirectory: NSURL,
-        proxyConfiguration: NSDictionary?
-    ) -> BrowserChromiumHostExporting?
 }
 
 final class BrowserChromiumHostBridge {
@@ -824,7 +849,7 @@ final class BrowserChromiumEngineHost: BrowserEngineHost {
 
 enum BrowserChromiumHostFactoryError: Error, Equatable, CustomStringConvertible {
     case missingFactoryClass(String)
-    case invalidFactoryClass(String)
+    case missingFactoryMethod(String)
     case factoryReturnedNil(String)
     case bridgeCreationFailed(String)
     case bundleLoadFailed(String)
@@ -833,8 +858,8 @@ enum BrowserChromiumHostFactoryError: Error, Equatable, CustomStringConvertible 
         switch self {
         case .missingFactoryClass(let name):
             return "Chromium host factory class not found: \(name)"
-        case .invalidFactoryClass(let name):
-            return "Chromium host factory class does not conform to CMUXChromiumBrowserHostFactoryExporting: \(name)"
+        case .missingFactoryMethod(let name):
+            return "Chromium host factory class does not expose the required Objective-C factory method: \(name)"
         case .factoryReturnedNil(let name):
             return "Chromium host factory returned nil: \(name)"
         case .bridgeCreationFailed(let message):
@@ -866,11 +891,8 @@ enum BrowserChromiumHostFactory {
         guard let factoryClass = NSClassFromString(factoryClassName) else {
             throw BrowserChromiumHostFactoryError.missingFactoryClass(factoryClassName)
         }
-        guard let factoryType = factoryClass as? BrowserChromiumHostFactoryExporting.Type else {
-            throw BrowserChromiumHostFactoryError.invalidFactoryClass(factoryClassName)
-        }
         return try makeBridge(
-            factoryType: factoryType,
+            factoryClass: factoryClass,
             factoryClassName: factoryClassName,
             profileIdentifier: profileIdentifier,
             dataDirectory: dataDirectory,
@@ -879,17 +901,26 @@ enum BrowserChromiumHostFactory {
     }
 
     static func makeBridge(
-        factoryType: BrowserChromiumHostFactoryExporting.Type,
+        factoryClass: AnyClass,
         factoryClassName: String,
         profileIdentifier: UUID,
         dataDirectory: URL,
         proxyConfiguration: NSDictionary?
     ) throws -> BrowserChromiumHostBridge {
-        guard let exportedHost = factoryType.cmuxCreateBrowserHost(
-            profileIdentifier: profileIdentifier.uuidString,
-            dataDirectory: dataDirectory as NSURL,
-            proxyConfiguration: proxyConfiguration
-        ) else {
+        let selector = BrowserChromiumFactorySelectors.createHost
+        guard let method = class_getClassMethod(factoryClass, selector) else {
+            throw BrowserChromiumHostFactoryError.missingFactoryMethod(factoryClassName)
+        }
+        typealias CreateHostIMP = @convention(c) (AnyClass, Selector, NSString, NSURL, NSDictionary?) -> AnyObject?
+        let function = unsafeBitCast(method_getImplementation(method), to: CreateHostIMP.self)
+        guard let exportedObject = function(
+            factoryClass,
+            selector,
+            profileIdentifier.uuidString as NSString,
+            dataDirectory as NSURL,
+            proxyConfiguration
+        ),
+        let exportedHost = exportedObject as? NSObjectProtocol else {
             throw BrowserChromiumHostFactoryError.factoryReturnedNil(factoryClassName)
         }
         do {
@@ -3662,6 +3693,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func installWebKitBrowserEngineHost(
         fallbackReason: String?,
+        fallbackDiagnostic: String? = nil,
         manifest: BrowserChromiumArtifactManifest? = nil,
         reason: String
     ) {
@@ -3669,7 +3701,8 @@ final class BrowserPanel: Panel, ObservableObject {
         browserEngineRuntimeStatus = BrowserEngineRuntimeStatus(
             kind: .webKit,
             manifest: manifest,
-            fallbackReason: fallbackReason
+            fallbackReason: fallbackReason,
+            fallbackDiagnostic: fallbackDiagnostic
         )
         browserEngineHostInstanceID = UUID()
 #if DEBUG
@@ -3720,8 +3753,16 @@ final class BrowserPanel: Panel, ObservableObject {
             )
 #endif
         } catch {
+            let diagnostic = BrowserEngineRuntimePolicy.hostCreationFallbackDiagnostic(for: error)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.engine.chromium.failed panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) diagnostic=\(diagnostic)"
+            )
+#endif
             installWebKitBrowserEngineHost(
                 fallbackReason: "chromium_host_creation_failed",
+                fallbackDiagnostic: diagnostic,
                 manifest: manifest,
                 reason: reason
             )
