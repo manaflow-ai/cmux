@@ -19,7 +19,8 @@ struct CEFBrowserPanelView: View {
 
     @State private var activationError: Error?
     @State private var addressText: String = ""
-    @FocusState private var addressFieldFocused: Bool
+    @State private var addressFieldFocused: Bool = false
+    @State private var addressSelectAllRequestId: UInt64 = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,17 +121,39 @@ struct CEFBrowserPanelView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 14)
 
-            TextField(
-                String(
+            OmnibarTextFieldRepresentable(
+                panelId: panel.id,
+                text: $addressText,
+                isFocused: $addressFieldFocused,
+                selectAllRequestId: addressSelectAllRequestId,
+                inlineCompletion: nil,
+                placeholder: String(
                     localized: "cefBrowserPanel.addressPlaceholder",
                     defaultValue: "Search or enter address"),
-                text: $addressText
+                onTap: {
+                    if !addressFieldFocused {
+                        addressSelectAllRequestId &+= 1
+                    }
+                    addressFieldFocused = true
+                },
+                onSubmit: commitAddressBar,
+                onEscape: {
+                    addressText = panel.currentURL?.absoluteString ?? panel.addressBarDisplayString
+                    addressFieldFocused = false
+                },
+                onFieldLostFocus: {
+                    addressFieldFocused = false
+                },
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { addressFieldFocused }
             )
-            .textFieldStyle(.plain)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.primary)
-            .focused($addressFieldFocused)
-            .onSubmit(commitAddressBar)
+            .frame(height: 20)
             .onChange(of: addressFieldFocused) { _, isFocused in
                 if isFocused {
                     addressText = panel.addressBarDisplayString

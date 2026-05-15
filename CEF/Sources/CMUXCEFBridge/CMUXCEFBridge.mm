@@ -63,6 +63,26 @@ static os_log_t cmuxCEFLog(void) {
     return log;
 }
 
+static std::atomic_bool gCMUXCEFMessagePumpRunning{false};
+
+static void CMUXCEFRunMessagePumpWorkIfIdle(void) {
+    bool expected = false;
+    if (!gCMUXCEFMessagePumpRunning.compare_exchange_strong(expected, true)) {
+        return;
+    }
+    CefDoMessageLoopWork();
+    gCMUXCEFMessagePumpRunning.store(false);
+}
+
+static void CMUXCEFPostMessagePumpWork(int64_t delay_ms) {
+    dispatch_time_t when = (delay_ms <= 0)
+        ? DISPATCH_TIME_NOW
+        : dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC);
+    dispatch_after(when, dispatch_get_main_queue(), ^{
+        CMUXCEFRunMessagePumpWorkIfIdle();
+    });
+}
+
 typedef NS_ENUM(NSInteger, CMUXCEFInitError) {
     CMUXCEFInitErrorAlreadyInitialized   = 1,
     CMUXCEFInitErrorMissingRootCachePath = 2,
@@ -216,19 +236,11 @@ public:
     // (including helper-process Mojo bootstrap invitations) is gated on
     // this — no pump = wedged helpers = the 15s timeout we kept seeing.
     void OnScheduleMessagePumpWork(int64_t delay_ms) override {
-        static bool is_pumping_now = false;
-        if (delay_ms <= 0 && [NSThread isMainThread] && !is_pumping_now) {
-            is_pumping_now = true;
-            CefDoMessageLoopWork();
-            is_pumping_now = false;
-            return;
-        }
-        dispatch_time_t when = (delay_ms <= 0)
-            ? DISPATCH_TIME_NOW
-            : dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC);
-        dispatch_after(when, dispatch_get_main_queue(), ^{
-            CefDoMessageLoopWork();
-        });
+        // Never call CefDoMessageLoopWork inline from this callback.
+        // Chromium may schedule more pump work while AppKit is still in
+        // synchronous focus / mouse handling. Re-entering the pump in
+        // that stack can deadlock inside CEF's internal mutexes.
+        CMUXCEFPostMessagePumpWork(delay_ms);
     }
 
 private:
@@ -392,9 +404,7 @@ private:
     // Kick the external pump immediately so CEF gets one tick and a chance
     // to install its `OnScheduleMessagePumpWork` callback for subsequent
     // ticks.
-    dispatch_async(dispatch_get_main_queue(), ^{
-        CefDoMessageLoopWork();
-    });
+    CMUXCEFPostMessagePumpWork(0);
     // Belt-and-braces fallback: also drive CefDoMessageLoopWork from a
     // 30Hz NSTimer. `OnScheduleMessagePumpWork` is the optimal path, but
     // SwiftUI re-renders or modal panels can starve the main queue and
@@ -433,7 +443,7 @@ private:
         [timer invalidate];
         return;
     }
-    CefDoMessageLoopWork();
+    CMUXCEFRunMessagePumpWorkIfIdle();
 }
 
 @end
