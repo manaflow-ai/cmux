@@ -6869,7 +6869,16 @@ struct WebViewRepresentable: NSViewRepresentable {
             return
         }
         if isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
-            panel.noteWebViewFocused()
+            if panel.shouldSuppressWebViewFocus() {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=skip_webview_intent reason=suppressed_first_responder_chain"
+                )
+#endif
+            } else {
+                panel.noteWebViewFocused()
+            }
         }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {

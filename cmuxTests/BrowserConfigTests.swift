@@ -114,6 +114,47 @@ private final class BrowserMarkedTextProbeTextView: NSTextView {
     }
 }
 
+final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
+    func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
+        XCTAssertTrue(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                trackedPanelMatchesWebView: true,
+                omnibarResponderActive: false,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: false,
+                pointerInitiatedWebFocus: false,
+                liveOmnibarFieldExists: true
+            )
+        )
+    }
+
+    func testPointerWebViewFocusCanClearTrackedAddressBar() {
+        XCTAssertFalse(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                trackedPanelMatchesWebView: true,
+                omnibarResponderActive: false,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: true,
+                pointerInitiatedWebFocus: true,
+                liveOmnibarFieldExists: true
+            )
+        )
+    }
+
+    func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
+        XCTAssertFalse(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                trackedPanelMatchesWebView: false,
+                omnibarResponderActive: true,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: true,
+                pointerInitiatedWebFocus: false,
+                liveOmnibarFieldExists: true
+            )
+        )
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false

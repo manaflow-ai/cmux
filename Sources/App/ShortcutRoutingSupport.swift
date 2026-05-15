@@ -92,6 +92,21 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+    trackedPanelMatchesWebView: Bool,
+    omnibarResponderActive: Bool,
+    preferredFocusIntentIsAddressBar: Bool,
+    suppressesWebViewFocus: Bool,
+    pointerInitiatedWebFocus: Bool,
+    liveOmnibarFieldExists: Bool
+) -> Bool {
+    guard trackedPanelMatchesWebView else { return false }
+    if omnibarResponderActive { return true }
+    guard preferredFocusIntentIsAddressBar else { return false }
+    guard !pointerInitiatedWebFocus else { return false }
+    return suppressesWebViewFocus || liveOmnibarFieldExists
+}
+
 func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsCommandPaletteFieldEditor: Bool,
