@@ -4,5 +4,4 @@
 
 #include "Shared.xcconfig"
 
-// No additional release-specific overrides needed
-// All release settings use Xcode project defaults
+PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta
