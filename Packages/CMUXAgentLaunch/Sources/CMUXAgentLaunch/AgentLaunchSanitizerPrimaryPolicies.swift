@@ -467,6 +467,7 @@ extension AgentLaunchSanitizer {
             "--prompt"
         ],
         droppedOptionPrefixes: [
+            "--fork=",
             "--session=",
             "--prompt="
         ],

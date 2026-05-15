@@ -366,6 +366,56 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentCacheRequiresMatchingRemoteContextWithoutFallbackSnapshot() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
+                fallbackSnapshot: nil,
+                isRemoteTerminal: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
+                fallbackSnapshot: nil,
+                isRemoteTerminal: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: true],
+                fallbackSnapshot: nil,
+                isRemoteTerminal: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: true],
+                fallbackSnapshot: nil,
+                isRemoteTerminal: false
+            )
+        )
+    }
+
     func testForkableAgentFallbackSnapshotUsesSynchronousSupportOnly() {
         let workspaceId = UUID()
         let panelId = UUID()

@@ -96,6 +96,30 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops OpenCode fork prefix option while preserving fork context")
+    func dropsOpenCodeForkPrefixOptionWhilePreservingForkContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--session",
+                    "parent-session",
+                    "--fork=parent-session",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/opencode repo",
+            ]
+        )
+    }
+
     @Test("Consumes terminal optional values")
     func consumesTerminalOptionalValues() {
         #expect(
