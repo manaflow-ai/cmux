@@ -100,15 +100,15 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
     func testShowOpenFilePickerRejectsWhenWindowFocusReturnsWithoutCancelEvent() async throws {
         let panel = try await loadFilePickerTestPage()
 
-        let result = try await panel.evaluateJavaScript(
+        let result = try await panel.webView.callAsyncJavaScript(
             """
-            new Promise((resolve) => {
-              const inputCount = () => document.querySelectorAll("input[type='file']").length;
-              const originalClick = HTMLInputElement.prototype.click;
-              HTMLInputElement.prototype.click = function() {};
-              const pickerPromise = window.showOpenFilePicker();
-              HTMLInputElement.prototype.click = originalClick;
+            const inputCount = () => document.querySelectorAll("input[type='file']").length;
+            const originalClick = HTMLInputElement.prototype.click;
+            HTMLInputElement.prototype.click = function() {};
+            const pickerPromise = window.showOpenFilePicker();
+            HTMLInputElement.prototype.click = originalClick;
 
+            return await new Promise((resolve) => {
               pickerPromise.then(
                 () => resolve({ status: "resolved", inputCount: inputCount() }),
                 (error) => resolve({
@@ -120,8 +120,11 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
               window.dispatchEvent(new Event("focus"));
               setTimeout(() => resolve({ status: "pending", inputCount: inputCount() }), 100);
-            })
-            """
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         )
         let dictionary = try XCTUnwrap(result as? [String: Any])
         let inputCount = try XCTUnwrap(dictionary["inputCount"] as? NSNumber)
