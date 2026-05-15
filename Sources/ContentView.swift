@@ -3757,7 +3757,6 @@ struct ContentView: View {
                 commandPaletteVisibleResultsScope = nil
                 commandPaletteVisibleResultsFingerprint = nil
                 commandPaletteVisibleResultsVersion &+= 1
-                syncCommandPaletteOverlayCommandListState()
             }
             scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
@@ -5198,6 +5197,7 @@ struct ContentView: View {
         }
         let shouldApplyPreviewResults = scope == .commands || !previewCandidateCommandIDs.isEmpty
         isCommandPaletteSearchPending = true
+        syncCommandPaletteOverlayCommandListState()
 
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
             let previewMatches = shouldApplyPreviewResults
