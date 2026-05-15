@@ -275,6 +275,29 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
     }
 
+    func testRightClickActionDefaultsToContextMenu() {
+        let config = GhosttyConfig()
+        XCTAssertEqual(config.rightClickAction, "context-menu")
+    }
+
+    func testParseRightClickActionReadsPaste() {
+        var config = GhosttyConfig()
+        config.parse("right-click-action = paste")
+        XCTAssertEqual(config.rightClickAction, "paste")
+    }
+
+    func testParseRightClickActionReadsCopyOrPaste() {
+        var config = GhosttyConfig()
+        config.parse("right-click-action = copy-or-paste")
+        XCTAssertEqual(config.rightClickAction, "copy-or-paste")
+    }
+
+    func testParseRightClickActionIgnoresUnknownKey() {
+        var config = GhosttyConfig()
+        config.parse("right-clicl-action = paste")
+        XCTAssertEqual(config.rightClickAction, "context-menu")
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
