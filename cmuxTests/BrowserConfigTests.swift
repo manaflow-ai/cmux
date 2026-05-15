@@ -826,6 +826,62 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testWindowArrowForwardingRoutesFocusedOmnibarFieldEditorThroughKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+        XCTAssertEqual(
+            window.testFieldEditor.keyDownKeyCodes,
+            [123],
+            "A live omnibar field editor must receive plain arrows through keyDown so NSTextView can move the caret"
+        )
+    }
+
+    @MainActor
     func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()

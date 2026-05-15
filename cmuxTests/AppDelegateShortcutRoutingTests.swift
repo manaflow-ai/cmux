@@ -3219,6 +3219,79 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedDelta, 1)
     }
 
+    func testOmnibarArrowSelectionSurvivesTransientWindowFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
+        field.identifier = browserOmnibarTextFieldIdentifier
+        field.panelId = browserPanelId
+        field.stringValue = "example"
+        contentView.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            field.removeFromSuperview()
+        }
+
+        _ = browserPanel.requestAddressBarFocus()
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(window.firstResponder === window)
+
+        let moveExpectation = expectation(
+            description: "Expected omnibar move-selection notification while first responder is transiently the window"
+        )
+        var observedPanelId: UUID?
+        var observedDelta: Int?
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .browserMoveOmnibarSelection,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedPanelId = notification.object as? UUID
+            observedDelta = notification.userInfo?["delta"] as? Int
+            moveExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [moveExpectation], timeout: 1.0)
+        XCTAssertEqual(observedPanelId, browserPanelId)
+        XCTAssertEqual(observedDelta, 1)
+    }
+
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
