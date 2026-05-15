@@ -976,7 +976,6 @@ _cmux_prompt_command() {
     fi
 
     if [[ -n "$CMUX_PANEL_ID" ]]; then
-        _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
     _cmux_report_tty_once
