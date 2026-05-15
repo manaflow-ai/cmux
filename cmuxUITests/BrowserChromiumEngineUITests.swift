@@ -148,6 +148,8 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         )
         XCTAssertEqual(clickResult["value"] as? String, "yes")
 
+        try verifyChromiumSurfacePointerInput(app, surfaceId: surfaceId)
+
         let screenshotResult = try okResult(
             socketJSON(
                 method: "browser.screenshot",
@@ -232,12 +234,120 @@ final class BrowserChromiumEngineUITests: XCTestCase {
             <main>
               <h1>Chromium cmux proof</h1>
               <p id="marker">CALayerHost Chromium browser surface</p>
+              <p id="selectable">Chromium selectable text proves drag selection.</p>
               <button id="ok" onclick="document.body.dataset.clicked='yes';this.textContent='clicked';">click proof</button>
             </main>
+            <script>
+              document.addEventListener('contextmenu', event => {
+                document.body.dataset.contextMenu = 'yes';
+                event.preventDefault();
+              });
+            </script>
           </body>
         </html>
         """
         return "data:text/html;base64,\(Data(html.utf8).base64EncodedString())"
+    }
+
+    private func verifyChromiumSurfacePointerInput(_ app: XCUIApplication, surfaceId: String) throws {
+        let surface = app.descendants(matching: .any)["BrowserChromiumSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 10.0), "Expected Chromium surface before pointer checks")
+
+        let rectResult = try okResult(
+            socketJSON(
+                method: "browser.eval",
+                params: [
+                    "surface_id": surfaceId,
+                    "script": """
+                    (() => {
+                      const rect = document.querySelector('#selectable').getBoundingClientRect();
+                      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+                    })()
+                    """,
+                ]
+            )
+        )
+        guard let rect = rectResult["value"] as? [String: Any],
+              let x = number(rect["x"]),
+              let y = number(rect["y"]),
+              let width = number(rect["width"]),
+              let height = number(rect["height"]) else {
+            XCTFail("Expected selectable text bounds from Chromium eval: \(rectResult)")
+            throw TestFailure.invalidResponse("missing selectable rect")
+        }
+
+        let origin = surface.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+        let start = origin.withOffset(CGVector(dx: x + 4, dy: y + height * 0.5))
+        let end = origin.withOffset(CGVector(dx: x + max(8, width - 4), dy: y + height * 0.5))
+        start.press(forDuration: 0.1, thenDragTo: end)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                guard let result = try? self.okResult(
+                    self.socketJSON(
+                        method: "browser.eval",
+                        params: [
+                            "surface_id": surfaceId,
+                            "script": "window.getSelection().toString()",
+                        ]
+                    )
+                ) else {
+                    return false
+                }
+                return ((result["value"] as? String) ?? "").contains("selectable text")
+            },
+            "Expected real Chromium text selection after mouse drag"
+        )
+
+        postRightClick(at: CGPoint(x: surface.frame.midX, y: surface.frame.midY))
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                guard let result = try? self.okResult(
+                    self.socketJSON(
+                        method: "browser.eval",
+                        params: [
+                            "surface_id": surfaceId,
+                            "script": "document.body.dataset.contextMenu || ''",
+                        ]
+                    )
+                ) else {
+                    return false
+                }
+                return (result["value"] as? String) == "yes"
+            },
+            "Expected right-click to reach Chromium as a contextmenu event"
+        )
+    }
+
+    private func number(_ value: Any?) -> CGFloat? {
+        if let value = value as? Double {
+            return CGFloat(value)
+        }
+        if let value = value as? Int {
+            return CGFloat(value)
+        }
+        if let value = value as? NSNumber {
+            return CGFloat(truncating: value)
+        }
+        return nil
+    }
+
+    private func postRightClick(at point: CGPoint) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(
+            mouseEventSource: source,
+            mouseType: .rightMouseDown,
+            mouseCursorPosition: point,
+            mouseButton: .right
+        )
+        let up = CGEvent(
+            mouseEventSource: source,
+            mouseType: .rightMouseUp,
+            mouseCursorPosition: point,
+            mouseButton: .right
+        )
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
     }
 
     private func launchAndAllowHeadlessActivation(_ app: XCUIApplication) {
