@@ -19,7 +19,9 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         socketPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).json"
         gotoSplitPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString)-goto.json"
-        screenshotPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).png"
+        screenshotPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-chromium-\(UUID().uuidString).png")
+            .path
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: gotoSplitPath)
