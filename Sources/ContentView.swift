@@ -1237,16 +1237,6 @@ struct ContentView: View {
         case selectAll
     }
 
-    private enum CommandPaletteTrailingLabelStyle {
-        case shortcut
-        case kind
-    }
-
-    private struct CommandPaletteTrailingLabel {
-        let text: String
-        let style: CommandPaletteTrailingLabelStyle
-    }
-
     private struct CommandPaletteInputFocusPolicy {
         let focusTarget: CommandPaletteInputFocusTarget
         let selectionBehavior: CommandPaletteTextSelectionBehavior
@@ -5099,15 +5089,14 @@ struct ContentView: View {
     }
 
     private func commandPaletteRenderTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteRenderTrailingLabel? {
-        guard let trailingLabel = commandPaletteTrailingLabel(for: command) else { return nil }
-        let style: CommandPaletteRenderTrailingLabelStyle
-        switch trailingLabel.style {
-        case .shortcut:
-            style = .shortcut
-        case .kind:
-            style = .kind
+        if let shortcutHint = command.shortcutHint {
+            return CommandPaletteRenderTrailingLabel(text: shortcutHint, style: .shortcut)
         }
-        return CommandPaletteRenderTrailingLabel(text: trailingLabel.text, style: style)
+
+        if let kindLabel = command.kindLabel {
+            return CommandPaletteRenderTrailingLabel(text: kindLabel, style: .kind)
+        }
+        return nil
     }
 
     private func commandPaletteOverlayCommandListStateSnapshot() -> CommandPaletteCommandListRenderState {
@@ -5458,46 +5447,6 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private static func commandPaletteTrailingLabelView(_ trailingLabel: CommandPaletteTrailingLabel?) -> some View {
-        if let trailingLabel {
-            switch trailingLabel.style {
-            case .shortcut:
-                Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        Color.primary.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    )
-            case .kind:
-                Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    private static func commandPaletteResultLabelContent(
-        title: String,
-        matchedIndices: Set<Int>,
-        trailingLabel: CommandPaletteTrailingLabel?
-    ) -> some View {
-        HStack(spacing: 8) {
-            commandPaletteHighlightedTitleText(
-                title,
-                matchedIndices: matchedIndices
-            )
-                .font(.system(size: 13, weight: .regular))
-                .lineLimit(1)
-            Spacer()
-            commandPaletteTrailingLabelView(trailingLabel)
-        }
-    }
-
-    @ViewBuilder
     private static func commandPaletteRenderTrailingLabelView(_ trailingLabel: CommandPaletteRenderTrailingLabel?) -> some View {
         if let trailingLabel {
             switch trailingLabel.style {
@@ -5535,17 +5484,6 @@ struct ContentView: View {
             Spacer()
             commandPaletteRenderTrailingLabelView(trailingLabel)
         }
-    }
-
-    private func commandPaletteTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteTrailingLabel? {
-        if let shortcutHint = command.shortcutHint {
-            return CommandPaletteTrailingLabel(text: shortcutHint, style: .shortcut)
-        }
-
-        if let kindLabel = command.kindLabel {
-            return CommandPaletteTrailingLabel(text: kindLabel, style: .kind)
-        }
-        return nil
     }
 
     private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
@@ -8477,7 +8415,7 @@ struct ContentView: View {
                     commandId: result.command.id,
                     title: result.command.title,
                     shortcutHint: result.command.shortcutHint,
-                    trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
+                    trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)?.text,
                     score: result.score
                 )
         }
