@@ -13248,22 +13248,6 @@ final class Workspace: Identifiable, ObservableObject {
         var autoConnectRemoteConfiguration: Bool
     }
 
-    @discardableResult
-    func forkAgentConversationToRight(
-        fromPanelId panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> TerminalPanel? {
-        forkAgentConversation(
-            fromPanelId: panelId,
-            snapshot: snapshot,
-            direction: .right,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        )
-    }
-
     func forkAgentWorkspaceLaunch(
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
@@ -13273,21 +13257,22 @@ final class Workspace: Identifiable, ObservableObject {
         var launchSnapshot = snapshot
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         launchSnapshot.workingDirectory = workingDirectory
+        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
+        let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
+        let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         guard panels[panelId] is TerminalPanel,
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: !isRemoteWorkspace
+                  allowLauncherScript: !isRemoteFork
               ) else {
             return nil
         }
 
-        let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace()
-        let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         return AgentConversationForkWorkspaceLaunch(
             workingDirectory: workingDirectory,
             terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
-            initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteTerminalStartupCommand(),
+            initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
             initialTerminalInput: startupInput,
             remoteConfiguration: remoteConfiguration,
             autoConnectRemoteConfiguration: remoteConfiguration != nil
@@ -13305,12 +13290,13 @@ final class Workspace: Identifiable, ObservableObject {
         var launchSnapshot = snapshot
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         launchSnapshot.workingDirectory = workingDirectory
+        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         guard panels[panelId] is TerminalPanel,
               let paneId = paneId(forPanelId: panelId),
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: !isRemoteWorkspace
+                  allowLauncherScript: remoteStartupCommand == nil
               ) else {
             return nil
         }
@@ -13319,7 +13305,6 @@ final class Workspace: Identifiable, ObservableObject {
         if zoomedPaneId != nil {
             clearSplitZoom()
         }
-        let remoteStartupCommand = remoteTerminalStartupCommand()
         let forkedPanel = splitPaneWithNewTerminal(
             targetPane: paneId,
             orientation: direction.orientation,
@@ -13351,8 +13336,13 @@ final class Workspace: Identifiable, ObservableObject {
         ])
     }
 
-    private func forkAgentRemoteConfigurationForNewWorkspace() -> WorkspaceRemoteConfiguration? {
-        guard remoteTerminalStartupCommand() != nil else { return nil }
+    private func forkAgentRemoteStartupCommand(fromPanelId panelId: UUID) -> String? {
+        guard isRemoteTerminalSurface(panelId) else { return nil }
+        return remoteTerminalStartupCommand()
+    }
+
+    private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
+        guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
         return remoteConfiguration?.sessionSnapshot()?.workspaceConfiguration() ?? remoteConfiguration
     }
 

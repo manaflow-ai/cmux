@@ -2,6 +2,32 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+extension AgentLaunchCommandSnapshot {
+    init(
+        processDetectedLauncher launcher: String,
+        executablePath: String?,
+        arguments: [String],
+        workingDirectory: String?,
+        environment: [String: String]
+    ) {
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        if launcher == "opencode",
+           let path = environment["PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            selectedEnvironment["PATH"] = path
+        }
+        self.init(
+            launcher: launcher,
+            executablePath: executablePath,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: selectedEnvironment.isEmpty ? nil : selectedEnvironment,
+            capturedAt: nil,
+            source: "process"
+        )
+    }
+}
+
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
@@ -62,13 +88,11 @@ extension RestorableAgentSessionIndex {
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
+                    processDetectedLauncher: registration.id,
                     executablePath: executablePath,
                     arguments: arguments,
                     workingDirectory: cwd,
-                    environment: observed.environment,
-                    capturedAt: capturedAt,
-                    source: "process"
+                    environment: observed.environment
                 ),
                 registration: registration
             )
@@ -118,23 +142,43 @@ extension RestorableAgentSessionIndex {
         return openCodeLaunchArguments(observed: observed, executablePath: executablePath)
     }
 
+    static func openCodeWorkingDirectoryForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String? {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        return openCodeWorkingDirectory(observed: observed)
+    }
+
     static func openCodeFallbackSessionIdForProcess(
         arguments: [String],
         latestSessionIdForSolePanel: String?,
         sameWorkingDirectoryPanelCount: Int
     ) -> String? {
         if arguments.hasOpenCodeForkFlag {
+            let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s")
+            let assignedForkParentSessionId = arguments.openCodeForkParentSessionId
+            if let explicitSessionId,
+               let assignedForkParentSessionId,
+               explicitSessionId != assignedForkParentSessionId {
+                return explicitSessionId
+            }
             guard sameWorkingDirectoryPanelCount == 1 else { return nil }
             guard let latestSessionIdForSolePanel else { return nil }
-            let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s")
-            guard explicitSessionId != latestSessionIdForSolePanel else { return nil }
+            let forkParentSessionId = assignedForkParentSessionId ?? explicitSessionId
+            guard let forkParentSessionId else { return nil }
+            guard forkParentSessionId != latestSessionIdForSolePanel else { return nil }
             return latestSessionIdForSolePanel
         }
         if let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s") {
             return explicitSessionId
         }
-        guard sameWorkingDirectoryPanelCount == 1 else { return nil }
-        return latestSessionIdForSolePanel
+        return nil
     }
 
     private static func processDetectedOpenCodeSnapshots(
@@ -143,7 +187,8 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
-        var sessionByWorkingDirectory: [String: String?] = [:]
+        var sessionByWorkingDirectoryAndParent: [String: String] = [:]
+        var sessionMissesByWorkingDirectoryAndParent = Set<String>()
         var openCodeProcesses: [
             (
                 panelKey: PanelKey,
@@ -169,7 +214,7 @@ extension RestorableAgentSessionIndex {
             )
             guard observed.isOpenCodeProcess else { continue }
 
-            let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
+            let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
             let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
             openCodeProcesses.append((
@@ -184,20 +229,28 @@ extension RestorableAgentSessionIndex {
 
         for process in openCodeProcesses {
             let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
-            let hasExplicitSessionId = process.observed.arguments.value(afterOption: "--session") != nil ||
-                process.observed.arguments.value(afterOption: "-s") != nil
             let hasForkFlag = process.observed.arguments.hasOpenCodeForkFlag
+            let forkParentSessionId = process.observed.arguments.openCodeForkParentSessionId
+                ?? (hasForkFlag ? process.observed.arguments.value(afterOption: "--session") : nil)
             let latestSessionId: String?
-            if (hasExplicitSessionId && !hasForkFlag) || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
+            let sessionCacheKey = process.workingDirectoryKey + "\u{1f}" + (forkParentSessionId ?? "")
+            if !hasForkFlag || forkParentSessionId == nil || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
                 latestSessionId = nil
-            } else if let cached = sessionByWorkingDirectory[process.workingDirectoryKey] {
+            } else if let cached = sessionByWorkingDirectoryAndParent[sessionCacheKey] {
                 latestSessionId = cached
+            } else if sessionMissesByWorkingDirectoryAndParent.contains(sessionCacheKey) {
+                latestSessionId = nil
             } else {
                 latestSessionId = latestOpenCodeSessionId(
                     workingDirectory: process.workingDirectory,
+                    parentSessionId: forkParentSessionId,
                     fileManager: fileManager
                 )
-                sessionByWorkingDirectory[process.workingDirectoryKey] = latestSessionId
+                if let latestSessionId {
+                    sessionByWorkingDirectoryAndParent[sessionCacheKey] = latestSessionId
+                } else {
+                    sessionMissesByWorkingDirectoryAndParent.insert(sessionCacheKey)
+                }
             }
             guard let sessionId = openCodeFallbackSessionIdForProcess(
                 arguments: process.observed.arguments,
@@ -218,13 +271,11 @@ extension RestorableAgentSessionIndex {
                 sessionId: sessionId,
                 workingDirectory: process.workingDirectory,
                 launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: "opencode",
+                    processDetectedLauncher: "opencode",
                     executablePath: executablePath,
                     arguments: launchArguments,
                     workingDirectory: process.workingDirectory,
-                    environment: process.observed.environment,
-                    capturedAt: capturedAt,
-                    source: "process"
+                    environment: process.observed.environment
                 )
             )
             resolved[process.panelKey] = (
@@ -287,6 +338,119 @@ extension RestorableAgentSessionIndex {
         return Array(arguments.dropFirst())
     }
 
+    private static func openCodeWorkingDirectory(observed: VaultObservedAgentProcess) -> String? {
+        let fallbackWorkingDirectory = normalized(
+            observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
+        )
+        return openCodeProjectWorkingDirectory(
+            observed: observed,
+            fallbackWorkingDirectory: fallbackWorkingDirectory
+        ) ?? fallbackWorkingDirectory
+    }
+
+    private static func openCodeProjectWorkingDirectory(
+        observed: VaultObservedAgentProcess,
+        fallbackWorkingDirectory: String?
+    ) -> String? {
+        guard let project = openCodeProjectArgument(in: openCodeLaunchTail(observed: observed)) else {
+            return nil
+        }
+        return resolvedOpenCodeProjectPath(project, fallbackWorkingDirectory: fallbackWorkingDirectory)
+    }
+
+    private static func openCodeProjectArgument(in arguments: [String]) -> String? {
+        let commandNames: Set<String> = [
+            "completion",
+            "acp",
+            "mcp",
+            "attach",
+            "run",
+            "debug",
+            "providers",
+            "auth",
+            "agent",
+            "upgrade",
+            "uninstall",
+            "serve",
+            "web",
+            "models",
+            "stats",
+            "export",
+            "import",
+            "github",
+            "pr",
+            "session",
+            "plugin",
+            "plug",
+            "db"
+        ]
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                let nextIndex = index + 1
+                return nextIndex < arguments.count ? arguments[nextIndex] : nil
+            }
+            if argument.hasPrefix("-") {
+                index += openCodeOptionWidth(arguments, index: index)
+                continue
+            }
+            return commandNames.contains(argument) ? nil : argument
+        }
+        return nil
+    }
+
+    private static func openCodeOptionWidth(_ arguments: [String], index: Int) -> Int {
+        guard index < arguments.count else { return 1 }
+        let argument = arguments[index]
+        if argument.contains("=") {
+            return 1
+        }
+        let valueOptions: Set<String> = [
+            "--log-level",
+            "--port",
+            "--hostname",
+            "--mdns-domain",
+            "--cors",
+            "--model",
+            "-m",
+            "--session",
+            "-s",
+            "--prompt",
+            "--agent"
+        ]
+        guard valueOptions.contains(argument),
+              index + 1 < arguments.count else {
+            return 1
+        }
+        if argument == "--cors" {
+            var end = index + 1
+            while end < arguments.count, !arguments[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
+        return 2
+    }
+
+    private static func resolvedOpenCodeProjectPath(
+        _ rawValue: String,
+        fallbackWorkingDirectory: String?
+    ) -> String? {
+        guard let project = normalized(rawValue) else { return nil }
+        let expandedProject = (project as NSString).expandingTildeInPath
+        if expandedProject.hasPrefix("/") {
+            return (expandedProject as NSString).standardizingPath
+        }
+        guard let fallbackWorkingDirectory = normalized(fallbackWorkingDirectory) else {
+            return (expandedProject as NSString).standardizingPath
+        }
+        return URL(fileURLWithPath: fallbackWorkingDirectory, isDirectory: true)
+            .appendingPathComponent(expandedProject)
+            .standardizedFileURL
+            .path
+    }
+
     private static func executablePath(
         named name: String,
         environment: [String: String]
@@ -306,6 +470,7 @@ extension RestorableAgentSessionIndex {
 
     private static func latestOpenCodeSessionId(
         workingDirectory: String?,
+        parentSessionId: String?,
         fileManager: FileManager
     ) -> String? {
         let snapshot: OpenCodeDatabaseSnapshot.Snapshot
@@ -326,22 +491,19 @@ extension RestorableAgentSessionIndex {
         }
         defer { sqlite3_close(db) }
 
-        let cwd = normalized(workingDirectory).map { ($0 as NSString).standardizingPath }
-        let sql: String
-        if cwd != nil {
-            sql = """
-                SELECT id FROM session
-                WHERE directory = ?
-                ORDER BY time_updated DESC
-                LIMIT 1
-                """
-        } else {
-            sql = """
-                SELECT id FROM session
-                ORDER BY time_updated DESC
-                LIMIT 1
-                """
+        guard let parentId = normalized(parentSessionId) else {
+            return nil
         }
+        guard let cwd = normalized(workingDirectory).map({ ($0 as NSString).standardizingPath }) else {
+            return nil
+        }
+        let sql = """
+            SELECT id FROM session
+            WHERE directory = ?
+              AND parent_id = ?
+            ORDER BY time_updated DESC
+            LIMIT 1
+            """
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -350,10 +512,11 @@ extension RestorableAgentSessionIndex {
         }
         defer { sqlite3_finalize(stmt) }
 
-        if let cwd {
-            let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-            sqlite3_bind_text(stmt, 1, cwd, -1, SQLITE_TRANSIENT_FN)
-        }
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        var bindIndex: Int32 = 1
+        sqlite3_bind_text(stmt, bindIndex, cwd, -1, SQLITE_TRANSIENT_FN)
+        bindIndex += 1
+        sqlite3_bind_text(stmt, bindIndex, parentId, -1, SQLITE_TRANSIENT_FN)
 
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let sessionId = SessionIndexStore.sqliteText(stmt, 0),
@@ -418,7 +581,8 @@ private struct VaultObservedAgentProcess: Sendable {
             let normalized = basename.lowercased()
             return normalized == "opencode" ||
                 normalized == ".opencode" ||
-                normalized == "opencode-ai"
+                normalized == "opencode-ai" ||
+                normalized == "open-code"
         }
     }
 
@@ -428,7 +592,8 @@ private struct VaultObservedAgentProcess: Sendable {
         let basename = pathComponents.last ?? normalized
         return basename == "opencode" ||
             basename == ".opencode" ||
-            basename == "opencode-ai"
+            basename == "opencode-ai" ||
+            basename == "open-code"
     }
 
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
@@ -544,6 +709,16 @@ private extension CmuxVaultAgentSessionIDSource {
 private extension Array where Element == String {
     var hasOpenCodeForkFlag: Bool {
         contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
+    }
+
+    var openCodeForkParentSessionId: String? {
+        for argument in self {
+            let prefix = "--fork="
+            guard argument.hasPrefix(prefix) else { continue }
+            let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.isEmpty ? nil : value
+        }
+        return nil
     }
 
     func value(afterOption option: String) -> String? {

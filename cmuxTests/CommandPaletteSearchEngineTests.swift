@@ -416,6 +416,67 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkPostProbeContextRejectsFocusOrRemoteContextChanges() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                currentWorkspaceId: workspaceId,
+                currentPanelId: panelId,
+                currentPanelIsTerminal: true,
+                currentIsRemoteContext: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                currentWorkspaceId: workspaceId,
+                currentPanelId: UUID(),
+                currentPanelIsTerminal: true,
+                currentIsRemoteContext: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                currentWorkspaceId: UUID(),
+                currentPanelId: panelId,
+                currentPanelIsTerminal: true,
+                currentIsRemoteContext: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                currentWorkspaceId: workspaceId,
+                currentPanelId: panelId,
+                currentPanelIsTerminal: false,
+                currentIsRemoteContext: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                currentWorkspaceId: workspaceId,
+                currentPanelId: panelId,
+                currentPanelIsTerminal: true,
+                currentIsRemoteContext: true
+            )
+        )
+    }
+
     func testForkableAgentFallbackSnapshotUsesSynchronousSupportOnly() {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -572,7 +633,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkExecutionIgnoresCachedSnapshotWithoutAuthoritativeSnapshot() {
+    func testForkExecutionUsesCachedSnapshotAfterProcessSnapshotDisappears() {
         let cached = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "stale-codex-session",
@@ -592,12 +653,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             launchCommand: nil
         )
 
-        XCTAssertNil(
+        XCTAssertEqual(
             ContentView.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: nil,
                 fallbackSnapshot: nil,
                 cachedSnapshot: cached
-            )
+            )?.sessionId,
+            cached.sessionId
         )
         XCTAssertEqual(
             ContentView.commandPaletteForkExecutionSnapshot(
@@ -699,6 +761,55 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(
             ContentView.commandPaletteForkSnapshotFingerprint(first),
             ContentView.commandPaletteForkSnapshotFingerprint(second)
+        )
+    }
+
+    func testForkableAgentCacheFingerprintUsesFallbackFingerprintAfterProbe() {
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let processDetected = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+        let fallbackFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+        let processFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(processDetected)
+
+        XCTAssertNotEqual(fallbackFingerprint, processFingerprint)
+        XCTAssertEqual(
+            ContentView.commandPaletteForkCacheFingerprint(
+                snapshot: processDetected,
+                fallbackFingerprint: fallbackFingerprint
+            ),
+            fallbackFingerprint
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteForkCacheFingerprint(
+                snapshot: processDetected,
+                fallbackFingerprint: nil
+            ),
+            processFingerprint
         )
     }
 

@@ -1973,6 +1973,27 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 source: "process"
             )
         )
+        let codexWithImage = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019image-session",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "--model",
+                    "gpt-5.4",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
         let codexFork = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "019e1eca-ee32-7001-ab30-edcae57430bb",
@@ -2009,6 +2030,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "codex-teams",
                     "--model",
                     "gpt-5.4",
+                    "--image",
+                    "/tmp/team screenshot.png",
                     "--sandbox",
                     "danger-full-access",
                     "initial prompt should not replay"
@@ -2138,15 +2161,19 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codex.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo'"
+        )
+        XCTAssertEqual(
+            codexWithImage.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--image' '/tmp/screenshot.png' '--model' 'gpt-5.4'"
         )
         XCTAssertEqual(
             codexFork.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search' '019e1eca-ee32-7001-ab30-edcae57430bb'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' 'codex-teams-session'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--image' '/tmp/team screenshot.png' '--sandbox' 'danger-full-access'"
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
@@ -2282,7 +2309,34 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(supportsFork)
     }
 
-    func testOpenCodeForkSupportDoesNotCacheUnsupportedVersion() async throws {
+    func testOpenCodeForkSupportRejectsMissingLocalExecutable() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-missing-executable-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let missingExecutable = root.appendingPathComponent("missing-opencode", isDirectory: false)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-missing-executable",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: missingExecutable.path,
+                arguments: [missingExecutable.path],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertFalse(supportsFork)
+    }
+
+    func testOpenCodeForkSupportCachesUnsupportedVersion() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-opencode-probe-cache-\(UUID().uuidString)", isDirectory: true)
@@ -2318,7 +2372,78 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         try "opencode 1.14.50\n".write(to: versionFile, atomically: true, encoding: .utf8)
         let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
-        XCTAssertTrue(supportedVersionSupportsFork)
+        XCTAssertFalse(supportedVersionSupportsFork)
+    }
+
+    func testOpenCodeVersionProbeEnvironmentIsSanitized() {
+        let environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(
+            environment: [
+                "PATH": "/tmp/project/bin:/usr/bin",
+                "OPENCODE_CONFIG_DIR": "/tmp/opencode-config",
+                "ANTHROPIC_API_KEY": "captured-secret",
+            ],
+            baseEnvironment: [
+                "PATH": "/usr/local/bin:/usr/bin",
+                "HOME": "/Users/example",
+                "TMPDIR": "/tmp/example",
+                "LANG": "en_US.UTF-8",
+                "AWS_SECRET_ACCESS_KEY": "app-secret",
+                "ANTHROPIC_API_KEY": "app-secret",
+            ]
+        )
+
+        XCTAssertEqual(environment["PATH"], "/tmp/project/bin:/usr/bin")
+        XCTAssertEqual(environment["HOME"], "/Users/example")
+        XCTAssertEqual(environment["TMPDIR"], "/tmp/example")
+        XCTAssertEqual(environment["LANG"], "en_US.UTF-8")
+        XCTAssertEqual(environment["OPENCODE_CONFIG_DIR"], "/tmp/opencode-config")
+        XCTAssertNil(environment["AWS_SECRET_ACCESS_KEY"])
+        XCTAssertNil(environment["ANTHROPIC_API_KEY"])
+    }
+
+    func testProcessDetectedLaunchCommandFiltersEnvironmentAndOmitsCapturedAt() {
+        let command = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "opencode",
+            executablePath: "/opt/homebrew/bin/opencode",
+            arguments: ["/opt/homebrew/bin/opencode"],
+            workingDirectory: "/tmp/repo",
+            environment: [
+                "OPENCODE_CONFIG_DIR": "/tmp/opencode config",
+                "ANTHROPIC_BASE_URL": "https://api.example.test",
+                "ANTHROPIC_API_KEY": "secret",
+                "AWS_SECRET_ACCESS_KEY": "secret",
+                "PATH": "/tmp/bin:/usr/bin"
+            ]
+        )
+
+        XCTAssertEqual(command.launcher, "opencode")
+        XCTAssertEqual(command.environment?["OPENCODE_CONFIG_DIR"], "/tmp/opencode config")
+        XCTAssertEqual(command.environment?["ANTHROPIC_BASE_URL"], "https://api.example.test")
+        XCTAssertEqual(command.environment?["PATH"], "/tmp/bin:/usr/bin")
+        XCTAssertNil(command.environment?["ANTHROPIC_API_KEY"])
+        XCTAssertNil(command.environment?["AWS_SECRET_ACCESS_KEY"])
+        XCTAssertNil(command.capturedAt)
+        XCTAssertEqual(command.source, "process")
+
+        let nonOpenCodeCommand = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "codex",
+            executablePath: "codex",
+            arguments: ["codex"],
+            workingDirectory: nil,
+            environment: ["CODEX_HOME": "/tmp/codex", "PATH": "/tmp/bin:/usr/bin"]
+        )
+        XCTAssertEqual(nonOpenCodeCommand.environment?["CODEX_HOME"], "/tmp/codex")
+        XCTAssertNil(nonOpenCodeCommand.environment?["PATH"])
+
+        let unsafeOnly = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "opencode",
+            executablePath: "opencode",
+            arguments: ["opencode"],
+            workingDirectory: nil,
+            environment: ["ANTHROPIC_API_KEY": "secret"]
+        )
+        XCTAssertNil(unsafeOnly.environment)
+        XCTAssertNil(unsafeOnly.capturedAt)
     }
 
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
@@ -2334,6 +2459,20 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 processName: ".opencode",
                 processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
                 arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "open-code",
+                processPath: "/opt/homebrew/bin/open-code",
+                arguments: ["open-code"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/opt/homebrew/bin/open-code"]
             )
         )
         XCTAssertFalse(
@@ -2424,6 +2563,39 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectedOpenCodeWorkingDirectoryUsesProjectPositional() {
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+                arguments: [
+                    "opencode",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode-project"
+                ],
+                environment: ["PWD": "/tmp/shell-cwd"]
+            ),
+            "/tmp/opencode-project"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+                arguments: [
+                    "node",
+                    "/Users/example/.bun/bin/opencode",
+                    "../opencode-project"
+                ],
+                environment: ["PWD": "/tmp/shell-cwd/nested"]
+            ),
+            "/tmp/shell-cwd/opencode-project"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+                arguments: ["opencode", "--session", "known-session"],
+                environment: ["CMUX_AGENT_LAUNCH_CWD": "/tmp/hook-cwd", "PWD": "/tmp/shell-cwd"]
+            ),
+            "/tmp/hook-cwd"
+        )
+    }
+
     func testProcessDetectedOpenCodeLaunchArgumentsPreserveSafeForkContext() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2506,6 +2678,37 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             ),
             "ses-child"
         )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: "ses-child",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-child"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: "ses-parent",
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: "ses-parent",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-child"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: nil,
+                sameWorkingDirectoryPanelCount: 2
+            ),
+            "ses-child"
+        )
         XCTAssertNil(
             RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
@@ -2520,13 +2723,19 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 sameWorkingDirectoryPanelCount: 1
             )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
-            ),
-            "ses-latest"
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--fork"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 1
+            )
         )
         XCTAssertNil(
             RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
@@ -2858,7 +3067,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    func testRestorableAgentIndexKeepsHookSnapshotAheadOfProcessFallback() throws {
+    func testRestorableAgentIndexUsesNewerProcessFallbackOverStaleOmoHookRecord() throws {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
@@ -2930,12 +3139,74 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, "hook-session")
-        XCTAssertEqual(snapshot.launchCommand?.launcher, "omo")
-        XCTAssertEqual(
-            snapshot.forkCommand,
-            "cd '/tmp/repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode' '/usr/local/bin/cmux' 'omo' '--session' 'hook-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/repo'"
+        XCTAssertEqual(snapshot.sessionId, "process-session")
+        XCTAssertEqual(snapshot.launchCommand?.launcher, "opencode")
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
+    }
+
+    func testRestorableAgentIndexUsesNewerProcessFallbackForPlainHookRecord() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let storeURL = storeDir.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "old-hook-session": {
+              "sessionId": "old-hook-session",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "/tmp/repo",
+              "updatedAt": 10,
+              "launchCommand": {
+                "launcher": "opencode",
+                "executablePath": "/opt/homebrew/bin/opencode",
+                "arguments": ["/opt/homebrew/bin/opencode"],
+                "workingDirectory": "/tmp/repo",
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "live-process-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/repo",
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
         )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999
+                ),
+            ]
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, "live-process-session")
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
 
 }

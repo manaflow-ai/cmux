@@ -308,7 +308,7 @@ enum AgentResumeCommandBuilder {
                 args.removeFirst()
             }
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork"] + preserved + [sessionId]
+            return [original.executable, "codex-teams", "fork", sessionId] + preserved
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -334,7 +334,7 @@ enum AgentResumeCommandBuilder {
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork"] + preserved + [sessionId]
+            return [original.executable, "fork", sessionId] + preserved
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
@@ -751,7 +751,8 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
-            if resolved[key] != nil {
+            if let existing = resolved[key],
+               existing.updatedAt > detected.updatedAt {
                 continue
             }
             resolved[key] = detected

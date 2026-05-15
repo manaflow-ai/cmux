@@ -564,7 +564,7 @@ private func deliverFeedNotification(
     guard effects.desktop || effects.sound || effects.command else { return }
 
     if !effects.desktop {
-        runFeedNotificationFallbackEffects(
+        scheduleFeedNotificationFallbackEffects(
             effects: effects,
             title: title,
             subtitle: subtitle,
@@ -603,7 +603,7 @@ private func deliverFeedNotification(
                     effects: effects
                 )
             } else {
-                runFeedNotificationFallbackEffects(
+                scheduleFeedNotificationFallbackEffects(
                     effects: effects,
                     title: title,
                     subtitle: subtitle,
@@ -611,7 +611,7 @@ private func deliverFeedNotification(
                 )
             }
         default:
-            runFeedNotificationFallbackEffects(
+            scheduleFeedNotificationFallbackEffects(
                 effects: effects,
                 title: title,
                 subtitle: subtitle,
@@ -619,6 +619,21 @@ private func deliverFeedNotification(
             )
         }
     }
+}
+
+@MainActor
+private func scheduleFeedNotificationFallbackEffects(
+    effects: TerminalNotificationPolicyEffects,
+    title: String,
+    subtitle: String,
+    body: String
+) {
+    runFeedNotificationFallbackEffects(
+        effects: effects,
+        title: title,
+        subtitle: subtitle,
+        body: body
+    )
 }
 
 @MainActor
@@ -651,7 +666,13 @@ private func addFeedNotificationRequest(
     do {
         try await center.add(request)
     } catch {
-        // Preserve the existing best-effort behavior for feed banners.
+        scheduleFeedNotificationFallbackEffects(
+            effects: effects,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        return
     }
     if effects.command {
         NotificationSoundSettings.runCustomCommand(

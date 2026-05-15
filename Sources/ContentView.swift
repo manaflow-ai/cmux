@@ -5932,6 +5932,13 @@ struct ContentView: View {
         return parts.joined(separator: "\u{1e}")
     }
 
+    static func commandPaletteForkCacheFingerprint(
+        snapshot: SessionRestorableAgentSnapshot,
+        fallbackFingerprint: String?
+    ) -> String {
+        fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
+    }
+
     static func commandPalettePanelHasForkableAgent(
         workspaceId: UUID,
         panelId: UUID,
@@ -5976,8 +5983,7 @@ struct ContentView: View {
 
         let workspaceId = panelContext.workspace.id
         let panelId = panelContext.panelId
-        let isRemoteTerminal = panelContext.workspace.isRemoteWorkspace ||
-            panelContext.workspace.isRemoteTerminalSurface(panelId)
+        let isRemoteTerminal = panelContext.workspace.isRemoteTerminalSurface(panelId)
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
@@ -6104,7 +6110,10 @@ struct ContentView: View {
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
                     if let snapshot {
                         commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkSnapshotFingerprint(snapshot)
+                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+                            snapshot: snapshot,
+                            fallbackFingerprint: fallbackFingerprint
+                        )
                     }
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
@@ -6328,8 +6337,7 @@ struct ContentView: View {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
-            let panelIsRemoteTerminal = workspace.isRemoteWorkspace ||
-                workspace.isRemoteTerminalSurface(panelId)
+            let panelIsRemoteTerminal = workspace.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)

@@ -58,12 +58,24 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            let isRemoteContext = currentContext.workspace.isRemoteWorkspace ||
-                currentContext.workspace.isRemoteTerminalSurface(panelId)
+            let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
             guard await AgentForkSupport.supportsFork(
                 snapshot: snapshot,
                 isRemoteContext: isRemoteContext
             ) else {
+                NSSound.beep()
+                return
+            }
+            guard let postProbeContext = focusedPanelContext,
+                  Self.commandPaletteForkPostProbeContextStillMatches(
+                    expectedWorkspaceId: workspaceId,
+                    expectedPanelId: panelId,
+                    expectedIsRemoteContext: isRemoteContext,
+                    currentWorkspaceId: postProbeContext.workspace.id,
+                    currentPanelId: postProbeContext.panelId,
+                    currentPanelIsTerminal: postProbeContext.panel.panelType == .terminal,
+                    currentIsRemoteContext: postProbeContext.workspace.isRemoteTerminalSurface(panelId)
+                  ) else {
                 NSSound.beep()
                 return
             }
@@ -72,17 +84,18 @@ extension ContentView {
             )
             commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
             commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkSnapshotFingerprint(snapshot)
+            commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
 
             let didFork: Bool
             switch destination {
             case .split(let direction):
-                didFork = currentContext.workspace.forkAgentConversation(
+                didFork = postProbeContext.workspace.forkAgentConversation(
                     fromPanelId: panelId,
                     snapshot: snapshot,
                     direction: direction
                 ) != nil
             case .newWorkspace:
-                guard let launch = currentContext.workspace.forkAgentWorkspaceLaunch(
+                guard let launch = postProbeContext.workspace.forkAgentWorkspaceLaunch(
                     fromPanelId: panelId,
                     snapshot: snapshot
                 ) else {
@@ -122,9 +135,24 @@ extension ContentView {
     static func commandPaletteForkExecutionSnapshot(
         indexSnapshot: SessionRestorableAgentSnapshot?,
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        cachedSnapshot _: SessionRestorableAgentSnapshot?
+        cachedSnapshot: SessionRestorableAgentSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
-        indexSnapshot ?? fallbackSnapshot
+        indexSnapshot ?? fallbackSnapshot ?? cachedSnapshot
+    }
+
+    static func commandPaletteForkPostProbeContextStillMatches(
+        expectedWorkspaceId: UUID,
+        expectedPanelId: UUID,
+        expectedIsRemoteContext: Bool,
+        currentWorkspaceId: UUID,
+        currentPanelId: UUID,
+        currentPanelIsTerminal: Bool,
+        currentIsRemoteContext: Bool
+    ) -> Bool {
+        currentWorkspaceId == expectedWorkspaceId
+            && currentPanelId == expectedPanelId
+            && currentPanelIsTerminal
+            && currentIsRemoteContext == expectedIsRemoteContext
     }
 }
 

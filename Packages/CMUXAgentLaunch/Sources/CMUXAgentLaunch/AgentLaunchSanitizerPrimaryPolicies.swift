@@ -125,8 +125,7 @@ extension AgentLaunchSanitizer {
         ],
         variadicOptions: [
             "--image",
-            "-i",
-            "--add-dir"
+            "-i"
         ],
         nonRestorableCommands: [
             "exec",

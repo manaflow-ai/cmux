@@ -38,6 +38,202 @@ enum AgentForkSupport {
         }
     }
 
+    private final class CommandOutputRunner: @unchecked Sendable {
+        private let executable: String
+        private let arguments: [String]
+        private let environment: [String: String]?
+        private let workingDirectory: String?
+        private let outputBuffer = CommandOutputBuffer()
+        private let lock = NSLock()
+        private var process: Process?
+        private var pipe: Pipe?
+        private var timeoutTimer: DispatchSourceTimer?
+        private var killTimer: DispatchSourceTimer?
+        private var continuation: CheckedContinuation<String?, Never>?
+        private var completed = false
+        private var timedOut = false
+
+        init(
+            executable: String,
+            arguments: [String],
+            environment: [String: String]?,
+            workingDirectory: String?
+        ) {
+            self.executable = executable
+            self.arguments = arguments
+            self.environment = environment
+            self.workingDirectory = workingDirectory
+        }
+
+        func start(continuation: CheckedContinuation<String?, Never>) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [executable] + arguments
+            if let workingDirectoryURL = AgentForkSupport.localDirectoryURL(path: workingDirectory) {
+                process.currentDirectoryURL = workingDirectoryURL
+            }
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            pipe.fileHandleForReading.readabilityHandler = { [outputBuffer] handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                outputBuffer.append(data)
+            }
+            process.environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(environment: environment)
+            process.terminationHandler = { [weak self] _ in
+                self?.finish()
+            }
+
+            lock.lock()
+            if completed || timedOut {
+                completed = true
+                lock.unlock()
+                pipe.fileHandleForReading.readabilityHandler = nil
+                process.terminationHandler = nil
+                continuation.resume(returning: nil)
+                return
+            }
+            self.continuation = continuation
+            self.process = process
+            self.pipe = pipe
+            lock.unlock()
+
+            startTimeoutTimer()
+
+            do {
+                try process.run()
+            } catch {
+                markFailedBeforeLaunch()
+                return
+            }
+
+            lock.lock()
+            let shouldTerminateAfterStart = timedOut && !completed
+            lock.unlock()
+            if shouldTerminateAfterStart {
+                process.terminate()
+                startKillTimer(processIdentifier: process.processIdentifier)
+            }
+        }
+
+        func cancel() {
+            markTimedOutAndTerminate()
+        }
+
+        private func startTimeoutTimer() {
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandOutputTimeoutNanoseconds)))
+            timer.setEventHandler { [self] in
+                markTimedOutAndTerminate()
+            }
+            lock.lock()
+            if completed {
+                lock.unlock()
+                timer.resume()
+                timer.cancel()
+                return
+            }
+            timeoutTimer = timer
+            lock.unlock()
+            timer.resume()
+        }
+
+        private func markFailedBeforeLaunch() {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
+            finish()
+        }
+
+        private func markTimedOutAndTerminate() {
+            let process: Process?
+            lock.lock()
+            guard !completed else {
+                lock.unlock()
+                return
+            }
+            timedOut = true
+            process = self.process
+            lock.unlock()
+
+            guard let process else {
+                return
+            }
+            guard process.isRunning else {
+                return
+            }
+            process.terminate()
+            startKillTimer(processIdentifier: process.processIdentifier)
+        }
+
+        private func startKillTimer(processIdentifier: pid_t) {
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandTerminateTimeoutNanoseconds)))
+            timer.setEventHandler { [self] in
+                lock.lock()
+                let shouldKill = !completed && process?.isRunning == true
+                lock.unlock()
+                if shouldKill {
+                    kill(processIdentifier, SIGKILL)
+                }
+            }
+            lock.lock()
+            if completed {
+                lock.unlock()
+                timer.resume()
+                timer.cancel()
+                return
+            }
+            killTimer?.cancel()
+            killTimer = timer
+            lock.unlock()
+            timer.resume()
+        }
+
+        private func finish() {
+            let continuation: CheckedContinuation<String?, Never>?
+            let pipe: Pipe?
+            let process: Process?
+            let timeoutTimer: DispatchSourceTimer?
+            let killTimer: DispatchSourceTimer?
+            let timedOut: Bool
+
+            lock.lock()
+            guard !completed else {
+                lock.unlock()
+                return
+            }
+            completed = true
+            continuation = self.continuation
+            self.continuation = nil
+            pipe = self.pipe
+            self.pipe = nil
+            process = self.process
+            self.process = nil
+            timeoutTimer = self.timeoutTimer
+            self.timeoutTimer = nil
+            killTimer = self.killTimer
+            self.killTimer = nil
+            timedOut = self.timedOut
+            lock.unlock()
+
+            timeoutTimer?.cancel()
+            killTimer?.cancel()
+            process?.terminationHandler = nil
+            pipe?.fileHandleForReading.readabilityHandler = nil
+            if let remainingData = pipe?.fileHandleForReading.readDataToEndOfFile() {
+                outputBuffer.append(remainingData)
+            }
+            guard !timedOut else {
+                continuation?.resume(returning: nil)
+                return
+            }
+            continuation?.resume(returning: String(data: outputBuffer.value(), encoding: .utf8))
+        }
+    }
+
     static func supportsFork(
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false
@@ -60,11 +256,16 @@ enum AgentForkSupport {
             return false
         }
         let workingDirectory = openCodeProbeWorkingDirectory(snapshot: snapshot)
-        guard shouldRunLocalOpenCodeVersionProbe(
+        switch localOpenCodeVersionProbeDecision(
             probe: probe,
             workingDirectory: workingDirectory
-        ) else {
+        ) {
+        case .run:
+            break
+        case .skipRemoteLikeContext:
             return true
+        case .rejectMissingExecutable:
+            return false
         }
         let cacheKey = openCodeVersionProbeCacheKey(
             probe: probe,
@@ -83,9 +284,7 @@ enum AgentForkSupport {
             return false
         }
         let supportsFork = openCodeVersionSupportsFork(output)
-        if supportsFork {
-            await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
-        }
+        await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
         return supportsFork
     }
 
@@ -120,76 +319,63 @@ enum AgentForkSupport {
         environment: [String: String]?,
         workingDirectory: String?
     ) async -> String? {
-        await Task.detached(priority: .utility) {
-            commandOutputSynchronously(
-                executable: executable,
-                arguments: arguments,
-                environment: environment,
-                workingDirectory: workingDirectory
-            )
-        }.value
+        let runner = CommandOutputRunner(
+            executable: executable,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory
+        )
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                runner.start(continuation: continuation)
+            }
+        } onCancel: {
+            runner.cancel()
+        }
     }
 
-    private static func commandOutputSynchronously(
-        executable: String,
-        arguments: [String],
+    static func processEnvironmentForOpenCodeProbe(
         environment: [String: String]?,
-        workingDirectory: String?
-    ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
-        if let workingDirectoryURL = localDirectoryURL(path: workingDirectory) {
-            process.currentDirectoryURL = workingDirectoryURL
-        }
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let outputBuffer = CommandOutputBuffer()
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            outputBuffer.append(data)
-        }
-
-        process.environment = processEnvironmentForOpenCodeProbe(environment: environment)
-        let completion = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in completion.signal() }
-
-        do {
-            try process.run()
-        } catch {
-            pipe.fileHandleForReading.readabilityHandler = nil
-            return nil
-        }
-        var timedOut = false
-        if completion.wait(timeout: .now() + .nanoseconds(Int(commandOutputTimeoutNanoseconds))) == .timedOut {
-            timedOut = true
-            process.terminate()
-            if completion.wait(timeout: .now() + .nanoseconds(Int(commandTerminateTimeoutNanoseconds))) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                completion.wait()
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var processEnvironment = sanitizedBaseEnvironmentForOpenCodeProbe(baseEnvironment)
+        if let environment {
+            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+            for (key, value) in selectedEnvironment {
+                processEnvironment[key] = value
             }
         }
-
-        pipe.fileHandleForReading.readabilityHandler = nil
-        let remainingData = pipe.fileHandleForReading.readDataToEndOfFile()
-        outputBuffer.append(remainingData)
-        guard !timedOut else { return nil }
-        return String(data: outputBuffer.value(), encoding: .utf8)
+        if let path = environment?["PATH"],
+           !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            processEnvironment["PATH"] = path
+        } else if processEnvironment["PATH"] == nil {
+            processEnvironment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+        return processEnvironment
     }
 
-    private static func processEnvironmentForOpenCodeProbe(environment: [String: String]?) -> [String: String] {
-        var processEnvironment = ProcessInfo.processInfo.environment
-        guard let environment else { return processEnvironment }
+    private static func sanitizedBaseEnvironmentForOpenCodeProbe(_ environment: [String: String]) -> [String: String] {
+        let safeBaseKeys = [
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "LOGNAME",
+            "PATH",
+            "TMPDIR",
+            "USER"
+        ]
+        var processEnvironment: [String: String] = [:]
+        for key in safeBaseKeys {
+            guard let value = environment[key],
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            processEnvironment[key] = value
+        }
         let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
         for (key, value) in selectedEnvironment {
             processEnvironment[key] = value
-        }
-        if let path = environment["PATH"],
-           !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            processEnvironment["PATH"] = path
         }
         return processEnvironment
     }
@@ -198,17 +384,25 @@ enum AgentForkSupport {
         normalized(snapshot.launchCommand?.workingDirectory) ?? normalized(snapshot.workingDirectory)
     }
 
-    private static func shouldRunLocalOpenCodeVersionProbe(
+    private enum LocalOpenCodeVersionProbeDecision {
+        case run
+        case skipRemoteLikeContext
+        case rejectMissingExecutable
+    }
+
+    private static func localOpenCodeVersionProbeDecision(
         probe: (executable: String, arguments: [String]),
         workingDirectory: String?
-    ) -> Bool {
+    ) -> LocalOpenCodeVersionProbeDecision {
         if let workingDirectory, localDirectoryURL(path: workingDirectory) == nil {
-            return false
+            return .skipRemoteLikeContext
         }
         if probe.executable.hasPrefix("/") {
             return FileManager.default.isExecutableFile(atPath: probe.executable)
+                ? .run
+                : .rejectMissingExecutable
         }
-        return true
+        return .run
     }
 
     private static func localDirectoryURL(path: String?) -> URL? {
