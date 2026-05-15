@@ -4475,6 +4475,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var queuedBackgroundSurfaceStartAllowsOffWindow = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -5697,11 +5698,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil, attachedView != nil else { return }
+        queuedBackgroundSurfaceStartAllowsOffWindow =
+            queuedBackgroundSurfaceStartAllowsOffWindow || allowOffWindow
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let allowOffWindow = self.queuedBackgroundSurfaceStartAllowsOffWindow
+            self.queuedBackgroundSurfaceStartAllowsOffWindow = false
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
