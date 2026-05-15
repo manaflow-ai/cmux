@@ -287,6 +287,7 @@ final class AuthManager: ObservableObject {
         if !isLoading { return isAuthenticated }
         let signedIn = await waitForSignInSettled(timeout: timeout)
         if !signedIn && isLoading && !isAuthenticated {
+            lastSignInError = .message("auth.webauth sign-in attempt timed out")
             webAuthSession?.cancel()
             if let attemptID = activeBrowserSignInAttemptID {
                 finishBrowserSignInAttempt(attemptID)
