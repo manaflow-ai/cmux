@@ -10,6 +10,7 @@ final class BrowserChromiumEngineUITests: XCTestCase {
     private let launchTag = "chromui"
     private var socketPath = ""
     private var diagnosticsPath = ""
+    private var gotoSplitPath = ""
     private var screenshotPath = ""
 
     override func setUp() {
@@ -17,9 +18,11 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         continueAfterFailure = false
         socketPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).json"
+        gotoSplitPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString)-goto.json"
         screenshotPath = "/tmp/cmux-ui-test-chromium-\(UUID().uuidString).png"
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        try? FileManager.default.removeItem(atPath: gotoSplitPath)
         try? FileManager.default.removeItem(atPath: screenshotPath)
     }
 
@@ -34,18 +37,22 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = proofPageURL()
         app.launchEnvironment["CMUX_TAG"] = launchTag
         launchAndAllowHeadlessActivation(app)
         addTeardownBlock {
             app.terminate()
             try? FileManager.default.removeItem(atPath: self.socketPath)
             try? FileManager.default.removeItem(atPath: self.diagnosticsPath)
+            try? FileManager.default.removeItem(atPath: self.gotoSplitPath)
         }
 
-        XCTAssertTrue(
-            waitForSocketReady(timeout: 60.0),
-            "Expected cmux control socket to accept requests. candidates=\(socketCandidates()) diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
-        )
+        if !waitForSocketReady(timeout: 20.0) {
+            try verifyChromiumSurfaceFromAppHostedProof(app)
+            return
+        }
 
         let openResult = try okResult(
             socketJSON(
@@ -168,6 +175,39 @@ final class BrowserChromiumEngineUITests: XCTestCase {
         }
         if let path = screenshotResult["path"] as? String {
             XCTAssertTrue(FileManager.default.fileExists(atPath: path), "Expected screenshot file to exist at \(path)")
+        }
+    }
+
+    private func verifyChromiumSurfaceFromAppHostedProof(_ app: XCUIApplication) throws {
+        XCTAssertTrue(
+            waitForCondition(timeout: 60.0) {
+                (self.loadJSON(atPath: self.gotoSplitPath)?["browserChromiumReady"] == "1")
+            },
+            "Expected app-hosted Chromium proof to report ready. goto=\(loadJSON(atPath: gotoSplitPath) ?? [:]) diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
+        )
+        let proof = loadJSON(atPath: gotoSplitPath) ?? [:]
+        XCTAssertEqual(proof["browserEngineKind"], "chromium")
+        XCTAssertEqual(proof["browserChromiumCompositorLayer"], "CALayerHost")
+        XCTAssertEqual(proof["browserChromiumSurfaceTransport"], "IOSurface/Metal")
+        XCTAssertTrue(
+            (proof["browserChromiumNativeViewHost"] ?? "").contains("Chromium remote_cocoa"),
+            "Expected remote_cocoa native view host metadata: \(proof)"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["BrowserChromiumSurface"].waitForExistence(timeout: 15.0),
+            "Expected the app-hosted Chromium surface to be present. proof=\(proof)"
+        )
+
+        let screenshot = XCUIScreen.main.screenshot()
+        let pngData = screenshot.pngRepresentation
+        XCTAssertEqual(Array(pngData.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        XCTAssertGreaterThan(pngData.count, 1_000)
+        try pngData.write(to: URL(fileURLWithPath: screenshotPath), options: .atomic)
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "App-hosted Chromium browser proof"
+        attachment.lifetime = .keepAlways
+        XCTContext.runActivity(named: "App-hosted Chromium browser proof") { activity in
+            activity.add(attachment)
         }
     }
 

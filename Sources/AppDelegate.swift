@@ -8930,6 +8930,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.writeGotoSplitTestData(["setupError": "Failed to create browser split"])
                 return
             }
+            if let browserPanel = tabManager.browserPanel(tabId: tab.id, panelId: browserPanelId) {
+                let runtimeStatus = browserPanel.browserEngineRuntimeStatus
+                let renderingAPI = runtimeStatus.manifest?.renderingAPI
+                self.writeGotoSplitTestData([
+                    "browserPanelId": browserPanelId.uuidString,
+                    "browserEngineKind": runtimeStatus.kind.rawValue,
+                    "browserChromiumReady": runtimeStatus.kind == .chromium ? "1" : "0",
+                    "browserChromiumFallbackReason": runtimeStatus.fallbackReason ?? "",
+                    "browserChromiumNativeViewHost": renderingAPI?.nativeViewHost ?? "",
+                    "browserChromiumCompositorLayer": renderingAPI?.compositorLayer ?? "",
+                    "browserChromiumSurfaceTransport": renderingAPI?.surfaceTransport ?? ""
+                ])
+            }
 
             self.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
         }
