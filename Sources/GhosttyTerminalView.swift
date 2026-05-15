@@ -4488,6 +4488,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
+    private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
 #endif
@@ -5093,6 +5094,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             return
         }
+#if DEBUG
+        runtimeSurfaceCreateAttemptCountForTesting += 1
+#endif
         #if DEBUG
         let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) } ?? "(unset)"
         let terminfo = getenv("TERMINFO").flatMap { String(cString: $0) } ?? "(unset)"
@@ -5941,6 +5945,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
+    }
+
+    @MainActor
+    func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {
+        runtimeSurfaceCreateAttemptCountForTesting
+    }
+
+    @MainActor
+    func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
+        let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
+            if case .key = item {
+                count += 1
+            }
+        }
+        return (pendingSocketInputQueue.count, pendingSocketInputBytes, keyEvents)
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.
