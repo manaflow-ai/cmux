@@ -1356,7 +1356,6 @@ func browserHandleExternalNavigation(
 
     let opened = NSWorkspace.shared.open(url)
     if !opened {
-        NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
         browserPresentExternalNavigationFailure(for: url, in: webView)
     }
 #if DEBUG
