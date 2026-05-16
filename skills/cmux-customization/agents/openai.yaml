@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Customization"
+  short_description: "Customize cmux actions, UI, and layouts."
+  default_prompt: "Use $cmux-customization to replace my plus-button action and tab bar buttons, then validate the cmux config."
