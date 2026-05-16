@@ -56,6 +56,18 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         return try XCTUnwrap(envelope["result"] as? [String: Any], raw, file: file, line: line)
     }
 
+    private func v2Error(
+        method: String,
+        params: [String: Any] = [:],
+        id: String? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [String: Any] {
+        let (raw, envelope) = try v2Envelope(method: method, params: params, id: id, file: file, line: line)
+        XCTAssertEqual(envelope["ok"] as? Bool, false, raw, file: file, line: line)
+        return try XCTUnwrap(envelope["error"] as? [String: Any], raw, file: file, line: line)
+    }
+
     private func workspaceListPayload(surfaceId: UUID, file: StaticString = #filePath, line: UInt = #line) throws -> [String: Any] {
         try v2Result(
             method: "workspace.list",
@@ -79,6 +91,58 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    func testSystemTreeWindowSelectorErrorsUseWindowContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let missingWindowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let conflict = try v2Error(
+            method: "system.tree",
+            params: ["window_id": windowId.uuidString, "all_windows": true]
+        )
+        XCTAssertEqual(conflict["code"] as? String, "invalid_params")
+        XCTAssertTrue((conflict["message"] as? String)?.contains("Choose either --window") == true)
+        let conflictData = try XCTUnwrap(conflict["data"] as? [String: Any])
+        XCTAssertEqual(conflictData["window_id"] as? String, windowId.uuidString)
+        XCTAssertNil(conflictData["window_ref"])
+
+        let missing = try v2Error(
+            method: "system.tree",
+            params: [
+                "window_id": missingWindowId.uuidString,
+                "workspace_id": UUID().uuidString,
+            ]
+        )
+        XCTAssertEqual(missing["code"] as? String, "not_found")
+        XCTAssertTrue((missing["message"] as? String)?.contains("cmux list-windows") == true)
+        let missingData = try XCTUnwrap(missing["data"] as? [String: Any])
+        XCTAssertEqual(missingData["window_id"] as? String, missingWindowId.uuidString)
+        XCTAssertNil(missingData["window_ref"])
     }
 
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {

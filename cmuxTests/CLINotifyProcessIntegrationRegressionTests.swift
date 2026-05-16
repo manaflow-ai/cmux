@@ -1091,6 +1091,227 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
+    func testSidebarMetadataWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("status-window-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.current" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["set-status", "build", "running", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("set-status: targeted window has no current workspace"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current"]
+        )
+    }
+
+    func testNotifyWindowFlagResolvesCurrentWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "notification.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["title"] as? String, "Window Notify")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId, "surface_id": surfaceId]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", windowId, "--title", "Window Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "notification.create"]
+        )
+    }
+
+    func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("action-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "workspace.action":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["action"] as? String, "pin")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["window_id": windowId, "workspace_id": workspaceId, "action": "pin"]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace-action", "--window", windowId, "--action", "pin"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "workspace.action"]
+        )
+    }
+
+    func testClearNotificationsWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("clear-window-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "workspace.current" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["window_id"] as? String, windowId)
+            return self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["clear-notifications", "--window", windowId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("clear-notifications: targeted window has no current workspace"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current"]
+        )
+    }
+
     func testTreeCommandForwardsWindowFlag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("tree-window")

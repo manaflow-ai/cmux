@@ -3068,7 +3068,8 @@ struct CMUXCLI {
                         guard let surfaceId = try normalizeSurfaceHandle(
                             surfaceArg,
                             client: client,
-                            workspaceHandle: workspaceId
+                            workspaceHandle: workspaceId,
+                            windowHandle: targetWindow
                         ) else {
                             throw CLIError(message: "Invalid surface handle")
                         }
@@ -3478,8 +3479,13 @@ struct CMUXCLI {
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try {
-                if explicitWorkspaceArg != nil {
-                    return try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+                if explicitWorkspaceArg != nil || winId != nil {
+                    return try normalizeWorkspaceHandle(
+                        workspaceArg,
+                        client: client,
+                        windowHandle: winId,
+                        allowCurrent: winId != nil
+                    )
                 }
                 return try resolveWorkspaceIdAllowingFallback(workspaceArg, client: client)
             }()
@@ -3770,6 +3776,12 @@ struct CMUXCLI {
                     params["window_id"] = windowHandle
                     if let explicitWorkspaceArg {
                         params["workspace_id"] = try resolveWorkspaceId(explicitWorkspaceArg, client: client, windowHandle: windowHandle)
+                    } else {
+                        params["workspace_id"] = try requireCurrentWorkspaceId(
+                            windowHandle: windowHandle,
+                            client: client,
+                            command: "notify"
+                        )
                     }
                 } else {
                     method = "notification.create_for_caller"
@@ -3870,8 +3882,12 @@ struct CMUXCLI {
             if let wsFlag = optionValue(commandArgs, name: "--workspace") {
                 let wsId = try resolveWorkspaceId(wsFlag, client: client, windowHandle: windowHandle)
                 socketCmd += " --tab=\(wsId)"
-            } else if let windowHandle,
-                      let wsId = try currentWorkspaceId(windowHandle: windowHandle, client: client) {
+            } else if let windowHandle {
+                let wsId = try requireCurrentWorkspaceId(
+                    windowHandle: windowHandle,
+                    client: client,
+                    command: "clear-notifications"
+                )
                 socketCmd += " --tab=\(wsId)"
             } else if windowRaw == nil,
                       let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
@@ -5053,7 +5069,7 @@ struct CMUXCLI {
             workspaceArg,
             client: client,
             windowHandle: windowHandle,
-            allowCurrent: windowHandle == nil
+            allowCurrent: true
         )
 
         let inferredPositionalRaw = positional.joined(separator: " ")
@@ -5160,7 +5176,7 @@ struct CMUXCLI {
             workspaceArg,
             client: client,
             windowHandle: windowHandle,
-            allowCurrent: windowHandle == nil
+            allowCurrent: true
         )
         // If a workspace is explicitly targeted and no tab/surface is provided, let server-side
         // tab.action resolve that workspace's focused tab instead of using global focus.
@@ -9439,7 +9455,11 @@ struct CMUXCLI {
             throw CLIError(message: "Workspace index not found")
         }
 
-        let current = try client.sendV2(method: "workspace.current")
+        var currentParams: [String: Any] = [:]
+        if let windowHandle {
+            currentParams["window_id"] = windowHandle
+        }
+        let current = try client.sendV2(method: "workspace.current", params: currentParams)
         if let wsId = current["workspace_id"] as? String { return wsId }
         throw CLIError(message: "No workspace selected")
     }
@@ -11292,6 +11312,18 @@ struct CMUXCLI {
         return workspaceId
     }
 
+    private func requireCurrentWorkspaceId(
+        windowHandle: String,
+        client: SocketClient,
+        command: String
+    ) throws -> String {
+        if let workspaceId = try currentWorkspaceId(windowHandle: windowHandle, client: client) {
+            return workspaceId
+        }
+        let commandLabel = command.replacingOccurrences(of: "_", with: "-")
+        throw CLIError(message: "\(commandLabel): targeted window has no current workspace. Select a workspace in that window or pass --workspace <id|ref|index>.")
+    }
+
     private func forwardSidebarMetadataCommand(
         _ socketCommand: String,
         commandArgs: [String],
@@ -11346,8 +11378,12 @@ struct CMUXCLI {
             let workspaceId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: windowHandle)
             insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
         } else if !resolvedExplicitWorkspace,
-                  let windowHandle,
-                  let workspaceId = try currentWorkspaceId(windowHandle: windowHandle, client: client) {
+                  let windowHandle {
+            let workspaceId = try requireCurrentWorkspaceId(
+                windowHandle: windowHandle,
+                client: client,
+                command: socketCommand
+            )
             insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
         }
 
