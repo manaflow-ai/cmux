@@ -1038,6 +1038,29 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testForceRefreshIgnoresHeadlessStartupWindow() throws {
+#if DEBUG
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertNotNil(panel.hostedView.window)
+        XCTAssertNil(panel.surface.uiWindow)
+
+        panel.surface.resetDebugForceRefreshCount()
+        panel.surface.forceRefresh(reason: "test.headless")
+
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            0,
+            "forceRefresh should ignore hidden bootstrap windows and wait for a real UI host."
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testColdSocketInputQueuesInsteadOfDroppingWhenRuntimeSurfaceIsMissing() {
         let panel = TerminalPanel(workspaceId: UUID())
 

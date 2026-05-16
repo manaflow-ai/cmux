@@ -5669,7 +5669,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let hasSurface = surface != nil
         let viewState: String
         if let view = attachedView {
-            let inWindow = view.window != nil
+            let inWindow = uiWindow != nil
             let bounds = view.bounds
             let metalOK = (view.layer as? CAMetalLayer) != nil
             viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
@@ -5679,7 +5679,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         cmuxDebugLog("forceRefresh: \(id) reason=\(reason) \(viewState)")
 #endif
         guard let view = attachedView,
-              view.window != nil,
+              let window = uiWindow,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
             return
@@ -5695,7 +5695,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
         // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
         // but callbacks have not resumed for the current display.
-        let displayID = (view.window?.screen ?? NSScreen.main)?.displayID
+        let displayID = (window.screen ?? NSScreen.main)?.displayID
 #if DEBUG
         let accessReason = "forceRefresh.\(reason)"
 #else
