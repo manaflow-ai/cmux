@@ -277,11 +277,30 @@ extension RestorableAgentSessionIndex {
     ) -> [RestorableAgentProcessDetectionCandidate] {
         var candidates: [RestorableAgentProcessDetectionCandidate] = []
         var seenPIDs = Set<Int>()
+        let fallbackScopedPIDs: Set<Int>? = {
+            guard let fallbackScope,
+                  fallbackScope.ttyDevice != nil || fallbackScope.ttyName != nil else {
+                return nil
+            }
+            return Set(
+                processDetectionFallbackProcesses(
+                    processSnapshot: processSnapshot,
+                    fallbackScope: fallbackScope
+                ).map(\.pid)
+            )
+        }()
 
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
                   let arguments = processArguments(process.pid) else {
+                continue
+            }
+            if let fallbackScope,
+               fallbackScope.workspaceId == workspaceId,
+               fallbackScope.panelId == panelId,
+               let fallbackScopedPIDs,
+               !fallbackScopedPIDs.contains(process.pid) {
                 continue
             }
             seenPIDs.insert(process.pid)

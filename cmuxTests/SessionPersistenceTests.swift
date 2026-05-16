@@ -3220,6 +3220,74 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped claude repo")
     }
 
+    func testProcessDetectionKeepsFocusedTTYScopedClaudeOverOtherSamePanelScopedClaude() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let focusedTTYDevice: Int64 = 44_008
+        let otherTTYDevice: Int64 = 44_009
+        let focusedClaude = makeTopProcess(
+            pid: 10_012,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: focusedTTYDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let otherClaude = makeTopProcess(
+            pid: 10_013,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: otherTTYDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: focusedTTYDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [focusedClaude, otherClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case focusedClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "3a3537ea-70de-4baf-b483-a1ae60b2bb38"
+                        ],
+                        environment: ["PWD": "/tmp/focused tty claude repo"]
+                    )
+                case otherClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "b0a9b600-d7f6-429d-b350-a9c58da53505"
+                        ],
+                        environment: ["PWD": "/tmp/other tty claude repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "3a3537ea-70de-4baf-b483-a1ae60b2bb38")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/focused tty claude repo")
+    }
+
     func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {
         let workspaceId = UUID()
         let panelId = UUID()
