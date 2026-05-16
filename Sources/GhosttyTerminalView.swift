@@ -5892,8 +5892,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
-    @MainActor
     private func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
+        assert(Thread.isMainThread)
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
@@ -6117,8 +6117,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
-    @MainActor
     private func flushPendingSocketInputIfNeeded() {
+        assert(Thread.isMainThread)
         guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
