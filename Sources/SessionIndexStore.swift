@@ -427,6 +427,24 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
+    static func uniqueSortedEntriesForDisplay(
+        _ entries: [SessionEntry],
+        pinnedEntryIDs: Set<String>
+    ) -> [SessionEntry] {
+        var entriesByID: [String: SessionEntry] = [:]
+        entriesByID.reserveCapacity(entries.count)
+        for entry in entries {
+            guard let existing = entriesByID[entry.id] else {
+                entriesByID[entry.id] = entry
+                continue
+            }
+            if entry.modified > existing.modified {
+                entriesByID[entry.id] = entry
+            }
+        }
+        return sortedEntriesForDisplay(Array(entriesByID.values), pinnedEntryIDs: pinnedEntryIDs)
+    }
+
     private static func loadAgentOrder() -> [SessionAgent] {
         let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
@@ -1297,6 +1315,43 @@ final class SessionIndexStore: ObservableObject {
         return nil
     }()
 
+    private final class RipgrepProcessState: @unchecked Sendable {
+        private let process: Process
+        private let lock = NSLock()
+        private var didLaunch = false
+        private var wasCancelled = false
+
+        init(process: Process) {
+            self.process = process
+        }
+
+        func markLaunched() {
+            let shouldTerminate: Bool
+            lock.lock()
+            didLaunch = true
+            shouldTerminate = wasCancelled && process.isRunning
+            lock.unlock()
+            if shouldTerminate {
+                process.terminate()
+            }
+        }
+
+        func cancel() {
+            let shouldTerminate: Bool
+            lock.lock()
+            if didLaunch {
+                shouldTerminate = process.isRunning
+            } else {
+                wasCancelled = true
+                shouldTerminate = false
+            }
+            lock.unlock()
+            if shouldTerminate {
+                process.terminate()
+            }
+        }
+    }
+
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
     /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
     /// URLs, or nil if rg isn't available or the run failed (caller falls back).
@@ -1330,9 +1385,11 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let processState = RipgrepProcessState(process: process)
 
         return await withTaskCancellationHandler {
             do { try process.run() } catch { return nil as [URL]? }
+            processState.markLaunched()
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
@@ -1355,10 +1412,9 @@ final class SessionIndexStore: ObservableObject {
                 return nil
             }
         } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            // Fires synchronously when the awaiting Task is cancelled. Once rg
+            // has launched, terminate it so stdout closes and the read unblocks.
+            processState.cancel()
         }
     }
 

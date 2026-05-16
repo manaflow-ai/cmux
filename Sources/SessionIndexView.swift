@@ -156,7 +156,7 @@ struct SessionIndexView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.secondary)
             TextField(
-                String(localized: "sessionIndex.search.placeholder", defaultValue: "Search All Vault"),
+                String(localized: "sessionIndex.search.placeholder", defaultValue: "Search all"),
                 text: $globalSearchQuery
             )
             .textFieldStyle(.plain)
@@ -437,7 +437,7 @@ private struct GlobalVaultSearchResultsView: View {
     }
 
     private var visibleLoadedEntries: [SessionEntry] {
-        SessionIndexStore.sortedEntriesForDisplay(loaded, pinnedEntryIDs: pinnedEntryIDs)
+        SessionIndexStore.uniqueSortedEntriesForDisplay(loaded, pinnedEntryIDs: pinnedEntryIDs)
     }
 
     var body: some View {
@@ -2200,7 +2200,7 @@ private struct SectionPopoverView: View {
     private static let pageSize = 100
 
     private var visibleLoadedEntries: [SessionEntry] {
-        SessionIndexStore.sortedEntriesForDisplay(loaded, pinnedEntryIDs: pinnedEntryIDs)
+        SessionIndexStore.uniqueSortedEntriesForDisplay(loaded, pinnedEntryIDs: pinnedEntryIDs)
     }
 
     var body: some View {

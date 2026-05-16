@@ -107430,13 +107430,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search All Vault"
+            "value": "Search all"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vault 全体を検索"
+            "value": "すべて検索"
           }
         }
       }

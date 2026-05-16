@@ -111,6 +111,35 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(sorted.map(\.id), ["old-pinned", "recent-unpinned", "old-unpinned"])
     }
 
+    @MainActor
+    func testVaultSearchDisplayDeduplicatesRepeatedSessionIDs() {
+        let staleDuplicate = sessionEntry(id: "duplicate", modified: Date(timeIntervalSince1970: 100))
+        let freshDuplicate = sessionEntry(id: "duplicate", modified: Date(timeIntervalSince1970: 300))
+        let pinned = sessionEntry(id: "pinned", modified: Date(timeIntervalSince1970: 50))
+
+        let sorted = SessionIndexStore.uniqueSortedEntriesForDisplay(
+            [staleDuplicate, pinned, freshDuplicate, staleDuplicate],
+            pinnedEntryIDs: [pinned.id]
+        )
+
+        XCTAssertEqual(sorted.map(\.id), ["pinned", "duplicate"])
+        XCTAssertEqual(sorted.last?.modified, freshDuplicate.modified)
+    }
+
+    func testRipgrepSearchCancellationBeforeLaunchDoesNotCrash() async {
+        for _ in 0..<25 {
+            let task = Task {
+                await SessionIndexStore.ripgrepMatchingPaths(
+                    needle: "vaultalpha",
+                    root: NSTemporaryDirectory(),
+                    fileGlob: "*.jsonl"
+                )
+            }
+            task.cancel()
+            _ = await task.value
+        }
+    }
+
     private func assertSearch(
         _ query: String,
         contains expectedID: String,
