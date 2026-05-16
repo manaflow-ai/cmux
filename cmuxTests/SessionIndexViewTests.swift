@@ -133,6 +133,96 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
     }
 
+    func testCodexSQLSearchMatchesThreadSpawnMetadata() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let parentRolloutURL = tempDir.appendingPathComponent("parent.jsonl")
+        let childRolloutURL = tempDir.appendingPathComponent("child.jsonl")
+        try #"{"type":"session_meta","payload":{"id":"codex-parent","cwd":"/tmp/project"}}"#
+            .write(to: parentRolloutURL, atomically: true, encoding: .utf8)
+        try #"{"type":"session_meta","payload":{"id":"codex-child","cwd":"/tmp/project"}}"#
+            .write(to: childRolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexSubagentStateDatabase(
+            at: stateDB,
+            parentRolloutURL: parentRolloutURL,
+            childRolloutURL: childRolloutURL
+        )
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: stateDB.path,
+            needle: "turing",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: tempDir.path
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-child"])
+        let subagent = try XCTUnwrap(outcome.entries.first?.subagent)
+        XCTAssertEqual(subagent.provider, .codex)
+        XCTAssertEqual(subagent.parentSessionId, "codex-parent")
+        XCTAssertEqual(subagent.subagentId, "codex-child")
+        XCTAssertEqual(subagent.depth, 1)
+        XCTAssertEqual(subagent.status, "closed")
+        XCTAssertEqual(subagent.name, "Turing")
+        XCTAssertEqual(subagent.role, "explorer")
+        XCTAssertEqual(subagent.parentFileURL, parentRolloutURL)
+    }
+
+    func testClaudeLoaderIncludesNestedSubagentSidechains() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let configDir = tempDir.appendingPathComponent(".claude", isDirectory: true)
+        let projectDir = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp-cmux-subagents", isDirectory: true)
+        let parentSessionId = "parent-session-123"
+        let childAgentId = "abc123"
+        let parentURL = projectDir.appendingPathComponent("\(parentSessionId).jsonl")
+        let subagentsDir = projectDir
+            .appendingPathComponent(parentSessionId, isDirectory: true)
+            .appendingPathComponent("subagents", isDirectory: true)
+        let childURL = subagentsDir.appendingPathComponent("agent-\(childAgentId).jsonl")
+        let metaURL = subagentsDir.appendingPathComponent("agent-\(childAgentId).meta.json")
+
+        try FileManager.default.createDirectory(at: subagentsDir, withIntermediateDirectories: true)
+        let parentLine = #"{"type":"user","message":{"role":"user","content":"Parent prompt"},"cwd":"/tmp/cmux-subagents","sessionId":"parent-session-123"}"#
+        try parentLine.write(to: parentURL, atomically: true, encoding: .utf8)
+        let childLine = #"{"isSidechain":true,"agentId":"abc123","type":"user","message":{"role":"user","content":"Read nested files"},"cwd":"/tmp/cmux-subagents","sessionId":"parent-session-123","gitBranch":"main"}"#
+        try childLine.write(to: childURL, atomically: true, encoding: .utf8)
+        try #"{"agentType":"Explore","description":"sidechain-only-token"}"#
+            .write(to: metaURL, atomically: true, encoding: .utf8)
+
+        let outcome = await SessionIndexStore.loadClaudeEntriesForTesting(
+            configDir: configDir.path,
+            needle: "sidechain-only-token",
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.fileURL), [childURL])
+        let entry = try XCTUnwrap(outcome.entries.first)
+        XCTAssertEqual(entry.sessionId, parentSessionId)
+        XCTAssertEqual(entry.title, "sidechain-only-token")
+        XCTAssertEqual(entry.cwd, "/tmp/cmux-subagents")
+        XCTAssertEqual(entry.gitBranch, "main")
+        XCTAssertEqual(entry.resumeCommand?.contains("claude --resume \(parentSessionId)"), true)
+        let subagent = try XCTUnwrap(entry.subagent)
+        XCTAssertEqual(subagent.provider, .claude)
+        XCTAssertEqual(subagent.parentSessionId, parentSessionId)
+        XCTAssertEqual(subagent.subagentId, childAgentId)
+        XCTAssertEqual(subagent.role, "Explore")
+        XCTAssertEqual(subagent.parentFileURL, parentURL)
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -315,6 +405,134 @@ final class SessionIndexViewTests: XCTestCase {
         }
     }
 
+    private func makeCodexSubagentStateDatabase(
+        at url: URL,
+        parentRolloutURL: URL,
+        childRolloutURL: URL
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            throw SQLiteTestError(message: "open failed")
+        }
+        defer { sqlite3_close(db) }
+
+        try executeSQL(
+            """
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                model TEXT,
+                git_branch TEXT,
+                approval_mode TEXT NOT NULL,
+                sandbox_policy TEXT NOT NULL,
+                reasoning_effort TEXT,
+                first_user_message TEXT NOT NULL,
+                updated_at_ms INTEGER,
+                archived INTEGER NOT NULL DEFAULT 0,
+                source TEXT,
+                thread_source TEXT,
+                agent_nickname TEXT,
+                agent_role TEXT
+            );
+            CREATE TABLE thread_spawn_edges (
+                child_thread_id TEXT NOT NULL,
+                parent_thread_id TEXT NOT NULL,
+                status TEXT NOT NULL
+            );
+            """,
+            db: db
+        )
+
+        try insertCodexThread(
+            db: db,
+            sessionId: "codex-parent",
+            rolloutPath: parentRolloutURL.path,
+            title: "Parent",
+            updatedMs: 1_777_624_800_000,
+            source: nil,
+            threadSource: nil,
+            agentNickname: nil,
+            agentRole: nil
+        )
+        try insertCodexThread(
+            db: db,
+            sessionId: "codex-child",
+            rolloutPath: childRolloutURL.path,
+            title: "",
+            updatedMs: 1_777_624_900_000,
+            source: #"{"subagent":{"thread_spawn":{"parent_thread_id":"codex-parent","depth":1,"agent_path":null,"agent_nickname":"Turing","agent_role":"explorer"}}}"#,
+            threadSource: "subagent",
+            agentNickname: "Turing",
+            agentRole: "explorer"
+        )
+
+        try executeSQL(
+            """
+            INSERT INTO thread_spawn_edges (
+                child_thread_id, parent_thread_id, status
+            ) VALUES ('codex-child', 'codex-parent', 'closed');
+            """,
+            db: db
+        )
+    }
+
+    private func insertCodexThread(
+        db: OpaquePointer,
+        sessionId: String,
+        rolloutPath: String,
+        title: String,
+        updatedMs: Int64,
+        source: String?,
+        threadSource: String?,
+        agentNickname: String?,
+        agentRole: String?
+    ) throws {
+        let sql = """
+            INSERT INTO threads (
+                id, rollout_path, cwd, title, model, git_branch,
+                approval_mode, sandbox_policy, reasoning_effort,
+                first_user_message, updated_at_ms, archived,
+                source, thread_source, agent_nickname, agent_role
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?);
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "insert prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        func bind(_ value: String?, at index: Int32) {
+            guard let value else {
+                sqlite3_bind_null(stmt, index)
+                return
+            }
+            sqlite3_bind_text(stmt, index, value, -1, transient)
+        }
+
+        bind(sessionId, at: 1)
+        bind(rolloutPath, at: 2)
+        bind("/tmp/project", at: 3)
+        bind(title, at: 4)
+        bind("gpt-5.5", at: 5)
+        bind("main", at: 6)
+        bind("never", at: 7)
+        bind(#"{"type":"danger-full-access"}"#, at: 8)
+        bind("medium", at: 9)
+        bind("metadata does not contain the query", at: 10)
+        sqlite3_bind_int64(stmt, 11, updatedMs)
+        bind(source, at: 12)
+        bind(threadSource, at: 13)
+        bind(agentNickname, at: 14)
+        bind(agentRole, at: 15)
+
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "insert failed")
+        }
+    }
+
     private func executeSQL(_ sql: String, db: OpaquePointer) throws {
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
             throw SQLiteTestError(message: sqliteMessage(db) ?? "exec failed")
@@ -340,6 +558,16 @@ private extension SessionAgent {
             return .rovodev
         case .hermesAgent:
             return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        case .registered(let agent):
+            return .registered(
+                CmuxVaultAgentRegistration(
+                    id: agent.id,
+                    name: agent.displayName,
+                    detect: CmuxVaultAgentDetectRule(processName: agent.id),
+                    sessionIdSource: .argvOption("--session"),
+                    resumeCommand: "{{executable}} --session {{sessionId}}"
+                )
+            )
         }
     }
 }

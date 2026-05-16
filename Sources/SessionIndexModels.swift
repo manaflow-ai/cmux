@@ -197,6 +197,56 @@ enum AgentSpecifics: Hashable {
     case registered(CmuxVaultAgentRegistration)
 }
 
+struct SessionSubagentMetadata: Hashable, Sendable {
+    enum Provider: String, Hashable, Sendable {
+        case claude
+        case codex
+    }
+
+    let provider: Provider
+    let parentSessionId: String?
+    let subagentId: String?
+    let depth: Int?
+    let status: String?
+    let name: String?
+    let role: String?
+    let parentFileURL: URL?
+
+    init(
+        provider: Provider,
+        parentSessionId: String?,
+        subagentId: String?,
+        depth: Int?,
+        status: String?,
+        name: String?,
+        role: String?,
+        parentFileURL: URL?
+    ) {
+        self.provider = provider
+        self.parentSessionId = Self.normalized(parentSessionId)
+        self.subagentId = Self.normalized(subagentId)
+        self.depth = depth
+        self.status = Self.normalized(status)
+        self.name = Self.normalized(name)
+        self.role = Self.normalized(role)
+        self.parentFileURL = parentFileURL
+    }
+
+    var displayName: String? {
+        name ?? role
+    }
+
+    var searchableTerms: [String] {
+        [parentSessionId, subagentId, status, name, role]
+            .compactMap(Self.normalized)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+}
+
 struct SessionEntry: Identifiable, Hashable {
     let id: String
     let agent: SessionAgent
@@ -209,6 +259,33 @@ struct SessionEntry: Identifiable, Hashable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
+    let subagent: SessionSubagentMetadata?
+
+    init(
+        id: String,
+        agent: SessionAgent,
+        sessionId: String,
+        title: String,
+        cwd: String?,
+        gitBranch: String?,
+        pullRequest: PullRequestLink?,
+        modified: Date,
+        fileURL: URL?,
+        specifics: AgentSpecifics,
+        subagent: SessionSubagentMetadata? = nil
+    ) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.gitBranch = gitBranch
+        self.pullRequest = pullRequest
+        self.modified = modified
+        self.fileURL = fileURL
+        self.specifics = specifics
+        self.subagent = subagent
+    }
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
@@ -356,6 +433,9 @@ struct SessionEntry: Identifiable, Hashable {
             }
         }
         if trimmed.isEmpty {
+            if let subagentTitle = subagent?.displayName {
+                return subagentTitle
+            }
             return String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
         }
         return trimmed

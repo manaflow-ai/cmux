@@ -107078,6 +107078,108 @@
         }
       }
     },
+    "sessionIndex.row.openParentTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Parent Transcript"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "親トランスクリプトを開く"
+          }
+        }
+      }
+    },
+    "sessionIndex.subagent.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント"
+          }
+        }
+      }
+    },
+    "sessionIndex.subagent.role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Role: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロール: %@"
+          }
+        }
+      }
+    },
+    "sessionIndex.subagent.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前: %@"
+          }
+        }
+      }
+    },
+    "sessionIndex.subagent.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス: %@"
+          }
+        }
+      }
+    },
+    "sessionIndex.subagent.parent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parent: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "親: %@"
+          }
+        }
+      }
+    },
     "sessionIndex.group.directory": {
       "extractionState": "manual",
       "localizations": {
