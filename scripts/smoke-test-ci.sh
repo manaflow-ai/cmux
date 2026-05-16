@@ -93,6 +93,64 @@ if [ "$PING_RESPONSE" != "PONG" ]; then
   exit 1
 fi
 
+# --- Reproduce blocking feed.push over the real socket path ---
+echo "Sending feed.push dispatch reentrancy regression..."
+set +e
+FEED_PUSH_RESPONSE=$(python3 - <<PY
+import json
+import socket
+import uuid
+
+frame = {
+    "id": str(uuid.uuid4()),
+    "method": "feed.push",
+    "params": {
+        "event": {
+            "session_id": "smoke-feed-dispatch-reentrancy",
+            "hook_event_name": "PermissionRequest",
+            "_source": "claude",
+            "cwd": "/tmp",
+            "tool_name": "Bash",
+            "tool_input": {"command": "true"},
+            "_opencode_request_id": "smoke-feed-" + str(uuid.uuid4()),
+        },
+        "wait_timeout_seconds": 0.05,
+    },
+}
+
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5.0)
+s.connect("$SOCKET_PATH")
+s.sendall((json.dumps(frame, separators=(",", ":")) + "\\n").encode())
+data = s.recv(8192).decode().strip()
+s.close()
+
+response = json.loads(data)
+if response.get("ok") is not True:
+    raise SystemExit(f"feed.push returned non-ok response: {data}")
+result = response.get("result") or {}
+if result.get("status") != "timed_out":
+    raise SystemExit(f"feed.push expected timed_out status, got: {data}")
+print(data)
+PY
+)
+FEED_PUSH_EXIT=$?
+set -e
+echo "Feed push response: $FEED_PUSH_RESPONSE"
+if [ "$FEED_PUSH_EXIT" -ne 0 ]; then
+  echo "ERROR: feed.push regression command failed"
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    echo "App is no longer running after feed.push"
+  fi
+  echo "--- stdout/stderr ---"
+  cat /tmp/cmux-smoke-stdout.log 2>/dev/null | tail -50 || true
+  echo "--- debug log ---"
+  tail -50 /tmp/cmux-debug.log 2>/dev/null || true
+  echo "--- crash reports ---"
+  ls -lt ~/Library/Logs/DiagnosticReports/*cmux* 2>/dev/null | head -5 || echo "(none)"
+  exit 1
+fi
+
 # --- Send a command to the terminal ---
 echo "Sending 'time' command to terminal..."
 SEND_RESPONSE=$(python3 -c "
