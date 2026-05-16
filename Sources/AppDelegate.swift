@@ -14327,24 +14327,28 @@ private extension AppDelegate {
         sender: Any?
     ) -> Bool {
         guard Self.isWindowCloseAction(action) else { return false }
-        guard let window = Self.actionWindow(target: target, sender: sender) else { return false }
+        guard Thread.isMainThread else { return false }
 
-        for panel in allBrowserPanelsForInspectorWindowClose() {
-            if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
-                window,
-                source: "sendAction.\(NSStringFromSelector(action))"
-            ) {
+        return MainActor.assumeIsolated {
+            guard let window = Self.actionWindow(target: target, sender: sender) else { return false }
+
+            for panel in allBrowserPanelsForInspectorWindowClose() {
+                if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                    window,
+                    source: "sendAction.\(NSStringFromSelector(action))"
+                ) {
 #if DEBUG
-                cmuxDebugLog(
-                    "browser.devtools detachedClose.action panel=\(panel.id.uuidString.prefix(5)) " +
-                    "action=\(NSStringFromSelector(action)) window=\(window.windowNumber)"
-                )
+                    cmuxDebugLog(
+                        "browser.devtools detachedClose.action panel=\(panel.id.uuidString.prefix(5)) " +
+                        "action=\(NSStringFromSelector(action)) window=\(window.windowNumber)"
+                    )
 #endif
-                return true
+                    return true
+                }
             }
-        }
 
-        return false
+            return false
+        }
     }
 
     private static func isWindowCloseAction(_ action: Selector) -> Bool {
@@ -14358,6 +14362,9 @@ private extension AppDelegate {
 
     private static func actionWindow(target: Any?, sender: Any?) -> NSWindow? {
         if let window = target as? NSWindow {
+            return window
+        }
+        if let window = sender as? NSWindow {
             return window
         }
         if let view = sender as? NSView {
@@ -14385,6 +14392,9 @@ private extension AppDelegate {
         appendCandidate(tabManager)
         for context in mainWindowContexts.values {
             appendCandidate(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            appendCandidate(route.tabManager)
         }
 
         for manager in candidateManagers {

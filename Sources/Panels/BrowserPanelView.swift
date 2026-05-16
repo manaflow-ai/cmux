@@ -5000,6 +5000,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostedInspectorFrontendWebView = nil
         }
 
+        func clearStaleHostedInspectorOwnershipState() {
+            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
+            hostedInspectorDockConfigurationSyncWorkItem = nil
+            hostedInspectorFrontendWebView = nil
+            lastHostedInspectorManualSideDockAllowed = nil
+        }
+
         func releaseHostedWebViewConstraints() {
             NSLayoutConstraint.deactivate(hostedWebViewConstraints)
             hostedWebViewConstraints = []
@@ -6453,6 +6460,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         if panel.shouldUseLocalInlineDeveloperToolsHosting() {
+            host.clearStaleHostedInspectorOwnershipState()
             let hostId = ObjectIdentifier(host)
             if panel.releasePortalHostIfOwned(
                 hostId: hostId,
