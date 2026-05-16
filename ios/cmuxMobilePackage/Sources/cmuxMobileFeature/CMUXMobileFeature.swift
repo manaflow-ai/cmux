@@ -1612,6 +1612,9 @@ struct WorkspaceDetailView: View {
                 terminal: selectedTerminal,
                 fontScale: terminalFontScale,
                 safeAreaContext: safeAreaContext,
+                bottomOverlayHeight: inlineBottomBarOverlaysTerminal
+                    ? TerminalInputAccessoryVisualMetrics.barHeight
+                    : 0,
                 modifierState: $bottomActionModifierState,
                 isKeyboardVisible: $isTerminalKeyboardVisible,
                 inputFocusRequest: terminalInputFocusRequest,
@@ -1640,7 +1643,7 @@ struct WorkspaceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         #if os(iOS)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .bottom) {
             if !isTerminalKeyboardVisible,
                MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: isTerminalKeyboardVisible) {
                 terminalBottomActionBar(
@@ -1683,12 +1686,15 @@ struct WorkspaceDetailView: View {
     }
 
     private var inlineBottomBarExpandsSafeArea: Bool {
-        MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(
+        inlineBottomBarOverlaysTerminal && MobileTerminalBottomBarPlacementPolicy.expandsBottomSafeArea(
             isKeyboardVisible: isTerminalKeyboardVisible,
             softwareKeyboardOverlap: terminalKeyboardOverlap
-        ) && !MobileTerminalShellSafeAreaPolicy.expandsBehindBottomSafeArea(
-            isKeyboardVisible: isTerminalKeyboardVisible
         )
+    }
+
+    private var inlineBottomBarOverlaysTerminal: Bool {
+        !isTerminalKeyboardVisible
+            && MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: isTerminalKeyboardVisible)
     }
 
     private static let minimumTerminalFontScale: CGFloat = 0.8
@@ -1759,7 +1765,7 @@ struct WorkspaceDetailView: View {
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
-        Button(action: createWorkspace) {
+        Button(action: createWorkspaceFromToolbar) {
             Image(systemName: "plus.square.on.square")
         }
         .foregroundStyle(TerminalPalette.foreground)
@@ -1769,6 +1775,7 @@ struct WorkspaceDetailView: View {
         Menu {
             ForEach(workspace.terminals) { terminal in
                 Button {
+                    dismissTerminalKeyboardForChrome()
                     selectedTerminalID = terminal.id
                 } label: {
                     Label(terminal.name, systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal")
@@ -1778,7 +1785,7 @@ struct WorkspaceDetailView: View {
 
             Divider()
 
-            Button(action: createTerminal) {
+            Button(action: createTerminalFromToolbar) {
                 Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
             }
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
@@ -1789,6 +1796,26 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                dismissTerminalKeyboardForChrome()
+            }
+        )
+    }
+
+    private func createWorkspaceFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        createWorkspace()
+    }
+
+    private func createTerminalFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        createTerminal()
+    }
+
+    private func dismissTerminalKeyboardForChrome() {
+        isTerminalKeyboardVisible = false
+        dismissKeyboard()
     }
 }
 
@@ -2757,6 +2784,7 @@ struct TerminalPreviewSurface: View {
     let terminal: MobileTerminalPreview?
     var fontScale: CGFloat = 1
     var safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
+    var bottomOverlayHeight: CGFloat = 0
     var modifierState: Binding<MobileTerminalModifierState>?
     var isKeyboardVisible: Binding<Bool>?
     var inputFocusRequest = 0
@@ -2890,9 +2918,10 @@ struct TerminalPreviewSurface: View {
 
     private func visibleTerminalSize(proxy: GeometryProxy) -> CGSize {
         let contentInsets = terminalContentInsets(proxy: proxy)
+        let reservedBottomHeight = max(0, bottomOverlayHeight)
         return CGSize(
             width: max(1, proxy.size.width - contentInsets.leading - contentInsets.trailing),
-            height: max(1, proxy.size.height)
+            height: max(1, proxy.size.height - reservedBottomHeight)
         )
     }
 
