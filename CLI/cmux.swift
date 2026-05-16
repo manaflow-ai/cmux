@@ -2540,6 +2540,11 @@ struct CMUXCLI {
             return
         }
 
+        if command == "right-sidebar" {
+            let parsed = try parseRightSidebarCLIArguments(commandArgs)
+            _ = try rightSidebarSocketArguments(from: parsed)
+        }
+
         if command == "themes" {
             try runThemes(
                 commandArgs: commandArgs,
@@ -11753,7 +11758,8 @@ struct CMUXCLI {
     }
 
     private func resolveRightSidebarWindowId(_ raw: String?, client: SocketClient) throws -> String? {
-        guard let normalized = try normalizeWindowHandle(raw, client: client) else { return nil }
+        guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalized.isEmpty else { return nil }
         return try resolvedRightSidebarHandleID(
             normalized,
             expectedRefKind: "window",
@@ -11770,11 +11776,12 @@ struct CMUXCLI {
         windowId: String?,
         client: SocketClient
     ) throws -> String? {
+        guard let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalized.isEmpty else { return nil }
         var params: [String: Any] = [:]
         if let windowId {
             params["window_id"] = windowId
         }
-        guard let normalized = try normalizeWorkspaceHandle(raw, client: client, windowHandle: windowId) else { return nil }
         return try resolvedRightSidebarHandleID(
             normalized,
             expectedRefKind: "workspace",
@@ -11807,7 +11814,7 @@ struct CMUXCLI {
             }
             refIndex = Int(pieces[1])
         } else {
-            refIndex = nil
+            refIndex = Int(trimmed)
         }
 
         let listed = try client.sendV2(method: listMethod, params: listParams)
