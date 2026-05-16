@@ -784,7 +784,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
 
         let frameBeforeMove = terminalCard.frame
-        let dragStart = terminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.52, dy: 0.05))
+        let dragLayer = canvasDragLayer(app, paneId: terminalPaneId)
+        XCTAssertTrue(dragLayer.waitForExistence(timeout: 6.0), "Expected terminal canvas drag layer")
+        let dragStart = dragLayer.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.50))
         dragStart.press(
             forDuration: 0.12,
             thenDragTo: dragStart.withOffset(CGVector(dx: 90, dy: 65))
@@ -1600,6 +1602,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private func canvasCard(_ app: XCUIApplication, paneId: String) -> XCUIElement {
         app.descendants(matching: .any)
             .matching(identifier: "WorkspaceCanvasCard.\(paneId)")
+            .firstMatch
+    }
+
+    private func canvasDragLayer(_ app: XCUIApplication, paneId: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "WorkspaceCanvasDragLayer.\(paneId)")
             .firstMatch
     }
 
