@@ -98,12 +98,11 @@ struct MarkdownPanelView: View {
             .accessibilityHidden(panel.displayMode != .preview)
 
             if panel.displayMode == .text {
-                FilePreviewTextEditor(
+                MarkdownEditorView(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: appearance.contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -148,8 +147,8 @@ struct MarkdownPanelView: View {
         switch panel.displayMode {
         case .preview:
             PanelHeaderIconButton(
-                systemName: "doc.plaintext",
-                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                systemName: "square.and.pencil",
+                label: String(localized: "markdown.mode.showEditor", defaultValue: "Show Editor"),
                 action: { panel.setDisplayMode(.text) }
             )
         case .text:
