@@ -4453,8 +4453,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     private(set) var tabId: UUID
-    /// Port ordinal for CMUX_PORT range assignment
-    var portOrdinal: Int = 0
+    /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
+    /// every runtime startup path uses the same immutable workspace port range.
+    private let portOrdinal: Int
     /// Snapshotted once per app session so all workspaces use consistent values
     private static let sessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
@@ -4568,6 +4569,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
@@ -4584,6 +4586,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.portOrdinal = portOrdinal
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5167,7 +5170,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 return
             }
 #if DEBUG
-            cmuxDebugLog("surface.attach.create surface=\(id.uuidString.prefix(5))")
+            cmuxDebugLog(
+                "surface.attach.create surface=\(id.uuidString.prefix(5)) " +
+                "inWindow=\(view.window != nil ? 1 : 0)"
+            )
 #endif
             createSurface(for: view)
 #if DEBUG
@@ -5847,10 +5853,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
-    func requestBackgroundSurfaceStartIfNeeded() {
+    // Socket/API operations are an explicit runtime demand: they must be able to
+    // start a terminal in a background workspace without selecting that workspace.
+    // When there is no real window yet, bootstrap Ghostty in a hidden window and
+    // reconcile display/window state when the terminal is later presented.
+    func requestBackgroundSurfaceStartIfNeeded(allowOffWindow: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.requestBackgroundSurfaceStartIfNeeded()
+                self?.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: allowOffWindow)
             }
             return
         }
@@ -5871,7 +5881,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let view = self.attachedView, view.window != nil {
                 self.createSurface(for: view)
             } else {
-                self.startRuntimeUsingHeadlessWindowIfNeeded(reason: "cold-input")
+                self.startRuntimeUsingHeadlessWindowIfNeeded(reason: allowOffWindow ? "background-input" : "cold-input")
             }
             #if DEBUG
             let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0

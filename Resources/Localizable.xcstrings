@@ -27014,6 +27014,91 @@
         }
       }
     },
+    "command.forkAgentConversationRight.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to the Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を右にフォーク"
+          }
+        }
+      }
+    },
+    "command.forkAgentConversationLeft.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to the Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を左にフォーク"
+          }
+        }
+      }
+    },
+    "command.forkAgentConversationTop.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to the Top"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を上にフォーク"
+          }
+        }
+      }
+    },
+    "command.forkAgentConversationBottom.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to the Bottom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を下にフォーク"
+          }
+        }
+      }
+    },
+    "command.forkAgentConversationNewWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を新規ワークスペースにフォーク"
+          }
+        }
+      }
+    },
     "command.terminalSplitDown.subtitle": {
       "extractionState": "manual",
       "localizations": {
