@@ -775,14 +775,20 @@ struct cmuxApp: App {
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                            forDigit: number,
+                            workspaceCount: manager.visibleWorkspaceTabs.count
+                        ) {
                             manager.selectTab(at: targetIndex)
                         }
                     }
                 } else {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                            forDigit: number,
+                            workspaceCount: manager.visibleWorkspaceTabs.count
+                        ) {
                             manager.selectTab(at: targetIndex)
                         }
                     }
@@ -892,7 +898,7 @@ struct cmuxApp: App {
     }
 
     private func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
-        manager.tabs.firstIndex { $0.id == workspaceId }
+        manager.visibleWorkspaceTabs.firstIndex { $0.id == workspaceId }
     }
 
     private func selectedWorkspaceWindowMoveTargets(in manager: TabManager) -> [AppDelegate.WindowMoveTarget] {
@@ -915,8 +921,14 @@ struct cmuxApp: App {
         guard let workspace = manager.selectedWorkspace,
               let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
-        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+        let visibleIds = manager.visibleWorkspaceTabs.map(\.id)
+        guard targetIndex >= 0, targetIndex < visibleIds.count else { return }
+        let visibleIdsAfterRemoval = visibleIds.filter { $0 != workspace.id }
+        if targetIndex >= visibleIdsAfterRemoval.count {
+            _ = manager.reorderWorkspace(tabId: workspace.id, after: visibleIdsAfterRemoval.last)
+        } else {
+            _ = manager.reorderWorkspace(tabId: workspace.id, before: visibleIdsAfterRemoval[targetIndex])
+        }
         manager.selectWorkspace(workspace)
     }
 
@@ -953,14 +965,14 @@ struct cmuxApp: App {
     private func closeSelectedWorkspacesBelow(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
+        let workspaceIds = manager.visibleWorkspaceTabs.suffix(from: anchorIndex + 1).map(\.id)
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
+        let workspaceIds = manager.visibleWorkspaceTabs.prefix(upTo: anchorIndex).map(\.id)
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
@@ -1022,7 +1034,7 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveSelectedWorkspace(in: manager, by: 1)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(workspaceIndex == nil || workspaceIndex == manager.visibleWorkspaceTabs.count - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             moveSelectedWorkspaceToTop(in: manager)
@@ -1058,12 +1070,12 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)
         }
-        .disabled(workspace == nil || manager.tabs.count <= 1)
+        .disabled(workspace == nil || workspace?.isHidden == true || manager.tabs.count <= 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeSelectedWorkspacesBelow(in: manager)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(workspaceIndex == nil || workspaceIndex == manager.visibleWorkspaceTabs.count - 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeSelectedWorkspacesAbove(in: manager)

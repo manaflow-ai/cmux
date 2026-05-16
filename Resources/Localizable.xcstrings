@@ -3079,6 +3079,23 @@
         }
       }
     },
+    "sidebar.hiddenWorkspaces.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden Workspaces (%d)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示のワークスペース（%d）"
+          }
+        }
+      }
+    },
     "sidebar.help.button": {
       "extractionState": "manual",
       "localizations": {
@@ -24567,6 +24584,23 @@
         }
       }
     },
+    "command.snoozeWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
     "command.previousTabInPane.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -36419,6 +36453,40 @@
         }
       }
     },
+    "contextMenu.snoozeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
+    "contextMenu.snoozeWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
     "contextMenu.removeCustomWorkspaceName": {
       "extractionState": "manual",
       "localizations": {
@@ -36891,6 +36959,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відкріпити робочі області"
+          }
+        }
+      }
+    },
+    "contextMenu.wakeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを表示"
+          }
+        }
+      }
+    },
+    "contextMenu.wakeWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを表示"
           }
         }
       }
