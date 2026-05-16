@@ -186,7 +186,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "showNotifications", combos: [["⌘", "I"]], description: { en: "Show notifications", ja: "通知を表示" } },
       { id: "jumpToUnread", combos: [["⌘", "⇧", "U"]], description: { en: "Jump to latest unread", ja: "最新の未読へ移動" } },
-      { id: "markAsUnread", combos: [["⌥", "⌘", "U"]], description: { en: "Mark current item as unread", ja: "現在の項目を未読にする" } },
+      { id: "toggleUnread", combos: [["⌥", "⌘", "U"]], description: { en: "Toggle current item unread state", ja: "現在の項目の未読状態を切り替え" } },
       { id: "markOldestUnreadAndJumpNext", combos: [["⌃", "⌘", "U"]], description: { en: "Mark current item as oldest unread and jump to the next latest unread", ja: "現在の項目を最古の未読にして次の最新未読へ移動" } },
       { id: "triggerFlash", combos: [["⌘", "⇧", "H"]], description: { en: "Flash focused panel", ja: "フォーカス中のパネルをフラッシュ" } },
     ],

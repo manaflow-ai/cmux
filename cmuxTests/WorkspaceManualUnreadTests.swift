@@ -263,24 +263,28 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
     }
 
-    func testMarkFocusedNotificationAsUnreadDoesNotJumpAwayFromCurrentWorkspace() {
+    func testToggleFocusedNotificationUnreadTogglesCurrentWorkspaceWithoutJumping() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
-        let manager = TabManager()
         let store = TerminalNotificationStore.shared
 
-        let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
 
         store.replaceNotificationsForTesting([])
-        appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             store.replaceNotificationsForTesting([])
-            appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
         }
 
+        guard let window = appDelegate.windowForMainWindowId(windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and tab manager")
+            return
+        }
         guard let currentWorkspace = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
             return
@@ -288,10 +292,16 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
         store.markUnread(forTabId: laterWorkspace.id)
 
-        XCTAssertTrue(appDelegate.markFocusedNotificationAsUnread())
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: currentWorkspace.id))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
     }
 

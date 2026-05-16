@@ -6527,10 +6527,10 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
-                commandId: "palette.markAsUnread",
-                title: constant(String(localized: "command.markAsUnread.title", defaultValue: "Mark as Unread")),
+                commandId: "palette.toggleUnread",
+                title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
                 subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["mark", "unread", "notification"],
+                keywords: ["toggle", "mark", "read", "unread", "notification"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
@@ -7488,8 +7488,8 @@ struct ContentView: View {
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
         }
-        registry.register(commandId: "palette.markAsUnread") {
-            AppDelegate.shared?.markFocusedNotificationAsUnread(
+        registry.register(commandId: "palette.toggleUnread") {
+            AppDelegate.shared?.toggleFocusedNotificationUnread(
                 preferredWindow: observedWindow
             )
         }

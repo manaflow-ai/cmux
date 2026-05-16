@@ -203,7 +203,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 |----------|--------|
 | ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
-| ⌥ ⌘ U | Mark current item as unread |
+| ⌥ ⌘ U | Toggle current item unread state |
 | ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
 
 ### Find

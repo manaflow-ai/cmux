@@ -290,8 +290,8 @@ struct cmuxApp: App {
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
 
-                splitCommandButton(title: KeyboardShortcutSettings.Action.markAsUnread.label, shortcut: menuShortcut(for: .markAsUnread)) {
-                    appDelegate.markFocusedNotificationAsUnread()
+                splitCommandButton(title: String(localized: "menu.notifications.toggleUnread", defaultValue: "Toggle Unread"), shortcut: menuShortcut(for: .toggleUnread)) {
+                    appDelegate.toggleFocusedNotificationUnread()
                 }
                 .disabled(activeTabManager.selectedWorkspace == nil)
 

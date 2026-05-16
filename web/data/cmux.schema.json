@@ -786,7 +786,7 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
-              "markAsUnread",
+              "toggleUnread",
               "markOldestUnreadAndJumpNext",
               "focusRightSidebar",
               "switchRightSidebarToFiles",

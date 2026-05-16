@@ -22036,19 +22036,19 @@
         }
       }
     },
-    "command.markAsUnread.title": {
+    "command.toggleUnread.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark as Unread"
+            "value": "Toggle Unread"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未読にする"
+            "value": "未読を切り替え"
           }
         }
       }
@@ -44755,6 +44755,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перейти до останнього непрочитаного"
+          }
+        }
+      }
+    },
+    "menu.notifications.toggleUnread": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読を切り替え"
           }
         }
       }
@@ -83246,19 +83263,19 @@
         }
       }
     },
-    "shortcut.markAsUnread.label": {
+    "shortcut.toggleUnread.label": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mark as Unread"
+            "value": "Toggle Unread"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未読にする"
+            "value": "未読を切り替え"
           }
         }
       }

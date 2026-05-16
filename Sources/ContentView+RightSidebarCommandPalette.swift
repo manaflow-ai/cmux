@@ -27,8 +27,8 @@ extension ContentView {
             return .showNotifications
         case "palette.jumpUnread":
             return .jumpToUnread
-        case "palette.markAsUnread":
-            return .markAsUnread
+        case "palette.toggleUnread":
+            return .toggleUnread
         case "palette.markOldestUnreadAndJumpNext":
             return .markOldestUnreadAndJumpNext
         case "palette.renameTab":

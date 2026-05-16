@@ -23801,7 +23801,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
           \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
           \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
-          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Mark as unread\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)
         """
 
         print()
