@@ -4711,7 +4711,7 @@ enum TelemetrySettings {
 
 enum CmdClickMarkdownRouteSettings {
     static let key = "openMarkdownInCmuxViewer"
-    static let defaultValue = false
+    static let defaultValue = true
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)

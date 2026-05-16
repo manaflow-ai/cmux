@@ -1292,16 +1292,18 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
-            guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
+            let webCandidate = cmuxTrimTerminalPathTrailingPunctuation(trimmed)
+            let webURL = URL(string: webCandidate) ?? parsed
+            guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
                 #if DEBUG
-                cmuxDebugLog("link.resolve result=external(invalidHost) url=\(parsed)")
+                cmuxDebugLog("link.resolve result=external(invalidHost) url=\(webURL)")
                 #endif
-                return .external(parsed)
+                return .external(webURL)
             }
             #if DEBUG
-            cmuxDebugLog("link.resolve result=embeddedBrowser url=\(parsed)")
+            cmuxDebugLog("link.resolve result=embeddedBrowser url=\(webURL)")
             #endif
-            return .embeddedBrowser(parsed)
+            return .embeddedBrowser(webURL)
         }
         #if DEBUG
         cmuxDebugLog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
@@ -1309,7 +1311,8 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         return .external(parsed)
     }
 
-    if let webURL = resolveBrowserNavigableURL(trimmed) {
+    let webCandidate = cmuxTrimTerminalPathTrailingPunctuation(trimmed)
+    if let webURL = resolveBrowserNavigableURL(webCandidate) {
         guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
             #if DEBUG
             cmuxDebugLog("link.resolve result=external(bareHost-invalidHost) url=\(webURL)")
@@ -4049,13 +4052,15 @@ class GhosttyApp {
             if target.url.isFileURL,
                fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
                 let fileURL = target.url
+                let resolvedFilePath = cmuxResolveQuicklookPath(fileURL.path, cwd: nil) ?? fileURL.path
+                let resolvedFileURL = URL(fileURLWithPath: resolvedFilePath)
                 let routed: Bool = performOnMain {
                     // Remote-surface guard runs before shouldRoute so we never
                     // stat a local path on the main thread for a remote workspace.
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedFilePath) else {
                         return false
                     }
                     // Defer the split creation. Ghostty's Surface.openUrl holds
@@ -4090,26 +4095,26 @@ class GhosttyApp {
                         )?.workspace ?? workspace
                         // Re-apply the sync remote-surface gate; panel may have moved.
                         guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
-                            NSWorkspace.shared.open(fileURL)
+                            NSWorkspace.shared.open(resolvedFileURL)
                             return
                         }
                         // TOCTOU re-check: file may have been removed/renamed
                         // since the synchronous gate. Fall through if so.
-                        guard CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
-                            NSWorkspace.shared.open(fileURL)
+                        guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedFilePath) else {
+                            NSWorkspace.shared.open(resolvedFileURL)
                             return
                         }
                         if CommandClickFileOpenRouter.openInCmux(
                             workspace: resolvedWorkspace,
                             sourcePanelId: surfaceId,
-                            filePath: fileURL.path
+                            filePath: resolvedFilePath
                         ) {
                             return
                         }
                         // Split creation failed (source pane gone between
                         // commit and dispatch). Surface via system opener so
                         // the click is not silently lost.
-                        NSWorkspace.shared.open(fileURL)
+                        NSWorkspace.shared.open(resolvedFileURL)
                     }
                     return true
                 }
