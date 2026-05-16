@@ -97,11 +97,12 @@ else
 fi
 printf 'cmux_workspace_id_set: %s\n' "$([[ -n "${CMUX_WORKSPACE_ID:-}" ]] && printf yes || printf no)"
 printf 'cmux_surface_id_set: %s\n' "$([[ -n "${CMUX_SURFACE_ID:-}" ]] && printf yes || printf no)"
-socket_path="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-unset}}"
-if [[ "$socket_path" == "unset" ]]; then
-  printf 'cmux_socket_path: unset\n'
+if [[ "${CMUX_SOCKET_PATH+x}" == "x" ]]; then
+  printf 'cmux_socket_path: %s (from CMUX_SOCKET_PATH)\n' "$(safe_path "$CMUX_SOCKET_PATH")"
+elif [[ "${CMUX_SOCKET+x}" == "x" ]]; then
+  printf 'cmux_socket_path: %s (from CMUX_SOCKET)\n' "$(safe_path "$CMUX_SOCKET")"
 else
-  printf 'cmux_socket_path: %s\n' "$(safe_path "$socket_path")"
+  printf 'cmux_socket_path: unset\n'
 fi
 printf 'cmux_socket_password_set: %s\n' "$([[ -n "${CMUX_SOCKET_PASSWORD:-}" ]] && printf yes || printf no)"
 
