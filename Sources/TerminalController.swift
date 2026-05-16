@@ -4413,6 +4413,24 @@ class TerminalController {
         ]
     }
 
+    private func v2InvalidExplicitUUIDParamError(_ params: [String: Any], key: String) -> V2CallResult? {
+        guard v2HasNonNullParam(params, key), v2UUID(params, key) == nil else { return nil }
+        let message: String
+        switch key {
+        case "surface_id":
+            message = String(localized: "error.socket.invalidSurfaceId", defaultValue: "Invalid surface_id")
+        case "pane_id":
+            message = String(localized: "error.socket.invalidPaneId", defaultValue: "Invalid pane_id")
+        default:
+            message = String(localized: "error.socket.invalidIdentifier", defaultValue: "Invalid identifier")
+        }
+        return .err(
+            code: "invalid_params",
+            message: message,
+            data: [key: String(describing: params[key] ?? "")]
+        )
+    }
+
     private func v2BlockedEphemeralWorktreeError(
         for records: [EphemeralWorktreeRecord]
     ) -> V2CallResult? {
@@ -6277,6 +6295,10 @@ class TerminalController {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
+                if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                    result = invalidSurfaceId
+                    return
+                }
                 let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
                 let targetSurfaceId: UUID?
                 if let requestedSurfaceId {
@@ -6330,6 +6352,10 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                result = invalidSurfaceId
                 return
             }
             let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
@@ -6444,6 +6470,10 @@ class TerminalController {
                 v2MaybeFocusWindow(for: tabManager)
                 v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
+                if let invalidPaneId = v2InvalidExplicitUUIDParamError(params, key: "pane_id") {
+                    result = invalidPaneId
+                    return
+                }
                 let paneUUID = v2UUID(params, "pane_id")
                 let paneId: PaneID? = {
                     if let paneUUID {
@@ -6486,6 +6516,10 @@ class TerminalController {
                 return
             }
 
+            if let invalidPaneId = v2InvalidExplicitUUIDParamError(params, key: "pane_id") {
+                result = invalidPaneId
+                return
+            }
             let paneUUID = v2UUID(params, "pane_id")
             let paneId: PaneID? = {
                 if let paneUUID {
@@ -7855,7 +7889,11 @@ class TerminalController {
                 }
                 v2MaybeFocusWindow(for: tabManager)
                 v2MaybeSelectWorkspace(tabManager, workspace: ws)
-                let requestedPanelId = v2String(params, "surface_id").flatMap(UUID.init(uuidString:))
+                if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                    result = invalidSurfaceId
+                    return
+                }
+                let requestedPanelId = v2UUID(params, "surface_id")
                 guard let sourcePanelId = requestedPanelId ?? ws.focusedPanelId,
                       ws.panels[sourcePanelId] != nil else {
                     result = .err(code: "not_found", message: "No source surface to split", data: nil)
@@ -7897,7 +7935,11 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let requestedPanelId = v2String(params, "surface_id").flatMap(UUID.init(uuidString:))
+            if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                result = invalidSurfaceId
+                return
+            }
+            let requestedPanelId = v2UUID(params, "surface_id")
             guard let sourcePanelId = requestedPanelId ?? ws.focusedPanelId,
                   ws.panels[sourcePanelId] != nil else {
                 result = .err(code: "not_found", message: "No source surface to split", data: nil)

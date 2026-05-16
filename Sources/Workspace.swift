@@ -771,7 +771,9 @@ extension Workspace {
                 ?? snapshot.terminal?.agent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
-            let restoredEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
+            let restoredEphemeralWorktree = registeredRestoredEphemeralWorktree(
+                snapshot.terminal?.ephemeralWorktree
+            )
             let restoredWorkingDirectory = restoredEphemeralWorktree?.worktreePath ?? workingDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil
                 ? restoredWorkingDirectory
@@ -823,9 +825,6 @@ extension Workspace {
                 ephemeralWorktree: restoredEphemeralWorktree
             ) else {
                 return nil
-            }
-            if let restoredEphemeralWorktree {
-                try? EphemeralWorktreeRegistry.shared.register(restoredEphemeralWorktree)
             }
             let fallbackScrollback = shouldReplayScrollback
                 ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
@@ -895,6 +894,31 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
+        }
+    }
+
+    private func registeredRestoredEphemeralWorktree(
+        _ record: EphemeralWorktreeRecord?
+    ) -> EphemeralWorktreeRecord? {
+        guard let record else { return nil }
+        do {
+            try EphemeralWorktreeRegistry.shared.register(record)
+            return record
+        } catch {
+            NSLog(
+                "[cmux] Failed to register restored ephemeral worktree for session %@: %@",
+                String(record.sessionId.prefix(8)),
+                error.localizedDescription
+            )
+#if DEBUG
+            let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
+                ?? error.localizedDescription
+            cmuxDebugLog(
+                "worktree.restore.register.failed session=\(record.sessionId.prefix(8)) " +
+                "error=\(detail)"
+            )
+#endif
+            return nil
         }
     }
 
