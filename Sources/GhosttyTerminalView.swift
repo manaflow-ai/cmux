@@ -5670,13 +5670,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Force a full size recalculation and surface redraw.
     @MainActor
     func forceRefresh(reason: String = "unspecified") {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.forceRefresh(reason: reason)
-            }
-            return
-        }
-
 #if DEBUG
         let hasSurface = surface != nil
         let viewState: String
