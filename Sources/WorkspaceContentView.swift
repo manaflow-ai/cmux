@@ -1974,6 +1974,33 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     )
                     .frame(width: 1, height: 1)
                     .accessibilityHidden(true)
+
+                    CanvasDragEventMonitorLayer(
+                        onDragChanged: { itemID, translation in
+                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                                return
+                            }
+                            updateFreeformDrag(
+                                for: item,
+                                scale: scale,
+                                translation: translation
+                            )
+                        },
+                        onDragEnded: { itemID in
+                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                                return
+                            }
+                            endFreeformDrag(for: item)
+                        },
+                        onClick: { itemID in
+                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                                return
+                            }
+                            focusCanvasHeader(item: item, paneID: paneID(for: item))
+                        }
+                    )
+                    .frame(width: 1, height: 1)
+                    .accessibilityHidden(true)
                 }
                 .frame(width: contentBounds.size.width, height: contentBounds.size.height, alignment: .topLeading)
                 .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
@@ -2024,6 +2051,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .overlay(alignment: .topLeading) {
             canvasHeaderDragHitTarget(
                 item: item,
+                title: title,
                 tabs: tabs,
                 paneID: paneID,
                 dragScale: dragScale
@@ -2038,40 +2066,27 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     @ViewBuilder
     private func canvasHeaderDragHitTarget(
         item: CanvasItem,
+        title: String,
         tabs: [SurfaceTab],
         paneID: PaneID?,
         dragScale: CGFloat?
     ) -> some View {
-        if let dragScale, tabs.count <= 1 {
+        if dragScale != nil, tabs.count <= 1 {
             GeometryReader { proxy in
                 Rectangle()
                     .fill(Color.black.opacity(0.001))
                     .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                let translation = value.translation
-                                guard abs(translation.width) >= 1 || abs(translation.height) >= 1 else { return }
-                                updateFreeformDrag(
-                                    for: item,
-                                    scale: dragScale,
-                                    translation: translation
-                                )
-                            }
-                            .onEnded { value in
-                                let translation = value.translation
-                                if abs(translation.width) >= 1 || abs(translation.height) >= 1 {
-                                    endFreeformDrag(for: item)
-                                } else {
-                                    focusCanvasHeader(item: item, paneID: paneID)
-                                }
-                            }
-                    )
                     .frame(
                         width: max(1, proxy.size.width - (canvasResizeCornerHitSize * 2)),
                         height: max(1, 20 - canvasResizeEdgeHitSize)
                     )
                     .offset(x: min(canvasResizeCornerHitSize, max(0, proxy.size.width / 2)), y: canvasResizeEdgeHitSize)
+                    .overlay {
+                        CanvasDragRegistrationLayer(itemID: item.id)
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(title)
                     .accessibilityIdentifier("WorkspaceCanvasDragLayer.\(item.id.description)")
             }
         }
