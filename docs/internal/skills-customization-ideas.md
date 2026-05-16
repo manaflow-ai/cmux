@@ -16,7 +16,7 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 
 - `actions` in `cmux.json`: reusable action IDs for Command Palette, shortcuts, tab bar buttons, and plus-button menus.
 - `ui.newWorkspace.action`: replaces the plus-button click.
-- `ui.newWorkspace.contextMenu` or `rightClick`: controls the plus-button right-click menu.
+- `ui.newWorkspace.contextMenu`: controls the plus-button right-click menu. `ui.newWorkspace.rightClick` is accepted as an alias, but public examples should use `contextMenu`.
 - `ui.surfaceTabBar.buttons`: replaces the visible tab bar button list. Built-ins must be included explicitly if they should remain visible.
 - `commands`: reusable shell commands and workspace layouts for worktrees, multiple checkouts, local services, browser previews, and SSH setups.
 - `.cmux/dock.json` and `~/.config/cmux/dock.json`: right-sidebar Dock controls for TUIs, logs, tests, queues, dev servers, and `cmux feed tui --opentui`.
