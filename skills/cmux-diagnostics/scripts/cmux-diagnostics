@@ -52,11 +52,13 @@ run_status() {
 
 file_summary() {
   local path="$1"
-  if [[ -e "$path" ]]; then
+  if [[ -f "$path" ]]; then
     local bytes modified
     bytes="$(wc -c <"$path" 2>/dev/null | tr -d ' ' || true)"
     modified="$(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S %z' "$path" 2>/dev/null || stat -c '%y' "$path" 2>/dev/null || printf 'unknown')"
     printf 'present bytes=%s modified=%s\n' "${bytes:-unknown}" "$modified"
+  elif [[ -e "$path" ]]; then
+    printf 'non-regular\n'
   else
     printf 'missing\n'
   fi
@@ -65,12 +67,14 @@ file_summary() {
 marker_summary() {
   local path="$1"
   local marker="$2"
-  if [[ -e "$path" ]]; then
+  if [[ -f "$path" ]]; then
     if grep -Fq "$marker" "$path" 2>/dev/null; then
       printf 'marker-present\n'
     else
       printf 'marker-missing\n'
     fi
+  elif [[ -e "$path" ]]; then
+    printf 'non-regular\n'
   else
     printf 'missing\n'
   fi
