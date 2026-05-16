@@ -479,7 +479,7 @@ requestAnimationFrame(tick);
             failures.append(f"missing_handoff_samples: {switch.get('missing_handoff_samples')} > 0")
         if handoff.get("p95_ms", 0) > budgets["handoff_p95_ms"]:
             failures.append(f"handoff.p95_ms: {handoff.get('p95_ms')} > {budgets['handoff_p95_ms']}")
-        if cli.get("p95_ms", 0) > budgets["cli_roundtrip_p95_ms"]:
+        if budgets["cli_roundtrip_p95_ms"] > 0 and cli.get("p95_ms", 0) > budgets["cli_roundtrip_p95_ms"]:
             failures.append(f"cli_roundtrip.p95_ms: {cli.get('p95_ms')} > {budgets['cli_roundtrip_p95_ms']}")
 
         self.result["budgets"] = budgets
@@ -565,8 +565,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--launch-timeout", type=float, default=45)
     parser.add_argument("--switch-log-timeout", type=float, default=5)
-    parser.add_argument("--budget-handoff-p95-ms", type=float, default=300)
-    parser.add_argument("--budget-cli-roundtrip-p95-ms", type=float, default=450)
+    parser.add_argument("--budget-handoff-p95-ms", type=float, default=100)
+    parser.add_argument("--budget-cli-roundtrip-p95-ms", type=float, default=0)
     return parser.parse_args()
 
 

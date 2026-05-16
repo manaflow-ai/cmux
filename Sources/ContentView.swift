@@ -3643,6 +3643,9 @@ struct ContentView: View {
     }
 
     private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
+        if tabManager.isWorkspaceCycleHot {
+            return true
+        }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return true }
         if let focusedPanelId = workspace.focusedPanelId,
            workspace.browserPanel(for: focusedPanelId) != nil {
