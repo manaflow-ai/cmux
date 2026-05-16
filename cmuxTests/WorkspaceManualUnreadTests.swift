@@ -290,11 +290,38 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             return
         }
         let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let currentNotificationId = UUID()
+        let laterNotificationId = UUID()
+        let now = Date()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspace.id,
+                surfaceId: nil,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: true
+            ),
+            TerminalNotification(
+                id: laterNotificationId,
+                tabId: laterWorkspace.id,
+                surfaceId: nil,
+                title: "Later",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: true
+            ),
+        ])
         store.markUnread(forTabId: laterWorkspace.id)
 
         XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, laterNotificationId])
+        XCTAssertEqual(store.notifications.map(\.isRead), [true, true])
         XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
 
