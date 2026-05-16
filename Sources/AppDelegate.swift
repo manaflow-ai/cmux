@@ -6515,8 +6515,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             item.target = self
             item.representedObject = FocusHistoryContextMenuItemBox(tabManager: tabManager, item: itemSnapshot)
             item.isEnabled = itemSnapshot.isNavigable
-            item.state = itemSnapshot.position == .current ? .on : .off
-            item.image = focusHistoryContextMenuImage(for: itemSnapshot)
             menu.addItem(item)
         }
 
@@ -6529,7 +6527,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             item.target = self
             item.representedObject = FocusHistoryShowFullContextMenuBox(tabManager: tabManager, anchorView: anchorView)
-            item.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: nil)
             menu.addItem(item)
         }
 
@@ -6545,19 +6542,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspaceTitle
         }
         return "\(workspaceTitle) - \(panelTitle)"
-    }
-
-    private func focusHistoryContextMenuImage(for item: FocusHistoryMenuItem) -> NSImage? {
-        let symbolName: String
-        switch item.position {
-        case .older:
-            symbolName = "arrow.left"
-        case .current:
-            symbolName = "checkmark"
-        case .newer:
-            symbolName = "arrow.right"
-        }
-        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
     }
 
     @objc private func performFocusHistoryContextMenuItem(_ sender: NSMenuItem) {
