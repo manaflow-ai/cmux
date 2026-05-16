@@ -1273,44 +1273,21 @@ func browserIntentFallbackURL(for url: URL) -> URL? {
     return nil
 }
 
-private func browserExternalApplicationName(for url: URL) -> String {
-    switch url.scheme?.lowercased() {
-    case "discord":
-        return "Discord"
-    case "msteams":
-        return "Microsoft Teams"
-    case "slack":
-        return "Slack"
-    case "vscode":
-        return "Visual Studio Code"
-    case "zoommtg", "zoomus":
-        return "Zoom"
-    case let scheme? where !scheme.isEmpty:
-        return "\(scheme)://"
-    default:
-        return String(localized: "browser.externalOpenFailure.appName", defaultValue: "This app")
-    }
-}
-
 private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
 }
 
 private func browserPresentExternalNavigationFailure(for url: URL, in webView: WKWebView) {
-    let appName = browserExternalApplicationName(for: url)
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = String(
         localized: "browser.externalOpenFailure.title",
         defaultValue: "Cannot Open Link"
     )
-    alert.informativeText = String.localizedStringWithFormat(
-        String(
-            localized: "browser.externalOpenFailure.message",
-            defaultValue: "%@ might not be installed, or macOS could not open this link. Install the app, or copy the link and open it elsewhere."
-        ),
-        appName
+    alert.informativeText = String(
+        localized: "browser.externalOpenFailure.message",
+        defaultValue: "cmux could not open this link. You can copy it and open it in another app."
     )
     alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
     alert.addButton(withTitle: String(
@@ -1336,15 +1313,11 @@ func browserHandleExternalNavigation(
     _ url: URL,
     source: String,
     webView: WKWebView,
-    loadFallbackRequest: ((URLRequest) -> Void)? = nil
+    loadFallbackRequest: (URLRequest) -> Void
 ) -> Bool {
     if let fallbackURL = browserIntentFallbackURL(for: url) {
         let request = URLRequest(url: fallbackURL)
-        if let loadFallbackRequest {
-            loadFallbackRequest(request)
-        } else {
-            browserLoadRequest(request, in: webView)
-        }
+        loadFallbackRequest(request)
 #if DEBUG
         cmuxDebugLog(
             "browser.navigation.external source=\(source) opened=1 fallback=1 " +
@@ -7024,7 +6997,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                url,
                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
            ) {
-            browserHandleExternalNavigation(url, source: "navDelegate", webView: webView)
+            browserHandleExternalNavigation(
+                url,
+                source: "navDelegate",
+                webView: webView,
+                loadFallbackRequest: { [requestNavigation] request in
+                    requestNavigation?(request, .currentTab)
+                }
+            )
             decisionHandler(.cancel)
             return
         }
@@ -7209,7 +7189,14 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                url,
                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
            ) {
-            browserHandleExternalNavigation(url, source: "uiDelegate", webView: webView)
+            browserHandleExternalNavigation(
+                url,
+                source: "uiDelegate",
+                webView: webView,
+                loadFallbackRequest: { [requestNavigation] request in
+                    requestNavigation?(request, .currentTab)
+                }
+            )
             return nil
         }
 

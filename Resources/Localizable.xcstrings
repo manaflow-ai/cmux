@@ -11933,23 +11933,6 @@
         }
       }
     },
-    "browser.externalOpenFailure.appName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This app"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアプリ"
-          }
-        }
-      }
-    },
     "browser.externalOpenFailure.copyLink": {
       "extractionState": "manual",
       "localizations": {
@@ -11973,13 +11956,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ might not be installed, or macOS could not open this link. Install the app, or copy the link and open it elsewhere."
+            "value": "cmux could not open this link. You can copy it and open it in another app."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ がインストールされていないか、macOS がこのリンクを開けませんでした。アプリをインストールするか、リンクをコピーして別の場所で開いてください。"
+            "value": "cmux はこのリンクを開けませんでした。リンクをコピーして別のアプリで開けます。"
           }
         }
       }

@@ -353,6 +353,20 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
+        guard let url = request.url else { return }
+
+        if browserShouldBlockInsecureHTTPURL(url) {
+            presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
+                guard policy == .allow, let webView else { return }
+                browserLoadRequest(request, in: webView)
+            }
+            return
+        }
+
+        browserLoadRequest(request, in: webView)
+    }
+
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
@@ -428,7 +442,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
                url,
                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
            ) {
-            browserHandleExternalNavigation(url, source: "popupUIDelegate", webView: webView)
+            browserHandleExternalNavigation(
+                url,
+                source: "popupUIDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             return nil
         }
 
@@ -579,7 +600,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             url,
             targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
         ) {
-            browserHandleExternalNavigation(url, source: "popupNavDelegate", webView: webView)
+            browserHandleExternalNavigation(
+                url,
+                source: "popupNavDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             decisionHandler(.cancel)
             return
         }
