@@ -8,12 +8,15 @@ import XCTest
 #endif
 
 final class RovoDevHookConfigTests: XCTestCase {
-    func testGeminiFeedHookUsesCurrentBeforeToolEventName() throws {
+    func testGeminiFeedHookOwnershipCoversCurrentAndLegacyEventNames() throws {
         let def = try XCTUnwrap(CMUXCLI.agentDef(named: "gemini"))
+        let currentCommand = CMUXCLI.feedHookCommandString(for: def, agentEvent: "BeforeTool")
+        let legacyCommand = CMUXCLI.feedHookCommandString(for: def, agentEvent: "PreToolUse")
 
-        XCTAssertEqual(def.feedHookEvents, ["BeforeTool"])
-        XCTAssertTrue(CMUXCLI.feedHookCommandString(for: def, agentEvent: "BeforeTool").contains("--event BeforeTool"))
-        XCTAssertFalse(def.feedHookEvents.contains("PreToolUse"))
+        XCTAssertTrue(currentCommand.contains("--event BeforeTool"))
+        XCTAssertTrue(CMUXCLI.isCmuxOwnedHookCommand(currentCommand, for: def))
+        XCTAssertTrue(CMUXCLI.isCmuxOwnedHookCommand(legacyCommand, for: def))
+        XCTAssertFalse(CMUXCLI.isCmuxOwnedHookCommand(legacyCommand, for: def, includeLegacy: false))
     }
 
     func testInstallAddsRootBlockAndUninstallRestoresOriginalConfig() {
