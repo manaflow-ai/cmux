@@ -2129,7 +2129,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         @objc func show() {
             showCount += 1
-            guard !requiresAttachmentToShow || attached else { return }
+            guard !requiresAttachmentToShow ||
+                (attached && frontendWebView?.window != nil) else { return }
             visible = true
         }
 
@@ -2631,6 +2632,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             frame: NSRect(x: 180, y: 0, width: 180, height: host.bounds.height)
         )
         host.addSubview(inspectorView)
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
 

@@ -4928,8 +4928,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             seen: inout Set<ObjectIdentifier>
         ) {
             if let webView = root as? WKWebView {
+                guard !webView.cmuxBrowserPanelIsInspectorFrontend else { return }
                 let id = ObjectIdentifier(webView)
-                if !webView.cmuxBrowserPanelIsInspectorFrontend, seen.insert(id).inserted {
+                if seen.insert(id).inserted {
                     result.append(webView)
                 }
             }
@@ -6190,7 +6191,12 @@ struct WebViewRepresentable: NSViewRepresentable {
             return candidate === inspectorFrontend || inspectorFrontend.isDescendant(of: candidate)
         }
 
-        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
+        if let directChild = directTransferChild(of: sourceSuperview, containing: primaryWebView),
+           !containsInspectorFrontend(directChild) {
+            append(directChild)
+        } else {
+            append(primaryWebView)
+        }
 
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
