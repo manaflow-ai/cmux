@@ -1,8 +1,9 @@
 # cmux Customization Examples
 
 Use these examples as starting points. Merge only the relevant top-level keys
-into the user's existing `cmux.json`, preserve unrelated sections, then run
-`cmux reload-config` when available.
+into the target config file named above each code block. Unlabeled JSON examples
+target `cmux.json`. Preserve unrelated sections, then run `cmux reload-config`
+when available.
 
 Prefer project-local `.cmux/cmux.json` for team workflows and global
 `~/.config/cmux/cmux.json` for personal app preferences.
@@ -207,6 +208,63 @@ GitHub workflow.
 }
 ```
 
+## Docs Workspace
+
+Use this when a repo needs one command for docs authoring with a dev server,
+browser preview, and markdown viewer. Adjust the command, URL, and markdown path
+for the docs stack.
+
+```json
+{
+  "commands": [
+    {
+      "name": "Docs Workspace",
+      "keywords": ["docs", "documentation", "preview"],
+      "workspace": {
+        "name": "Docs",
+        "cwd": ".",
+        "layout": {
+          "direction": "horizontal",
+          "split": 0.45,
+          "children": [
+            {
+              "direction": "vertical",
+              "children": [
+                {
+                  "pane": {
+                    "surfaces": [
+                      { "type": "terminal", "name": "Docs Server", "command": "bun run docs:dev" }
+                    ]
+                  }
+                },
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Markdown",
+                        "command": "cmux markdown open docs/README.md --direction right --focus false; exec ${SHELL:-/bin/zsh} -l"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "browser", "name": "Docs Preview", "url": "http://localhost:3000/docs" }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+```
+
 ## Quick Agent Buttons
 
 Use this when the user wants tab bar buttons for common agents while keeping
@@ -247,6 +305,8 @@ the default new terminal and browser buttons.
 
 Use this when the user wants a repeatable place for GitHub Actions, CircleCI,
 or release-monitoring commands. Prefer Dock controls for long-running monitors.
+
+`.cmux/dock.json`:
 
 ```json
 {

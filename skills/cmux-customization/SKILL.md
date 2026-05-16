@@ -34,8 +34,8 @@ If a request can be handled by Ghostty config, say that and use Ghostty config i
 ## Examples Library
 
 For reusable patterns such as worktree agents, full-stack dev layouts, SSH
-devboxes, PR review workspaces, quick agent tab buttons, and CI watches, read
-`references/examples.md`. Load it when the user asks for examples, presets,
+devboxes, PR review workspaces, docs workspaces, quick agent tab buttons, and
+CI watches, read `references/examples.md`. Load it when the user asks for examples, presets,
 templates, starter configs, or a known workflow shape.
 
 ## Workflow
@@ -52,8 +52,8 @@ templates, starter configs, or a known workflow shape.
 
    ```bash
    stamp="$(date +%Y%m%d-%H%M%S)"
-   cp -p ~/.config/cmux/cmux.json ~/.config/cmux/cmux.json."$stamp".bak
-   cp -p .cmux/cmux.json .cmux/cmux.json."$stamp".bak
+   test -f ~/.config/cmux/cmux.json && cp -p ~/.config/cmux/cmux.json ~/.config/cmux/cmux.json."$stamp".bak
+   test -f .cmux/cmux.json && cp -p .cmux/cmux.json .cmux/cmux.json."$stamp".bak
    ```
 
    Use the applicable path only. Do not create a backup for a missing file.

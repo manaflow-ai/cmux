@@ -66,9 +66,9 @@ Keep the examples library focused on reusable end-user workflows:
 - CI watch: GitHub Actions, CircleCI, Feed TUI, and release monitors.
 - Quick agent buttons: Codex and Claude tab bar buttons with Command Palette entries.
 
-Promote an example into its own skill only after it has setup commands,
-validation, and safety rules that are too detailed for `cmux-customization`.
+Use the Promotion Rule when an example starts to exceed
+`cmux-customization`.
 
 ## Promotion Rule
 
-Create a new skill when the workflow has real commands, validation, and safety rules that an agent would otherwise rediscover. Keep an idea in docs when it is just product positioning or a list of possible settings. Do not publish private debug windows, release automation, production operations, or company-specific workflows as end-user cmux skills.
+Create a new skill when the workflow has setup commands, validation, and safety rules that an agent would otherwise rediscover. Keep an idea in docs when it is just product positioning, a list of possible settings, or a compact `cmux-customization` example. Do not publish private debug windows, release automation, production operations, or company-specific workflows as end-user cmux skills.
