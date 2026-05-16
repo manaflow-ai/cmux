@@ -114,6 +114,128 @@ private final class BrowserMarkedTextProbeTextView: NSTextView {
     }
 }
 
+final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
+    func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
+        XCTAssertTrue(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: true,
+                    omnibarResponderActive: false,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: false,
+                    pointerInitiatedWebFocus: false,
+                    liveOmnibarFieldExists: true
+                )
+            )
+        )
+    }
+
+    func testPointerWebViewFocusCanClearTrackedAddressBar() {
+        XCTAssertFalse(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: true,
+                    omnibarResponderActive: false,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: true,
+                    pointerInitiatedWebFocus: true,
+                    liveOmnibarFieldExists: true
+                )
+            )
+        )
+    }
+
+    func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
+        XCTAssertFalse(
+            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+                BrowserAddressBarTrackingContext(
+                    trackedPanelMatchesWebView: false,
+                    omnibarResponderActive: true,
+                    preferredFocusIntentIsAddressBar: true,
+                    suppressesWebViewFocus: true,
+                    pointerInitiatedWebFocus: false,
+                    liveOmnibarFieldExists: true
+                )
+            )
+        )
+    }
+}
+
+final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
+    @MainActor
+    func testSpecificWindowLookupDoesNotReturnFieldFromAnotherWindow() {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 20, y: 20, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
+        let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
+        firstWindow.contentView = firstContainer
+        secondWindow.contentView = secondContainer
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        field.panelId = panelId
+        firstContainer.addSubview(field)
+        registry.register(field, panelId: panelId)
+
+        defer {
+            registry.unregister(field, panelId: panelId)
+            field.removeFromSuperview()
+            firstWindow.contentView = nil
+            secondWindow.contentView = nil
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        XCTAssertTrue(registry.field(for: panelId, in: firstWindow) === field)
+        XCTAssertNil(registry.field(for: panelId, in: secondWindow))
+    }
+
+    @MainActor
+    func testNilWindowLookupPrefersAttachedFieldBeforeDetachedField() {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let attachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        attachedField.panelId = panelId
+        container.addSubview(attachedField)
+
+        let detachedField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        detachedField.panelId = panelId
+
+        registry.register(attachedField, panelId: panelId)
+        registry.register(detachedField, panelId: panelId)
+
+        defer {
+            registry.unregister(attachedField, panelId: panelId)
+            registry.unregister(detachedField, panelId: panelId)
+            attachedField.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(registry.field(for: panelId) === attachedField)
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
@@ -164,6 +286,8 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
     private final class FieldEditorProbeTextView: NSTextView {
         private(set) var delegateReadCount = 0
+        private(set) var keyDownKeyCodes: [UInt16] = []
+        var reportsMarkedText = false
 
         override var delegate: NSTextViewDelegate? {
             get {
@@ -178,6 +302,26 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         override var isFieldEditor: Bool {
             get { true }
             set {}
+        }
+
+        override func keyDown(with event: NSEvent) {
+            keyDownKeyCodes.append(event.keyCode)
+        }
+
+        override func hasMarkedText() -> Bool {
+            reportsMarkedText
+        }
+
+        func resetKeyDownKeyCodes() {
+            keyDownKeyCodes.removeAll()
+        }
+    }
+
+    private final class FieldEditorProbeWindow: NSWindow {
+        let testFieldEditor = FieldEditorProbeTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            testFieldEditor
         }
     }
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
@@ -782,6 +926,190 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             0,
             "Field-editor webview ownership should come from tracked associations, not NSTextView.delegate"
         )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingRoutesFocusedOmnibarFieldEditorThroughKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+        XCTAssertEqual(
+            window.testFieldEditor.keyDownKeyCodes,
+            [123],
+            "A live omnibar field editor must receive plain arrows through keyDown so NSTextView can move the caret"
+        )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            webView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: leftArrowEvent))
+        XCTAssertEqual(
+            window.testFieldEditor.keyDownKeyCodes,
+            [123],
+            "When the omnibar is still logically focused, transient WebView first-responder state must not steal plain arrows from the omnibar field editor"
+        )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "abcdef"
+        container.addSubview(field)
+
+        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        webView.allowsFirstResponderAcquisition = true
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            webView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+        window.testFieldEditor.reportsMarkedText = true
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+
+        guard let leftArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 123,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Left Arrow event")
+            return
+        }
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: leftArrowEvent),
+            "After restoring the omnibar, the arrow must be delivered once instead of returning unhandled after mutating first responder"
+        )
+        XCTAssertEqual(window.testFieldEditor.keyDownKeyCodes, [123])
     }
 
     @MainActor
@@ -2544,6 +2872,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2586,6 +2915,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2647,6 +2977,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -2730,6 +3061,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -2817,7 +3149,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 }
 
 
-final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForArrowNavigation(
@@ -2870,35 +3202,33 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
+    func testControlNavigationDeltaRequiresFocusedAddressBarAndControlOnly() {
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: false,
+                flags: [.control],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
+                hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "n"
             )
         )
 
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
-                hasFocusedAddressBar: true,
-                flags: [.command],
-                chars: "n"
-            ),
-            1
-        )
-
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "p"
-            ),
-            -1
+            )
         )
 
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .shift],
                 chars: "n"
@@ -2906,7 +3236,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "p"
@@ -2915,7 +3245,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "n"
@@ -2924,23 +3254,31 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+    func testControlNavigationDeltaIgnoresCapsLockModifier() {
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control, .capsLock],
                 chars: "n"
             ),
             1
         )
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
-            ),
-            -1
+            )
         )
+    }
+
+    func testControlNavigationRepeatLifecycleRequiresControlOnly() {
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .command]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .option]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .shift]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: []))
     }
 
     func testSubmitOnReturnIgnoresCapsLockModifier() {

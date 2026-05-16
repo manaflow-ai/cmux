@@ -4744,9 +4744,17 @@ enum CmdClickSupportedFileRouteSettings {
         return defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
     }
 
-    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
         defaults.set(enabled, forKey: key)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        notifyDidChange(notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
     static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
