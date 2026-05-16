@@ -423,4 +423,146 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(event["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(event["session_id"] as? String, "grok-grok-session-123")
     }
+
+    func testGrokNotificationFeedHookPreservesTopLevelDetails() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-notif")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "feed.push" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected_method", "message": method])
+            }
+            return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "grok", "--event", "Notification"],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"sessionId":"grok-session-123","hookEventName":"Notification","cwd":"/tmp/grok repo","workspaceRoot":"/tmp/grok repo","message":"turn complete in 4.9s","timestamp":"2026-05-16T00:00:00Z","durationMs":4900}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let request = try XCTUnwrap(state.commands.compactMap { self.jsonObject($0) }.first)
+        let params = try XCTUnwrap(request["params"] as? [String: Any])
+        let event = try XCTUnwrap(params["event"] as? [String: Any])
+        let toolInput = try XCTUnwrap(event["tool_input"] as? [String: Any])
+        XCTAssertEqual(event["hook_event_name"] as? String, "Notification")
+        XCTAssertEqual(toolInput["message"] as? String, "turn complete in 4.9s")
+        XCTAssertEqual(toolInput["cwd"] as? String, "/tmp/grok repo")
+        XCTAssertEqual(toolInput["session_id"] as? String, "grok-session-123")
+        XCTAssertEqual(toolInput["timestamp"] as? String, "2026-05-16T00:00:00Z")
+        XCTAssertEqual((toolInput["durationMs"] as? NSNumber)?.intValue, 4900)
+    }
+
+    func testGrokStopNotificationUsesPersistedAssistantMessage() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-stop")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-stop-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("Grok Repo", isDirectory: true)
+        let sessionId = "019e2e29-b6f7-7622-84c5-162256d7fa20"
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let sessionDirectory = root
+            .appendingPathComponent(".grok/sessions", isDirectory: true)
+            .appendingPathComponent(Self.grokEncodedSessionCWDForTest(workspace.path), isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try #"{"session_summary":"Fix Grok hook notifications"}"#
+            .write(to: sessionDirectory.appendingPathComponent("summary.json"), atomically: true, encoding: .utf8)
+        try """
+        {"type":"user","content":"make the notification useful"}
+        {"type":"assistant","content":"Inspected the hook payload and preserved the Grok completion details."}
+        """
+        .write(to: sessionDirectory.appendingPathComponent("chat_history.jsonl"), atomically: true, encoding: .utf8)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected_method", "message": method])
+            }
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "stop"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"sessionId":"\#(sessionId)","hookEventName":"Stop","cwd":"\#(workspace.path)","message":"turn complete in 4.9s"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+
+        let notificationCommand = try XCTUnwrap(
+            state.commands.first { $0.contains("notify_target_async \(workspaceId) \(surfaceId)") }
+        )
+        XCTAssertTrue(notificationCommand.contains("Inspected the hook payload"), notificationCommand)
+        XCTAssertTrue(notificationCommand.contains("Completed in Grok Repo"), notificationCommand)
+        XCTAssertFalse(notificationCommand.contains("turn complete in 4.9s"), notificationCommand)
+    }
+
+    private static func grokEncodedSessionCWDForTest(_ cwd: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
+    }
 }

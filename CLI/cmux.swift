@@ -17716,6 +17716,209 @@ struct CMUXCLI {
         return nil
     }
 
+    private struct AgentHookCompletionSummary {
+        let subtitle: String
+        let body: String
+    }
+
+    private func summarizeAgentHookCompletion(
+        def: AgentHookDef,
+        parsedInput: ClaudeHookParsedInput,
+        sessionRecord: ClaudeHookSessionRecord?,
+        env: [String: String]
+    ) -> AgentHookCompletionSummary? {
+        switch def.name {
+        case "grok":
+            return summarizeGrokHookCompletion(
+                parsedInput: parsedInput,
+                sessionRecord: sessionRecord,
+                env: env
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func summarizeGrokHookCompletion(
+        parsedInput: ClaudeHookParsedInput,
+        sessionRecord: ClaudeHookSessionRecord?,
+        env: [String: String]
+    ) -> AgentHookCompletionSummary? {
+        let cwd = parsedInput.cwd ?? sessionRecord?.cwd
+        let projectName = projectName(fromCWD: cwd)
+        let subtitle = completedSubtitle(projectName: projectName)
+        let sessionId = parsedInput.sessionId ?? sessionRecord?.sessionId
+        let sessionSummary = sessionId.flatMap {
+            readGrokSessionSummary(sessionId: $0, cwd: cwd, env: env)
+        }
+
+        let hookAssistant = claudeAssistantMessageFromHookPayload(parsedInput.object)
+        let genericMessage = grokHookMessage(from: parsedInput.object)
+        let body = hookAssistant
+            ?? sessionSummary?.lastAssistantMessage
+            ?? sessionSummary?.title
+            ?? genericMessage
+
+        guard let body, !body.isEmpty else { return nil }
+        return AgentHookCompletionSummary(
+            subtitle: subtitle,
+            body: truncate(normalizedSingleLine(body), maxLength: 240)
+        )
+    }
+
+    private struct GrokSessionSummary {
+        let title: String?
+        let lastAssistantMessage: String?
+    }
+
+    private func readGrokSessionSummary(
+        sessionId: String,
+        cwd: String?,
+        env: [String: String]
+    ) -> GrokSessionSummary? {
+        guard let sessionDirectory = grokSessionDirectory(sessionId: sessionId, cwd: cwd, env: env) else {
+            return nil
+        }
+
+        let title = grokSessionTitle(
+            at: sessionDirectory.appendingPathComponent("summary.json", isDirectory: false)
+        )
+        let assistantMessage = grokLastAssistantMessage(
+            at: sessionDirectory.appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        )
+
+        guard title != nil || assistantMessage != nil else { return nil }
+        return GrokSessionSummary(title: title, lastAssistantMessage: assistantMessage)
+    }
+
+    private func grokSessionDirectory(
+        sessionId: String,
+        cwd: String?,
+        env: [String: String]
+    ) -> URL? {
+        let trimmedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSessionId.isEmpty,
+              !trimmedSessionId.contains("/"),
+              !trimmedSessionId.contains("\0"),
+              !trimmedSessionId.contains("..")
+        else { return nil }
+
+        let sessionsRoot = grokHomeURL(env: env).appendingPathComponent("sessions", isDirectory: true)
+        if let cwd, !cwd.isEmpty {
+            let expandedCWD = NSString(string: cwd).expandingTildeInPath
+            let encodedCWD = grokEncodedSessionCWD(expandedCWD)
+            let candidate = sessionsRoot
+                .appendingPathComponent(encodedCWD, isDirectory: true)
+                .appendingPathComponent(trimmedSessionId, isDirectory: true)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+
+        guard let projects = try? FileManager.default.contentsOfDirectory(
+            at: sessionsRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        for project in projects {
+            guard (try? project.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                continue
+            }
+            let candidate = project.appendingPathComponent(trimmedSessionId, isDirectory: true)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func grokHomeURL(env: [String: String]) -> URL {
+        if let grokHome = normalizedHookValue(env["GROK_HOME"]) {
+            return URL(fileURLWithPath: NSString(string: grokHome).expandingTildeInPath, isDirectory: true)
+        }
+        if let home = normalizedHookValue(env["HOME"]) {
+            return URL(fileURLWithPath: NSString(string: home).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent(".grok", isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".grok", isDirectory: true)
+    }
+
+    private func grokEncodedSessionCWD(_ cwd: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
+    }
+
+    private func grokSessionTitle(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return firstString(in: object, keys: ["session_summary", "generated_title"])
+    }
+
+    private func grokLastAssistantMessage(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let content = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        var lastAssistantMessage: String?
+        for line in content.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let lineData = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  object["type"] as? String == "assistant",
+                  let text = grokAssistantText(from: object)
+            else { continue }
+            lastAssistantMessage = text
+        }
+        return lastAssistantMessage
+    }
+
+    private func grokAssistantText(from object: [String: Any]) -> String? {
+        if let text = object["content"] as? String {
+            let normalized = normalizedSingleLine(text)
+            return normalized.isEmpty ? nil : normalized
+        }
+        if let blocks = object["content"] as? [[String: Any]] {
+            let text = blocks.compactMap { block -> String? in
+                guard (block["type"] as? String) == "text",
+                      let text = block["text"] as? String else { return nil }
+                let normalized = normalizedSingleLine(text)
+                return normalized.isEmpty ? nil : normalized
+            }
+            .joined(separator: " ")
+            return text.isEmpty ? nil : text
+        }
+        return nil
+    }
+
+    private func grokHookMessage(from object: [String: Any]?) -> String? {
+        guard let object else { return nil }
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        return firstString(in: object, keys: ["message", "body", "text", "summary", "description"])
+            ?? firstString(in: nested, keys: ["message", "body", "text", "summary", "description"])
+    }
+
+    private func completedSubtitle(projectName: String?) -> String {
+        guard let projectName, !projectName.isEmpty else {
+            return String(localized: "agent.codex.completion.subtitle.completed", defaultValue: "Completed")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "agent.codex.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+            projectName
+        )
+    }
+
+    private func projectName(fromCWD cwd: String?) -> String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        let path = NSString(string: cwd).expandingTildeInPath
+        let tail = URL(fileURLWithPath: path).lastPathComponent
+        return tail.isEmpty ? path : tail
+    }
+
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
         sessionRecord: ClaudeHookSessionRecord?
@@ -17723,12 +17926,7 @@ struct CMUXCLI {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let transcriptPath = parsedInput.transcriptPath
 
-        let projectName: String? = {
-            guard let cwd = cwd, !cwd.isEmpty else { return nil }
-            let path = NSString(string: cwd).expandingTildeInPath
-            let tail = URL(fileURLWithPath: path).lastPathComponent
-            return tail.isEmpty ? path : tail
-        }()
+        let projectName = projectName(fromCWD: cwd)
         let completedSubtitle: String = {
             guard let projectName, !projectName.isEmpty else {
                 return String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed")
@@ -20924,6 +21122,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     codexFailure = nil
                 }
 
+                let completionSummary = codexFailure == nil
+                    ? summarizeAgentHookCompletion(
+                        def: def,
+                        parsedInput: input,
+                        sessionRecord: mapped,
+                        env: env
+                    )
+                    : nil
                 let lastMsg = input.object?["last_assistant_message"] as? String
                     ?? input.object?["lastAssistantMessage"] as? String
                 let cwd = hookCwd ?? mapped?.cwd
@@ -20931,11 +21137,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
                 }()
-                var subtitle = codexFailure?.subtitle ?? String(
+                var subtitle = codexFailure?.subtitle
+                    ?? completionSummary?.subtitle
+                    ?? String(
                     localized: "agent.codex.completion.subtitle.completed",
                     defaultValue: "Completed"
                 )
-                if codexFailure == nil, let projectName, !projectName.isEmpty {
+                if codexFailure == nil,
+                   completionSummary == nil,
+                   let projectName, !projectName.isEmpty {
                     subtitle = String.localizedStringWithFormat(
                         String(
                             localized: "agent.codex.completion.subtitle.completedInProject",
@@ -20945,6 +21155,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
                 let body = codexFailure?.body
+                    ?? completionSummary?.body
                     ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                     ?? String.localizedStringWithFormat(
                         String(
@@ -21048,7 +21259,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
-        if let toolInput = parsedInput.object?["tool_input"] ?? parsedInput.object?["toolInput"] {
+        if let toolInput = Self.feedToolInput(
+            from: parsedInput.object,
+            hookEventName: hookEventName,
+            source: source
+        ) {
             event["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -21181,6 +21396,75 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return direct
         }
         return nil
+    }
+
+    private static func feedToolInput(
+        from object: [String: Any]?,
+        hookEventName: String,
+        source: String
+    ) -> Any? {
+        guard let object else { return nil }
+        if let toolInput = object["tool_input"] ?? object["toolInput"] {
+            return toolInput
+        }
+        guard hookEventName == "Notification" else { return nil }
+
+        var detail: [String: Any] = [:]
+        let copyString: (String, [String], [String: Any]) -> Void = { outputKey, inputKeys, sourceObject in
+            guard detail[outputKey] == nil,
+                  let value = Self.firstNonEmptyString(in: sourceObject, keys: inputKeys)
+            else { return }
+            detail[outputKey] = value
+        }
+
+        let stringFields: [(String, [String])] = [
+            ("title", ["title", "subject"]),
+            ("message", ["message", "body", "text", "prompt", "summary", "description"]),
+            ("reason", ["reason", "status", "kind", "type", "notification_type"]),
+            ("session_id", ["session_id", "sessionId"]),
+            ("cwd", ["cwd", "workspaceRoot", "workspace_root", "working_directory", "workingDirectory"]),
+            ("timestamp", ["timestamp", "created_at", "createdAt"]),
+            ("transcript_path", ["transcript_path", "transcriptPath"]),
+        ]
+        for (outputKey, inputKeys) in stringFields {
+            copyString(outputKey, inputKeys, object)
+        }
+        for nestedKey in ["notification", "data"] {
+            guard let nested = object[nestedKey] as? [String: Any] else { continue }
+            for (outputKey, inputKeys) in stringFields {
+                copyString(outputKey, inputKeys, nested)
+            }
+        }
+
+        for key in ["durationMs", "duration_ms", "durationSeconds", "duration_seconds", "elapsedMs", "elapsed_ms"] {
+            guard detail[key] == nil,
+                  let value = object[key],
+                  Self.isJSONObjectScalar(value)
+            else { continue }
+            detail[key] = value
+        }
+
+        if source == "grok", detail.isEmpty {
+            for (key, value) in object where Self.isJSONObjectScalar(value) {
+                detail[key] = value
+            }
+        }
+        return detail.isEmpty ? nil : detail
+    }
+
+    private static func firstNonEmptyString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let string = object[key] as? String else { continue }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func isJSONObjectScalar(_ value: Any) -> Bool {
+        value is String || value is NSNumber || value is NSNull
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -22954,7 +23238,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] {
+        if let toolInput = Self.feedToolInput(
+            from: stdinObj,
+            hookEventName: hookEventName,
+            source: source
+        ) {
             eventDict["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
