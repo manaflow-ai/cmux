@@ -21007,7 +21007,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
-                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
                 let ownerPID = codexMonitorOwnerPID(client: client)
                 if ownerPID == nil {
                     telemetry.breadcrumb(
@@ -21018,6 +21017,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             "has_surface_id": normalizedHookValue(surfaceId) != nil,
                         ]
                     )
+                    retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
                 }
                 if let ownerPID = ownerPID {
                     let leasePath = createCodexMonitorLease(
@@ -21035,6 +21035,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                 "has_owner_pid": true,
                             ]
                         )
+                        retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+                    } else {
+                        retireCodexMonitorLeases(
+                            sessionId: sessionId,
+                            turnId: nil,
+                            preservingLeasePath: leasePath,
+                            env: env
+                        )
                     }
                     startCodexTranscriptMonitor(
                         sessionId: sessionId,
@@ -21047,13 +21055,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         leasePath: leasePath,
                         env: env,
                         telemetry: telemetry
-                    )
-                } else {
-                    retireCodexMonitorLeases(
-                        sessionId: sessionId,
-                        turnId: nil,
-                        preservingLeasePath: leasePath,
-                        env: env
                     )
                 }
             }
