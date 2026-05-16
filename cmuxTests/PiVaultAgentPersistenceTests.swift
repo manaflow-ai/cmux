@@ -433,7 +433,8 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
                         ),
                         registration: CmuxVaultAgentRegistration.builtInPi
                     ),
-                    tmuxStartCommand: nil
+                    tmuxStartCommand: nil,
+                    ephemeralWorktree: nil
                 ),
                 browser: nil,
                 markdown: nil,

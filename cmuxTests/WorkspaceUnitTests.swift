@@ -2483,6 +2483,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isPinned: false,
             directory: directory,
             ttyName: nil,
+            ephemeralWorktree: nil,
             cachedTitle: nil,
             customTitle: nil,
             manuallyUnread: false,
@@ -2515,7 +2516,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            initialEphemeralWorktree: EphemeralWorktreeRecord?
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
@@ -2525,7 +2527,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialEphemeralWorktree: initialEphemeralWorktree
             )
         }
     }
@@ -2814,7 +2817,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            initialEphemeralWorktree: EphemeralWorktreeRecord?
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -2824,7 +2828,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialEphemeralWorktree: initialEphemeralWorktree
             )
         }
     }

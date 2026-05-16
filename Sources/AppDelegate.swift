@@ -678,6 +678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
+    private var didScheduleEphemeralWorktreeStartupReconciliation = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -2808,6 +2809,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+        scheduleEphemeralWorktreeStartupReconciliation(reason: "sessionRestoreComplete")
+    }
+
+    private func scheduleEphemeralWorktreeStartupReconciliation(reason: String) {
+        guard !didScheduleEphemeralWorktreeStartupReconciliation else { return }
+        didScheduleEphemeralWorktreeStartupReconciliation = true
+        let activeSessionIds = mainWindowContexts.values.reduce(into: Set<String>()) { result, context in
+            result.formUnion(context.tabManager.activeEphemeralWorktreeSessionIds())
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "worktree.reconcile.startup reason=\(reason) active=\(activeSessionIds.count)"
+        )
+#endif
+        EphemeralWorktreeRegistry.shared.reconcileOrphansInBackground(activeSessionIds: activeSessionIds)
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
@@ -3939,6 +3955,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if !isTerminatingApp {
             _ = saveSessionSnapshot(includeScrollback: false)
+        }
+        if !isApplyingSessionRestore {
+            scheduleEphemeralWorktreeStartupReconciliation(reason: "mainWindowRegistered")
         }
     }
 

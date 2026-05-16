@@ -179,6 +179,9 @@ extension Workspace {
             panel?.close()
         }
 
+        let ephemeralWorktree = ephemeralWorktreesByPanelId.removeValue(forKey: panelId)
+        let shouldTreatEphemeralCloseAsConfirmed = confirmedEphemeralWorktreeClosePanelIds.remove(panelId) != nil
+
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
@@ -219,6 +222,12 @@ extension Workspace {
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+        }
+        if closePanel, let ephemeralWorktree {
+            EphemeralWorktreeRegistry.shared.cleanupInBackground(
+                ephemeralWorktree,
+                userConfirmed: shouldTreatEphemeralCloseAsConfirmed
+            )
         }
         return transferredRemoteCleanupConfiguration
     }

@@ -2047,7 +2047,8 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String]
+        initialTerminalEnvironment: [String: String],
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> Workspace {
         Workspace(
             title: title,
@@ -2056,7 +2057,8 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialEphemeralWorktree: initialEphemeralWorktree
         )
     }
 
@@ -2089,6 +2091,23 @@ class TabManager: ObservableObject {
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
+
+    func resolvedWorkingDirectoryForNewWorkspace(
+        override overrideWorkingDirectory: String?,
+        inheritWorkingDirectory: Bool = true
+    ) -> String? {
+        if let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) {
+            return explicitWorkingDirectory
+        }
+        guard inheritWorkingDirectory else { return nil }
+        return implicitWorkingDirectoryForNewWorkspace(from: selectedWorkspace)
+    }
+
+    func activeEphemeralWorktreeSessionIds() -> Set<String> {
+        tabs.reduce(into: Set<String>()) { result, workspace in
+            result.formUnion(workspace.activeEphemeralWorktreeSessionIds())
+        }
+    }
 
 #if DEBUG
     func maybeMutateSelectionDuringWorkspaceCreationForDev(
@@ -2126,7 +2145,8 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -2172,7 +2192,8 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialEphemeralWorktree: initialEphemeralWorktree
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
@@ -4311,7 +4332,14 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
+        let dirtyBlockPanelIds = dirtyBlockEphemeralWorktreePanelIds(
+            in: plan.workspace,
+            panelIds: plan.panelIds
+        )
+        if !dirtyBlockPanelIds.isEmpty {
+            guard confirmEphemeralWorktreeClose() else { return }
+            plan.workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(dirtyBlockPanelIds)
+        } else if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -4620,7 +4648,13 @@ class TabManager: ObservableObject {
     ) {
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
-        if requiresConfirmation,
+        let dirtyBlockPanelIds = dirtyBlockEphemeralWorktreePanelIds(in: workspace)
+        if !dirtyBlockPanelIds.isEmpty {
+            if requiresConfirmation {
+                guard confirmEphemeralWorktreeClose() else { return }
+            }
+            workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(dirtyBlockPanelIds)
+        } else if requiresConfirmation,
            shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
@@ -4639,6 +4673,36 @@ class TabManager: ObservableObject {
         } else {
             closeWorkspace(workspace)
         }
+    }
+
+    private func dirtyBlockEphemeralWorktreePanelIds(
+        in workspace: Workspace,
+        panelIds candidatePanelIds: [UUID]? = nil
+    ) -> [UUID] {
+        let candidatePanelIdSet = candidatePanelIds.map { Set($0) }
+        return workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
+            if let candidatePanelIdSet, !candidatePanelIdSet.contains(panelId) { return nil }
+            guard record.cleanupPolicy == .block else { return nil }
+            do {
+                return try EphemeralWorktreeRegistry.shared.hasUncommittedChanges(record) ? panelId : nil
+            } catch {
+                return panelId
+            }
+        }
+    }
+
+    private func confirmEphemeralWorktreeClose() -> Bool {
+        confirmClose(
+            title: String(
+                localized: "dialog.ephemeralWorktree.close.title",
+                defaultValue: "Close isolated worktree session?"
+            ),
+            message: String(
+                localized: "dialog.ephemeralWorktree.close.message",
+                defaultValue: "This session has uncommitted changes. cmux will snapshot them before removing the worktree."
+            ),
+            acceptCmdD: false
+        )
     }
 
     private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
@@ -5661,7 +5725,8 @@ class TabManager: ObservableObject {
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -5672,7 +5737,8 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
-            initialDividerPosition: initialDividerPosition
+            initialDividerPosition: initialDividerPosition,
+            ephemeralWorktree: ephemeralWorktree
         )?.id
     }
 

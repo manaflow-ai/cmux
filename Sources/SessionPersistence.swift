@@ -226,6 +226,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var ephemeralWorktree: EphemeralWorktreeRecord?
 }
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
