@@ -4567,11 +4567,11 @@ extension BrowserPanel {
     }
 
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
-        if !detachedDeveloperToolsWindows().isEmpty {
-            setPreferredDeveloperToolsPresentation(.detached)
-        } else if hasAttachedDeveloperToolsLayout() {
+        if hasAttachedDeveloperToolsLayout() {
             setPreferredDeveloperToolsPresentation(.attached)
             developerToolsDetachedOpenGraceDeadline = nil
+        } else if !detachedDeveloperToolsWindows().isEmpty {
+            setPreferredDeveloperToolsPresentation(.detached)
         }
     }
 
@@ -4627,6 +4627,20 @@ extension BrowserPanel {
         source: String
     ) -> Bool {
         guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
+        if shouldTreatDetachedInspectorWillCloseAsDockBack(source: source) {
+            setPreferredDeveloperToolsPresentation(.attached)
+            setPreferredDeveloperToolsVisible(true)
+            developerToolsDetachedOpenGraceDeadline = nil
+            developerToolsLastKnownVisibleAt = Date()
+            cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools detachedClose.dockBack panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+            )
+#endif
+            return true
+        }
         let closed = closeDeveloperToolsForTeardown()
 #if DEBUG
         cmuxDebugLog(
@@ -4635,6 +4649,12 @@ extension BrowserPanel {
         )
 #endif
         return true
+    }
+
+    private func shouldTreatDetachedInspectorWillCloseAsDockBack(source: String) -> Bool {
+        guard source == "willClose" else { return false }
+        guard webView.window != nil else { return false }
+        return hasAttachedDeveloperToolsLayout()
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {

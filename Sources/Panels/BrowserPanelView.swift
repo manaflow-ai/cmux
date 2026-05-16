@@ -48,10 +48,23 @@ private extension WKWebView {
         cmuxBrowserPanelNeedsRenderingStateReattach
     }
 
+    var cmuxBrowserPanelIsInspectorFrontend: Bool {
+        String(describing: type(of: self)).contains("WKInspector")
+    }
+
     private func cmuxBrowserPanelApplyRenderingStateRefresh(
         reason: String,
         force: Bool
     ) {
+        guard !cmuxBrowserPanelIsInspectorFrontend else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.localHost.webview.skipInspectorLifecycle " +
+                "web=\(browserPanelViewObjectID(self)) reason=\(reason)"
+            )
+#endif
+            return
+        }
         guard force || cmuxBrowserPanelNeedsRenderingStateReattach else { return }
         guard window != nil else { return }
         cmuxBrowserPanelNeedsRenderingStateReattach = false
@@ -89,6 +102,15 @@ private extension WKWebView {
     }
 
     func cmuxBrowserPanelNotifyHidden(reason: String) {
+        guard !cmuxBrowserPanelIsInspectorFrontend else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.localHost.webview.skipInspectorHidden " +
+                "web=\(browserPanelViewObjectID(self)) reason=\(reason)"
+            )
+#endif
+            return
+        }
         cmuxBrowserPanelNeedsRenderingStateReattach = true
         let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
             browserPanelCallVoidIfAvailable($0)
@@ -4907,7 +4929,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         ) {
             if let webView = root as? WKWebView {
                 let id = ObjectIdentifier(webView)
-                if seen.insert(id).inserted {
+                if !webView.cmuxBrowserPanelIsInspectorFrontend, seen.insert(id).inserted {
                     result.append(webView)
                 }
             }
@@ -4922,13 +4944,13 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             func append(_ webView: WKWebView?) {
                 guard let webView else { return }
+                guard !webView.cmuxBrowserPanelIsInspectorFrontend else { return }
                 let id = ObjectIdentifier(webView)
                 guard seen.insert(id).inserted else { return }
                 result.append(webView)
             }
 
             append(hostedWebView)
-            append(hostedInspectorFrontendWebView)
             appendHostedWebKitSubviews(in: self, to: &result, seen: &seen)
             return result
         }
@@ -6154,6 +6176,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     ) -> [NSView] {
         var relatedSubviews: [NSView] = []
         var seen = Set<ObjectIdentifier>()
+        let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView()
 
         func append(_ candidate: NSView?) {
             guard let candidate, candidate !== sourceSuperview else { return }
@@ -6162,16 +6185,26 @@ struct WebViewRepresentable: NSViewRepresentable {
             relatedSubviews.append(candidate)
         }
 
-        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
-
-        if let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView() {
-            append(directTransferChild(of: sourceSuperview, containing: inspectorFrontend) ?? inspectorFrontend)
+        func containsInspectorFrontend(_ candidate: NSView) -> Bool {
+            guard let inspectorFrontend else { return false }
+            return candidate === inspectorFrontend || inspectorFrontend.isDescendant(of: candidate)
         }
+
+        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
 
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
             guard className.contains("WK") else { continue }
+            if containsInspectorFrontend(view) {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.localHost.reparent.skipInspectorFrontend " +
+                    "view=\(Self.objectID(view)) class=\(className)"
+                )
+#endif
+                continue
+            }
             if className.contains("WKInspector") &&
                 (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
                 continue
