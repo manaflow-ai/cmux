@@ -20991,7 +20991,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
-                if let ownerPID = codexMonitorOwnerPID(client: client) {
+                let ownerPID = codexMonitorOwnerPID(client: client)
+                if ownerPID == nil {
+                    telemetry.breadcrumb(
+                        "codex-hook.monitor.owner-unavailable",
+                        data: [
+                            "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                            "has_transcript": normalizedHookValue(input.transcriptPath) != nil,
+                            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+                        ]
+                    )
+                }
+                if let ownerPID = ownerPID {
                     let leasePath = createCodexMonitorLease(
                         sessionId: sessionId,
                         turnId: input.turnId,
@@ -21019,15 +21030,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         leasePath: leasePath,
                         env: env,
                         telemetry: telemetry
-                    )
-                } else {
-                    telemetry.breadcrumb(
-                        "codex-hook.monitor.owner-unavailable",
-                        data: [
-                            "has_turn_id": normalizedHookValue(input.turnId) != nil,
-                            "has_transcript": normalizedHookValue(input.transcriptPath) != nil,
-                            "has_surface_id": normalizedHookValue(surfaceId) != nil,
-                        ]
                     )
                 }
             }
