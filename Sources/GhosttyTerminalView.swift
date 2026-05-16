@@ -9799,7 +9799,8 @@ final class GhosttySurfaceScrollView: NSView {
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
-    private var lastFocusRefreshAt: CFTimeInterval = 0
+    private var lastVisibleSurfaceRefreshAt: CFTimeInterval = 0
+    private var focusRecoveryCoveredBySurfaceReadyId: UUID?
     private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
@@ -10255,12 +10256,28 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] notification in
             guard let self,
                   let readySurfaceId = notification.userInfo?["surfaceId"] as? UUID,
-                  readySurfaceId == self.surfaceView.terminalSurface?.id else {
+                  let terminalSurface = self.surfaceView.terminalSurface,
+                  readySurfaceId == terminalSurface.id else {
                 return
+            }
+            let shouldRecoverFocus =
+                self.isActive ||
+                self.surfaceView.desiredFocus ||
+                self.isSurfaceViewFirstResponder()
+            if shouldRecoverFocus {
+                terminalSurface.setFocus(true)
+            }
+            let refreshedOnReady = self.refreshVisibleSurfaceIfNeeded(
+                reason: "surfaceDidBecomeReady",
+                requiresActiveKeyWindow: false,
+                flushPortalLayout: true
+            )
+            if refreshedOnReady, shouldRecoverFocus {
+                self.focusRecoveryCoveredBySurfaceReadyId = terminalSurface.id
             }
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
-            guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
+            guard shouldRecoverFocus else {
                 return
             }
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
@@ -11360,6 +11377,12 @@ final class GhosttySurfaceScrollView: NSView {
         return convert(bounds, to: nil)
     }
 
+#if DEBUG
+    func debugExpireVisibleSurfaceRefreshThrottleForTesting() {
+        lastVisibleSurfaceRefreshAt = 0
+    }
+#endif
+
     func setActive(_ active: Bool) {
         let wasActive = isActive
         isActive = active
@@ -11931,11 +11954,15 @@ final class GhosttySurfaceScrollView: NSView {
             cmuxDebugLog("find.applyFirstResponder.defer surface=\(surfaceShort) reason=\(reason)")
 #endif
             self.applyFirstResponderIfNeeded()
+            self.clearSurfaceReadyCoveredFocusRecoveryIfPending(reason: reason)
         }
     }
 
     private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
         guard let terminalSurface = surfaceView.terminalSurface else { return }
+        if consumeSurfaceReadyCoveredFocusRecoveryIfNeeded(terminalSurface: terminalSurface, reason: reason) {
+            return
+        }
         if terminalSurface.surface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
         }
@@ -11947,21 +11974,61 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func refreshSurfaceAfterFocusIfNeeded(reason: String) {
+        refreshVisibleSurfaceIfNeeded(
+            reason: "focus.surface.\(reason)",
+            requiresActiveKeyWindow: true,
+            flushPortalLayout: false
+        )
+    }
+
+    private func consumeSurfaceReadyCoveredFocusRecoveryIfNeeded(
+        terminalSurface: TerminalSurface,
+        reason: String
+    ) -> Bool {
+        guard focusRecoveryCoveredBySurfaceReadyId == terminalSurface.id else { return false }
+        focusRecoveryCoveredBySurfaceReadyId = nil
+#if DEBUG
+        cmuxDebugLog("visible.surface.focus.skip surface=\(terminalSurface.id.uuidString.prefix(5)) reason=coveredBySurfaceReady focusReason=\(reason)")
+#endif
+        return true
+    }
+
+    private func clearSurfaceReadyCoveredFocusRecoveryIfPending(reason: String) {
+        guard let coveredSurfaceId = focusRecoveryCoveredBySurfaceReadyId else { return }
+        focusRecoveryCoveredBySurfaceReadyId = nil
+#if DEBUG
+        cmuxDebugLog("visible.surface.focus.clear surface=\(coveredSurfaceId.uuidString.prefix(5)) reason=\(reason)")
+#endif
+    }
+
+    @discardableResult
+    private func refreshVisibleSurfaceIfNeeded(
+        reason: String,
+        requiresActiveKeyWindow: Bool,
+        flushPortalLayout: Bool
+    ) -> Bool {
         guard let terminalSurface = surfaceView.terminalSurface,
-              isActive,
+              surfaceView.isVisibleInUI,
               let window,
-              window.isKeyWindow,
-              surfaceView.isVisibleInUI else { return }
+              !isHidden else { return false }
+        if requiresActiveKeyWindow {
+            guard isActive, window.isKeyWindow else { return false }
+        }
 
         let now = CACurrentMediaTime()
-        if now - lastFocusRefreshAt < 0.05 {
-            return
+        if now - lastVisibleSurfaceRefreshAt < 0.05 {
+            return false
         }
-        lastFocusRefreshAt = now
+        lastVisibleSurfaceRefreshAt = now
 #if DEBUG
-        cmuxDebugLog("focus.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
+        cmuxDebugLog("visible.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-        terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
+        if flushPortalLayout {
+            refreshSurfaceNow(reason: reason)
+        } else {
+            terminalSurface.forceRefresh(reason: reason)
+        }
+        return true
     }
 
     private func applyFirstResponderIfNeeded() {
