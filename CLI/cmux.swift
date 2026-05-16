@@ -2851,6 +2851,7 @@ struct CMUXCLI {
                 var params: [String: Any] = [:]
                 if let imageOpt { params["image"] = imageOpt }
                 if let normalizedProvider { params["provider"] = normalizedProvider }
+                let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 let idempotency = try Self.activeVMCreateIdempotency(image: imageOpt, provider: normalizedProvider)
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
@@ -2887,7 +2888,7 @@ struct CMUXCLI {
                 try vmOpenShell(
                     id: id,
                     workspaceName: "vm:\(shortId)",
-                    windowRaw: windowOpt ?? windowId,
+                    windowRaw: targetWindow,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -4604,6 +4605,21 @@ struct CMUXCLI {
             return (item["ref"] as? String) ?? (item["id"] as? String)
         }
         throw CLIError(message: "Window index not found")
+    }
+
+    func validatedWindowHandle(_ raw: String?, client: SocketClient) throws -> String? {
+        guard let raw else { return nil }
+        guard let normalized = try normalizeWindowHandle(raw, client: client) else { return nil }
+
+        let listed = try client.sendV2(method: "window.list")
+        let windows = listed["windows"] as? [[String: Any]] ?? []
+        let found = windows.contains { item in
+            (item["id"] as? String) == normalized || (item["ref"] as? String) == normalized
+        }
+        guard found else {
+            throw CLIError(message: "Window not found: \(raw)")
+        }
+        return normalized
     }
 
     func normalizeWorkspaceHandle(
