@@ -1249,7 +1249,7 @@ enum BrowserExternalNavigationAction: Equatable {
     case promptToOpenApp(URL)
 }
 
-func browserShouldRouteExternalNavigation(_ url: URL, targetFrameIsMainFrame _: Bool?) -> Bool {
+func browserShouldRouteExternalNavigation(_ url: URL) -> Bool {
     return browserExternalNavigationAction(for: url) != nil
 }
 
@@ -7066,10 +7066,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
         // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(
-               url,
-               targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
-           ) {
+           browserShouldRouteExternalNavigation(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -7258,10 +7255,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #endif
         // External URL schemes → hand off to macOS, don't create a popup
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(
-               url,
-               targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
-           ) {
+           browserShouldRouteExternalNavigation(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",

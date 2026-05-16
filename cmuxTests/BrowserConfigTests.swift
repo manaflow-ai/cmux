@@ -3649,14 +3649,14 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesRouteExternallyFromSubframes() throws {
         let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
 
-        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode, targetFrameIsMainFrame: false))
+        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
         XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
     }
 
     func testEmbeddedSubframeNavigationStaysInWebView() throws {
         let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
 
-        XCTAssertFalse(browserShouldRouteExternalNavigation(https, targetFrameIsMainFrame: false))
+        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
     }
 
     func testIntentBrowserFallbackURLExtraction() throws {
