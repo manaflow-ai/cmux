@@ -15531,11 +15531,37 @@ class TerminalController {
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
+    /// Threshold above which we use the paste path (`ghostty_surface_text`)
+    /// instead of simulating individual key events.  The paste path triggers
+    /// bracketed paste mode so the shell buffers the entire input at once,
+    /// avoiding O(n²) redraws from per-character processing.
+    private static let pasteThreshold = 256
+
     private func sendSocketText(_ text: String, surface: ghostty_surface_t) {
-        let chunks = Self.socketTextChunks(text)
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
 #endif
+        if text.count >= Self.pasteThreshold {
+            // Use the paste path for large payloads.  ghostty_surface_text()
+            // routes through completeClipboardPaste() which wraps with
+            // bracketed paste sequences when the terminal has mode 2004 on,
+            // and converts \n → \r otherwise.
+            if let data = text.data(using: .utf8), !data.isEmpty {
+                data.withUnsafeBytes { rawBuffer in
+                    guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+                    ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+                }
+            }
+#if DEBUG
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            dlog(
+                "socket.send_text.paste chars=\(text.count) ms=\(String(format: "%.2f", elapsedMs))"
+            )
+#endif
+            return
+        }
+
+        let chunks = Self.socketTextChunks(text)
         for chunk in chunks {
             switch chunk {
             case .text(let value):
