@@ -4402,7 +4402,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let keycode: UInt32
         let mods: ghostty_input_mods_e
         let label: String
-        let queuedByteCost: Int = 1
+
+        var queuedByteCost: Int {
+            max(label.utf8.count, 1)
+        }
     }
 
     private enum PendingSocketInput {
@@ -4503,8 +4506,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
     private var teardownRequestReason: String?
-    // Main-thread only. Public socket send entrypoints synchronously hop to the
-    // main queue before reading `surface` or mutating this pending queue.
+    // Main-thread only. Public socket send entrypoints are MainActor-isolated
+    // before reading `surface` or mutating this pending queue.
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
