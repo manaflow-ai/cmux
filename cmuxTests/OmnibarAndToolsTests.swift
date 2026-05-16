@@ -629,8 +629,8 @@ final class OmnibarStateMachineTests: XCTestCase {
 }
 
 @MainActor
-final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
-    func testFieldLookupPrefersMatchingWindowOverMostRecentOffWindowField() throws {
+final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
+    func testFieldLookupPrefersMatchingWindowAndNilWindowPrefersAttachedField() throws {
         let panelId = UUID()
         let registry = BrowserOmnibarNativeFieldRegistry()
         let window = NSWindow(
@@ -658,8 +658,8 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
         registry.register(offWindowField, panelId: panelId)
 
         XCTAssertTrue(registry.field(for: panelId, in: window) === visibleField)
-        XCTAssertNil(registry.field(for: panelId, in: nil))
-        XCTAssertTrue(registry.field(for: panelId) === offWindowField)
+        XCTAssertTrue(registry.field(for: panelId, in: nil) === visibleField)
+        XCTAssertTrue(registry.field(for: panelId) === visibleField)
 
         registry.unregister(offWindowField, panelId: panelId)
 
@@ -905,6 +905,57 @@ private final class OmnibarInlineDeletionHarness {
         inlineCompletion = nil
     }
 
+}
+
+
+@MainActor
+final class BrowserOmnibarFieldEditorResolutionTests: XCTestCase {
+    func testPanelIdResolutionUsesLiveOmnibarFieldWhenFieldEditorResponderChainIsStale() {
+        _ = NSApplication.shared
+
+        let panelId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let staleWebView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 420, height: 80), configuration: WKWebViewConfiguration())
+        contentView.addSubview(staleWebView)
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 28, width: 300, height: 24))
+        field.panelId = panelId
+        contentView.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            field.removeFromSuperview()
+            staleWebView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected omnibar field editor after focusing text field")
+            return
+        }
+
+        let originalNextResponder = editor.nextResponder
+        editor.nextResponder = staleWebView
+        defer {
+            editor.nextResponder = originalNextResponder
+        }
+
+        XCTAssertEqual(
+            browserOmnibarPanelId(for: editor),
+            panelId,
+            "A live omnibar field editor must resolve to its owning omnibar field even when AppKit leaves a stale browser responder chain behind"
+        )
+    }
 }
 
 

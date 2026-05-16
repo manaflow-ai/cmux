@@ -563,74 +563,141 @@ private func deliverFeedNotification(
 ) {
     guard effects.desktop || effects.sound || effects.command else { return }
 
-    let shouldPlaySound = effects.sound
-    let shouldRunCommand = effects.command
-    let notificationTitle = title
-    let notificationSubtitle = subtitle
-    let notificationBody = body
-    let workstreamId = event.sessionId
-
-    func runFallbackEffects() {
-        if shouldPlaySound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if shouldRunCommand {
-            NotificationSoundSettings.runCustomCommand(
-                title: notificationTitle,
-                subtitle: notificationSubtitle,
-                body: notificationBody
-            )
-        }
-    }
-
     if !effects.desktop {
-        runFallbackEffects()
+        scheduleFeedNotificationFallbackEffects(
+            effects: effects,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
         return
     }
 
+    let workstreamId = event.sessionId
     Task { @MainActor in
-        let content = UNMutableNotificationContent()
-        content.title = notificationTitle
-        content.subtitle = notificationSubtitle
-        content.body = notificationBody
-        content.sound = shouldPlaySound ? NotificationSoundSettings.sound() : nil
-        content.categoryIdentifier = categoryId
-        content.userInfo = [
-            "requestId": requestId,
-            "workstreamId": workstreamId,
-        ]
-
-        let request = UNNotificationRequest(
-            identifier: "feed.\(requestId)",
-            content: content,
-            trigger: nil
-        )
-
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         switch settings.authorizationStatus {
         case .authorized, .provisional:
-            try? await center.add(request)
-            runCommandEffectIfNeeded()
+            await addFeedNotificationRequest(
+                center: center,
+                requestId: requestId,
+                workstreamId: workstreamId,
+                categoryId: categoryId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: effects
+            )
         case .notDetermined:
             let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
             if granted {
-                try? await center.add(request)
-                runCommandEffectIfNeeded()
+                await addFeedNotificationRequest(
+                    center: center,
+                    requestId: requestId,
+                    workstreamId: workstreamId,
+                    categoryId: categoryId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: effects
+                )
             } else {
-                runFallbackEffects()
+                scheduleFeedNotificationFallbackEffects(
+                    effects: effects,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
             }
         default:
-            runFallbackEffects()
+            scheduleFeedNotificationFallbackEffects(
+                effects: effects,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
         }
     }
+}
 
-    func runCommandEffectIfNeeded() {
-        guard shouldRunCommand else { return }
+@MainActor
+private func scheduleFeedNotificationFallbackEffects(
+    effects: TerminalNotificationPolicyEffects,
+    title: String,
+    subtitle: String,
+    body: String
+) {
+    runFeedNotificationFallbackEffects(
+        effects: effects,
+        title: title,
+        subtitle: subtitle,
+        body: body
+    )
+}
+
+@MainActor
+private func addFeedNotificationRequest(
+    center: UNUserNotificationCenter,
+    requestId: String,
+    workstreamId: String,
+    categoryId: String,
+    title: String,
+    subtitle: String,
+    body: String,
+    effects: TerminalNotificationPolicyEffects
+) async {
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.subtitle = subtitle
+    content.body = body
+    content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
+    content.categoryIdentifier = categoryId
+    content.userInfo = [
+        "requestId": requestId,
+        "workstreamId": workstreamId,
+    ]
+
+    let request = UNNotificationRequest(
+        identifier: "feed.\(requestId)",
+        content: content,
+        trigger: nil
+    )
+    do {
+        try await center.add(request)
+    } catch {
+        scheduleFeedNotificationFallbackEffects(
+            effects: effects,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        return
+    }
+    if effects.command {
         NotificationSoundSettings.runCustomCommand(
-            title: notificationTitle,
-            subtitle: notificationSubtitle,
-            body: notificationBody
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+    }
+}
+
+@MainActor
+private func runFeedNotificationFallbackEffects(
+    effects: TerminalNotificationPolicyEffects,
+    title: String,
+    subtitle: String,
+    body: String
+) {
+    if effects.sound {
+        NotificationSoundSettings.playSelectedSound()
+    }
+    if effects.command {
+        NotificationSoundSettings.runCustomCommand(
+            title: title,
+            subtitle: subtitle,
+            body: body
         )
     }
 }
