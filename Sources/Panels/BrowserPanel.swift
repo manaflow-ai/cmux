@@ -1305,9 +1305,12 @@ private func browserPresentExternalNavigationFailure(for url: URL, in webView: W
         localized: "browser.externalOpenFailure.title",
         defaultValue: "Cannot Open Link"
     )
-    alert.informativeText = String(
-        localized: "browser.externalOpenFailure.message",
-        defaultValue: "\(appName) might not be installed, or macOS could not open this link. Install the app, or copy the link and open it elsewhere."
+    alert.informativeText = String.localizedStringWithFormat(
+        String(
+            localized: "browser.externalOpenFailure.message",
+            defaultValue: "%@ might not be installed, or macOS could not open this link. Install the app, or copy the link and open it elsewhere."
+        ),
+        appName
     )
     alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
     alert.addButton(withTitle: String(
