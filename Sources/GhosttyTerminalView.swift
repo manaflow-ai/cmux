@@ -4634,6 +4634,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
+        self.hostedView.attachSurface(self)
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
