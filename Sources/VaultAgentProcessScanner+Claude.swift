@@ -160,18 +160,27 @@ extension RestorableAgentSessionIndex {
         tail: [String],
         environment: [String: String]
     ) -> String? {
+        let environmentSessionId = normalized(environment["CLAUDE_SESSION_ID"])
         let resumeSessionId = tail.hasClaudeForkSessionFlag
             ? nil
-            : claudeSessionIdValue(afterOption: "--resume", in: tail)
-                ?? claudeSessionIdValue(afterOption: "-r", in: tail)
+            : claudeResumeSessionIdValue(afterOption: "--resume", in: tail)
+                ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail)
         return claudeSessionIdValue(afterOption: "--session-id", in: tail)
+            ?? environmentSessionId
             ?? resumeSessionId
-            ?? normalized(environment["CLAUDE_SESSION_ID"])
     }
 
     private static func claudeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {
         guard let value = arguments.value(afterOption: option),
               !value.hasPrefix("-") else {
+            return nil
+        }
+        return value
+    }
+
+    private static func claudeResumeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {
+        guard let value = claudeSessionIdValue(afterOption: option, in: arguments),
+              UUID(uuidString: value) != nil else {
             return nil
         }
         return value

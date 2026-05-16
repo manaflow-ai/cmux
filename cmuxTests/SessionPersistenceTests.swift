@@ -2622,11 +2622,32 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: [
                     "/Users/lawrence/.local/bin/claude",
                     "--resume",
-                    "resumed-session"
+                    "41b9a226-2504-4f6d-8e81-8dd28f91fadb"
                 ],
                 environment: [:]
             ),
-            "resumed-session"
+            "41b9a226-2504-4f6d-8e81-8dd28f91fadb"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "fix the tests"
+                ],
+                environment: ["CLAUDE_SESSION_ID": "d86c6b10-0ac8-4f71-a9d0-428d7855cded"]
+            ),
+            "d86c6b10-0ac8-4f71-a9d0-428d7855cded"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "fix the tests"
+                ],
+                environment: [:]
+            )
         )
         XCTAssertEqual(
             RestorableAgentSessionIndex.claudeSessionIdForProcess(
@@ -3073,7 +3094,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     arguments: [
                         "/Users/lawrence/.local/bin/claude",
                         "--resume",
-                        "claude-tty-session"
+                        "eb9abe5d-1ac0-4db1-a7f1-9ea585764529"
                     ],
                     environment: ["PWD": "/tmp/claude repo"]
                 )
@@ -3084,7 +3105,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .claude)
-        XCTAssertEqual(snapshot.sessionId, "claude-tty-session")
+        XCTAssertEqual(snapshot.sessionId, "eb9abe5d-1ac0-4db1-a7f1-9ea585764529")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/claude repo")
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
@@ -3172,7 +3193,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                         arguments: [
                             "/Users/lawrence/.local/bin/claude",
                             "--resume",
-                            "claude-scoped-session"
+                            "5531b99b-317e-4571-9c33-c2ca69ab3cb0"
                         ],
                         environment: ["PWD": "/tmp/scoped claude repo"]
                     )
@@ -3181,7 +3202,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                         arguments: [
                             "/Users/lawrence/.local/bin/claude",
                             "--resume",
-                            "claude-fallback-session"
+                            "5449ecd8-b511-41da-8a74-195497f79a64"
                         ],
                         environment: ["PWD": "/tmp/fallback claude repo"]
                     )
@@ -3195,7 +3216,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .claude)
-        XCTAssertEqual(snapshot.sessionId, "claude-scoped-session")
+        XCTAssertEqual(snapshot.sessionId, "5531b99b-317e-4571-9c33-c2ca69ab3cb0")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped claude repo")
     }
 
@@ -3234,7 +3255,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                         arguments: [
                             "/Users/lawrence/.local/bin/claude",
                             "--resume",
-                            "claude-real-session"
+                            "37b81293-e6f0-4143-af3e-73242df890e4"
                         ],
                         environment: [
                             "CMUX_CLAUDE_PID": String(realClaude.pid),
@@ -3247,7 +3268,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                             "node",
                             "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
                             "--resume",
-                            "claude-helper-session"
+                            "1eb612b9-9d72-4c14-a069-77637661a273"
                         ],
                         environment: [
                             "CMUX_CLAUDE_PID": String(realClaude.pid),
@@ -3264,7 +3285,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .claude)
-        XCTAssertEqual(snapshot.sessionId, "claude-real-session")
+        XCTAssertEqual(snapshot.sessionId, "37b81293-e6f0-4143-af3e-73242df890e4")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/real claude repo")
     }
 
@@ -3331,6 +3352,152 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.kind, .opencode)
         XCTAssertEqual(snapshot.sessionId, "opencode-scoped-session")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped opencode repo")
+    }
+
+    func testProcessDetectionKeepsCMUXScopedRegisteredAgentOverFocusedTTYFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_006
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let scopedAgent = makeTopProcess(
+            pid: 10_008,
+            name: "acme-agent",
+            path: "/usr/local/bin/acme-agent",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallbackAgent = makeTopProcess(
+            pid: 10_009,
+            name: "acme-agent",
+            path: "/usr/local/bin/acme-agent",
+            ttyDevice: ttyDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: [registration]),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedAgent, fallbackAgent],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case scopedAgent.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/usr/local/bin/acme-agent",
+                            "--session",
+                            "custom-scoped-session"
+                        ],
+                        environment: ["PWD": "/tmp/scoped custom repo"]
+                    )
+                case fallbackAgent.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/usr/local/bin/acme-agent",
+                            "--session",
+                            "custom-fallback-session"
+                        ],
+                        environment: ["PWD": "/tmp/fallback custom repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .custom("acme-agent"))
+        XCTAssertEqual(snapshot.sessionId, "custom-scoped-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped custom repo")
+    }
+
+    func testProcessDetectionKeepsForegroundRegisteredAgentOverUnknownStatusForSamePanel() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let foregroundAgent = makeTopProcess(
+            pid: 10_010,
+            name: "acme-agent",
+            path: "/usr/local/bin/acme-agent",
+            ttyDevice: 44_007,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 101,
+            terminalProcessGroupID: 101
+        )
+        let unknownStatusAgent = makeTopProcess(
+            pid: 10_011,
+            name: "acme-agent",
+            path: "/usr/local/bin/acme-agent",
+            ttyDevice: 44_007,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: nil,
+            terminalProcessGroupID: nil
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: [registration]),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [foregroundAgent, unknownStatusAgent],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case foregroundAgent.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/usr/local/bin/acme-agent",
+                            "--session",
+                            "custom-foreground-session"
+                        ],
+                        environment: ["PWD": "/tmp/foreground custom repo"]
+                    )
+                case unknownStatusAgent.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/usr/local/bin/acme-agent",
+                            "--session",
+                            "custom-unknown-status-session"
+                        ],
+                        environment: ["PWD": "/tmp/unknown custom repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .custom("acme-agent"))
+        XCTAssertEqual(snapshot.sessionId, "custom-foreground-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/foreground custom repo")
     }
 
     func testProcessDetectionSkipsClaudeForkParentResumeSessionId() {
@@ -3412,7 +3579,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                         arguments: [
                             "/Users/lawrence/.local/bin/claude",
                             "--resume",
-                            "claude-foreground-session"
+                            "03991fdd-6581-4d4f-8d76-bf0371c2b014"
                         ],
                         environment: ["PWD": "/tmp/foreground claude repo"]
                     )
@@ -3421,7 +3588,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                         arguments: [
                             "/Users/lawrence/.local/bin/claude",
                             "--resume",
-                            "claude-background-session"
+                            "a7580994-c8f6-4cf4-b8aa-8ca1a3c77856"
                         ],
                         environment: ["PWD": "/tmp/background claude repo"]
                     )
@@ -3435,7 +3602,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .claude)
-        XCTAssertEqual(snapshot.sessionId, "claude-foreground-session")
+        XCTAssertEqual(snapshot.sessionId, "03991fdd-6581-4d4f-8d76-bf0371c2b014")
     }
 
     func testProcessDetectionSkipsBackgroundClaudeWithoutForegroundCandidate() {

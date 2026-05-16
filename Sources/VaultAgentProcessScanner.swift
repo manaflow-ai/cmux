@@ -143,6 +143,9 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
+        var selectedRegisteredCandidateByPanelKey: [
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+        ] = [:]
         for candidate in candidates {
             let process = candidate.process
             let processArguments = candidate.arguments
@@ -179,10 +182,40 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
+            if let existing = selectedRegisteredCandidateByPanelKey[candidate.panelKey],
+               !processDetectionShouldReplaceCandidate(
+                   existing: existing,
+                   candidate: (source: candidate.source, isForeground: process.isForegroundProcess)
+               ) {
+                continue
+            }
             resolved[candidate.panelKey] = (snapshot: snapshot, updatedAt: capturedAt)
+            selectedRegisteredCandidateByPanelKey[candidate.panelKey] = (
+                source: candidate.source,
+                isForeground: process.isForegroundProcess
+            )
         }
 
         return resolved
+    }
+
+    private static func processDetectionShouldReplaceCandidate(
+        existing: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool),
+        candidate: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+    ) -> Bool {
+        if existing.source == .cmuxScoped,
+           candidate.source != .cmuxScoped {
+            return false
+        }
+        if existing.source != .cmuxScoped,
+           candidate.source == .cmuxScoped {
+            return true
+        }
+        if existing.isForeground,
+           !candidate.isForeground {
+            return false
+        }
+        return true
     }
 
     private static func processDetectionShouldPreferOpenCodeOnBuiltinConflict(
@@ -497,13 +530,10 @@ extension RestorableAgentSessionIndex {
                 )
             )
             if let existing = selectedCandidateByPanelKey[process.panelKey] {
-                if existing.source == .cmuxScoped,
-                   process.source != .cmuxScoped {
-                    continue
-                }
-                if existing.source == process.source,
-                   existing.isForeground,
-                   !process.isForeground {
+                if !processDetectionShouldReplaceCandidate(
+                    existing: existing,
+                    candidate: (source: process.source, isForeground: process.isForeground)
+                ) {
                     continue
                 }
             }
