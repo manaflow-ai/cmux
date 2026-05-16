@@ -85,6 +85,30 @@ final class EphemeralWorktreeLifecycleTests: XCTestCase {
         XCTAssertTrue(try fixture.branchExists(abandonedBranchName))
         XCTAssertEqual(try fixture.show("\(abandonedBranchName):orphan.txt"), "orphan preserved\n")
     }
+
+    func testBlockPolicyOrphanReconciliationSnapshotsAndRemoves() throws {
+        let fixture = try GitFixture()
+        defer { fixture.cleanup() }
+
+        let registry = EphemeralWorktreeRegistry(storeURL: fixture.registryURL)
+        let record = try registry.create(
+            sourceDirectory: fixture.repositoryURL.path,
+            cleanupPolicy: .block
+        )
+        let noteURL = URL(fileURLWithPath: record.worktreePath)
+            .appendingPathComponent("blocked-orphan.txt", isDirectory: false)
+        try "blocked orphan preserved\n".write(to: noteURL, atomically: true, encoding: .utf8)
+
+        let results = registry.reconcileOrphans(activeSessionIds: [])
+        let result = try XCTUnwrap(results.first).get()
+        let abandonedBranchName = try XCTUnwrap(result.abandonedBranchName)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: record.worktreePath))
+        XCTAssertFalse(try fixture.branchExists(record.branchName))
+        XCTAssertTrue(try fixture.branchExists(abandonedBranchName))
+        XCTAssertEqual(try fixture.show("\(abandonedBranchName):blocked-orphan.txt"), "blocked orphan preserved\n")
+        XCTAssertTrue(registry.records().isEmpty)
+    }
 }
 
 private final class GitFixture {

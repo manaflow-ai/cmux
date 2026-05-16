@@ -13513,11 +13513,8 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func shouldConfirmEphemeralWorktreeClose(panelId: UUID) -> Bool {
-        guard let record = ephemeralWorktreesByPanelId[panelId],
-              record.cleanupPolicy == .block else {
-            return false
-        }
-        return (try? EphemeralWorktreeRegistry.shared.hasUncommittedChanges(record)) == true
+        guard let record = ephemeralWorktreesByPanelId[panelId] else { return false }
+        return record.cleanupPolicy == .block
     }
 
     @MainActor
@@ -13528,7 +13525,7 @@ extension Workspace: BonsplitDelegate {
         )
         let message = String(
             localized: "dialog.ephemeralWorktree.close.message",
-            defaultValue: "This session has uncommitted changes. cmux will snapshot them before removing the worktree."
+            defaultValue: "This isolated worktree is configured to confirm before cleanup. If it has uncommitted changes, cmux will snapshot them before removing the worktree."
         )
 
         if let confirmCloseHandler = (

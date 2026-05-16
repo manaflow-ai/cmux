@@ -52,35 +52,35 @@ enum EphemeralWorktreeLifecycleError: LocalizedError {
                 ),
                 value
             )
+        case .notGitRepository:
+            return String(
+                localized: "error.ephemeralWorktree.notGitRepository",
+                defaultValue: "Worktree mode requires a git repository."
+            )
+        case .dirtyWorktreeRequiresConfirmation:
+            return String(
+                localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                defaultValue: "This worktree cleanup policy requires confirmation before removal."
+            )
+        case .commandFailed:
+            return String(
+                localized: "error.ephemeralWorktree.commandFailed",
+                defaultValue: "A git operation failed while managing the ephemeral worktree."
+            )
+        }
+    }
+
+    var debugDescription: String {
+        switch self {
+        case .invalidCleanupPolicy(let value):
+            return "invalid cleanup policy: \(value)"
         case .notGitRepository(let path):
-            return String.localizedStringWithFormat(
-                String(
-                    localized: "error.ephemeralWorktree.notGitRepository",
-                    defaultValue: "Not inside a git repository: %@"
-                ),
-                path
-            )
+            return "not a git repository: \(path)"
         case .dirtyWorktreeRequiresConfirmation(let path):
-            return String.localizedStringWithFormat(
-                String(
-                    localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
-                    defaultValue: "The worktree has uncommitted changes and requires confirmation before removal: %@"
-                ),
-                path
-            )
+            return "dirty worktree requires confirmation: \(path)"
         case .commandFailed(let command, let exitCode, let output):
             let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            return String.localizedStringWithFormat(
-                String(
-                    localized: "error.ephemeralWorktree.commandFailed",
-                    defaultValue: "git command failed (%@, exit %d): %@"
-                ),
-                command,
-                exitCode,
-                detail.isEmpty
-                    ? String(localized: "error.ephemeralWorktree.noCommandOutput", defaultValue: "no output")
-                    : detail
-            )
+            return "git command failed (\(command), exit \(exitCode)): \(detail.isEmpty ? "no output" : detail)"
         }
     }
 }
@@ -311,10 +311,17 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
             do {
                 _ = try self.cleanup(record, userConfirmed: userConfirmed)
             } catch {
+                NSLog(
+                    "[cmux] Ephemeral worktree cleanup failed for session %@: %@",
+                    String(record.sessionId.prefix(8)),
+                    error.localizedDescription
+                )
 #if DEBUG
+                let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
+                    ?? error.localizedDescription
                 cmuxDebugLog(
                     "worktree.cleanup.failed session=\(record.sessionId.prefix(8)) " +
-                    "path=\(record.worktreePath) error=\(error.localizedDescription)"
+                    "error=\(detail)"
                 )
 #endif
             }
@@ -325,7 +332,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         records()
             .filter { !activeSessionIds.contains($0.sessionId) }
             .map { record in
-                Result { try cleanup(record) }
+                Result { try cleanup(record, userConfirmed: true) }
             }
     }
 

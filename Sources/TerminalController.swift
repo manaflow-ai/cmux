@@ -4406,25 +4406,18 @@ class TerminalController {
         ]
     }
 
-    private func v2BlockedDirtyEphemeralWorktreeError(
+    private func v2BlockedEphemeralWorktreeError(
         for records: [EphemeralWorktreeRecord]
     ) -> V2CallResult? {
-        for record in records where record.cleanupPolicy == .block {
-            do {
-                if try EphemeralWorktreeRegistry.shared.hasUncommittedChanges(record) {
-                    return .err(
-                        code: "worktree_dirty",
-                        message: EphemeralWorktreeLifecycleError
-                            .dirtyWorktreeRequiresConfirmation(record.worktreePath)
-                            .localizedDescription,
-                        data: ["worktree_path": record.worktreePath]
-                    )
-                }
-            } catch {
-                return .err(code: "worktree_error", message: error.localizedDescription, data: nil)
-            }
-        }
-        return nil
+        guard records.contains(where: { $0.cleanupPolicy == .block }) else { return nil }
+        return .err(
+            code: "worktree_confirmation_required",
+            message: String(
+                localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                defaultValue: "This worktree cleanup policy requires confirmation before removal."
+            ),
+            data: nil
+        )
     }
 
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
@@ -4638,7 +4631,7 @@ class TerminalController {
             ])
         }
 
-        if let worktreeError = v2BlockedDirtyEphemeralWorktreeError(for: worktreeRecords) {
+        if let worktreeError = v2BlockedEphemeralWorktreeError(for: worktreeRecords) {
             return worktreeError
         }
 
@@ -6614,7 +6607,7 @@ class TerminalController {
         guard let context else { return result }
 
         if let record = context.worktree,
-           let worktreeError = v2BlockedDirtyEphemeralWorktreeError(for: [record]) {
+           let worktreeError = v2BlockedEphemeralWorktreeError(for: [record]) {
             return worktreeError
         }
 

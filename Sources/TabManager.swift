@@ -4332,13 +4332,13 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let dirtyBlockPanelIds = dirtyBlockEphemeralWorktreePanelIds(
+        let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(
             in: plan.workspace,
             panelIds: plan.panelIds
         )
-        if !dirtyBlockPanelIds.isEmpty {
+        if !blockPolicyPanelIds.isEmpty {
             guard confirmEphemeralWorktreeClose() else { return }
-            plan.workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(dirtyBlockPanelIds)
+            plan.workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(blockPolicyPanelIds)
         } else if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
@@ -4648,12 +4648,12 @@ class TabManager: ObservableObject {
     ) {
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
-        let dirtyBlockPanelIds = dirtyBlockEphemeralWorktreePanelIds(in: workspace)
-        if !dirtyBlockPanelIds.isEmpty {
+        let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(in: workspace)
+        if !blockPolicyPanelIds.isEmpty {
             if requiresConfirmation {
                 guard confirmEphemeralWorktreeClose() else { return }
             }
-            workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(dirtyBlockPanelIds)
+            workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(blockPolicyPanelIds)
         } else if requiresConfirmation,
            shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
@@ -4675,19 +4675,14 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func dirtyBlockEphemeralWorktreePanelIds(
+    private func blockPolicyEphemeralWorktreePanelIds(
         in workspace: Workspace,
         panelIds candidatePanelIds: [UUID]? = nil
     ) -> [UUID] {
         let candidatePanelIdSet = candidatePanelIds.map { Set($0) }
         return workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
             if let candidatePanelIdSet, !candidatePanelIdSet.contains(panelId) { return nil }
-            guard record.cleanupPolicy == .block else { return nil }
-            do {
-                return try EphemeralWorktreeRegistry.shared.hasUncommittedChanges(record) ? panelId : nil
-            } catch {
-                return panelId
-            }
+            return record.cleanupPolicy == .block ? panelId : nil
         }
     }
 
@@ -4699,7 +4694,7 @@ class TabManager: ObservableObject {
             ),
             message: String(
                 localized: "dialog.ephemeralWorktree.close.message",
-                defaultValue: "This session has uncommitted changes. cmux will snapshot them before removing the worktree."
+                defaultValue: "This isolated worktree is configured to confirm before cleanup. If it has uncommitted changes, cmux will snapshot them before removing the worktree."
             ),
             acceptCmdD: false
         )
