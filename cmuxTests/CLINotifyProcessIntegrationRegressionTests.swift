@@ -1123,6 +1123,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testSendWindowFlagRejectsUnknownWindowRefBeforeMutation() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("send-window-ref")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let existingWindowId = "11111111-1111-1111-1111-111111111111"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": existingWindowId,
+                                "ref": "window:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["send", "--window", "window:2", "--", "should-not-send"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Window not found: window:2"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list"]
+        )
+    }
+
     func testVMNewWindowFlagValidatesBeforeCreate() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-window-validate")

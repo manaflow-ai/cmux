@@ -202,6 +202,40 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(manager2.selectedTabId, workspace2.id)
     }
 
+    func testUnresolvedWindowRefDoesNotFallBackToActiveWindow() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let error = try v2Error(
+            method: "workspace.current",
+            params: ["window_id": "window:999"]
+        )
+        XCTAssertEqual(error["code"] as? String, "unavailable")
+    }
+
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

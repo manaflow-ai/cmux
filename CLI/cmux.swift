@@ -4598,8 +4598,14 @@ struct CMUXCLI {
 
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
-        if isUUID(trimmed) || isHandleRef(trimmed) {
+        if isUUID(trimmed) {
             return trimmed
+        }
+        if isHandleRef(trimmed) {
+            if let matched = try matchingWindowHandle(trimmed, client: client) {
+                return matched
+            }
+            throw CLIError(message: "Window not found: \(trimmed)")
         }
         guard let wantedIndex = Int(trimmed) else {
             throw CLIError(message: "Invalid window handle: \(trimmed) (expected UUID, ref like window:1, or index)")
@@ -4608,9 +4614,29 @@ struct CMUXCLI {
         let listed = try client.sendV2(method: "window.list")
         let windows = listed["windows"] as? [[String: Any]] ?? []
         for item in windows where intFromAny(item["index"]) == wantedIndex {
-            return (item["ref"] as? String) ?? (item["id"] as? String)
+            return (item["id"] as? String) ?? (item["ref"] as? String)
         }
         throw CLIError(message: "Window index not found")
+    }
+
+    private func matchingWindowHandle(_ handle: String, client: SocketClient) throws -> String? {
+        let listed = try client.sendV2(method: "window.list")
+        let windows = listed["windows"] as? [[String: Any]] ?? []
+        for window in windows where windowHandleMatches(handle, item: window) {
+            return (window["id"] as? String) ?? (window["ref"] as? String) ?? handle
+        }
+        return nil
+    }
+
+    private func windowHandleMatches(_ handle: String, item: [String: Any]) -> Bool {
+        guard let target = normalizedHandleValue(handle) else { return false }
+        for candidate in [item["id"] as? String, item["ref"] as? String] {
+            guard let candidate = normalizedHandleValue(candidate) else { continue }
+            if handlesMatch(target, candidate) {
+                return true
+            }
+        }
+        return false
     }
 
     func validatedWindowHandle(_ raw: String?, client: SocketClient) throws -> String? {

@@ -4228,7 +4228,8 @@ class TerminalController {
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
         // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
-        if let windowId = v2UUID(params, "window_id") {
+        if v2HasNonNullParam(params, "window_id") {
+            guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
         if let wsId = v2UUID(params, "workspace_id") {
