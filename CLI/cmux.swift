@@ -4836,6 +4836,14 @@ struct CMUXCLI {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
         if isUUID(trimmed) || isHandleRef(trimmed) {
+            if let windowHandle {
+                return try validateSurfaceHandleInWindow(
+                    trimmed,
+                    client: client,
+                    workspaceHandle: workspaceHandle,
+                    windowHandle: windowHandle
+                )
+            }
             return trimmed
         }
         guard let wantedIndex = Int(trimmed) else {
@@ -4855,6 +4863,73 @@ struct CMUXCLI {
             return (item["id"] as? String) ?? (item["ref"] as? String)
         }
         throw CLIError(message: "Surface index not found")
+    }
+
+    private func validateSurfaceHandleInWindow(
+        _ surfaceHandle: String,
+        client: SocketClient,
+        workspaceHandle: String?,
+        windowHandle: String
+    ) throws -> String {
+        if let workspaceHandle {
+            if let matched = try matchingSurfaceHandleInWorkspace(
+                surfaceHandle,
+                client: client,
+                workspaceHandle: workspaceHandle,
+                windowHandle: windowHandle
+            ) {
+                return matched
+            }
+            throw CLIError(message: "Surface not found in window")
+        }
+
+        let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+        let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+        for workspace in workspaces {
+            guard let workspaceHandle = (workspace["id"] as? String) ?? (workspace["ref"] as? String) else {
+                continue
+            }
+            if let matched = try matchingSurfaceHandleInWorkspace(
+                surfaceHandle,
+                client: client,
+                workspaceHandle: workspaceHandle,
+                windowHandle: windowHandle
+            ) {
+                return matched
+            }
+        }
+        throw CLIError(message: "Surface not found in window")
+    }
+
+    private func matchingSurfaceHandleInWorkspace(
+        _ surfaceHandle: String,
+        client: SocketClient,
+        workspaceHandle: String,
+        windowHandle: String
+    ) throws -> String? {
+        let listed = try client.sendV2(
+            method: "surface.list",
+            params: [
+                "workspace_id": workspaceHandle,
+                "window_id": windowHandle,
+            ]
+        )
+        let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+        for surface in surfaces where surfaceHandleMatches(surfaceHandle, item: surface) {
+            return (surface["id"] as? String) ?? (surface["ref"] as? String) ?? surfaceHandle
+        }
+        return nil
+    }
+
+    private func surfaceHandleMatches(_ handle: String, item: [String: Any]) -> Bool {
+        guard let target = normalizedHandleValue(handle) else { return false }
+        for candidate in [item["id"] as? String, item["ref"] as? String] {
+            guard let candidate = normalizedHandleValue(candidate) else { continue }
+            if handlesMatch(target, candidate) {
+                return true
+            }
+        }
+        return false
     }
 
     private func canonicalSurfaceHandleFromTabInput(_ value: String) -> String {
