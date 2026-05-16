@@ -791,7 +791,10 @@ struct TitlebarControlsView: View {
                 accessibilityIdentifier: "titlebarControl.focusHistoryBack",
                 accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
                 action: onFocusHistoryBack,
-                isEnabled: focusHistoryAvailability.canNavigateBack
+                isEnabled: focusHistoryAvailability.canNavigateBack,
+                rightClickAction: { anchorView, event in
+                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event)
+                }
             ) {
                 iconLabel(systemName: "arrow.left", config: config)
             }
@@ -802,7 +805,10 @@ struct TitlebarControlsView: View {
                 accessibilityIdentifier: "titlebarControl.focusHistoryForward",
                 accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
                 action: onFocusHistoryForward,
-                isEnabled: focusHistoryAvailability.canNavigateForward
+                isEnabled: focusHistoryAvailability.canNavigateForward,
+                rightClickAction: { anchorView, event in
+                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event)
+                }
             ) {
                 iconLabel(systemName: "arrow.right", config: config)
             }

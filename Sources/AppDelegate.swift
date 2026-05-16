@@ -513,6 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
+    private static let focusHistoryContextMenuPreviewLimit = 12
 
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
@@ -580,6 +581,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         init(windowId: UUID, action: CmuxResolvedConfigAction) {
             self.windowId = windowId
             self.action = action
+        }
+    }
+
+    private final class FocusHistoryContextMenuItemBox: NSObject {
+        weak var tabManager: TabManager?
+        let item: FocusHistoryMenuItem
+
+        init(tabManager: TabManager, item: FocusHistoryMenuItem) {
+            self.tabManager = tabManager
+            self.item = item
+        }
+    }
+
+    private final class FocusHistoryShowFullContextMenuBox: NSObject {
+        weak var tabManager: TabManager?
+        weak var anchorView: NSView?
+
+        init(tabManager: TabManager, anchorView: NSView) {
+            self.tabManager = tabManager
+            self.anchorView = anchorView
         }
     }
 
@@ -6440,6 +6461,132 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
         return true
+    }
+
+    @discardableResult
+    func showFocusHistoryContextMenu(
+        anchorView: NSView,
+        event: NSEvent,
+        showFullHistory: Bool = false,
+        debugSource: String = "titlebar.focusHistory.contextMenu"
+    ) -> Bool {
+        let context = contextForMainWindow(anchorView.window)
+            ?? mainWindowContext(forShortcutEvent: event, debugSource: debugSource)
+        guard let context else { return false }
+
+        let menu = makeFocusHistoryContextMenu(
+            tabManager: context.tabManager,
+            anchorView: anchorView,
+            showFullHistory: showFullHistory
+        )
+        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return false }
+
+        NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
+        return true
+    }
+
+    private func makeFocusHistoryContextMenu(
+        tabManager: TabManager,
+        anchorView: NSView,
+        showFullHistory: Bool
+    ) -> NSMenu {
+        let snapshot = tabManager.focusHistoryMenuSnapshot(
+            maxItemCount: showFullHistory ? nil : Self.focusHistoryContextMenuPreviewLimit
+        )
+        let menu = NSMenu(title: String(localized: "menu.history.focusHistory", defaultValue: "Focus History"))
+
+        if snapshot.items.isEmpty {
+            let item = NSMenuItem(
+                title: String(localized: "menu.history.noFocusHistory", defaultValue: "No Focus History"),
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.isEnabled = false
+            menu.addItem(item)
+            return menu
+        }
+
+        for itemSnapshot in snapshot.items {
+            let item = NSMenuItem(
+                title: focusHistoryContextMenuTitle(for: itemSnapshot),
+                action: #selector(performFocusHistoryContextMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = FocusHistoryContextMenuItemBox(tabManager: tabManager, item: itemSnapshot)
+            item.isEnabled = itemSnapshot.isNavigable
+            item.state = itemSnapshot.position == .current ? .on : .off
+            item.image = focusHistoryContextMenuImage(for: itemSnapshot)
+            menu.addItem(item)
+        }
+
+        if snapshot.isLimited {
+            menu.addItem(.separator())
+            let item = NSMenuItem(
+                title: String(localized: "menu.history.showFullFocusHistory", defaultValue: "Show Full History"),
+                action: #selector(showFullFocusHistoryContextMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = FocusHistoryShowFullContextMenuBox(tabManager: tabManager, anchorView: anchorView)
+            item.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+
+        return menu
+    }
+
+    private func focusHistoryContextMenuTitle(for item: FocusHistoryMenuItem) -> String {
+        let fallbackWorkspaceTitle = String(localized: "menu.history.untitledWorkspace", defaultValue: "Untitled Workspace")
+        let workspaceTitle = item.workspaceTitle.isEmpty ? fallbackWorkspaceTitle : item.workspaceTitle
+        guard let panelTitle = item.panelTitle,
+              !panelTitle.isEmpty,
+              panelTitle != workspaceTitle else {
+            return workspaceTitle
+        }
+        return "\(workspaceTitle) - \(panelTitle)"
+    }
+
+    private func focusHistoryContextMenuImage(for item: FocusHistoryMenuItem) -> NSImage? {
+        let symbolName: String
+        switch item.position {
+        case .older:
+            symbolName = "arrow.left"
+        case .current:
+            symbolName = "checkmark"
+        case .newer:
+            symbolName = "arrow.right"
+        }
+        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+    }
+
+    @objc private func performFocusHistoryContextMenuItem(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? FocusHistoryContextMenuItemBox,
+              let tabManager = box.tabManager,
+              tabManager.navigateToFocusHistoryMenuItem(box.item) else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    @objc private func showFullFocusHistoryContextMenu(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? FocusHistoryShowFullContextMenuBox,
+              let tabManager = box.tabManager,
+              let anchorView = box.anchorView else {
+            NSSound.beep()
+            return
+        }
+
+        let menu = makeFocusHistoryContextMenu(
+            tabManager: tabManager,
+            anchorView: anchorView,
+            showFullHistory: true
+        )
+        guard menu.items.contains(where: { !$0.isSeparatorItem }) else {
+            NSSound.beep()
+            return
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchorView.bounds.height), in: anchorView)
     }
 
     @objc private func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {

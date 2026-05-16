@@ -633,6 +633,27 @@ struct FocusHistoryEntry: Equatable {
     let panelId: UUID?
 }
 
+enum FocusHistoryMenuPosition: Equatable {
+    case older
+    case current
+    case newer
+}
+
+struct FocusHistoryMenuItem: Equatable {
+    let historyIndex: Int
+    let entry: FocusHistoryEntry
+    let workspaceTitle: String
+    let panelTitle: String?
+    let position: FocusHistoryMenuPosition
+    let isNavigable: Bool
+}
+
+struct FocusHistoryMenuSnapshot: Equatable {
+    let items: [FocusHistoryMenuItem]
+    let totalItemCount: Int
+    let isLimited: Bool
+}
+
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
@@ -5710,6 +5731,52 @@ class TabManager: ObservableObject {
         return true
     }
 
+    func focusHistoryMenuSnapshot(maxItemCount: Int? = nil) -> FocusHistoryMenuSnapshot {
+        let currentEntry = currentFocusHistoryEntry
+        let items = focusHistory.enumerated().compactMap { index, entry -> FocusHistoryMenuItem? in
+            guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry),
+                  let workspace = focusHistoryWorkspace(for: resolvedEntry) else {
+                return nil
+            }
+
+            let workspaceTitle = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let panelTitle = resolvedEntry.panelId
+                .flatMap { workspace.panelTitle(panelId: $0) }?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let position: FocusHistoryMenuPosition
+            if index < historyIndex {
+                position = .older
+            } else if index > historyIndex {
+                position = .newer
+            } else {
+                position = .current
+            }
+
+            return FocusHistoryMenuItem(
+                historyIndex: index,
+                entry: entry,
+                workspaceTitle: workspaceTitle,
+                panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
+                position: position,
+                isNavigable: focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry)
+            )
+        }
+        let orderedItems = items.sorted { $0.historyIndex > $1.historyIndex }
+        if let maxItemCount, maxItemCount >= 0, orderedItems.count > maxItemCount {
+            return FocusHistoryMenuSnapshot(
+                items: Array(orderedItems.prefix(maxItemCount)),
+                totalItemCount: orderedItems.count,
+                isLimited: true
+            )
+        }
+
+        return FocusHistoryMenuSnapshot(
+            items: orderedItems,
+            totalItemCount: orderedItems.count,
+            isLimited: false
+        )
+    }
+
     @discardableResult
     private func restoreFocusHistoryEntry(_ entry: FocusHistoryEntry) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else { return false }
@@ -5746,6 +5813,18 @@ class TabManager: ObservableObject {
         historyIndex = targetIndex
         didNavigate = true
         return true
+    }
+
+    @discardableResult
+    func navigateToFocusHistoryMenuItem(_ item: FocusHistoryMenuItem) -> Bool {
+        guard focusHistoryEntryIsNavigable(item.entry, currentEntry: currentFocusHistoryEntry) else { return false }
+        var targetIndex = item.historyIndex
+        guard focusHistory.indices.contains(targetIndex), focusHistory[targetIndex] == item.entry else {
+            guard let fallbackIndex = focusHistory.lastIndex(of: item.entry) else { return false }
+            targetIndex = fallbackIndex
+            return navigateToFocusHistoryEntry(item.entry, targetIndex: targetIndex)
+        }
+        return navigateToFocusHistoryEntry(focusHistory[targetIndex], targetIndex: targetIndex)
     }
 
     func navigateBack() {

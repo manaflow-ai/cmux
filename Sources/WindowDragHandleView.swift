@@ -609,6 +609,15 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "focusHistoryForward"
         }
     }
+
+    var acceptsContextMenu: Bool {
+        switch self {
+        case .newTab, .focusHistoryBack, .focusHistoryForward:
+            return true
+        case .toggleSidebar, .showNotifications:
+            return false
+        }
+    }
 }
 
 final class MinimalModeSidebarChromeHoverState: ObservableObject {

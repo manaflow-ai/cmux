@@ -43586,6 +43586,57 @@
         }
       }
     },
+    "menu.history.focusHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス履歴"
+          }
+        }
+      }
+    },
+    "menu.history.noFocusHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Focus History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス履歴がありません"
+          }
+        }
+      }
+    },
+    "menu.history.showFullFocusHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Full History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての履歴を表示"
+          }
+        }
+      }
+    },
     "menu.history.title": {
       "extractionState": "manual",
       "localizations": {
@@ -43599,6 +43650,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "履歴"
+          }
+        }
+      }
+    },
+    "menu.history.untitledWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無題のワークスペース"
           }
         }
       }
