@@ -11,6 +11,8 @@ extension CMUXCLI {
         let configDir: String       // Relative to ~: ".cursor", ".gemini"
         let configFile: String      // File name: "hooks.json", "settings.json"
         let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
+        let configDirEnvOverrideSubpath: String? // e.g. "GROK_HOME" + "hooks"
+        let createConfigDirIfMissing: Bool // for agents whose hook dir is created lazily
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux hooks cursor"
@@ -47,7 +49,12 @@ extension CMUXCLI {
             if let envKey = configDirEnvOverride,
                let envValue = ProcessInfo.processInfo.environment[envKey],
                !envValue.isEmpty {
-                return NSString(string: envValue).expandingTildeInPath
+                var url = URL(fileURLWithPath: NSString(string: envValue).expandingTildeInPath, isDirectory: true)
+                if let subpath = configDirEnvOverrideSubpath,
+                   !subpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    url.appendPathComponent(subpath, isDirectory: true)
+                }
+                return url.path
             }
             let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -60,6 +67,8 @@ extension CMUXCLI {
 
         init(name: String, displayName: String, statusKey: String,
              configDir: String, configFile: String, configDirEnvOverride: String? = nil,
+             configDirEnvOverrideSubpath: String? = nil,
+             createConfigDirIfMissing: Bool = false,
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
@@ -69,6 +78,8 @@ extension CMUXCLI {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
+            self.configDirEnvOverrideSubpath = configDirEnvOverrideSubpath
+            self.createConfigDirIfMissing = createConfigDirIfMissing
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
@@ -110,6 +121,22 @@ extension CMUXCLI {
             ],
             feedHookEvents: ["PreToolUse", "PermissionRequest"],
             postInstallAction: .codexConfigToml
+        ),
+        AgentHookDef(
+            name: "grok", displayName: "Grok", statusKey: "grok",
+            configDir: ".grok/hooks", configFile: "cmux-session.json",
+            configDirEnvOverride: "GROK_HOME", configDirEnvOverrideSubpath: "hooks",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "grok", disableEnvVar: "CMUX_GROK_HOOKS_DISABLED",
+            hookMarker: "cmux hooks grok", format: .nested(timeoutMs: 5000),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "opencode", displayName: "OpenCode", statusKey: "opencode",

@@ -19905,9 +19905,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
-            return
+        if !fm.fileExists(atPath: configDir) {
+            if def.createConfigDirIfMissing {
+                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+            } else {
+                print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
+                return
+            }
         }
 
         var existing: [String: Any] = [:]

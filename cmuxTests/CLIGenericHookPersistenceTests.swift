@@ -72,6 +72,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
             ),
             GenericHookPersistenceScenario(
+                agent: "grok",
+                subcommand: "session-start",
+                sessionId: "grok-session-123",
+                executable: "/Users/example/.grok/bin/grok",
+                launchArguments: [
+                    "/Users/example/.grok/bin/grok",
+                    "--model",
+                    "grok-4",
+                    "--resume",
+                    "old-session",
+                    "--permission-mode",
+                    "auto",
+                    "--cwd",
+                    "/tmp/grok repo",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "GROK_HOME": "/tmp/grok home",
+                    "XAI_API_KEY": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.grok/bin/grok",
+                    "--model",
+                    "grok-4",
+                    "--permission-mode",
+                    "auto",
+                    "--cwd",
+                    "/tmp/grok repo"
+                ],
+                expectedEnvironment: ["GROK_HOME": "/tmp/grok home"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "copilot",
                 subcommand: "session-start",
                 sessionId: "copilot-session-123",

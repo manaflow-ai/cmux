@@ -106741,6 +106741,23 @@
         }
       }
     },
+    "sessionIndex.agent.grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.opencode": {
       "extractionState": "manual",
       "localizations": {
@@ -112014,6 +112031,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
         "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Grok" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Grok" } }
       }
     },
     "taskManager.agent.opencode": {

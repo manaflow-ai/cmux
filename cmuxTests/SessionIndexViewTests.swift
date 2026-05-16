@@ -334,6 +334,8 @@ private extension SessionAgent {
             return .claude(model: nil, permissionMode: nil)
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .grok:
+            return .grok
         case .opencode:
             return .opencode(providerModel: nil, agentName: nil)
         case .rovodev:
