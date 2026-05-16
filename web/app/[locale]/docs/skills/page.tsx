@@ -160,7 +160,7 @@ export default function SkillsPage() {
         })}
       </p>
       <CodeBlock title={t("installWithVercel")} lang="bash">{`# Install all cmux skills
-npx skills add manaflow-ai/cmux --all -g -y
+npx skills add manaflow-ai/cmux -g -y
 
 # Or install just diagnostics
 npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>

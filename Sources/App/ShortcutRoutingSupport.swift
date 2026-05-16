@@ -1,15 +1,14 @@
 import AppKit
 import Foundation
 
-func browserOmnibarSelectionDeltaForCommandNavigation(
+func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
     chars: String
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
-    guard isCommandOrControlOnly else { return nil }
+    guard normalizedFlags == [.control] else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil
@@ -34,6 +33,10 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
     flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
+}
+
+func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
+    browserOmnibarNormalizedModifierFlags(flags) == [.control]
 }
 
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
