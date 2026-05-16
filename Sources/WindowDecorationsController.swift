@@ -339,10 +339,10 @@ final class WindowDecorationsController {
             case .toggleSidebar:
                 _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
             case .showNotifications:
-                let resolvedAnchorView = anchorView ?? NotificationsAnchorRegistry.shared.closestAnchor(
+                let resolvedAnchorView = NotificationsAnchorRegistry.shared.closestAnchor(
                     in: window,
                     to: locationInWindow
-                )
+                ) ?? anchorView
                 AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: resolvedAnchorView)
             case .newTab:
                 let targetTabManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)

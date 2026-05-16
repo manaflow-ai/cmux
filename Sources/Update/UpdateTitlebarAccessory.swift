@@ -151,7 +151,7 @@ final class NotificationsAnchorRegistry {
         anchors.allObjects
             .compactMap { view -> (view: NSView, distance: CGFloat)? in
                 guard view.window === window else { return nil }
-                guard isVisibleAnchor(view) else { return nil }
+                guard notificationsPopoverAnchorIsVisible(view) else { return nil }
                 let frameInWindow = view.convert(view.bounds, to: nil)
                 guard !frameInWindow.isEmpty else { return nil }
                 let center = NSPoint(x: frameInWindow.midX, y: frameInWindow.midY)
@@ -162,17 +162,27 @@ final class NotificationsAnchorRegistry {
             .min { $0.distance < $1.distance }?
             .view
     }
+}
 
-    private func isVisibleAnchor(_ view: NSView) -> Bool {
-        var current: NSView? = view
-        while let candidate = current {
-            if candidate.isHidden || candidate.alphaValue <= 0 {
-                return false
-            }
-            current = candidate.superview
+func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
+    var current: NSView? = view
+    while let candidate = current {
+        if candidate.isHidden || candidate.alphaValue <= 0 {
+            return false
         }
-        return true
+        current = candidate.superview
     }
+    return true
+}
+
+func preferredNotificationsPopoverAnchor(buttonAnchor: NSView?, fallbackAnchor: NSView?) -> NSView? {
+    guard let buttonAnchor,
+          buttonAnchor.window != nil,
+          !buttonAnchor.bounds.isEmpty,
+          notificationsPopoverAnchorIsVisible(buttonAnchor) else {
+        return fallbackAnchor
+    }
+    return buttonAnchor
 }
 
 private final class DetachedNotificationsPopoverDelegate: NSObject, NSPopoverDelegate {
@@ -364,9 +374,9 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
 }
 
 private enum TitlebarControlIconStyle {
-    static let opacity = 0.72
-    static let hoveredOpacity = 0.88
-    static let pressedOpacity = 0.96
+    static let opacity = 0.86
+    static let hoveredOpacity = 0.96
+    static let pressedOpacity = 1.0
     static let weight: Font.Weight = .regular
     static let foregroundColor = Color(nsColor: .secondaryLabelColor)
     static let sidebarGlyphStrokeWidth: CGFloat = 1
@@ -1817,15 +1827,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
         // Use external anchor (e.g. fullscreen sidebar controls) if provided.
         if let externalAnchor, externalAnchor.window != nil {
-            externalAnchor.superview?.layoutSubtreeIfNeeded()
-            let anchorRect = externalAnchor.convert(externalAnchor.bounds, to: contentView)
+            let anchorView = preferredNotificationsPopoverAnchor(
+                buttonAnchor: viewModel.notificationsAnchorView,
+                fallbackAnchor: externalAnchor
+            ) ?? externalAnchor
+            let anchorContentView = anchorView.window?.contentView ?? contentView
+            anchorContentView.layoutSubtreeIfNeeded()
+            anchorView.superview?.layoutSubtreeIfNeeded()
+            let anchorRect = anchorView.convert(anchorView.bounds, to: anchorContentView)
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
-                notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
+                notificationsPopover.show(relativeTo: anchorRect, of: anchorContentView, preferredEdge: .maxY)
                 postNotificationsPopoverVisibilityDidChange(
                     isShown: true,
                     source: notificationsPopover,
-                    windowNumber: window.windowNumber
+                    windowNumber: anchorView.window?.windowNumber ?? window.windowNumber
                 )
                 return
             }

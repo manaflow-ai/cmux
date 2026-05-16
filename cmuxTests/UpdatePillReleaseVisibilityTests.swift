@@ -289,6 +289,13 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         }
     }
 
+    func testIdleTitlebarButtonsStayReadableButMuted() {
+        let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+
+        XCTAssertGreaterThanOrEqual(idleForeground, 0.84)
+        XCTAssertLessThan(idleForeground, 1.0)
+    }
+
     func testPressedStateDoesNotScaleTitlebarButtons() {
         XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
         XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
@@ -309,6 +316,68 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
                 "Expected disabled titlebar button hover to have no active background for style \(style)"
             )
         }
+    }
+}
+
+@MainActor
+final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
+    func testPreferredPopoverAnchorUsesVisibleButtonAnchorBeforeWideFallback() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let fallback = NSView(frame: NSRect(x: 20, y: 40, width: 160, height: 24))
+        let buttonAnchor = NSView(frame: NSRect(x: 50, y: 2, width: 20, height: 20))
+        contentView.addSubview(fallback)
+        fallback.addSubview(buttonAnchor)
+
+        XCTAssertTrue(
+            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
+        )
+
+        buttonAnchor.isHidden = true
+        XCTAssertTrue(
+            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+        )
+    }
+
+    func testNotificationAnchorRegistryFindsNearestVisibleButtonAnchor() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let bellAnchor = NSView(frame: NSRect(x: 90, y: 60, width: 20, height: 20))
+        let plusAnchor = NSView(frame: NSRect(x: 140, y: 60, width: 20, height: 20))
+        contentView.addSubview(bellAnchor)
+        contentView.addSubview(plusAnchor)
+        NotificationsAnchorRegistry.shared.register(bellAnchor)
+        NotificationsAnchorRegistry.shared.register(plusAnchor)
+
+        let pointNearBell = NSPoint(x: bellAnchor.frame.midX + 2, y: bellAnchor.frame.midY)
+        XCTAssertTrue(
+            NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === bellAnchor
+        )
+
+        bellAnchor.isHidden = true
+        XCTAssertTrue(
+            NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
+        )
     }
 }
 
