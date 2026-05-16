@@ -926,6 +926,17 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         URL(fileURLWithPath: filePath)
     }
 
+    var isMarkdownFile: Bool {
+        let ext = fileURL.pathExtension.lowercased()
+        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdwn" || ext == "mdown"
+    }
+
+    // Mirrors TerminalSurface.owningWorkspace(): panel.workspaceId equals workspace.id,
+    // which is the tab ID in TabManager.tabs: [Workspace].
+    func owningWorkspace() -> Workspace? {
+        AppDelegate.shared?.workspaceFor(tabId: workspaceId)
+    }
+
     init(workspaceId: UUID, filePath: String) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -1251,6 +1262,24 @@ struct FilePreviewPanelView: View {
                     isDisabled: !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
+
+                if panel.isMarkdownFile {
+                    PanelHeaderIconButton(
+                        systemName: "doc.richtext",
+                        label: panel.isDirty
+                            ? String(localized: "filePreview.openMarkdownPreview.savefirst", defaultValue: "Save before opening preview")
+                            : String(localized: "filePreview.openMarkdownPreview", defaultValue: "Open Preview"),
+                        isDisabled: panel.isDirty || panel.isSaving,
+                        action: {
+                            let fileURL = panel.fileURL
+                            guard let workspace = panel.owningWorkspace(),
+                                  workspace.openOrFocusMarkdownSplit(from: panel.id, filePath: panel.filePath) != nil else {
+                                NSWorkspace.shared.open(fileURL)
+                                return
+                            }
+                        }
+                    )
+                }
             }
 
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
@@ -1264,7 +1293,7 @@ struct FilePreviewPanelView: View {
         } else {
             switch panel.previewMode {
             case .text:
-                FilePreviewTextEditor(
+                HighlightedFilePreviewRouter(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,

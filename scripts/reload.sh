@@ -500,6 +500,21 @@ fi
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
+# CodeEditSourceEditor (pinned at 0.15.2) declares SwiftLintPlugin as a
+# build-tool plugin. Xcode requires interactive trust approval before any
+# build-tool plugin runs, even from a dependency package.
+#
+# Preferred path (developer machines): open the project in Xcode.app once and
+# click "Trust & Enable All". Xcode stores the decision in
+# IDEPackagePluginTrustTable.plist; all subsequent command-line builds succeed
+# without any extra flag.
+#
+# CI / headless path: set CMUX_SKIP_PLUGIN_VALIDATION=1 to pass
+# -skipPackagePluginValidation. This is intentionally opt-in — set it only
+# after reviewing SwiftLintPlugin at the pinned revision (0.63.1).
+if [[ "${CMUX_SKIP_PLUGIN_VALIDATION:-0}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(-skipPackagePluginValidation)
+fi
 XCODEBUILD_ARGS+=(build)
 
 XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"

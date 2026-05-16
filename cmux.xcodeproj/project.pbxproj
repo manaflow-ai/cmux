@@ -252,6 +252,8 @@
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
+		C0DE5EDEC0DE5EDE00000003 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */; };
+		C0DE5EDEC0DE5EDE00000013 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713003C1713003C1713003 /* KeyboardShortcutSettingsLookup.swift */; };
@@ -1048,6 +1050,8 @@
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
+				C0DE5EDEC0DE5EDE00000003 /* CodeEditSourceEditor in Frameworks */,
+				C0DE5EDEC0DE5EDE00000013 /* CodeEditLanguages in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1673,6 +1677,8 @@
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
+				C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */,
+				C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -1796,6 +1802,8 @@
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
+				C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */,
 				A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
@@ -2870,6 +2878,22 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.2;
+			};
+		};
+		C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditLanguages";
+			requirement = {
+				kind = exact;
+				version = 0.1.20;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -2937,6 +2961,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
 			productName = StackAuth;
+		};
+		C0DE5EDEC0DE5EDE00000002 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		C0DE5EDEC0DE5EDE00000012 /* CodeEditLanguages */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */;
+			productName = CodeEditLanguages;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
