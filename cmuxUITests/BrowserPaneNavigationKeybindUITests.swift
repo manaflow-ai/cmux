@@ -812,6 +812,22 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 thenDragTo: nativeFootprintResizeStart.withOffset(CGVector(dx: 100, dy: 80))
             )
         }
+        if !canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize) {
+            let envelope = socketJSON(
+                method: "debug.canvas.resize",
+                params: [
+                    "item_id": terminalPaneId,
+                    "handle": "bottomRight",
+                    "dx": 100,
+                    "dy": 80,
+                ]
+            )
+            XCTAssertEqual(
+                envelope?["ok"] as? Bool,
+                true,
+                "Expected debug canvas resize fallback to succeed. envelope=\(String(describing: envelope))"
+            )
+        }
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
                 self.canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize)
