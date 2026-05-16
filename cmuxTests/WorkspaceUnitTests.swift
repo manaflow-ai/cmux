@@ -389,8 +389,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertTrue(visibleActions.contains(.markAsUnread))
         XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    func testMarkAsUnreadUsesConfigurableCommandOptionUDefault() {
+        let shortcut = KeyboardShortcutSettings.Action.markAsUnread.defaultShortcut
+
+        XCTAssertEqual(shortcut.key, "u")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.markAsUnread))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.markAsUnread))
     }
 
     func testMarkOldestUnreadAndJumpNextUsesConfigurableCommandControlUDefault() {

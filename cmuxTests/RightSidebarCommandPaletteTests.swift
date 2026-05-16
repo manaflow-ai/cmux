@@ -57,7 +57,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
-    func testCommandPaletteUnreadDeferActionUsesConfigurableShortcutAction() {
+    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
+        XCTAssertEqual(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markAsUnread"),
+            .markAsUnread
+        )
         XCTAssertEqual(
             ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
             .markOldestUnreadAndJumpNext

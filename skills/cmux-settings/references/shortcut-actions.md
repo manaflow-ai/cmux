@@ -63,6 +63,7 @@ Values for `shortcuts.bindings.<action>`:
 
 - `shortcuts.bindings.showNotifications`
 - `shortcuts.bindings.jumpToUnread`
+- `shortcuts.bindings.markAsUnread`
 - `shortcuts.bindings.markOldestUnreadAndJumpNext`
 - `shortcuts.bindings.triggerFlash`
 

@@ -263,6 +263,38 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
     }
 
+    func testMarkFocusedNotificationAsUnreadDoesNotJumpAwayFromCurrentWorkspace() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let currentWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+        let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        store.markUnread(forTabId: laterWorkspace.id)
+
+        XCTAssertTrue(appDelegate.markFocusedNotificationAsUnread())
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
+    }
+
     func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()

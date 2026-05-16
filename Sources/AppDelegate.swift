@@ -10637,6 +10637,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func markFocusedNotificationAsUnread(
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        markFocusedNotificationAsOldestUnread(preferredWindow: preferredWindow) != nil
+    }
+
+    @discardableResult
     func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
         preferredWindow: NSWindow? = nil
     ) -> TerminalNotification? {
@@ -11647,6 +11654,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             jumpToLatestUnread()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markAsUnread) {
+            markFocusedNotificationAsUnread(
+                preferredWindow: mainWindowForShortcutEvent(event)
+            )
             return true
         }
 
