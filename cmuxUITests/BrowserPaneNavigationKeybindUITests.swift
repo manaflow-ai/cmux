@@ -784,9 +784,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
 
         let frameBeforeMove = terminalCard.frame
-        let dragLayer = canvasDragLayer(app, paneId: terminalPaneId)
-        XCTAssertTrue(dragLayer.waitForExistence(timeout: 6.0), "Expected terminal canvas drag layer")
-        let dragStart = dragLayer.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.50))
+        let dragStart = terminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.04))
         dragStart.press(
             forDuration: 0.12,
             thenDragTo: dragStart.withOffset(CGVector(dx: 90, dy: 65))
