@@ -11899,6 +11899,10 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> [String: Any] {
         var identifyParams: [String: Any] = [:]
+        let windowHandle = params["window_id"] as? String
+        if let windowHandle {
+            identifyParams["window_id"] = windowHandle
+        }
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
         }
@@ -11907,7 +11911,12 @@ struct CMUXCLI {
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
         let activePath = parseTreePath(payload: focused)
-        let windows = try buildTreeWindowNodes(options: options, activePath: activePath, client: client)
+        let windows = try buildTreeWindowNodes(
+            options: options,
+            windowHandle: windowHandle,
+            activePath: activePath,
+            client: client
+        )
 
         return treePayloadWithMarkers([
             "active": focused.isEmpty ? NSNull() : focused,
@@ -11918,6 +11927,7 @@ struct CMUXCLI {
 
     private func buildTreeWindowNodes(
         options: TreeCommandOptions,
+        windowHandle: String?,
         activePath: TreePath,
         client: SocketClient
     ) throws -> [[String: Any]] {
@@ -11925,13 +11935,21 @@ struct CMUXCLI {
         let allWindows = windowsPayload["windows"] as? [[String: Any]] ?? []
 
         if let workspaceRaw = options.workspaceHandle {
-            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle) else {
                 throw CLIError(message: "Invalid workspace handle")
             }
 
-            let workspaceListPayload = try client.sendV2(method: "workspace.list", params: ["workspace_id": workspaceHandle])
+            var workspaceParams: [String: Any] = ["workspace_id": workspaceHandle]
+            if let windowHandle {
+                workspaceParams["window_id"] = windowHandle
+            }
+            let workspaceListPayload = try client.sendV2(method: "workspace.list", params: workspaceParams)
             let workspaceWindowHandle = (workspaceListPayload["window_ref"] as? String) ?? (workspaceListPayload["window_id"] as? String)
-            let window = allWindows.first(where: { treeItemMatchesHandle($0, handle: workspaceWindowHandle) })
+            let explicitWindow = windowHandle.flatMap { handle in
+                allWindows.first(where: { treeItemMatchesHandle($0, handle: handle) })
+            }
+            let window = explicitWindow
+                ?? allWindows.first(where: { treeItemMatchesHandle($0, handle: workspaceWindowHandle) })
                 ?? treeFallbackWindow(from: workspaceListPayload)
 
             let workspaces = workspaceListPayload["workspaces"] as? [[String: Any]] ?? []
@@ -11951,6 +11969,11 @@ struct CMUXCLI {
         let targetWindows: [[String: Any]]
         if options.includeAllWindows {
             targetWindows = allWindows
+        } else if let windowHandle {
+            targetWindows = allWindows.filter { treeItemMatchesHandle($0, handle: windowHandle) }
+            if targetWindows.isEmpty {
+                throw CLIError(message: "Window not found: \(windowHandle)")
+            }
         } else if let currentWindowHandle = activePath.windowHandle {
             let currentOnly = allWindows.filter { treeItemMatchesHandle($0, handle: currentWindowHandle) }
             targetWindows = currentOnly.isEmpty ? Array(allWindows.prefix(1)) : currentOnly
