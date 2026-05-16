@@ -2811,12 +2811,23 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         let owner = try makeDeferredBonsplitPayloadOwner()
         let pasteboard = NSPasteboard(name: .drag)
         pasteboard.clearContents()
-        pasteboard.declareTypes([Self.bonsplitPasteboardType], owner: owner)
+        pasteboard.declareTypes(Self.currentProcessBonsplitPasteboardTypes, owner: owner)
         defer { pasteboard.clearContents() }
 
         let view = SidebarBonsplitTabNewWorkspaceDropView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         _ = view.hitTest(NSPoint(x: 20, y: 20))
 
+        XCTAssertEqual(owner.requestedTypes, [])
+    }
+
+    func testBonsplitPasteboardTypeWithoutProcessMarkerIsIgnoredWithoutRequestingData() throws {
+        let owner = try makeDeferredBonsplitPayloadOwner()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.foreign.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.declareTypes([Self.bonsplitPasteboardType], owner: owner)
+        defer { pasteboard.clearContents() }
+
+        XCTAssertFalse(BonsplitTabDragPayload.hasTransferType(in: pasteboard))
         XCTAssertEqual(owner.requestedTypes, [])
     }
 
@@ -2899,11 +2910,15 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
     }
 
     private static let bonsplitPasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+    private static let currentProcessBonsplitPasteboardTypes = [
+        bonsplitPasteboardType,
+        BonsplitTabDragPayload.currentProcessMarkerType
+    ]
 
     private func makeDeferredBonsplitPayloadPasteboard(owner: DeferredBonsplitPasteboardOwner) -> NSPasteboard {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.drag.\(UUID().uuidString)"))
         pasteboard.clearContents()
-        pasteboard.declareTypes([Self.bonsplitPasteboardType], owner: owner)
+        pasteboard.declareTypes(Self.currentProcessBonsplitPasteboardTypes, owner: owner)
         return pasteboard
     }
 
@@ -2990,6 +3005,11 @@ final class GhosttySurfaceSizeRetryPolicyTests: XCTestCase {
         )
         XCTAssertFalse(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: .leftMouseDragged))
         XCTAssertTrue(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: .leftMouseUp))
+    }
+
+    func testTabDragDeferralRetriesAfterEscapeCancel() {
+        XCTAssertFalse(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(afterKeyDown: UInt16(kVK_Return)))
+        XCTAssertTrue(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(afterKeyDown: UInt16(kVK_Escape)))
     }
 }
 

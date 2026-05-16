@@ -34,6 +34,10 @@ enum GhosttySurfaceSizeRetryPolicy {
             return false
         }
     }
+
+    static func shouldRunQueuedRetry(afterKeyDown keyCode: UInt16) -> Bool {
+        keyCode == UInt16(kVK_Escape)
+    }
 }
 
 @_silgen_name("ghostty_surface_clear_selection")
@@ -6429,7 +6433,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func installEventMonitor() {
         guard eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.scrollWheel, .leftMouseUp, .rightMouseUp, .otherMouseUp]
+            matching: [.scrollWheel, .leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown]
         ) { [weak self] event in
             return self?.localEventHandler(event) ?? event
         }
@@ -6441,6 +6445,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return localEventScrollWheel(event)
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
             retryDeferredSurfaceSizeAfterDragIfNeeded(eventType: event.type)
+            return event
+        case .keyDown:
+            retryDeferredSurfaceSizeAfterDragCancelIfNeeded(keyCode: event.keyCode)
             return event
         default:
             return event
@@ -6602,8 +6609,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
-        let types = NSPasteboard(name: .drag).types ?? []
-        return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+        let pasteboard = NSPasteboard(name: .drag)
+        return BonsplitTabDragPayload.hasTransferType(in: pasteboard) ||
+            SidebarTabDragPayload.hasTransferType(in: pasteboard)
     }
 
     private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
@@ -6655,6 +6663,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func retryDeferredSurfaceSizeAfterDragIfNeeded(eventType: NSEvent.EventType) {
         guard deferredSurfaceSizeRetryQueued else { return }
         guard GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: eventType) else { return }
+        deferredSurfaceSizeRetryQueued = false
+        _ = updateSurfaceSize()
+    }
+
+    private func retryDeferredSurfaceSizeAfterDragCancelIfNeeded(keyCode: UInt16) {
+        guard deferredSurfaceSizeRetryQueued else { return }
+        guard GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(afterKeyDown: keyCode) else { return }
         deferredSurfaceSizeRetryQueued = false
         _ = updateSurfaceSize()
     }
