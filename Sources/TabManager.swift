@@ -4650,9 +4650,7 @@ class TabManager: ObservableObject {
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(in: workspace)
         if !blockPolicyPanelIds.isEmpty {
-            if requiresConfirmation {
-                guard confirmEphemeralWorktreeClose() else { return }
-            }
+            guard confirmEphemeralWorktreeClose() else { return }
             workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(blockPolicyPanelIds)
         } else if requiresConfirmation,
            shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
