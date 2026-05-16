@@ -4555,6 +4555,11 @@ private func browserBareHostCandidate(_ lowercasedInput: String) -> String {
 func resolveBrowserNavigableURL(_ input: String) -> URL? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
+
+    if NSString(string: trimmed).isAbsolutePath {
+        return URL(fileURLWithPath: trimmed)
+    }
+
     guard !trimmed.contains(" ") else { return nil }
 
     // Check localhost/loopback before generic URL parsing because
