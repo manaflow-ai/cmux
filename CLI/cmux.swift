@@ -11341,19 +11341,26 @@ struct CMUXCLI {
         var forwardedArgs: [String] = []
         var resolvedExplicitWorkspace = false
         var index = 0
+        var parsingOptions = true
         let rawWindow = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         let windowHandle = try normalizeWindowHandle(rawWindow, client: client)
 
         while index < commandArgs.count {
             let arg = commandArgs[index]
-            if arg == "--workspace", index + 1 < commandArgs.count {
+            if parsingOptions, arg == "--" {
+                forwardedArgs.append(arg)
+                parsingOptions = false
+                index += 1
+                continue
+            }
+            if parsingOptions, arg == "--workspace", index + 1 < commandArgs.count {
                 let workspaceId = try resolveWorkspaceId(commandArgs[index + 1], client: client, windowHandle: windowHandle)
                 forwardedArgs.append("--tab=\(workspaceId)")
                 resolvedExplicitWorkspace = true
                 index += 2
                 continue
             }
-            if arg.hasPrefix("--workspace=") {
+            if parsingOptions, arg.hasPrefix("--workspace=") {
                 let rawWorkspace = String(arg.dropFirst("--workspace=".count))
                 let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client, windowHandle: windowHandle)
                 forwardedArgs.append("--tab=\(workspaceId)")
@@ -11361,11 +11368,11 @@ struct CMUXCLI {
                 index += 1
                 continue
             }
-            if arg == "--window", index + 1 < commandArgs.count {
+            if parsingOptions, arg == "--window", index + 1 < commandArgs.count {
                 index += 2
                 continue
             }
-            if arg.hasPrefix("--window=") {
+            if parsingOptions, arg.hasPrefix("--window=") {
                 index += 1
                 continue
             }

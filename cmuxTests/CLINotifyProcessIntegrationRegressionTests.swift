@@ -1091,6 +1091,54 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
+    func testSidebarMetadataWindowFlagAfterSeparatorStaysMessageText() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("log-separator")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = self.jsonObject(line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                guard method == "workspace.current" else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+                }
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            }
+
+            XCTAssertEqual(line, "log --tab=\(workspaceId) -- --window target")
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["log", "--window", windowId, "--", "--window", "target"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
     func testSidebarMetadataWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("status-window-empty")
