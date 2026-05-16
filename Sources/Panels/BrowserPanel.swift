@@ -4566,7 +4566,6 @@ final class BrowserPanel: Panel, ObservableObject {
             preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
         )
         pendingRemoteNavigation = nil
-        reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
     }
 
     private func performNavigation(
@@ -5159,6 +5158,10 @@ extension BrowserPanel {
     private func setPreferredDeveloperToolsVisible(_ next: Bool) {
         guard preferredDeveloperToolsVisible != next else { return }
         preferredDeveloperToolsVisible = next
+    }
+
+    private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
+        guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
     }
 
@@ -5191,6 +5194,7 @@ extension BrowserPanel {
                 guard !self.isDeveloperToolsVisible() else { return }
                 self.developerToolsDetachedOpenGraceDeadline = nil
                 self.setPreferredDeveloperToolsVisible(false)
+                self.reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
                 self.cancelDeveloperToolsRestoreRetry()
 #if DEBUG
                 cmuxDebugLog(
@@ -5386,6 +5390,7 @@ extension BrowserPanel {
         } else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
+            reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         }
 
         if visible != targetVisible {
@@ -5496,6 +5501,7 @@ extension BrowserPanel {
         }
         setPreferredDeveloperToolsVisible(false)
         developerToolsLastKnownVisibleAt = nil
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
     }
 
@@ -5553,6 +5559,7 @@ extension BrowserPanel {
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
 #if DEBUG
         cmuxDebugLog(
