@@ -21137,10 +21137,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
                 var summary = summarizeAgentHookNotification(def: def, parsedInput: input)
                 if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
+                    let restored = classifyAgentHookNotification(
+                        def: def,
+                        signal: mapped?.lastSubtitle ?? "",
+                        message: savedBody,
+                        isFallback: false
+                    )
                     summary = AgentHookNotificationSummary(
-                        subtitle: mapped?.lastSubtitle ?? summary.subtitle,
+                        subtitle: mapped?.lastSubtitle ?? restored.subtitle,
                         body: savedBody,
-                        status: summary.status,
+                        status: restored.status,
                         isFallback: false
                     )
                 }
@@ -21188,7 +21194,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         client: client
                     )
                 case .idle:
-                    let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                    let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client

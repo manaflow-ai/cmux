@@ -334,11 +334,60 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        var sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
         XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
+
+        let waitingMessage = "Waiting for input: choose docs section"
+        let waitingCommandStart = state.commands.count
+        let waiting = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(waitingMessage)"}"#
+        )
+        XCTAssertFalse(waiting.timedOut, waiting.stderr)
+        XCTAssertEqual(waiting.status, 0, waiting.stderr)
+        XCTAssertEqual(waiting.stdout, "{}\n")
+
+        let waitingCommands = Array(state.commands.dropFirst(waitingCommandStart))
+        XCTAssertTrue(
+            waitingCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
+            },
+            "Expected waiting notification to forward the payload message, saw \(waitingCommands)"
+        )
+        XCTAssertTrue(
+            waitingCommands.contains { $0.contains("set_status grok Grok needs input") },
+            "Expected waiting notification to mark Grok as needing input, saw \(waitingCommands)"
+        )
+
+        let fallbackCommandStart = state.commands.count
+        let fallback = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification"}"#
+        )
+        XCTAssertFalse(fallback.timedOut, fallback.stderr)
+        XCTAssertEqual(fallback.status, 0, fallback.stderr)
+        XCTAssertEqual(fallback.stdout, "{}\n")
+
+        let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
+        XCTAssertTrue(
+            fallbackCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
+            },
+            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+        )
+        XCTAssertTrue(
+            fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
+            "Expected fallback notification to preserve the saved needs-input status, saw \(fallbackCommands)"
+        )
+
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
+        XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
     }
 
     func testGrokHookInstallRoutesNotificationEventToNotificationSubcommand() throws {

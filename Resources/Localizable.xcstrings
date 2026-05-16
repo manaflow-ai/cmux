@@ -20924,6 +20924,23 @@
         }
       }
     },
+    "agent.generic.notification.status.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
     "agent.generic.notification.status.needsInput": {
       "extractionState": "manual",
       "localizations": {
