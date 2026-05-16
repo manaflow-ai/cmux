@@ -31,39 +31,49 @@ skills/cmux-diagnostics/scripts/cmux-diagnostics --include-context
 ## What to Check
 
 1. CLI and socket health:
+
    ```bash
    command -v cmux
    cmux ping
    cmux capabilities --json
    ```
+
    If socket commands fail, check whether the agent is running inside a cmux terminal and whether socket automation is enabled.
 
 2. Settings health:
+
    ```bash
    ~/.agents/skills/cmux-settings/scripts/cmux-settings validate
    ~/.agents/skills/cmux-settings/scripts/cmux-settings get terminal.autoResumeAgentSessions
    ```
+
    If the user installed with `skills.sh`, use `~/.codex/skills/cmux-settings/scripts/cmux-settings` instead.
    If `terminal.autoResumeAgentSessions` is false, cmux restores panes but will not automatically resume saved agent sessions.
 
 3. Hook installation:
+
    ```bash
    cmux hooks setup --agent codex
    cmux hooks setup --agent opencode
    cmux hooks setup
    ```
+
    Only run install or uninstall commands after the user agrees. `cmux hooks setup` installs supported agents found on PATH and skips missing agents.
 
 4. Session restore evidence:
+
    ```bash
    ls -lh ~/.cmuxterm/*-hook-sessions.json 2>/dev/null
    ```
+
    Missing session stores usually means the agent has not run inside cmux since hooks were installed, hooks are disabled, or the agent integration does not support resume capture.
 
 5. Notification path:
+
    ```bash
    cmux notify "cmux diagnostic test"
    ```
+
    Use this only when the user is ready for a visible test notification.
 
 ## Interpretation

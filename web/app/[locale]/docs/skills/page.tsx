@@ -159,7 +159,10 @@ export default function SkillsPage() {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <CodeBlock title={t("installWithVercel")} lang="bash">{`npx skills add manaflow-ai/cmux --all -g -y
+      <CodeBlock title={t("installWithVercel")} lang="bash">{`# Install all cmux skills
+npx skills add manaflow-ai/cmux --all -g -y
+
+# Or install just diagnostics
 npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
       <CodeBlock title={t("installWithSkillsSh")} lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash`}</CodeBlock>
       <Callout type="info">

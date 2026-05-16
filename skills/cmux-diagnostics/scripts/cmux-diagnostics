@@ -80,7 +80,9 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 skill_dir="$(cd -- "$script_dir/.." >/dev/null 2>&1 && pwd)"
 skills_root="$(cd -- "$skill_dir/.." >/dev/null 2>&1 && pwd)"
 settings_helper="$skills_root/cmux-settings/scripts/cmux-settings"
-if [[ ! -x "$settings_helper" && -x "$HOME/.codex/skills/cmux-settings/scripts/cmux-settings" ]]; then
+if [[ ! -x "$settings_helper" && -x "$HOME/.agents/skills/cmux-settings/scripts/cmux-settings" ]]; then
+  settings_helper="$HOME/.agents/skills/cmux-settings/scripts/cmux-settings"
+elif [[ ! -x "$settings_helper" && -x "$HOME/.codex/skills/cmux-settings/scripts/cmux-settings" ]]; then
   settings_helper="$HOME/.codex/skills/cmux-settings/scripts/cmux-settings"
 fi
 
