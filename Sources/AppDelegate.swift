@@ -2043,7 +2043,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspace.panels.values
                 .compactMap { $0 as? TerminalPanel }
                 .first { panel in
-                    panel.hostedView.window != nil &&
+                    panel.surface.isViewInWindow &&
                         panel.hostedView.debugPortalVisibleInUI &&
                         !panel.hostedView.debugPortalFrameInWindow.isEmpty
                 }
@@ -2177,7 +2177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let currentTabManager = self.tabManager
             let workspace = currentTabManager?.selectedWorkspace ?? currentTabManager?.tabs.first
             let terminalPanel = cmdClickUITestTerminalPanel(in: workspace)
-            let mainWindow = terminalPanel?.hostedView.window
+            let mainWindow = terminalPanel?.surface.uiWindow
                 ?? currentTabManager.flatMap { self.windowId(for: $0).flatMap { self.mainWindow(for: $0) } }
             if Date() >= deadline {
                 let textSnapshot = terminalPanel
@@ -2280,7 +2280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let terminalFrame = terminalPanel.hostedView.debugPortalFrameInWindow
             let terminalReady = terminalPanel.surface.surface != nil
-            let terminalVisible = terminalPanel.hostedView.window != nil &&
+            let terminalVisible = terminalPanel.surface.isViewInWindow &&
                 terminalPanel.hostedView.debugPortalVisibleInUI &&
                 !terminalFrame.isEmpty &&
                 terminalFrame.width > 0 &&
@@ -8565,7 +8565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let hostedView = terminalPanel.hostedView
                 let shouldReconcileVisibleSelection =
                     target.workspace.id == selectedWorkspaceId &&
-                    hostedView.window != nil &&
+                    terminalPanel.surface.isViewInWindow &&
                     hostedView.superview != nil
 
                 if shouldReconcileVisibleSelection {
@@ -10638,6 +10638,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func toggleFocusedNotificationUnread(
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        guard let notificationStore,
+              let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
+            return false
+        }
+        if notificationStore.workspaceIsUnread(forTabId: target.tabId) {
+            notificationStore.markRead(forTabId: target.tabId)
+            return true
+        }
+        notificationStore.markUnread(forTabId: target.tabId)
+        return true
+    }
+
+    @discardableResult
     func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
         preferredWindow: NSWindow? = nil
     ) -> TerminalNotification? {
@@ -10667,6 +10683,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
             return nil
         }
+        return markFocusedNotificationAsOldestUnread(target: target, notificationStore: notificationStore)
+    }
+
+    private func markFocusedNotificationAsOldestUnread(
+        target: FocusedNotificationTarget,
+        notificationStore: TerminalNotificationStore
+    ) -> FocusedNotificationMarkResult? {
         if let notificationId = notificationStore.markLatestNotificationAsOldestUnread(
             forTabId: target.tabId,
             surfaceId: target.surfaceId
@@ -11470,8 +11493,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
         }
-        // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
-        if let delta = commandOmnibarSelectionDelta(
+        // Chrome-like omnibar navigation while holding Ctrl+N / Ctrl+P.
+        if let delta = controlOmnibarSelectionDelta(
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: flags,
             chars: chars
@@ -11500,13 +11523,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // history): after command-palette/notification handling and browser omnibar
         // arrow navigation above, most plain key events have no app-level shortcut behavior.
         if shouldBypassPlainKeyShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
-            return false
-        }
-
-        // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
-        // address bar is focused. Without this, app-level Cmd+N can steal focus.
-        if hasFocusedAddressBarInShortcutContext,
-           shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
             return false
         }
 
@@ -11655,6 +11671,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             jumpToLatestUnread()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleUnread) {
+            toggleFocusedNotificationUnread(
+                preferredWindow: mainWindowForShortcutEvent(event)
+            )
             return true
         }
 
@@ -12120,7 +12143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hostedView = terminalPanel.hostedView
         let hostedSize = hostedView.bounds.size
         let hostedHiddenInHierarchy = hostedView.isHiddenOrHasHiddenAncestor
-        let hostedAttachedToWindow = hostedView.window != nil
+        let hostedAttachedToWindow = terminalPanel.surface.isViewInWindow
         let firstResponderIsWindow = NSApp.keyWindow?.firstResponder is NSWindow
 
         let shouldSuppress = shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
@@ -12557,33 +12580,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusBrowserAddressBar(panelId: panelId)
     }
 
-    private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
-        flags: NSEvent.ModifierFlags,
-        chars: String
-    ) -> Bool {
-        guard browserAddressBarFocusedPanelId != nil else { return false }
-        let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-        let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
-        guard isCommandOrControlOnly else { return false }
-        let shouldBypass = chars == "n" || chars == "p"
-#if DEBUG
-        if shouldBypass {
-            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            cmuxDebugLog(
-                "browser.focus.addressBar.shortcutBypass panel=\(panelToken) " +
-                "chars=\(chars) flags=\(normalizedFlags.rawValue)"
-            )
-        }
-#endif
-        return shouldBypass
-    }
-
-    private func commandOmnibarSelectionDelta(
+    private func controlOmnibarSelectionDelta(
         hasFocusedAddressBar: Bool,
         flags: NSEvent.ModifierFlags,
         chars: String
     ) -> Int? {
-        browserOmnibarSelectionDeltaForCommandNavigation(
+        browserOmnibarSelectionDeltaForControlNavigation(
             hasFocusedAddressBar: hasFocusedAddressBar,
             flags: flags,
             chars: chars
@@ -12704,7 +12706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !flags.contains(.command) {
+            if !browserOmnibarShouldContinueControlNavigationRepeat(flags: flags) {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +

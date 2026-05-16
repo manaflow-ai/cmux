@@ -27,12 +27,12 @@ def get_repo_root():
     if result.returncode == 0:
         return Path(result.stdout.strip())
 
-    # Fall back to finding GhosttyTabs directory
+    # Fall back to finding cmux directory
     cwd = Path.cwd()
-    if cwd.name == "GhosttyTabs" or (cwd / "Sources").exists():
+    if cwd.name == "cmux" or (cwd / "Sources").exists():
         return cwd
-    if (cwd.parent / "GhosttyTabs").exists():
-        return cwd.parent / "GhosttyTabs"
+    if (cwd.parent / "cmux").exists():
+        return cwd.parent / "cmux"
 
     # Last resort: use current directory
     return cwd

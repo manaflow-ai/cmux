@@ -95,12 +95,23 @@ class TerminalController {
         )
     }
 
+    private static var terminalSurfaceUnavailableMessage: String {
+        String(
+            localized: "socket.terminal.surfaceUnavailable",
+            defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
+        )
+    }
+
     private static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
 
     private static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
+    }
+
+    private static var terminalSurfaceUnavailableSocketError: String {
+        "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
 
     private struct ListenerStateSnapshot {
@@ -6708,7 +6719,7 @@ class TerminalController {
             let terminals: [[String: Any]] = surfaces.enumerated().map { index, terminalSurface in
                 let mapped = mappedLocations[ObjectIdentifier(terminalSurface)]
                 let hostedView = terminalSurface.hostedView
-                let hostedWindow = mapped?.window ?? hostedView.window
+                let hostedWindow = mapped?.window ?? terminalSurface.uiWindow
                 let fallbackWindowMetadata = resolvedWindowMetadata(for: hostedWindow)
                 let resolvedWindowId = mapped?.windowId ?? fallbackWindowMetadata.windowId
                 let resolvedWindowIndex = mapped?.windowIndex ?? fallbackWindowMetadata.windowIndex
@@ -6772,7 +6783,8 @@ class TerminalController {
                     "runtime_surface_ready": terminalSurface.surface != nil,
                     "hosted_view_ptr": objectPointerString(hostedView),
                     "hosted_view_class": className(hostedView) ?? "nil",
-                    "hosted_view_in_window": hostedView.window != nil,
+                    "hosted_view_in_window": terminalSurface.isViewInWindow,
+                    "hosted_view_in_headless_bootstrap_window": terminalSurface.isHeadlessStartupWindow(hostedView.window),
                     "hosted_view_has_superview": hostedView.superview != nil,
                     "hosted_view_hidden": hostedView.isHidden,
                     "hosted_view_hidden_or_ancestor_hidden": hostedView.isHiddenOrHasHiddenAncestor,
@@ -6858,12 +6870,6 @@ class TerminalController {
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
-            let runtimeSurface = terminalPanel.surface.surface
-            if let runtimeSurface,
-               ghostty_surface_process_exited(runtimeSurface) {
-                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
-                return
-            }
             let queued: Bool
             switch terminalPanel.surface.sendInputResult(text) {
             case .sent:
@@ -6878,6 +6884,9 @@ class TerminalController {
                 result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             case .surfaceUnavailable:
+                result = .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .processExited:
                 result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             }
@@ -6924,15 +6933,11 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let runtimeSurface = terminalPanel.surface.surface
-            if let runtimeSurface,
-               ghostty_surface_process_exited(runtimeSurface) {
-                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-            let surfaceWasReady = runtimeSurface != nil
-            switch terminalPanel.surface.sendNamedKey(key) {
+            let sendResult = terminalPanel.surface.sendNamedKey(key)
+            switch sendResult {
             case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
+            case .queued:
                 break
             case .unknownKey:
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
@@ -6941,13 +6946,13 @@ class TerminalController {
                 result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             case .surfaceUnavailable:
+                result = .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .processExited:
                 result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            if surfaceWasReady {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
-            }
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "queued": !surfaceWasReady, "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "queued": sendResult == .queued, "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
     }
@@ -12968,7 +12973,7 @@ class TerminalController {
                     panelId: panel.id,
                     hostedView: panel.hostedView,
                     urls: urls,
-                    window: panel.hostedView.window
+                    window: panel.surface.uiWindow
                 )
                 result = handled
                     ? .ok(["handled": true, "route": "text_destination", "payload": payload])
@@ -15404,12 +15409,6 @@ class TerminalController {
                 return
             }
 
-            if let surface = terminalPanel.surface.surface,
-               ghostty_surface_process_exited(surface) {
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
-
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
             let unescaped = text
@@ -15417,12 +15416,9 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            let surfaceWasReady = terminalPanel.surface.surface != nil
             switch terminalPanel.surface.sendInputResult(unescaped) {
             case .sent:
-                if surfaceWasReady {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
-                }
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
                 success = true
             case .queued:
                 success = true
@@ -15430,6 +15426,9 @@ class TerminalController {
                 error = Self.terminalInputQueueFullSocketError
                 return
             case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+                return
+            case .processExited:
                 error = Self.terminalProcessExitedSocketError
                 return
             }
@@ -15467,23 +15466,14 @@ class TerminalController {
                 return
             }
 
-            if let surface = terminalPanel.surface.surface,
-               ghostty_surface_process_exited(surface) {
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
-
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            let surfaceWasReady = terminalPanel.surface.surface != nil
             switch terminalPanel.surface.sendInputResult(unescaped) {
             case .sent:
-                if surfaceWasReady {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
-                }
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
                 success = true
             case .queued:
                 success = true
@@ -15491,6 +15481,9 @@ class TerminalController {
                 error = Self.terminalInputQueueFullSocketError
                 return
             case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+                return
+            case .processExited:
                 error = Self.terminalProcessExitedSocketError
                 return
             }
@@ -15553,23 +15546,14 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            if let surface = terminalPanel.surface.surface,
-               ghostty_surface_process_exited(surface) {
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
-
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            let surfaceWasReady = terminalPanel.surface.surface != nil
             switch terminalPanel.surface.sendInputResult(unescaped) {
             case .sent:
-                if surfaceWasReady {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
-                }
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
                 success = true
             case .queued:
                 success = true
@@ -15577,6 +15561,9 @@ class TerminalController {
                 error = Self.terminalInputQueueFullSocketError
                 return
             case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+                return
+            case .processExited:
                 error = Self.terminalProcessExitedSocketError
                 return
             }
@@ -15599,19 +15586,19 @@ class TerminalController {
                 return
             }
 
-            if let surface = terminalPanel.surface.surface,
-               ghostty_surface_process_exited(surface) {
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
             switch terminalPanel.surface.sendNamedKey(keyName) {
             case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendKey")
+                success = true
+            case .queued:
                 success = true
             case .unknownKey:
                 error = "ERROR: Unknown key '\(keyName)'"
             case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
             case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+            case .processExited:
                 error = Self.terminalProcessExitedSocketError
             }
         }
@@ -15634,19 +15621,19 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            if let surface = terminalPanel.surface.surface,
-               ghostty_surface_process_exited(surface) {
-                error = Self.terminalProcessExitedSocketError
-                return
-            }
             switch terminalPanel.surface.sendNamedKey(keyName) {
             case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendKeyToSurface")
+                success = true
+            case .queued:
                 success = true
             case .unknownKey:
                 error = "ERROR: Unknown key '\(keyName)'"
             case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
             case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+            case .processExited:
                 error = Self.terminalProcessExitedSocketError
             }
         }

@@ -6048,7 +6048,7 @@ struct CMUXCLI {
                     )
                 }
 
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path) {
                     candidates.append(
                         current
@@ -22832,7 +22832,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
                     break
                 }
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
                 let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoResource.path) {
@@ -23868,6 +23868,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
           \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
           \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)
         """
 
         print()
@@ -23962,7 +23963,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var current = executableURL.deletingLastPathComponent().standardizedFileURL
 
         while true {
-            let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let projectFile = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
             if fileManager.fileExists(atPath: projectFile.path),
                let contents = try? String(contentsOf: projectFile, encoding: .utf8) {
                 var info: [String: String] = [:]
@@ -24091,7 +24092,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 appendIfExisting(current.appendingPathComponent("Info.plist"))
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
             let repoInfo = current.appendingPathComponent("Resources/Info.plist")
             if fileManager.fileExists(atPath: projectMarker.path),
                fileManager.fileExists(atPath: repoInfo.path) {
@@ -24192,6 +24193,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]

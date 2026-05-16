@@ -19,7 +19,7 @@ reviews:
     - path: "**/Package.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
-    - path: "GhosttyTabs.xcodeproj/**"
+    - path: "cmux.xcodeproj/**"
       instructions: |
         Review project wiring against the cmux Swift lint rules. Flag project changes that enable app/runtime code paths which bypass Swift concurrency, logging, localization, or shared action-path expectations.
     - path: "**/*.{ts,tsx,js,jsx,mjs,cjs,sh,zsh}"
