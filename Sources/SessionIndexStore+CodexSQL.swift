@@ -14,12 +14,33 @@ extension SessionIndexStore {
         let reasoningEffort: String?
         let firstUserMessage: String
         let updatedMs: Int64
+        let sourceJSON: String?
+        let threadSource: String?
+        let agentNickname: String?
+        let agentRole: String?
+        let parentSessionId: String?
+        let parentRolloutPath: String?
+        let spawnStatus: String?
 
         var normalizedRolloutPath: String? {
             let trimmed = rolloutPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             return (trimmed as NSString).standardizingPath
         }
+
+        var normalizedParentRolloutPath: String? {
+            let trimmed = parentRolloutPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let trimmed, !trimmed.isEmpty else { return nil }
+            return (trimmed as NSString).standardizingPath
+        }
+    }
+
+    private struct CodexSubagentSource: Sendable {
+        let parentSessionId: String?
+        let depth: Int?
+        let agentNickname: String?
+        let agentRole: String?
+        let legacyRole: String?
     }
 
     /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
@@ -54,24 +75,44 @@ extension SessionIndexStore {
         }
         defer { sqlite3_close(db) }
 
+        let threadColumns = sqliteColumnNames(in: "threads", db: db)
+        let hasSpawnEdges = sqliteTableExists("thread_spawn_edges", db: db)
+        let sourceSelect = threadColumns.contains("source") ? "t.source" : "NULL"
+        let threadSourceSelect = threadColumns.contains("thread_source") ? "t.thread_source" : "NULL"
+        let nicknameSelect = threadColumns.contains("agent_nickname") ? "t.agent_nickname" : "NULL"
+        let roleSelect = threadColumns.contains("agent_role") ? "t.agent_role" : "NULL"
+        let edgeJoin = hasSpawnEdges
+            ? """
+
+            LEFT JOIN thread_spawn_edges e ON e.child_thread_id = t.id
+            LEFT JOIN threads p ON p.id = e.parent_thread_id
+            """
+            : ""
+        let parentSelect = hasSpawnEdges ? "e.parent_thread_id" : "NULL"
+        let parentRolloutSelect = hasSpawnEdges ? "p.rollout_path" : "NULL"
+        let spawnStatusSelect = hasSpawnEdges ? "e.status" : "NULL"
+
         var sql = """
-            SELECT id, rollout_path, cwd, title, model, git_branch,
-                   approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
-            FROM threads
-            WHERE archived = 0
+            SELECT t.id, t.rollout_path, t.cwd, t.title, t.model, t.git_branch,
+                   t.approval_mode, t.sandbox_policy, t.reasoning_effort,
+                   t.first_user_message, t.updated_at_ms,
+                   \(sourceSelect), \(threadSourceSelect), \(nicknameSelect), \(roleSelect),
+                   \(parentSelect), \(parentRolloutSelect), \(spawnStatusSelect)
+            FROM threads t
+            \(edgeJoin)
+            WHERE t.archived = 0
             """
         var conditions: [String] = []
         if cwdFilter != nil {
-            conditions.append("cwd = ?1")
+            conditions.append("t.cwd = ?1")
         }
         if !conditions.isEmpty {
             sql += " AND " + conditions.joined(separator: " AND ")
         }
         if needle.isEmpty {
-            sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
+            sql += " ORDER BY t.updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
         } else {
-            sql += " ORDER BY updated_at_ms DESC LIMIT \(searchMaxFiles)"
+            sql += " ORDER BY t.updated_at_ms DESC LIMIT \(searchMaxFiles)"
         }
 
         var stmt: OpaquePointer?
@@ -100,7 +141,14 @@ extension SessionIndexStore {
                 sandboxJSON: sqliteText(stmt, 7),
                 reasoningEffort: sqliteText(stmt, 8),
                 firstUserMessage: sqliteText(stmt, 9) ?? "",
-                updatedMs: sqlite3_column_int64(stmt, 10)
+                updatedMs: sqlite3_column_int64(stmt, 10),
+                sourceJSON: sqliteText(stmt, 11),
+                threadSource: sqliteText(stmt, 12),
+                agentNickname: sqliteText(stmt, 13),
+                agentRole: sqliteText(stmt, 14),
+                parentSessionId: sqliteText(stmt, 15),
+                parentRolloutPath: sqliteText(stmt, 16),
+                spawnStatus: sqliteText(stmt, 17)
             ))
         }
         guard !needle.isEmpty else {
@@ -171,6 +219,7 @@ extension SessionIndexStore {
         }
 
         let fileURL = record.normalizedRolloutPath.map { URL(fileURLWithPath: $0) }
+        let subagent = codexSubagentMetadata(from: record)
         return SessionEntry(
             id: "codex:" + (fileURL?.path ?? record.sessionId),
             agent: .codex,
@@ -186,7 +235,8 @@ extension SessionIndexStore {
                 approvalPolicy: record.approvalMode?.isEmpty == false ? record.approvalMode : nil,
                 sandboxMode: sandboxMode,
                 effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil
-            )
+            ),
+            subagent: subagent
         )
     }
 
@@ -205,7 +255,121 @@ extension SessionIndexStore {
         if fieldMatches(record.model) { return true }
         if fieldMatches(record.approvalMode) { return true }
         if fieldMatches(record.reasoningEffort) { return true }
+        if fieldMatches(record.sourceJSON) { return true }
+        if fieldMatches(record.threadSource) { return true }
+        if fieldMatches(record.agentNickname) { return true }
+        if fieldMatches(record.agentRole) { return true }
+        if fieldMatches(record.parentSessionId) { return true }
+        if fieldMatches(record.parentRolloutPath) { return true }
+        if fieldMatches(record.spawnStatus) { return true }
+        if codexSubagentMetadata(from: record)?.searchableTerms.contains(where: { fieldMatches($0) }) == true {
+            return true
+        }
         return false
+    }
+
+    nonisolated private static func codexSubagentMetadata(
+        from record: CodexThreadRecord
+    ) -> SessionSubagentMetadata? {
+        let source = codexSubagentSource(record.sourceJSON)
+        let parentSessionId = normalizedOptional(record.parentSessionId) ?? source?.parentSessionId
+        let nickname = normalizedOptional(record.agentNickname) ?? source?.agentNickname
+        let role = normalizedOptional(record.agentRole) ?? source?.agentRole ?? source?.legacyRole
+        let isSubagent = parentSessionId != nil
+            || normalizedOptional(record.threadSource) == "subagent"
+            || source != nil
+
+        guard isSubagent else { return nil }
+        return SessionSubagentMetadata(
+            provider: .codex,
+            parentSessionId: parentSessionId,
+            subagentId: record.sessionId,
+            depth: source?.depth,
+            status: record.spawnStatus,
+            name: nickname,
+            role: role,
+            parentFileURL: record.normalizedParentRolloutPath.map { URL(fileURLWithPath: $0) }
+        )
+    }
+
+    nonisolated private static func codexSubagentSource(_ sourceJSON: String?) -> CodexSubagentSource? {
+        guard let data = sourceJSON?.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let subagent = object["subagent"] else {
+            return nil
+        }
+
+        if let role = subagent as? String {
+            return CodexSubagentSource(
+                parentSessionId: nil,
+                depth: nil,
+                agentNickname: nil,
+                agentRole: nil,
+                legacyRole: normalizedOptional(role)
+            )
+        }
+
+        guard let subagentObject = subagent as? [String: Any] else { return nil }
+        if let spawn = subagentObject["thread_spawn"] as? [String: Any] {
+            return CodexSubagentSource(
+                parentSessionId: normalizedOptional(spawn["parent_thread_id"] as? String),
+                depth: spawn["depth"] as? Int,
+                agentNickname: normalizedOptional(spawn["agent_nickname"] as? String),
+                agentRole: normalizedOptional(spawn["agent_role"] as? String),
+                legacyRole: nil
+            )
+        }
+
+        return CodexSubagentSource(
+            parentSessionId: normalizedOptional(subagentObject["parent_thread_id"] as? String),
+            depth: subagentObject["depth"] as? Int,
+            agentNickname: normalizedOptional(subagentObject["agent_nickname"] as? String),
+            agentRole: normalizedOptional(subagentObject["agent_role"] as? String),
+            legacyRole: nil
+        )
+    }
+
+    nonisolated private static func normalizedOptional(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    nonisolated private static func sqliteColumnNames(in table: String, db: OpaquePointer) -> Set<String> {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info('\(escapedTable)')", -1, &stmt, nil) == SQLITE_OK,
+              let stmt else {
+            sqlite3_finalize(stmt)
+            return []
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var columns: Set<String> = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqliteText(stmt, 1) {
+                columns.insert(name)
+            }
+        }
+        return columns
+    }
+
+    nonisolated private static func sqliteTableExists(_ table: String, db: OpaquePointer) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+            -1,
+            &stmt,
+            nil
+        ) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, table, -1, SQLITE_TRANSIENT_FN)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     nonisolated private static func defaultCodexSessionsRoot() -> String {

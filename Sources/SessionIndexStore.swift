@@ -619,6 +619,20 @@ final class SessionIndexStore: ObservableObject {
         let mtime: Date
         let dirName: String
         let prefilteredByRipgrep: Bool
+        let parentSessionId: String?
+        let subagentId: String?
+        let subagentRole: String?
+        let subagentDescription: String?
+        let parentFileURL: URL?
+
+        var isSubagent: Bool {
+            parentSessionId != nil || subagentId != nil
+        }
+    }
+
+    private struct ClaudeSubagentMeta: Sendable {
+        let agentType: String?
+        let description: String?
     }
 
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
@@ -814,22 +828,44 @@ final class SessionIndexStore: ObservableObject {
     ) -> [ClaudeSessionCandidate] {
         let fm = FileManager.default
         var candidates: [ClaudeSessionCandidate] = []
+        var seenPaths: Set<String> = []
 
-        func appendJSONLFiles(in dirPath: String, dirName: String) {
+        func appendCandidate(url: URL, mtime: Date) {
+            guard seenPaths.insert(url.path).inserted else { return }
+            candidates.append(
+                claudeSessionCandidate(
+                    for: url,
+                    root: root,
+                    mtime: mtime,
+                    prefilteredByRipgrep: prefilteredByRipgrep
+                )
+            )
+        }
+
+        func appendJSONLFiles(in dirPath: String) {
             guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { return }
             for name in contents where name.hasSuffix(".jsonl") {
                 let filePath = (dirPath as NSString).appendingPathComponent(name)
                 let url = URL(fileURLWithPath: filePath)
                 guard let attrs = try? fm.attributesOfItem(atPath: filePath),
                       let mtime = attrs[.modificationDate] as? Date else { continue }
-                candidates.append(
-                    ClaudeSessionCandidate(
-                        url: url,
-                        mtime: mtime,
-                        dirName: dirName,
-                        prefilteredByRipgrep: prefilteredByRipgrep
-                    )
-                )
+                appendCandidate(url: url, mtime: mtime)
+            }
+        }
+
+        func appendProjectCandidates(dirPath: String) {
+            appendJSONLFiles(in: dirPath)
+            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { return }
+            for name in contents {
+                let sessionPath = (dirPath as NSString).appendingPathComponent(name)
+                let subagentsPath = (sessionPath as NSString)
+                    .appendingPathComponent("subagents")
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: subagentsPath, isDirectory: &isDir),
+                      isDir.boolValue else {
+                    continue
+                }
+                appendJSONLFiles(in: subagentsPath)
             }
         }
 
@@ -838,7 +874,7 @@ final class SessionIndexStore: ObservableObject {
             let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
-                appendJSONLFiles(in: dirPath, dirName: dirName)
+                appendProjectCandidates(dirPath: dirPath)
             }
             return candidates
         }
@@ -850,9 +886,90 @@ final class SessionIndexStore: ObservableObject {
             let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            appendJSONLFiles(in: dirPath, dirName: dirName)
+            appendProjectCandidates(dirPath: dirPath)
         }
         return candidates
+    }
+
+    nonisolated private static func claudeSessionCandidate(
+        for url: URL,
+        root: ClaudeSessionRoot,
+        mtime: Date,
+        prefilteredByRipgrep: Bool
+    ) -> ClaudeSessionCandidate {
+        let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
+        let subagentPath = claudeSubagentPathComponents(for: url, projectsRoot: root.projectsRoot)
+        let meta = subagentPath == nil ? nil : readClaudeSubagentMeta(for: url)
+        return ClaudeSessionCandidate(
+            url: url,
+            mtime: mtime,
+            dirName: dirName,
+            prefilteredByRipgrep: prefilteredByRipgrep,
+            parentSessionId: subagentPath?.parentSessionId,
+            subagentId: subagentPath?.subagentId,
+            subagentRole: meta?.agentType,
+            subagentDescription: meta?.description,
+            parentFileURL: subagentPath?.parentFileURL
+        )
+    }
+
+    nonisolated private static func claudeSubagentPathComponents(
+        for url: URL,
+        projectsRoot: String
+    ) -> (parentSessionId: String, subagentId: String?, parentFileURL: URL)? {
+        let root = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+        guard url.path.hasPrefix(root) else { return nil }
+        let relative = String(url.path.dropFirst(root.count))
+        let parts = relative.split(separator: "/").map(String.init)
+        guard parts.count == 4,
+              parts[2] == "subagents",
+              parts[3].hasSuffix(".jsonl") else {
+            return nil
+        }
+        let parentSessionId = parts[1]
+        let basename = URL(fileURLWithPath: parts[3]).deletingPathExtension().lastPathComponent
+        let subagentId = basename.hasPrefix("agent-")
+            ? String(basename.dropFirst("agent-".count))
+            : basename
+        let parentPath = root + parts[0] + "/" + parentSessionId + ".jsonl"
+        return (
+            parentSessionId: parentSessionId,
+            subagentId: subagentId.isEmpty ? nil : subagentId,
+            parentFileURL: URL(fileURLWithPath: parentPath)
+        )
+    }
+
+    nonisolated private static func readClaudeSubagentMeta(for url: URL) -> ClaudeSubagentMeta? {
+        let metaURL = url.deletingPathExtension().appendingPathExtension("meta.json")
+        guard let data = try? Data(contentsOf: metaURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return ClaudeSubagentMeta(
+            agentType: normalizedOptionalString(object["agentType"] as? String),
+            description: normalizedOptionalString(object["description"] as? String)
+        )
+    }
+
+    nonisolated private static func claudeCandidateMatchesMetadata(
+        _ candidate: ClaudeSessionCandidate,
+        needle: String
+    ) -> Bool {
+        guard !needle.isEmpty else { return false }
+        func matches(_ value: String?) -> Bool {
+            guard let value else { return false }
+            return value.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+        }
+        return matches(candidate.parentSessionId)
+            || matches(candidate.subagentId)
+            || matches(candidate.subagentRole)
+            || matches(candidate.subagentDescription)
+            || matches(candidate.parentFileURL?.path)
+    }
+
+    nonisolated private static func normalizedOptionalString(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     // MARK: Codex
@@ -1304,7 +1421,22 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
-        let roots = claudeSessionRoots()
+        await loadClaudeEntries(
+            roots: claudeSessionRoots(),
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    nonisolated private static func loadClaudeEntries(
+        roots: [ClaudeSessionRoot],
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
@@ -1314,6 +1446,11 @@ final class SessionIndexStore: ObservableObject {
         var candidates: [ClaudeSessionCandidate] = []
         if !needle.isEmpty {
             for root in roots {
+                var seenPaths: Set<String> = []
+                func appendCandidate(_ candidate: ClaudeSessionCandidate) {
+                    guard seenPaths.insert(candidate.url.path).inserted else { return }
+                    candidates.append(candidate)
+                }
                 guard let rgPaths = await ripgrepMatchingPaths(
                     needle: needle,
                     root: root.projectsRoot,
@@ -1331,15 +1468,21 @@ final class SessionIndexStore: ObservableObject {
                 for url in rgPaths {
                     guard let attrs = try? fm.attributesOfItem(atPath: url.path),
                           let mtime = attrs[.modificationDate] as? Date else { continue }
-                    let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
-                    candidates.append(
-                        ClaudeSessionCandidate(
-                            url: url,
+                    appendCandidate(
+                        claudeSessionCandidate(
+                            for: url,
+                            root: root,
                             mtime: mtime,
-                            dirName: dirName,
                             prefilteredByRipgrep: true
                         )
                     )
+                }
+                for candidate in enumerateClaudeJSONLCandidates(
+                    root: root,
+                    cwdFilter: cwdFilter,
+                    prefilteredByRipgrep: false
+                ) where claudeCandidateMatchesMetadata(candidate, needle: needle) {
+                    appendCandidate(candidate)
                 }
             }
         } else if let cwdFilter {
@@ -1386,15 +1529,16 @@ final class SessionIndexStore: ObservableObject {
         ) { group in
             for (idx, candidate) in workCandidates.enumerated() {
                 group.addTask {
+                    let metadataMatches = claudeCandidateMatchesMetadata(candidate, needle: needle)
                     // Cache hit
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
-                    if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
+                    if let cached, needle.isEmpty || candidate.prefilteredByRipgrep || metadataMatches {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (idx, cached, true)
                     }
                     let head = readFileHead(url: candidate.url, byteCap: headByteCap)
                     let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
-                    if !needle.isEmpty && !candidate.prefilteredByRipgrep {
+                    if !needle.isEmpty && !candidate.prefilteredByRipgrep && !metadataMatches {
                         let combined = head + "\n" + tail
                         if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
                             return (idx, nil, false)
@@ -1406,18 +1550,35 @@ final class SessionIndexStore: ObservableObject {
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
-                    let sid = candidate.url.deletingPathExtension().lastPathComponent
+                    let sid = candidate.parentSessionId
+                        ?? candidate.url.deletingPathExtension().lastPathComponent
+                    let title = candidate.subagentDescription
+                        ?? parsed.title
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let subagent = candidate.isSubagent
+                        ? SessionSubagentMetadata(
+                            provider: .claude,
+                            parentSessionId: candidate.parentSessionId,
+                            subagentId: candidate.subagentId,
+                            depth: nil,
+                            status: nil,
+                            name: nil,
+                            role: candidate.subagentRole,
+                            parentFileURL: candidate.parentFileURL
+                        )
+                        : nil
                     let entry = SessionEntry(
                         id: "claude:" + candidate.url.path,
                         agent: .claude,
                         sessionId: sid,
-                        title: parsed.title,
+                        title: title.isEmpty ? (candidate.subagentRole ?? "") : title,
                         cwd: parsed.cwd,
                         gitBranch: parsed.branch,
                         pullRequest: parsed.pr,
                         modified: candidate.mtime,
                         fileURL: candidate.url,
-                        specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
+                        specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode),
+                        subagent: subagent
                     )
                     if needle.isEmpty {
                         ClaudeMetadataCache.shared.put(
@@ -1445,6 +1606,25 @@ final class SessionIndexStore: ObservableObject {
         #endif
         return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }
+
+    #if DEBUG
+    nonisolated static func loadClaudeEntriesForTesting(
+        configDir: String,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) async -> SearchOutcome {
+        let entries = await loadClaudeEntries(
+            roots: [ClaudeSessionRoot(configDir: configDir)],
+            needle: needle.lowercased(),
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+        return SearchOutcome(entries: entries, errors: [])
+    }
+    #endif
 
     /// Returns Codex session entries paginated by mtime desc.
     /// Primary path: query Codex's own `~/.codex/state_5.sqlite` (`threads`

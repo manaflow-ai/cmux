@@ -556,6 +556,9 @@ private struct SessionRow: View, Equatable {
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12)
+            if let subagent = entry.subagent {
+                SubagentIndicator(metadata: subagent, size: 11)
+            }
             Text(entry.displayTitle)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.92))
@@ -629,6 +632,9 @@ private struct SessionRow: View, Equatable {
 
     private var helpText: String {
         var lines: [String] = [entry.displayTitle]
+        if let subagent = entry.subagent {
+            lines.append(contentsOf: subagentHelpLines(subagent))
+        }
         if let cwd = entry.cwdLabel {
             lines.append(cwd)
         }
@@ -645,6 +651,42 @@ private struct SessionRow: View, Equatable {
     }
 }
 
+private struct SubagentIndicator: View, Equatable {
+    let metadata: SessionSubagentMetadata
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundColor(.secondary.opacity(0.75))
+            .frame(width: size + 3, height: size + 3)
+            .help(subagentHelpLines(metadata).joined(separator: "\n"))
+    }
+}
+
+private func subagentHelpLines(_ metadata: SessionSubagentMetadata) -> [String] {
+    var lines = [
+        String(localized: "sessionIndex.subagent.tooltip", defaultValue: "Subagent")
+    ]
+    if let role = metadata.role {
+        let format = String(localized: "sessionIndex.subagent.role", defaultValue: "Role: %@")
+        lines.append(String(format: format, role))
+    }
+    if let name = metadata.name {
+        let format = String(localized: "sessionIndex.subagent.name", defaultValue: "Name: %@")
+        lines.append(String(format: format, name))
+    }
+    if let status = metadata.status {
+        let format = String(localized: "sessionIndex.subagent.status", defaultValue: "Status: %@")
+        lines.append(String(format: format, status))
+    }
+    if let parentSessionId = metadata.parentSessionId {
+        let format = String(localized: "sessionIndex.subagent.parent", defaultValue: "Parent: %@")
+        lines.append(String(format: format, parentSessionId))
+    }
+    return lines
+}
+
 // MARK: - Shared row actions
 
 /// Right-click menu items for any session row (full or popover). Built as a
@@ -652,7 +694,7 @@ private struct SessionRow: View, Equatable {
 /// without duplicating the button list or the action helpers.
 @ViewBuilder
 private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
-    if let onResume {
+    if let onResume, entry.resumeCommandWithCwd != nil {
         Button {
             onResume(entry)
         } label: {
@@ -704,6 +746,14 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
         }
     }
+    if let parentURL = entry.subagent?.parentFileURL {
+        Divider()
+        Button {
+            NSWorkspace.shared.open(parentURL)
+        } label: {
+            Text(String(localized: "sessionIndex.row.openParentTranscript", defaultValue: "Open Parent Transcript"))
+        }
+    }
 }
 
 // MARK: - Session transcript preview
@@ -741,6 +791,9 @@ private struct SessionTranscriptPreviewView: View {
     private var header: some View {
         HStack(spacing: 8) {
             AgentIconImage(agent: entry.agent, size: 14)
+            if let subagent = entry.subagent {
+                SubagentIndicator(metadata: subagent, size: 12)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
@@ -2253,6 +2306,9 @@ private struct PopoverRow: View, Equatable {
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12)
+            if let subagent = entry.subagent {
+                SubagentIndicator(metadata: subagent, size: 11)
+            }
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
@@ -2275,10 +2331,18 @@ private struct PopoverRow: View, Equatable {
         .onDrag {
             sessionDragItemProvider(for: entry)
         }
-        .help(entry.cwdLabel ?? entry.displayTitle)
+        .help(helpText)
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
         }
+    }
+
+    private var helpText: String {
+        var lines: [String] = [entry.cwdLabel ?? entry.displayTitle]
+        if let subagent = entry.subagent {
+            lines.append(contentsOf: subagentHelpLines(subagent))
+        }
+        return lines.joined(separator: "\n")
     }
 }
 
