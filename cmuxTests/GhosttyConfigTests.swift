@@ -1218,7 +1218,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(payload["state"] as? String, "live_hidden")
         XCTAssertEqual(payload["visible_in_ui"] as? Bool, false)
         XCTAssertEqual(payload["should_render"] as? Bool, true)
-        XCTAssertEqual(payload["last_visibility_change_reason"] as? String, "test.hidden.duplicate")
+        XCTAssertEqual(payload["last_visibility_change_reason"] as? String, "test.hidden")
         XCTAssertEqual(payload["hidden_duration_ms"] as? Int, 11250)
 
         panel.close()
@@ -1238,6 +1238,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         while panel.webView.isLoading,
               RunLoop.main.run(mode: .default, before: deadline),
               Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
