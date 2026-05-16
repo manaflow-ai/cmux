@@ -4800,6 +4800,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
+    @MainActor
     func liveSurfaceForGhosttyAccess(reason: String) -> ghostty_surface_t? {
         guard hasLiveSurface, let surface else { return nil }
         let registry = TerminalSurfaceRegistry.shared
@@ -5547,7 +5548,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
-        flushPendingSocketInputIfNeeded()
+        // `createSurface(for:)` is entered from AppKit/main-dispatch lifecycle paths;
+        // keep the queued socket flush synchronous without widening that legacy surface.
+        MainActor.assumeIsolated {
+            flushPendingSocketInputIfNeeded()
+        }
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility
@@ -5895,8 +5900,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
+    @MainActor
     private func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
-        assert(Thread.isMainThread)
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
@@ -6120,8 +6125,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
+    @MainActor
     private func flushPendingSocketInputIfNeeded() {
-        assert(Thread.isMainThread)
         guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
