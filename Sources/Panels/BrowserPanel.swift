@@ -2078,21 +2078,41 @@ nonisolated enum BrowserWebViewLifecycleState: String {
 }
 
 enum BrowserHiddenWebViewDiscardPolicy {
+    static let enabledKey = "browserHiddenWebViewDiscardEnabled"
+    static let hiddenDelayKey = "browserHiddenWebViewDiscardDelaySeconds"
+    static let defaultEnabled = true
     static let defaultHiddenDelay: TimeInterval = 300
 
     static var isEnabled: Bool {
-        let value = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard let value else { return true }
-        return !["0", "false", "no", "off"].contains(value)
+        isEnabled(defaults: .standard)
     }
 
     static var hiddenDelay: TimeInterval {
+        hiddenDelay(defaults: .standard)
+    }
+
+    static func isEnabled(defaults: UserDefaults) -> Bool {
+        let value = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let value {
+            return !["0", "false", "no", "off"].contains(value)
+        }
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func hiddenDelay(defaults: UserDefaults) -> TimeInterval {
         let rawValue = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let rawValue, let value = TimeInterval(rawValue), value >= 0 else {
-            return defaultHiddenDelay
+            let storedValue = defaults.double(forKey: hiddenDelayKey)
+            guard defaults.object(forKey: hiddenDelayKey) != nil, storedValue >= 0 else {
+                return defaultHiddenDelay
+            }
+            return storedValue
         }
         return value
     }
