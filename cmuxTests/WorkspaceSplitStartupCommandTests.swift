@@ -154,3 +154,94 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
     }
 }
+
+final class TmuxAttachCommandBuilderTests: XCTestCase {
+    func testLocalAttachCommandUsesSelectedSession() throws {
+        let request = TmuxAttachRequest(
+            mode: .local,
+            sshTarget: "",
+            sessionName: "agent work",
+            createIfMissing: false
+        )
+
+        XCTAssertEqual(
+            try TmuxAttachCommandBuilder.startupCommandLine(for: request),
+            "exec /usr/bin/env PATH=\(TmuxAttachCommandBuilder.tmuxSearchPathPrefix):${PATH:-} tmux attach-session -t 'agent work'"
+        )
+        XCTAssertEqual(TmuxAttachCommandBuilder.workspaceTitle(for: request), "tmux: agent work")
+    }
+
+    func testLocalCreateCommandUsesDefaultSessionWhenBlank() throws {
+        let request = TmuxAttachRequest(
+            mode: .local,
+            sshTarget: "",
+            sessionName: "   ",
+            createIfMissing: true
+        )
+
+        XCTAssertEqual(
+            try TmuxAttachCommandBuilder.startupCommandLine(for: request),
+            "exec /usr/bin/env PATH=\(TmuxAttachCommandBuilder.tmuxSearchPathPrefix):${PATH:-} tmux new-session -A -s 'cmux'"
+        )
+        XCTAssertEqual(TmuxAttachCommandBuilder.workspaceTitle(for: request), "tmux: cmux")
+    }
+
+    func testSSHAttachCommandQuotesTargetAndRemoteCommand() throws {
+        let request = TmuxAttachRequest(
+            mode: .ssh,
+            sshTarget: "dev-box",
+            sessionName: "qa's pane",
+            createIfMissing: false
+        )
+
+        let remoteCommand = "/usr/bin/env PATH=\(TmuxAttachCommandBuilder.tmuxSearchPathPrefix):${PATH:-} tmux attach-session -t \(TmuxAttachCommandBuilder.shellQuote("qa's pane"))"
+        let expected = "exec /usr/bin/ssh -tt -- \(TmuxAttachCommandBuilder.shellQuote("dev-box")) \(TmuxAttachCommandBuilder.shellQuote(remoteCommand))"
+        XCTAssertEqual(
+            try TmuxAttachCommandBuilder.startupCommandLine(for: request),
+            expected
+        )
+        XCTAssertEqual(TmuxAttachCommandBuilder.workspaceTitle(for: request), "tmux: dev-box/qa's pane")
+    }
+
+    func testSSHModeRequiresTarget() {
+        let request = TmuxAttachRequest(
+            mode: .ssh,
+            sshTarget: " ",
+            sessionName: "dev",
+            createIfMissing: false
+        )
+
+        XCTAssertThrowsError(try TmuxAttachCommandBuilder.startupCommandLine(for: request)) { error in
+            XCTAssertEqual(error as? TmuxAttachCommandBuilder.BuilderError, .missingSSHTarget)
+        }
+    }
+
+    func testParsesTmuxSessionList() {
+        let sessions = TmuxAttachCommandBuilder.parseSessionList(
+            "dev\t2\t1\nscratch\t1\t0\n\n"
+        )
+
+        XCTAssertEqual(
+            sessions,
+            [
+                TmuxAttachSession(name: "dev", windowCount: 2, attachedClientCount: 1),
+                TmuxAttachSession(name: "scratch", windowCount: 1, attachedClientCount: 0)
+            ]
+        )
+    }
+
+    func testCommandPaletteIncludesTmuxAttachEntry() throws {
+        let contributions = ContentView.commandPaletteViewCommandContributions()
+        let contribution = try XCTUnwrap(
+            contributions.first { $0.commandId == "palette.attachTmuxSession" }
+        )
+        let context = ContentView.CommandPaletteContextSnapshot()
+
+        XCTAssertEqual(
+            contribution.title(context),
+            String(localized: "command.attachTmuxSession.title", defaultValue: "Attach tmux Session…")
+        )
+        XCTAssertTrue(contribution.keywords.contains("tmux"))
+        XCTAssertTrue(contribution.keywords.contains("ssh"))
+    }
+}
