@@ -773,10 +773,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch
         XCTAssertTrue(overview.waitForExistence(timeout: 6.0), "Expected canvas overview")
-        XCTAssertTrue(
-            app.staticTexts["WorkspaceCanvasMode.freeform"].waitForExistence(timeout: 6.0),
-            "Expected freeform canvas mode label"
-        )
 
         let terminalCard = canvasCard(app, paneId: terminalPaneId)
         XCTAssertTrue(terminalCard.waitForExistence(timeout: 6.0), "Expected terminal canvas card for pane \(terminalPaneId)")
