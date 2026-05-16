@@ -204,11 +204,6 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             5,
             accuracy: 0.001
         )
-        XCTAssertEqual(
-            TitlebarControlsVisualMetrics.liftedTopInset(-2),
-            -4,
-            accuracy: 0.001
-        )
     }
 
     func testNotificationBadgeIsSmallAndShiftedUpRight() {

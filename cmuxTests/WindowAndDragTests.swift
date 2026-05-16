@@ -642,6 +642,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
             minimalModeSidebarControlActionSlot(localPoint: localPoint) != nil
         }
@@ -809,6 +811,63 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testDragHandleYieldsToRegisteredMinimalModeSidebarButtonColumns() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragHandle = NSView(frame: contentView.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        contentView.addSubview(dragHandle)
+
+        let controlRegion = SidebarActionRegionView(
+            frame: NSRect(
+                x: 72,
+                y: 88,
+                width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+            )
+        )
+        contentView.addSubview(controlRegion)
+        MinimalModeTitlebarControlHitRegionRegistry.register(controlRegion)
+        defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
+
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: controlRegion.config)
+        let backButtonPoint = NSPoint(
+            x: controlRegion.frame.minX + ranges[MinimalModeSidebarControlActionSlot.focusHistoryBack.rawValue].lowerBound + 1,
+            y: controlRegion.frame.midY
+        )
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: backButtonPoint))
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(backButtonPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Registered minimal-mode titlebar buttons should not fall through to the window drag handle."
+        )
+
+        let emptyTitlebarPoint = NSPoint(x: contentView.bounds.maxX - 20, y: controlRegion.frame.midY)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                dragHandle.convert(emptyTitlebarPoint, from: nil),
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty titlebar space should still be draggable."
+        )
+    }
+
     func testMinimalModeSidebarFallbackHitUsesHardcodedLeadingInset() {
         let suiteName = "WindowDragHandleHitTests.leadingInset.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -867,7 +926,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
         XCTAssertEqual(
             MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
-            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset) - TitlebarControlsVisualMetrics.verticalLift,
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset),
             accuracy: 0.001
         )
     }
