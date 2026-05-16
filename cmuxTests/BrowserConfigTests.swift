@@ -2298,6 +2298,66 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 
+    func testDetachedInspectorWillCloseAfterDockingBackDoesNotCloseAttachedInspector() {
+        let (panel, inspector) = makePanelWithInspector()
+        let mainWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            inspectorWindow.orderOut(nil)
+            mainWindow.orderOut(nil)
+        }
+        guard let mainContentView = mainWindow.contentView,
+              let inspectorContentView = inspectorWindow.contentView else {
+            XCTFail("Expected test windows to have content views")
+            return
+        }
+
+        let attachedHost = NSView(frame: mainContentView.bounds)
+        mainContentView.addSubview(attachedHost)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 260, height: attachedHost.bounds.height)
+        attachedHost.addSubview(panel.webView)
+        let attachedInspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
+        )
+        attachedHost.addSubview(attachedInspectorView)
+
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorContentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorContentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        mainWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        mainWindow.displayIfNeeded()
+        inspectorWindow.displayIfNeeded()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: inspectorWindow)
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "When WebKit docks a detached inspector back into the browser, the stale detached-window willClose must not close the live attached inspector"
+        )
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+    }
+
     func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         guard let appDelegate = AppDelegate.shared else {
