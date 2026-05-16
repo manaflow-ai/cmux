@@ -202,7 +202,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(observedCanNavigateForward)
     }
 
-    func testFocusHistoryMenuSnapshotLimitsRecentEntries() throws {
+    func testFocusHistoryBackMenuSnapshotLimitsBackStack() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         firstWorkspace.setCustomTitle("Workspace 0")
@@ -212,22 +212,45 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             workspace.setCustomTitle("Workspace \(index)")
         }
 
-        let limitedSnapshot = manager.focusHistoryMenuSnapshot(maxItemCount: 5)
+        let limitedSnapshot = manager.focusHistoryMenuSnapshot(direction: .back, maxItemCount: 5)
 
         XCTAssertTrue(limitedSnapshot.isLimited)
-        XCTAssertEqual(limitedSnapshot.totalItemCount, 15)
+        XCTAssertEqual(limitedSnapshot.totalItemCount, 14)
         XCTAssertEqual(limitedSnapshot.items.count, 5)
         XCTAssertEqual(
             limitedSnapshot.items.map(\.workspaceTitle),
-            ["Workspace 14", "Workspace 13", "Workspace 12", "Workspace 11", "Workspace 10"]
+            ["Workspace 13", "Workspace 12", "Workspace 11", "Workspace 10", "Workspace 9"]
         )
-        XCTAssertEqual(limitedSnapshot.items.first?.position, .current)
-        XCTAssertEqual(limitedSnapshot.items.first?.isNavigable, false)
-        XCTAssertTrue(limitedSnapshot.items.dropFirst().allSatisfy(\.isNavigable))
+        XCTAssertTrue(limitedSnapshot.items.allSatisfy { $0.position == .older })
+        XCTAssertTrue(limitedSnapshot.items.allSatisfy(\.isNavigable))
 
-        let fullSnapshot = manager.focusHistoryMenuSnapshot()
+        let fullSnapshot = manager.focusHistoryMenuSnapshot(direction: .back)
         XCTAssertFalse(fullSnapshot.isLimited)
         XCTAssertEqual(fullSnapshot.items.count, limitedSnapshot.totalItemCount)
+    }
+
+    func testFocusHistoryMenuSnapshotsSplitBackAndForwardStacks() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        firstWorkspace.setCustomTitle("First")
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Second")
+        let thirdWorkspace = manager.addWorkspace(select: true)
+        thirdWorkspace.setCustomTitle("Third")
+
+        manager.navigateBack()
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+
+        let backSnapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        XCTAssertEqual(backSnapshot.items.map(\.workspaceTitle), ["First"])
+        XCTAssertEqual(backSnapshot.items.map(\.position), [.older])
+        XCTAssertTrue(backSnapshot.items.allSatisfy(\.isNavigable))
+
+        let forwardSnapshot = manager.focusHistoryMenuSnapshot(direction: .forward)
+        XCTAssertEqual(forwardSnapshot.items.map(\.workspaceTitle), ["Third"])
+        XCTAssertEqual(forwardSnapshot.items.map(\.position), [.newer])
+        XCTAssertTrue(forwardSnapshot.items.allSatisfy(\.isNavigable))
     }
 
     func testFocusHistoryMenuItemNavigatesToSelectedEntry() throws {
@@ -239,16 +262,17 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let thirdWorkspace = manager.addWorkspace(select: true)
         thirdWorkspace.setCustomTitle("Third")
 
-        let snapshot = manager.focusHistoryMenuSnapshot()
+        let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
         let firstItem = try XCTUnwrap(snapshot.items.first { $0.workspaceTitle == "First" })
 
         XCTAssertTrue(manager.navigateToFocusHistoryMenuItem(firstItem))
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
 
-        let updatedSnapshot = manager.focusHistoryMenuSnapshot()
-        let currentItem = try XCTUnwrap(updatedSnapshot.items.first { $0.workspaceTitle == "First" })
-        XCTAssertEqual(currentItem.position, .current)
-        XCTAssertFalse(currentItem.isNavigable)
+        let backSnapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        XCTAssertTrue(backSnapshot.items.isEmpty)
+
+        let forwardSnapshot = manager.focusHistoryMenuSnapshot(direction: .forward)
+        XCTAssertEqual(forwardSnapshot.items.map(\.workspaceTitle), ["Second", "Third"])
     }
 
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {

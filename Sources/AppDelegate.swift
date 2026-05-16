@@ -597,10 +597,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private final class FocusHistoryShowFullContextMenuBox: NSObject {
         weak var tabManager: TabManager?
         weak var anchorView: NSView?
+        let direction: FocusHistoryMenuDirection
 
-        init(tabManager: TabManager, anchorView: NSView) {
+        init(tabManager: TabManager, anchorView: NSView, direction: FocusHistoryMenuDirection) {
             self.tabManager = tabManager
             self.anchorView = anchorView
+            self.direction = direction
         }
     }
 
@@ -6467,6 +6469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func showFocusHistoryContextMenu(
         anchorView: NSView,
         event: NSEvent,
+        direction: FocusHistoryMenuDirection,
         showFullHistory: Bool = false,
         debugSource: String = "titlebar.focusHistory.contextMenu"
     ) -> Bool {
@@ -6477,6 +6480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let menu = makeFocusHistoryContextMenu(
             tabManager: context.tabManager,
             anchorView: anchorView,
+            direction: direction,
             showFullHistory: showFullHistory
         )
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return false }
@@ -6488,9 +6492,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func makeFocusHistoryContextMenu(
         tabManager: TabManager,
         anchorView: NSView,
+        direction: FocusHistoryMenuDirection,
         showFullHistory: Bool
     ) -> NSMenu {
         let snapshot = tabManager.focusHistoryMenuSnapshot(
+            direction: direction,
             maxItemCount: showFullHistory ? nil : Self.focusHistoryContextMenuPreviewLimit
         )
         let menu = NSMenu(title: String(localized: "menu.history.focusHistory", defaultValue: "Focus History"))
@@ -6526,7 +6532,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 keyEquivalent: ""
             )
             item.target = self
-            item.representedObject = FocusHistoryShowFullContextMenuBox(tabManager: tabManager, anchorView: anchorView)
+            item.representedObject = FocusHistoryShowFullContextMenuBox(
+                tabManager: tabManager,
+                anchorView: anchorView,
+                direction: direction
+            )
             menu.addItem(item)
         }
 
@@ -6564,6 +6574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let menu = makeFocusHistoryContextMenu(
             tabManager: tabManager,
             anchorView: anchorView,
+            direction: box.direction,
             showFullHistory: true
         )
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else {

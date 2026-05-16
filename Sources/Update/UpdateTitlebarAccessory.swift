@@ -793,7 +793,7 @@ struct TitlebarControlsView: View {
                 action: onFocusHistoryBack,
                 isEnabled: focusHistoryAvailability.canNavigateBack,
                 rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event)
+                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
                 }
             ) {
                 iconLabel(systemName: "arrow.left", config: config)
@@ -807,7 +807,7 @@ struct TitlebarControlsView: View {
                 action: onFocusHistoryForward,
                 isEnabled: focusHistoryAvailability.canNavigateForward,
                 rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event)
+                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
                 }
             ) {
                 iconLabel(systemName: "arrow.right", config: config)

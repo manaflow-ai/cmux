@@ -635,8 +635,12 @@ struct FocusHistoryEntry: Equatable {
 
 enum FocusHistoryMenuPosition: Equatable {
     case older
-    case current
     case newer
+}
+
+enum FocusHistoryMenuDirection: Equatable {
+    case back
+    case forward
 }
 
 struct FocusHistoryMenuItem: Equatable {
@@ -5731,11 +5735,29 @@ class TabManager: ObservableObject {
         return true
     }
 
-    func focusHistoryMenuSnapshot(maxItemCount: Int? = nil) -> FocusHistoryMenuSnapshot {
+    func focusHistoryMenuSnapshot(
+        direction: FocusHistoryMenuDirection,
+        maxItemCount: Int? = nil
+    ) -> FocusHistoryMenuSnapshot {
         let currentEntry = currentFocusHistoryEntry
-        let items = focusHistory.enumerated().compactMap { index, entry -> FocusHistoryMenuItem? in
+        let historyIndices: [Int]
+        switch direction {
+        case .back:
+            let lastBackIndex = min(historyIndex, focusHistory.count) - 1
+            historyIndices = lastBackIndex >= 0
+                ? Array(stride(from: lastBackIndex, through: 0, by: -1))
+                : []
+        case .forward:
+            historyIndices = historyIndex < focusHistory.count - 1
+                ? Array((historyIndex + 1)..<focusHistory.count)
+                : []
+        }
+
+        let items = historyIndices.compactMap { index -> FocusHistoryMenuItem? in
+            let entry = focusHistory[index]
             guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry),
-                  let workspace = focusHistoryWorkspace(for: resolvedEntry) else {
+                  let workspace = focusHistoryWorkspace(for: resolvedEntry),
+                  focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry) else {
                 return nil
             }
 
@@ -5743,14 +5765,7 @@ class TabManager: ObservableObject {
             let panelTitle = resolvedEntry.panelId
                 .flatMap { workspace.panelTitle(panelId: $0) }?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let position: FocusHistoryMenuPosition
-            if index < historyIndex {
-                position = .older
-            } else if index > historyIndex {
-                position = .newer
-            } else {
-                position = .current
-            }
+            let position: FocusHistoryMenuPosition = direction == .back ? .older : .newer
 
             return FocusHistoryMenuItem(
                 historyIndex: index,
@@ -5758,21 +5773,20 @@ class TabManager: ObservableObject {
                 workspaceTitle: workspaceTitle,
                 panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
                 position: position,
-                isNavigable: focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry)
+                isNavigable: true
             )
         }
-        let orderedItems = items.sorted { $0.historyIndex > $1.historyIndex }
-        if let maxItemCount, maxItemCount >= 0, orderedItems.count > maxItemCount {
+        if let maxItemCount, maxItemCount >= 0, items.count > maxItemCount {
             return FocusHistoryMenuSnapshot(
-                items: Array(orderedItems.prefix(maxItemCount)),
-                totalItemCount: orderedItems.count,
+                items: Array(items.prefix(maxItemCount)),
+                totalItemCount: items.count,
                 isLimited: true
             )
         }
 
         return FocusHistoryMenuSnapshot(
-            items: orderedItems,
-            totalItemCount: orderedItems.count,
+            items: items,
+            totalItemCount: items.count,
             isLimited: false
         )
     }
