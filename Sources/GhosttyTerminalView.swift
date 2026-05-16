@@ -4402,18 +4402,56 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let keycode: UInt32
         let mods: ghostty_input_mods_e
         let label: String
+
+        var queuedByteCost: Int {
+            max(label.utf8.count, 1)
+        }
     }
 
     private enum PendingSocketInput {
-        case text(Data)
+        case pasteText(Data)
+        case inputText(String)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .text(let data):
+            case .pasteText(let data):
                 return data.count
+            case .inputText(let text):
+                return text.utf8.count
             case .key(let event):
-                return max(event.label.utf8.count, 1)
+                return event.queuedByteCost
+            }
+        }
+    }
+
+    private enum ParsedSocketInput {
+        case text(String)
+        case key(PendingKeyEvent)
+    }
+
+    enum NamedKeySendResult: Equatable {
+        case sent
+        case queued
+        case unknownKey
+        case inputQueueFull
+        case surfaceUnavailable
+        case processExited
+    }
+
+    enum InputSendResult: Equatable {
+        case sent
+        case queued
+        case inputQueueFull
+        case surfaceUnavailable
+        case processExited
+
+        var accepted: Bool {
+            switch self {
+            case .sent, .queued:
+                return true
+            case .inputQueueFull, .surfaceUnavailable, .processExited:
+                return false
             }
         }
     }
@@ -4471,11 +4509,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
     private var teardownRequestReason: String?
+    // Main-thread only. Public socket send entrypoints are MainActor-isolated
+    // before reading `surface` or mutating this pending queue.
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
-    private var queuedBackgroundSurfaceStartAllowsOffWindow = false
+    private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -4587,16 +4627,117 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
-        // Attach records the concrete GhosttyNSView immediately. Visual mounts
-        // still wait for a backing window, while explicit runtime requests from
-        // the socket/control plane may start from this attached view off-window.
-        hostedView.attachSurface(self)
+
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
+        let hasStartupWork = self.initialCommand != nil
+            || self.tmuxStartCommand != nil
+            || trimmedInput != nil
+            || inheritedCommand?.isEmpty == false
+            || inheritedInput?.isEmpty == false
+
+        // Surfaces with startup work must spawn before the user focuses their workspace.
+        // Ghostty's embedded surface creation still expects a view with a window, so use
+        // a hidden bootstrap window until the real portal host is ready.
+        if hasStartupWork {
+            startRuntimeUsingHeadlessWindowIfNeeded(reason: "startup")
+        }
     }
 
     func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    private func startRuntimeUsingHeadlessWindowIfNeeded(reason: String) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+            }
+            return
+        }
+
+        guard allowsRuntimeSurfaceCreation() else { return }
+        guard surface == nil else { return }
+        ensureHeadlessStartupWindowIfNeeded(reason: reason)
+        hostedView.attachSurface(self)
+    }
+
+    private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
+        guard headlessStartupWindow == nil else { return }
+        guard hostedView.window == nil else { return }
+
+        let width = max(surfaceView.bounds.width, CGFloat(800))
+        let height = max(surfaceView.bounds.height, CGFloat(600))
+        let frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.hasShadow = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
+        window.isExcludedFromWindowsMenu = true
+
+        let contentView = NSView(frame: frame)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.contentView = contentView
+        headlessStartupWindow = window
+
+#if DEBUG
+        cmuxDebugLog(
+            "surface.headless_window.create surface=\(id.uuidString.prefix(8)) " +
+            "reason=\(reason) window=\(ObjectIdentifier(window))"
+        )
+#endif
+    }
+
+    private func releaseHeadlessStartupWindowIfNeeded(for view: GhosttyNSView) {
+        guard let window = headlessStartupWindow else { return }
+        guard let currentWindow = view.window, currentWindow !== window else { return }
+        headlessStartupWindow = nil
+        window.contentView = nil
+        window.close()
+#if DEBUG
+        cmuxDebugLog(
+            "surface.headless_window.release surface=\(id.uuidString.prefix(8)) " +
+            "realWindow=\(ObjectIdentifier(currentWindow))"
+        )
+#endif
+    }
+
+    private func closeHeadlessStartupWindowIfNeeded() {
+        let startupWindow = headlessStartupWindow
+        headlessStartupWindow = nil
+        guard let startupWindow else { return }
+
+        let closeStartupWindow = {
+            startupWindow.contentView = nil
+            startupWindow.close()
+        }
+        if Thread.isMainThread {
+            closeStartupWindow()
+        } else {
+            DispatchQueue.main.async(execute: closeStartupWindow)
+        }
+    }
+
+    @MainActor
+    func reconcileAttachedWindowIfNeeded(for view: GhosttyNSView) {
+        guard attachedView === view else { return }
+        releaseHeadlessStartupWindowIfNeeded(for: view)
+        guard let screen = view.window?.screen ?? NSScreen.main,
+              let displayID = screen.displayID,
+              displayID != 0 else { return }
+        guard let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") else { return }
+        ghostty_surface_set_display_id(s, displayID)
     }
 
     private static func mergedNormalizedEnvironment(
@@ -4891,6 +5032,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -5006,6 +5148,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         abs(lhs - rhs) <= epsilon
     }
 
+    @MainActor
     func attachToView(_ view: GhosttyNSView) {
 #if DEBUG
         cmuxDebugLog(
@@ -5023,6 +5166,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
         // itself is unchanged.
         if attachedView === view && surface != nil {
+            releaseHeadlessStartupWindowIfNeeded(for: view)
 #if DEBUG
             cmuxDebugLog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
 #endif
@@ -5046,12 +5190,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         attachedView = view
+        releaseHeadlessStartupWindowIfNeeded(for: view)
 
-        // The ordinary visual lifecycle remains lazy until this view has a real
-        // window so model-only panels, unit tests, and restored-but-unpresented
-        // workspaces do not spawn PTYs just by constructing TerminalPanel objects.
-        // Control-plane callers use requestBackgroundSurfaceStartIfNeeded() below,
-        // which can start the runtime off-window once an attachedView exists.
+        // Ordinary portal attachment can arrive before AppKit has put the view in
+        // a window. Defer those. Startup and cold-input paths install the owned
+        // view in a hidden bootstrap window first, then come through here.
         if surface == nil {
             guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -5066,7 +5209,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                 cmuxDebugLog(
                     "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=noWindow " +
-                    "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
+                    "bounds=\(String(format: "%.1fx%.1f", Double(view.bounds.width), Double(view.bounds.height)))"
                 )
 #endif
                 return
@@ -5093,6 +5236,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
     private func createSurface(for view: GhosttyNSView) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -5506,7 +5650,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Force a full size recalculation and surface redraw.
+    @MainActor
     func forceRefresh(reason: String = "unspecified") {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.forceRefresh(reason: reason)
+            }
+            return
+        }
+
+#if DEBUG
         let hasSurface = surface != nil
         let viewState: String
         if let view = attachedView {
@@ -5517,11 +5670,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else {
             viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
         }
-        #if DEBUG
         cmuxDebugLog("forceRefresh: \(id) reason=\(reason) \(viewState)")
-        #endif
+#endif
         guard let view = attachedView,
-              let surface,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
@@ -5530,8 +5681,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
         recordDebugForceRefresh()
 #endif
-        guard let currentSurface = self.surface else { return }
-
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).
         // The surface can be invalidated between calls when AppKit layout triggers
@@ -5540,13 +5689,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
         // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
         // but callbacks have not resumed for the current display.
-        if let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+        let displayID = (view.window?.screen ?? NSScreen.main)?.displayID
+#if DEBUG
+        let accessReason = "forceRefresh.\(reason)"
+#else
+        let accessReason = "forceRefresh"
+#endif
+        guard let currentSurface = liveSurfaceForGhosttyAccess(reason: accessReason) else {
+            return
+        }
+        if let displayID,
            displayID != 0 {
             ghostty_surface_set_display_id(currentSurface, displayID)
         }
 
         view.forceRefreshSurface()
-        guard let surface = self.surface else { return }
+#if DEBUG
+        let refreshReason = "forceRefresh.refresh.\(reason)"
+#else
+        let refreshReason = "forceRefresh.refresh"
+#endif
+        guard let surface = liveSurfaceForGhosttyAccess(reason: refreshReason) else {
+            return
+        }
         ghostty_surface_refresh(surface)
     }
 
@@ -5599,61 +5764,154 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
-    func sendText(_ text: String) {
-        guard let data = text.data(using: .utf8), !data.isEmpty else { return }
-        guard let surface = surface else {
-            enqueuePendingSocketInput(.text(data))
-            requestBackgroundSurfaceStartIfNeeded()
-            return
+    @MainActor
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return false }
+            let queued = enqueuePendingSocketInput(.pasteText(data))
+            if queued {
+                requestBackgroundSurfaceStartIfNeeded()
+            }
+            return queued
         }
-        writeTextData(data, to: surface)
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
+            return false
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        writeTextData(data, to: liveSurface)
+        return true
     }
 
+    @MainActor
     @discardableResult
-    func sendNamedKey(_ keyName: String) -> Bool {
-        guard let event = pendingKeyEvent(for: keyName) else { return false }
-        if let surface = surface {
-            sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
-        } else {
-            enqueuePendingSocketInput(.key(event))
+    func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
+        guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             requestBackgroundSurfaceStartIfNeeded()
+            return .queued
         }
-        return true
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
+        return .sent
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
     /// events so the shell processes them, while regular text is sent via the
-    /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
-    func sendInput(_ text: String) {
-        guard let surface = surface else { return }
+    /// normal key-text path. Cold surfaces queue the same ordered events and
+    /// flush them after runtime creation.
+    @MainActor
+    @discardableResult
+    func sendInput(_ text: String) -> Bool {
+        return sendInputResult(text).accepted
+    }
+
+    @MainActor
+    @discardableResult
+    func sendInputResult(_ text: String) -> InputSendResult {
+        guard !text.isEmpty else { return .sent }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            let queued = enqueuePendingSocketInput(text)
+            if queued {
+                requestBackgroundSurfaceStartIfNeeded()
+            }
+            return queued ? .queued : .inputQueueFull
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendInput") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        sendInput(text, to: liveSurface)
+        return .sent
+    }
+
+    @MainActor
+    private func sendInput(_ text: String, to surface: ghostty_surface_t) {
+        for event in Self.parsedSocketInputEvents(for: text) {
+            switch event {
+            case .text(let value):
+                var bufferedText = value
+                flushText(&bufferedText, surface: surface)
+            case .key(let event):
+                sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+            }
+        }
+    }
+
+    @MainActor
+    private func enqueuePendingSocketInput(_ text: String) -> Bool {
+        let inputs = Self.parsedSocketInputEvents(for: text).compactMap { event -> PendingSocketInput? in
+            switch event {
+            case .text(let value):
+                return value.isEmpty ? nil : .inputText(value)
+            case .key(let event):
+                return .key(event)
+            }
+        }
+        return enqueuePendingSocketInputs(inputs)
+    }
+
+    private static func parsedSocketInputEvents(for text: String) -> [ParsedSocketInput] {
+        guard !text.isEmpty else { return [] }
+
+        var events: [ParsedSocketInput] = []
+        events.reserveCapacity(8)
         var bufferedText = ""
+        bufferedText.reserveCapacity(text.count)
         var previousWasCR = false
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
+            events.append(.text(bufferedText))
+            bufferedText.removeAll(keepingCapacity: true)
+        }
+
+        func appendKey(_ keycode: UInt32, label: String) {
+            events.append(.key(PendingKeyEvent(
+                keycode: keycode,
+                mods: GHOSTTY_MODS_NONE,
+                label: label
+            )))
+        }
+
         for scalar in text.unicodeScalars {
             switch scalar.value {
-            case 0x0A: // \n — skip if preceded by \r (already sent Return)
+            case 0x0A:
                 if !previousWasCR {
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                    flushBufferedText()
+                    appendKey(UInt32(kVK_Return), label: "return")
                 }
                 previousWasCR = false
             case 0x0D:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                flushBufferedText()
+                appendKey(UInt32(kVK_Return), label: "return")
                 previousWasCR = true
             case 0x09:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
+                flushBufferedText()
+                appendKey(UInt32(kVK_Tab), label: "tab")
                 previousWasCR = false
             case 0x1B:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
+                flushBufferedText()
+                appendKey(UInt32(kVK_Escape), label: "escape")
+                previousWasCR = false
+            case 0x08, 0x7F:
+                flushBufferedText()
+                appendKey(UInt32(kVK_Delete), label: "backspace")
                 previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
                 previousWasCR = false
             }
         }
-        flushText(&bufferedText, surface: surface)
+        flushBufferedText()
+        return events
     }
 
     private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
@@ -5688,46 +5946,44 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
+    @MainActor
+    private func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
+        return liveSurfaceForGhosttyAccess(reason: reason)
+    }
+
     // Socket/API operations are an explicit runtime demand: they must be able to
     // start a terminal in a background workspace without selecting that workspace.
-    // Ghostty can create from the attached NSView while it is off-window; geometry
-    // and display id are reconciled later when the view is presented.
-    func requestBackgroundSurfaceStartIfNeeded(allowOffWindow: Bool = false) {
+    // When there is no real window yet, bootstrap Ghostty in a hidden window and
+    // reconcile display/window state when the terminal is later presented.
+    func requestBackgroundSurfaceStartIfNeeded() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: allowOffWindow)
+                self?.requestBackgroundSurfaceStartIfNeeded()
             }
             return
         }
 
         guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil, attachedView != nil else { return }
-        queuedBackgroundSurfaceStartAllowsOffWindow =
-            queuedBackgroundSurfaceStartAllowsOffWindow || allowOffWindow
+        guard surface == nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let allowOffWindow = self.queuedBackgroundSurfaceStartAllowsOffWindow
-            self.queuedBackgroundSurfaceStartAllowsOffWindow = false
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil, let view = self.attachedView else { return }
-            guard allowOffWindow || view.window != nil else {
-                #if DEBUG
-                cmuxDebugLog(
-                    "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
-                )
-                #endif
-                return
-            }
+            guard self.surface == nil else { return }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
-            self.createSurface(for: view)
+            if let view = self.attachedView, view.window != nil {
+                self.createSurface(for: view)
+            } else {
+                self.startRuntimeUsingHeadlessWindowIfNeeded(reason: "background-input")
+            }
             #if DEBUG
             let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            let view = self.attachedView ?? self.surfaceView
             cmuxDebugLog(
                 "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
             )
@@ -5878,15 +6134,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    private func enqueuePendingSocketInput(_ input: PendingSocketInput) {
-        let incomingBytes = input.estimatedBytes
-        while !pendingSocketInputQueue.isEmpty,
-              pendingSocketInputBytes + incomingBytes > maxPendingSocketInputBytes {
-            let dropped = pendingSocketInputQueue.removeFirst()
-            pendingSocketInputBytes -= dropped.estimatedBytes
+    @MainActor
+    private func enqueuePendingSocketInput(_ input: PendingSocketInput) -> Bool {
+        enqueuePendingSocketInputs([input])
+    }
+
+    @MainActor
+    private func enqueuePendingSocketInputs(_ inputs: [PendingSocketInput]) -> Bool {
+        let incomingBytes = inputs.reduce(0) { $0 + $1.estimatedBytes }
+        guard incomingBytes > 0 else { return true }
+
+        guard incomingBytes <= maxPendingSocketInputBytes,
+              pendingSocketInputBytes + incomingBytes <= maxPendingSocketInputBytes else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.socket_input.reject surface=\(id.uuidString.prefix(8)) " +
+                "items=\(inputs.count) incomingBytes=\(incomingBytes) pendingBytes=\(pendingSocketInputBytes)"
+            )
+#endif
+            return false
         }
 
-        pendingSocketInputQueue.append(input)
+        pendingSocketInputQueue.append(contentsOf: inputs)
         pendingSocketInputBytes += incomingBytes
 #if DEBUG
         let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
@@ -5899,20 +6168,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
             "keys=\(pendingKeys) bytes=\(pendingSocketInputBytes)"
         )
 #endif
+        return true
     }
 
+    @MainActor
     private func flushPendingSocketInputIfNeeded() {
-        guard let surface = surface, !pendingSocketInputQueue.isEmpty else { return }
+        guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
+        guard !queued.isEmpty else { return }
 
         var queuedKeys = 0
         for item in queued {
             switch item {
-            case .text(let chunk):
+            case .pasteText(let chunk):
                 writeTextData(chunk, to: surface)
+            case .inputText(let text):
+                var bufferedText = text
+                flushText(&bufferedText, surface: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
@@ -5973,6 +6248,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func debugHasHeadlessStartupWindowForTesting() -> Bool {
+        headlessStartupWindow != nil
+    }
+
+    @MainActor
     func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
         let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
@@ -6023,6 +6303,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     deinit {
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
+        closeHeadlessStartupWindowIfNeeded()
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
@@ -6461,6 +6742,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         tabId = surface.tabId
         if !isAlreadyAttached {
             surface.attachToView(self)
+        } else {
+            surface.reconcileAttachedWindowIfNeeded(for: self)
         }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         if !isAlreadyAttached {
@@ -6484,13 +6767,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         cmuxDebugLog(
             "surface.view.windowMove surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-            "inWindow=\(window != nil ? 1 : 0) bounds=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-            "pending=\(String(format: "%.1fx%.1f", pendingSurfaceSize?.width ?? 0, pendingSurfaceSize?.height ?? 0))"
+            "inWindow=\(window != nil ? 1 : 0) bounds=\(String(format: "%.1fx%.1f", Double(bounds.width), Double(bounds.height))) " +
+            "pending=\(String(format: "%.1fx%.1f", Double(pendingSurfaceSize?.width ?? 0), Double(pendingSurfaceSize?.height ?? 0)))"
         )
 #endif
         guard let window else { return }
 
-        // If the surface creation was deferred while detached, create/attach it now.
+        // Reconcile the already-started runtime with the real window backing context.
         terminalSurface?.attachToView(self)
         if let terminalSurface {
             NotificationCenter.default.post(
