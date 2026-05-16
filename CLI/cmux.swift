@@ -21007,8 +21007,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
-                let ownerPID = codexMonitorOwnerPID(client: client)
-                if ownerPID == nil {
+                let shouldUseOwnerPID = !client.isRelayBacked
+                let ownerPID = shouldUseOwnerPID ? codexMonitorOwnerPID(client: client) : nil
+                if shouldUseOwnerPID && ownerPID == nil {
                     telemetry.breadcrumb(
                         "codex-hook.monitor.owner-unavailable",
                         data: [
@@ -21018,7 +21019,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         ]
                     )
                 }
-                if let ownerPID = ownerPID {
+                if !shouldUseOwnerPID {
+                    telemetry.breadcrumb(
+                        "codex-hook.monitor.owner-pid-skipped",
+                        data: [
+                            "reason": "relay_socket",
+                            "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                            "has_transcript": normalizedHookValue(input.transcriptPath) != nil,
+                            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+                        ]
+                    )
+                }
+                if !shouldUseOwnerPID || ownerPID != nil {
                     if let leasePath = createCodexMonitorLease(
                         sessionId: sessionId,
                         turnId: input.turnId,
@@ -21039,7 +21051,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             cwd: hookCwd ?? mapped?.cwd,
                             workspaceId: workspaceId,
                             surfaceId: surfaceId,
-                            ownerPID: ownerPID,
+                            ownerPID: shouldUseOwnerPID ? ownerPID : nil,
                             leasePath: leasePath,
                             env: env,
                             telemetry: telemetry
@@ -21049,7 +21061,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             "codex-hook.monitor.lease-unavailable",
                             data: [
                                 "has_turn_id": normalizedHookValue(input.turnId) != nil,
-                                "has_owner_pid": true,
+                                "has_owner_pid": ownerPID != nil,
+                                "relay_socket": !shouldUseOwnerPID,
                             ]
                         )
                     }
