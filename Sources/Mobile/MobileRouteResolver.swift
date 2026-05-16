@@ -43,19 +43,48 @@ struct MobileRouteResolver: Sendable {
         }
         defer { freeifaddrs(interfaces) }
 
+        var tailscaleInterfaceNames = Set<String>()
+        var cgnatCandidates: [(interfaceName: String, address: String)] = []
         var pointer: UnsafeMutablePointer<ifaddrs>? = firstInterface
         while let current = pointer {
             defer { pointer = current.pointee.ifa_next }
 
+            guard let nameCString = current.pointee.ifa_name else {
+                continue
+            }
+            let interfaceName = String(cString: nameCString)
             let flags = Int32(current.pointee.ifa_flags)
             guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else {
                 continue
             }
             guard let address = current.pointee.ifa_addr,
-                  address.pointee.sa_family == UInt8(AF_INET) else {
+                  let candidate = numericHost(for: address) else {
                 continue
             }
 
+            switch Int32(address.pointee.sa_family) {
+            case AF_INET:
+                if isTailscaleCGNAT(candidate) {
+                    cgnatCandidates.append((interfaceName, candidate))
+                }
+            case AF_INET6:
+                if isTailscaleIPv6ULA(candidate) || isTailscaleInterfaceName(interfaceName) {
+                    tailscaleInterfaceNames.insert(interfaceName)
+                }
+            default:
+                break
+            }
+        }
+
+        if let match = cgnatCandidates.first(where: { tailscaleInterfaceNames.contains($0.interfaceName) }) {
+            return match.address
+        }
+        return cgnatCandidates.first(where: { isTailscaleInterfaceName($0.interfaceName) })?.address
+    }
+
+    private static func numericHost(for address: UnsafeMutablePointer<sockaddr>) -> String? {
+        switch Int32(address.pointee.sa_family) {
+        case AF_INET, AF_INET6:
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             let result = getnameinfo(
                 address,
@@ -66,17 +95,10 @@ struct MobileRouteResolver: Sendable {
                 0,
                 NI_NUMERICHOST
             )
-            guard result == 0 else {
-                continue
-            }
-
-            let candidate = String(cString: host)
-            if isTailscaleCGNAT(candidate) {
-                return candidate
-            }
+            return result == 0 ? String(cString: host) : nil
+        default:
+            return nil
         }
-
-        return nil
     }
 
     private static func isTailscaleCGNAT(_ ipAddress: String) -> Bool {
@@ -85,6 +107,14 @@ struct MobileRouteResolver: Sendable {
             return false
         }
         return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    private static func isTailscaleIPv6ULA(_ ipAddress: String) -> Bool {
+        ipAddress.lowercased().hasPrefix("fd7a:115c:a1e0:")
+    }
+
+    private static func isTailscaleInterfaceName(_ name: String) -> Bool {
+        name.localizedCaseInsensitiveContains("tailscale")
     }
 }
 

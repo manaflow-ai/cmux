@@ -344,7 +344,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         connection.stateUpdateHandler = nil
         connection.cancel()
         resumeConnectContinuations(throwing: pendingError)
-        resumeReceiveContinuation(returning: nil)
+        resumeReceiveContinuation(throwing: pendingError)
         resumeSendContinuation(throwing: pendingError)
     }
 

@@ -5478,6 +5478,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Self.sizeLog("updateSize-call surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) changed=\((scaleChanged || sizeChanged) ? 1 : 0)")
         #endif
 
+        if mobileViewportPixelLimit != nil {
+            updateMobileViewportBorder(
+                appliedWidth: wpx,
+                appliedHeight: hpx,
+                baseWidth: rawWpx,
+                baseHeight: rawHpx
+            )
+        }
+
         guard scaleChanged || sizeChanged else { return false }
 
         #if DEBUG
@@ -5531,16 +5540,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let appliedWidth = min(targetWidth, baseWidth)
         let appliedHeight = min(targetHeight, baseHeight)
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
-        let drawRightBorder = targetWidth < baseWidth
-        let drawBottomBorder = targetHeight < baseHeight
-        let borderScale = hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        hostedView.setMobileViewportBorder(
-            size: CGSize(
-                width: CGFloat(appliedWidth) / max(1, borderScale),
-                height: CGFloat(appliedHeight) / max(1, borderScale)
-            ),
-            drawRight: drawRightBorder,
-            drawBottom: drawBottomBorder
+        updateMobileViewportBorder(
+            appliedWidth: appliedWidth,
+            appliedHeight: appliedHeight,
+            baseWidth: baseWidth,
+            baseHeight: baseHeight
         )
 
         #if DEBUG
@@ -5601,6 +5605,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return (
             width: min(width, mobileViewportPixelLimit.width),
             height: min(height, mobileViewportPixelLimit.height)
+        )
+    }
+
+    private func updateMobileViewportBorder(
+        appliedWidth: UInt32,
+        appliedHeight: UInt32,
+        baseWidth: UInt32,
+        baseHeight: UInt32
+    ) {
+        let drawRightBorder = appliedWidth < baseWidth
+        let drawBottomBorder = appliedHeight < baseHeight
+        let borderScale = hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        hostedView.setMobileViewportBorder(
+            size: CGSize(
+                width: CGFloat(appliedWidth) / max(1, borderScale),
+                height: CGFloat(appliedHeight) / max(1, borderScale)
+            ),
+            drawRight: drawRightBorder,
+            drawBottom: drawBottomBorder
         )
     }
 

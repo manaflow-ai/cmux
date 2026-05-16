@@ -77,10 +77,27 @@ public enum CmxAttachRouteError: Error, Equatable, Sendable {
 }
 
 public struct CmxAttachRoute: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case endpoint
+        case priority
+    }
+
     public var id: String
     public var kind: CmxAttachTransportKind
     public var endpoint: CmxAttachEndpoint
     public var priority: Int
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            id: container.decode(String.self, forKey: .id),
+            kind: container.decode(CmxAttachTransportKind.self, forKey: .kind),
+            endpoint: container.decode(CmxAttachEndpoint.self, forKey: .endpoint),
+            priority: container.decode(Int.self, forKey: .priority)
+        )
+    }
 
     public init(
         id: String,
@@ -162,6 +179,20 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     public var routes: [CmxAttachRoute]
     public var expiresAt: Date
     public var authToken: String?
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            version: container.decode(Int.self, forKey: .version),
+            workspaceID: container.decode(String.self, forKey: .workspaceID),
+            terminalID: container.decodeIfPresent(String.self, forKey: .terminalID),
+            macDeviceID: container.decode(String.self, forKey: .macDeviceID),
+            macDisplayName: container.decodeIfPresent(String.self, forKey: .macDisplayName),
+            routes: container.decode([CmxAttachRoute].self, forKey: .routes),
+            expiresAt: container.decode(Date.self, forKey: .expiresAt),
+            authToken: container.decodeIfPresent(String.self, forKey: .authToken)
+        )
+    }
 
     public init(
         version: Int = Self.currentVersion,

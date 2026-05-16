@@ -194,6 +194,82 @@ import Testing
     }
 }
 
+@Test func attachRouteDecoderRejectsMismatchedEndpointKind() throws {
+    let data = Data("""
+    {
+      "id": "bad",
+      "kind": "iroh",
+      "endpoint": {
+        "type": "host_port",
+        "host": "100.64.1.2",
+        "port": 49831
+      },
+      "priority": 0
+    }
+    """.utf8)
+
+    #expect(throws: CmxAttachRouteError.endpointMismatch(
+        kind: .iroh,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )) {
+        _ = try JSONDecoder().decode(CmxAttachRoute.self, from: data)
+    }
+}
+
+@Test func attachTicketDecoderRejectsNoRoutes() throws {
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "macDisplayName": null,
+      "routes": [],
+      "expiresAt": "2033-05-18T03:33:20Z"
+    }
+    """.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    #expect(throws: CmxAttachTicketError.noRoutes) {
+        _ = try decoder.decode(CmxAttachTicket.self, from: data)
+    }
+}
+
+@Test func attachTicketDecoderRejectsInvalidNestedRoute() throws {
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "macDisplayName": null,
+      "routes": [
+        {
+          "id": "bad",
+          "kind": "iroh",
+          "endpoint": {
+            "type": "host_port",
+            "host": "100.64.1.2",
+            "port": 49831
+          },
+          "priority": 0
+        }
+      ],
+      "expiresAt": "2033-05-18T03:33:20Z"
+    }
+    """.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    #expect(throws: CmxAttachRouteError.endpointMismatch(
+        kind: .iroh,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )) {
+        _ = try decoder.decode(CmxAttachTicket.self, from: data)
+    }
+}
+
 @Test func networkTransportFactoryBuildsHostPortTransportForSupportedRoute() throws {
     let route = try CmxAttachRoute(
         id: "tailscale",
