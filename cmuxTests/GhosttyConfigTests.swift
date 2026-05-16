@@ -1224,6 +1224,41 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         panel.close()
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
     }
+
+    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
+        let discardedAt = Date(timeIntervalSince1970: 200)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
+        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+    }
 }
 
 final class BrowserNewTabNavigationSeedTests: XCTestCase {
