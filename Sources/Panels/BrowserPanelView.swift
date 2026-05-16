@@ -6452,9 +6452,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
-        host.prepareForWindowPortalHosting()
-        host.setLocalInlineSlotHidden(true)
-        host.releaseHostedWebViewConstraints()
         if panel.shouldUseLocalInlineDeveloperToolsHosting() {
             let hostId = ObjectIdentifier(host)
             if panel.releasePortalHostIfOwned(
@@ -6469,6 +6466,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             return false
         }
+        host.prepareForWindowPortalHosting()
+        host.setLocalInlineSlotHidden(true)
+        host.releaseHostedWebViewConstraints()
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
             for: webView,
             relativeTo: host.window

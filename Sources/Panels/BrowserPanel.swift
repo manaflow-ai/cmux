@@ -4609,11 +4609,27 @@ extension BrowserPanel {
 
     @discardableResult
     private func closeDeveloperToolsFromDetachedInspectorWindowWillClose(_ window: NSWindow) -> Bool {
+        closeDeveloperToolsFromDetachedInspectorWindow(window, source: "willClose")
+    }
+
+    @discardableResult
+    func closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+        _ window: NSWindow,
+        source: String
+    ) -> Bool {
+        closeDeveloperToolsFromDetachedInspectorWindow(window, source: source)
+    }
+
+    @discardableResult
+    private func closeDeveloperToolsFromDetachedInspectorWindow(
+        _ window: NSWindow,
+        source: String
+    ) -> Bool {
         guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
         let closed = closeDeveloperToolsForTeardown()
 #if DEBUG
         cmuxDebugLog(
-            "browser.devtools detachedClose.willClose panel=\(id.uuidString.prefix(5)) " +
+            "browser.devtools detachedClose.\(source) panel=\(id.uuidString.prefix(5)) " +
             "closed=\(closed ? 1 : 0) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif

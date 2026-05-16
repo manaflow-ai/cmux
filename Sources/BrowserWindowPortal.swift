@@ -2421,24 +2421,38 @@ final class WindowBrowserPortal: NSObject {
             relatedSubviews.append(candidate)
         }
 
-        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
-
-        if let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView() {
-            append(directTransferChild(of: sourceSuperview, containing: inspectorFrontend) ?? inspectorFrontend)
+        // The Web Inspector frontend is owned by WebKit's inspector window/controller.
+        // Moving it into the portal can leave WebKit window observers pointing at a
+        // stale host during user-initiated inspector-window close.
+        let primaryTransferView = directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView
+        if Self.containsInspectorView(in: primaryTransferView) {
+            append(primaryWebView)
+        } else {
+            append(primaryTransferView)
         }
 
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
             guard className.contains("WK") else { continue }
-            if className.contains("WKInspector") &&
-                (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
+            if className.contains("WKInspector") || Self.containsInspectorView(in: view) {
                 continue
             }
             append(view)
         }
 
         return relatedSubviews
+    }
+
+    private static func containsInspectorView(in root: NSView) -> Bool {
+        var stack: [NSView] = [root]
+        while let current = stack.popLast() {
+            if isInspectorView(current) {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 
     private func appendHostedWebKitSubviews(
