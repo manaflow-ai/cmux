@@ -166,8 +166,8 @@ extension RestorableAgentSessionIndex {
             : claudeResumeSessionIdValue(afterOption: "--resume", in: tail)
                 ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail)
         return claudeSessionIdValue(afterOption: "--session-id", in: tail)
-            ?? environmentSessionId
             ?? resumeSessionId
+            ?? environmentSessionId
     }
 
     private static func claudeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {

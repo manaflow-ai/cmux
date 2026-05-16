@@ -2633,6 +2633,17 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 arguments: [
                     "/Users/lawrence/.local/bin/claude",
                     "--resume",
+                    "41b9a226-2504-4f6d-8e81-8dd28f91fadb"
+                ],
+                environment: ["CLAUDE_SESSION_ID": "d86c6b10-0ac8-4f71-a9d0-428d7855cded"]
+            ),
+            "41b9a226-2504-4f6d-8e81-8dd28f91fadb"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
                     "fix the tests"
                 ],
                 environment: ["CLAUDE_SESSION_ID": "d86c6b10-0ac8-4f71-a9d0-428d7855cded"]
