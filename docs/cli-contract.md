@@ -72,6 +72,7 @@ Environment:
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
 | `themes` | List, set, clear, or interactively pick Ghostty themes. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |
+| `codex-teams` | Launch Codex with cmux-managed subagent panes. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
@@ -92,6 +93,7 @@ Environment:
 | `move-workspace-to-window` | Move a workspace into a target window. |
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
+| `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
 | `ssh` | Open an SSH-backed workspace. |
@@ -100,6 +102,7 @@ Environment:
 | `list-panes` | List panes in a workspace. |
 | `list-pane-surfaces` | List surfaces in a pane. |
 | `tree` | Print a window, workspace, pane, and surface tree. |
+| `top` | Print process/resource usage for cmux windows, workspaces, panes, and surfaces. |
 | `focus-pane` | Focus a pane. |
 | `new-pane` | Create a pane with terminal or browser content. |
 | `new-surface` | Create a surface inside a pane. |
@@ -412,6 +415,7 @@ the expected text without connecting to a cmux socket.
 - `cmux reorder-surface --help` -> `Usage: cmux reorder-surface`
 - `cmux reorder-workspace --help` -> `Usage: cmux reorder-workspace`
 - `cmux workspace-action --help` -> `Usage: cmux workspace-action --action <name>`
+- `cmux move-tab-to-new-workspace --help` -> `Usage: cmux move-tab-to-new-workspace`
 - `cmux tab-action --help` -> `Usage: cmux tab-action --action <name>`
 - `cmux rename-tab --help` -> `Usage: cmux rename-tab`
 - `cmux new-workspace --help` -> `Usage: cmux new-workspace`
@@ -421,6 +425,7 @@ the expected text without connecting to a cmux socket.
 - `cmux list-panes --help` -> `Usage: cmux list-panes`
 - `cmux list-pane-surfaces --help` -> `Usage: cmux list-pane-surfaces`
 - `cmux tree --help` -> `Usage: cmux tree`
+- `cmux top --help` -> `Usage: cmux top`
 - `cmux focus-pane --help` -> `Usage: cmux focus-pane`
 - `cmux new-pane --help` -> `Usage: cmux new-pane`
 - `cmux new-surface --help` -> `Usage: cmux new-surface`
@@ -515,6 +520,8 @@ changes them:
 - `cmux version --help` currently prints the version summary because `version`
   is handled before subcommand help dispatch.
 - `cmux claude-teams --help` is handled by the command launcher, not by the
+  pre-socket help dispatcher.
+- `cmux codex-teams --help` is handled by the command launcher, not by the
   pre-socket help dispatcher.
 - `cmux remote-daemon-status --help` currently prints status because the command
   runs before subcommand help dispatch.
