@@ -14326,11 +14326,19 @@ private extension AppDelegate {
         target: Any?,
         sender: Any?
     ) -> Bool {
-        guard Self.isWindowCloseAction(action) else { return false }
+        guard Self.shouldInterceptWindowCloseAction(
+            action,
+            target: target,
+            sender: sender
+        ) else { return false }
         guard Thread.isMainThread else { return false }
 
         return MainActor.assumeIsolated {
-            guard let window = Self.actionWindow(target: target, sender: sender),
+            guard let window = Self.actionWindow(
+                target: target,
+                sender: sender,
+                allowFallback: Self.allowsWindowFallback(for: action)
+            ),
                   BrowserPanel.isDetachedInspectorWindow(window) else { return false }
 
             for panel in allBrowserPanelsForInspectorWindowClose() {
@@ -14352,16 +14360,35 @@ private extension AppDelegate {
         }
     }
 
-    private static func isWindowCloseAction(_ action: Selector) -> Bool {
+    private static func shouldInterceptWindowCloseAction(
+        _ action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
         switch NSStringFromSelector(action) {
-        case "__close", "close", "close:", "performClose:":
+        case "__close", "performClose:":
+            return true
+        case "close", "close:":
+            return actionWindow(target: target, sender: sender, allowFallback: false) != nil
+        default:
+            return false
+        }
+    }
+
+    private static func allowsWindowFallback(for action: Selector) -> Bool {
+        switch NSStringFromSelector(action) {
+        case "__close", "performClose:":
             return true
         default:
             return false
         }
     }
 
-    private static func actionWindow(target: Any?, sender: Any?) -> NSWindow? {
+    private static func actionWindow(
+        target: Any?,
+        sender: Any?,
+        allowFallback: Bool = true
+    ) -> NSWindow? {
         if let window = target as? NSWindow {
             return window
         }
@@ -14374,7 +14401,7 @@ private extension AppDelegate {
         if let cell = sender as? NSCell {
             return cell.controlView?.window
         }
-        return NSApp.keyWindow ?? NSApp.mainWindow
+        return allowFallback ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
     }
 
     private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
