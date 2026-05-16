@@ -5036,7 +5036,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
 
 final class WorkspaceMountPolicyTests: XCTestCase {
-    func testDefaultPolicyMountsOnlySelectedWorkspace() {
+    func testDefaultPolicyKeepsVisitedWorkspacesMounted() {
         let a = UUID()
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
@@ -5050,10 +5050,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
-        XCTAssertEqual(next, [b])
+        XCTAssertEqual(next, [b, a])
     }
 
-    func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
+    func testSelectedWorkspaceMovesToFrontAndKeepsWarmCacheWhenUnbounded() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -5065,10 +5065,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
-            maxMounted: 2
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
-        XCTAssertEqual(next, [c, a])
+        XCTAssertEqual(next, [c, a, b])
     }
 
     func testMissingWorkspacesArePruned() {
@@ -5121,7 +5121,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         XCTAssertEqual(next, [a])
     }
 
-    func testCycleHotModeKeepsOnlySelectedWhenNoPinnedHandoff() {
+    func testCycleHotModeKeepsWarmCacheWhenNoPinnedHandoff() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -5137,10 +5137,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
         )
 
-        XCTAssertEqual(next, [c])
+        XCTAssertEqual(next, [c, a])
     }
 
-    func testCycleHotModeRespectsMaxMountedLimit() {
+    func testCycleHotModeKeepsWarmCacheWithinMaxMountedLimit() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -5155,7 +5155,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: 2
         )
 
-        XCTAssertEqual(next, [b])
+        XCTAssertEqual(next, [b, a])
     }
 
     func testPinnedIdsAreRetainedAcrossReconcile() {

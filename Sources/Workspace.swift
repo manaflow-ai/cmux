@@ -12087,6 +12087,54 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func revealPortalViewsForCurrentRenderedLayout(reason: String) -> Bool {
+        guard portalRenderingEnabled else { return false }
+        let terminalChanged = reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let browserChanged = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        beginEventDrivenLayoutFollowUp(reason: reason, includeGeometry: true)
+        return terminalChanged || browserChanged
+    }
+
+    @discardableResult
+    func prioritizePortalViewsForCurrentRenderedLayout(zPriority: Int, reason: String) -> Bool {
+        guard portalRenderingEnabled else { return false }
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        var terminalCount = 0
+        var browserCount = 0
+
+        for panel in panels.values {
+            guard visiblePanelIds.contains(panel.id) else { continue }
+            if let terminalPanel = panel as? TerminalPanel {
+                TerminalWindowPortalRegistry.updateEntryVisibility(
+                    for: terminalPanel.hostedView,
+                    visibleInUI: true,
+                    zPriority: zPriority
+                )
+                terminalCount += 1
+            } else if let browserPanel = panel as? BrowserPanel {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: true,
+                    zPriority: zPriority
+                )
+                browserCount += 1
+            }
+        }
+
+#if DEBUG
+        if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            cmuxDebugLog(
+                "ws.portal.priority id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                "workspace=\(id.uuidString.prefix(5)) z=\(zPriority) terminals=\(terminalCount) browsers=\(browserCount) reason=\(reason)"
+            )
+        }
+#endif
+
+        return terminalCount > 0 || browserCount > 0
+    }
+
+    @discardableResult
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) -> Bool {
         let changed = portalRenderingEnabled != enabled
         guard changed else { return false }

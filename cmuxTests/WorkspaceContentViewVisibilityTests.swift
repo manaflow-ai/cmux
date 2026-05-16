@@ -9,7 +9,7 @@ import Bonsplit
 #endif
 
 final class WorkspaceContentViewVisibilityTests: XCTestCase {
-    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
+    func testNonSelectedNonRetiringWorkspaceKeepsPanelMountedButTransparent() {
         XCTAssertEqual(
             MountedWorkspacePresentationPolicy.resolve(
                 isSelectedWorkspace: false,
@@ -17,7 +17,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             ),
             MountedWorkspacePresentation(
                 isRenderedVisible: false,
-                isPanelVisible: false,
+                isPanelVisible: true,
                 renderOpacity: 0
             )
         )

@@ -395,35 +395,174 @@ requestAnimationFrame(tick);
 
     def wait_for_switch_logs(self, offset: int, timeout_s: float) -> tuple[dict[str, float | int | str | None], int]:
         deadline = time.monotonic() + timeout_s
-        lines: list[str] = []
-        new_offset = offset
+        cursor = offset
         switch_id: str | None = None
+        handoff_ms: float | None = None
+        handoff_reason = "missing"
+        async_done_ms: float | None = None
+        terminal_swiftui_visible_ms: float | None = None
+        terminal_hosted_visible_ms: float | None = None
+        terminal_portal_visible_ms: float | None = None
+        browser_portal_visible_ms: float | None = None
+        portal_priority_ms: float | None = None
+        terminal_swiftui_visible_by_surface: dict[str, float] = {}
+        terminal_hosted_visible_by_surface: dict[str, float] = {}
+        terminal_portal_visible_by_hosted: dict[str, float] = {}
+        browser_portal_visible_by_web: dict[str, float] = {}
+        terminal_swiftui_visible_updates = 0
+        terminal_hosted_visible_updates = 0
+        terminal_portal_visible_updates = 0
+        browser_portal_visible_updates = 0
+        portal_priority_updates = 0
+        last_interesting_at: float | None = None
+        settle_s = self.args.visible_settle_ms / 1000.0
+
+        def note_first_visible(seen: dict[str, float], token: str, value: float) -> None:
+            seen.setdefault(token, value)
+
+        def visible_max(seen: dict[str, float]) -> float | None:
+            return max(seen.values()) if seen else None
+
+        def visible_ready_value() -> float | None:
+            if portal_priority_ms is not None:
+                return portal_priority_ms
+            values = [
+                value for value in (
+                    terminal_hosted_visible_ms,
+                    terminal_portal_visible_ms,
+                    browser_portal_visible_ms,
+                )
+                if value is not None
+            ]
+            if values:
+                return max(values)
+            return terminal_swiftui_visible_ms
+
         while time.monotonic() < deadline:
-            lines, new_offset = self.read_debug_lines(offset, timeout_s=0.05)
-            for line in lines:
+            chunk, cursor = self.read_debug_lines(cursor, timeout_s=0.05)
+            if chunk:
+                last_interesting_at = last_interesting_at or time.monotonic()
+            for line in chunk:
                 begin = re.search(r"ws\.switch\.begin id=(\d+)", line)
                 if begin:
                     switch_id = begin.group(1)
                 if switch_id:
                     complete = re.search(rf"ws\.handoff\.complete id={switch_id} dt=([0-9.]+)ms reason=([^ ]+)", line)
                     if complete:
-                        async_done_ms = None
-                        async_done = re.search(rf"ws\.select\.asyncDone id={switch_id} dt=([0-9.]+)ms", "\n".join(lines))
-                        if async_done:
-                            async_done_ms = float(async_done.group(1))
-                        return {
-                            "switch_id": int(switch_id),
-                            "handoff_ms": float(complete.group(1)),
-                            "handoff_reason": complete.group(2),
-                            "async_done_ms": async_done_ms,
-                        }, new_offset
+                        handoff_ms = float(complete.group(1))
+                        handoff_reason = complete.group(2)
+                        last_interesting_at = time.monotonic()
+                    async_done = re.search(rf"ws\.select\.asyncDone id={switch_id} dt=([0-9.]+)ms", line)
+                    if async_done:
+                        async_done_ms = float(async_done.group(1))
+                        last_interesting_at = time.monotonic()
+                    priority_ready = re.search(
+                        rf"ws\.portal\.priority id={switch_id} dt=([0-9.]+)ms .* z=2 ",
+                        line,
+                    )
+                    if priority_ready:
+                        portal_priority_ms = float(priority_ready.group(1))
+                        portal_priority_updates += 1
+                        last_interesting_at = time.monotonic()
+                    swiftui_visible = re.search(
+                        rf"ws\.swiftui\.update id={switch_id} dt=([0-9.]+)ms surface=([^ ]+) .* visible=1",
+                        line,
+                    )
+                    if swiftui_visible:
+                        note_first_visible(
+                            terminal_swiftui_visible_by_surface,
+                            swiftui_visible.group(2),
+                            float(swiftui_visible.group(1)),
+                        )
+                        terminal_swiftui_visible_ms = visible_max(terminal_swiftui_visible_by_surface)
+                        terminal_swiftui_visible_updates += 1
+                        last_interesting_at = time.monotonic()
+                    hosted_visible = re.search(
+                        rf"ws\.term\.visible id={switch_id} dt=([0-9.]+)ms surface=([^ ]+) transition=0->1",
+                        line,
+                    )
+                    if hosted_visible:
+                        note_first_visible(
+                            terminal_hosted_visible_by_surface,
+                            hosted_visible.group(2),
+                            float(hosted_visible.group(1)),
+                        )
+                        terminal_hosted_visible_ms = visible_max(terminal_hosted_visible_by_surface)
+                        terminal_hosted_visible_updates += 1
+                        last_interesting_at = time.monotonic()
+                    portal_visible = re.search(
+                        rf"^\d{{2}}:\d{{2}}:\d{{2}}\.\d{{3}} portal\.sync\.result hosted=([^ ]+) "
+                        rf".*switchId={switch_id} switchDt=([0-9.]+)ms .* hide=0 entryVisible=1",
+                        line,
+                    )
+                    if portal_visible:
+                        note_first_visible(
+                            terminal_portal_visible_by_hosted,
+                            portal_visible.group(1),
+                            float(portal_visible.group(2)),
+                        )
+                        terminal_portal_visible_ms = visible_max(terminal_portal_visible_by_hosted)
+                        terminal_portal_visible_updates += 1
+                        last_interesting_at = time.monotonic()
+                    browser_visible = re.search(
+                        rf"^\d{{2}}:\d{{2}}:\d{{2}}\.\d{{3}} browser\.portal\.sync\.result web=([^ ]+) "
+                        rf".*switchId={switch_id} switchDt=([0-9.]+)ms .* hide=0 entryVisible=1",
+                        line,
+                    )
+                    if browser_visible:
+                        note_first_visible(
+                            browser_portal_visible_by_web,
+                            browser_visible.group(1),
+                            float(browser_visible.group(2)),
+                        )
+                        browser_portal_visible_ms = visible_max(browser_portal_visible_by_web)
+                        browser_portal_visible_updates += 1
+                        last_interesting_at = time.monotonic()
+            if handoff_ms is not None and last_interesting_at is not None:
+                if time.monotonic() - last_interesting_at >= settle_s:
+                    return {
+                        "switch_id": int(switch_id) if switch_id else None,
+                        "handoff_ms": handoff_ms,
+                        "handoff_reason": handoff_reason,
+                        "async_done_ms": async_done_ms,
+                        "visible_ready_ms": visible_ready_value(),
+                        "terminal_swiftui_visible_ms": terminal_swiftui_visible_ms,
+                        "terminal_hosted_visible_ms": terminal_hosted_visible_ms,
+                        "terminal_portal_visible_ms": terminal_portal_visible_ms,
+                        "browser_portal_visible_ms": browser_portal_visible_ms,
+                        "portal_priority_ms": portal_priority_ms,
+                        "terminal_swiftui_visible_updates": terminal_swiftui_visible_updates,
+                        "terminal_hosted_visible_updates": terminal_hosted_visible_updates,
+                        "terminal_portal_visible_updates": terminal_portal_visible_updates,
+                        "browser_portal_visible_updates": browser_portal_visible_updates,
+                        "portal_priority_updates": portal_priority_updates,
+                        "terminal_swiftui_visible_first_count": len(terminal_swiftui_visible_by_surface),
+                        "terminal_hosted_visible_first_count": len(terminal_hosted_visible_by_surface),
+                        "terminal_portal_visible_first_count": len(terminal_portal_visible_by_hosted),
+                        "browser_portal_visible_first_count": len(browser_portal_visible_by_web),
+                    }, cursor
             time.sleep(0.01)
         return {
             "switch_id": int(switch_id) if switch_id else None,
-            "handoff_ms": None,
-            "handoff_reason": "missing",
-            "async_done_ms": None,
-        }, new_offset
+            "handoff_ms": handoff_ms,
+            "handoff_reason": handoff_reason,
+            "async_done_ms": async_done_ms,
+            "visible_ready_ms": visible_ready_value(),
+            "terminal_swiftui_visible_ms": terminal_swiftui_visible_ms,
+            "terminal_hosted_visible_ms": terminal_hosted_visible_ms,
+            "terminal_portal_visible_ms": terminal_portal_visible_ms,
+            "browser_portal_visible_ms": browser_portal_visible_ms,
+            "portal_priority_ms": portal_priority_ms,
+            "terminal_swiftui_visible_updates": terminal_swiftui_visible_updates,
+            "terminal_hosted_visible_updates": terminal_hosted_visible_updates,
+            "terminal_portal_visible_updates": terminal_portal_visible_updates,
+            "browser_portal_visible_updates": browser_portal_visible_updates,
+            "portal_priority_updates": portal_priority_updates,
+            "terminal_swiftui_visible_first_count": len(terminal_swiftui_visible_by_surface),
+            "terminal_hosted_visible_first_count": len(terminal_hosted_visible_by_surface),
+            "terminal_portal_visible_first_count": len(terminal_portal_visible_by_hosted),
+            "browser_portal_visible_first_count": len(browser_portal_visible_by_web),
+        }, cursor
 
     def benchmark_switches(self, workspaces: list[str]) -> None:
         if len(workspaces) < 2:
@@ -456,29 +595,71 @@ requestAnimationFrame(tick);
         cli_values = [float(s["cli_roundtrip_ms"]) for s in measured]
         handoff_values = [float(s["handoff_ms"]) for s in measured if s["handoff_ms"] is not None]
         async_values = [float(s["async_done_ms"]) for s in measured if s["async_done_ms"] is not None]
+        visible_values = [float(s["visible_ready_ms"]) for s in measured if s["visible_ready_ms"] is not None]
+        terminal_swiftui_values = [
+            float(s["terminal_swiftui_visible_ms"])
+            for s in measured
+            if s["terminal_swiftui_visible_ms"] is not None
+        ]
+        terminal_hosted_values = [
+            float(s["terminal_hosted_visible_ms"])
+            for s in measured
+            if s["terminal_hosted_visible_ms"] is not None
+        ]
+        terminal_portal_values = [
+            float(s["terminal_portal_visible_ms"])
+            for s in measured
+            if s["terminal_portal_visible_ms"] is not None
+        ]
+        browser_portal_values = [
+            float(s["browser_portal_visible_ms"])
+            for s in measured
+            if s["browser_portal_visible_ms"] is not None
+        ]
+        portal_priority_values = [
+            float(s["portal_priority_ms"])
+            for s in measured
+            if s["portal_priority_ms"] is not None
+        ]
         self.result["measurements"]["workspace_switch"] = {
             "samples": measured,
             "cli_roundtrip": summary(cli_values),
             "handoff": summary(handoff_values),
+            "visible_ready": summary(visible_values),
+            "terminal_swiftui_visible": summary(terminal_swiftui_values),
+            "terminal_hosted_visible": summary(terminal_hosted_values),
+            "terminal_portal_visible": summary(terminal_portal_values),
+            "browser_portal_visible": summary(browser_portal_values),
+            "portal_priority": summary(portal_priority_values),
             "async_done": summary(async_values),
             "missing_handoff_samples": len(measured) - len(handoff_values),
+            "missing_visible_ready_samples": len(measured) - len(visible_values),
         }
 
     def apply_budgets(self) -> None:
         switch = self.result["measurements"].get("workspace_switch", {})
         handoff = switch.get("handoff", {})
+        visible_ready = switch.get("visible_ready", {})
         cli = switch.get("cli_roundtrip", {})
         budgets = {
             "handoff_p95_ms": self.args.budget_handoff_p95_ms,
+            "visible_ready_p95_ms": self.args.budget_visible_ready_p95_ms,
             "cli_roundtrip_p95_ms": self.args.budget_cli_roundtrip_p95_ms,
             "missing_handoff_samples": 0,
+            "missing_visible_ready_samples": 0,
         }
         failures: list[str] = []
 
         if switch.get("missing_handoff_samples", 0) > budgets["missing_handoff_samples"]:
             failures.append(f"missing_handoff_samples: {switch.get('missing_handoff_samples')} > 0")
+        if switch.get("missing_visible_ready_samples", 0) > budgets["missing_visible_ready_samples"]:
+            failures.append(f"missing_visible_ready_samples: {switch.get('missing_visible_ready_samples')} > 0")
         if handoff.get("p95_ms", 0) > budgets["handoff_p95_ms"]:
             failures.append(f"handoff.p95_ms: {handoff.get('p95_ms')} > {budgets['handoff_p95_ms']}")
+        if visible_ready.get("p95_ms", 0) > budgets["visible_ready_p95_ms"]:
+            failures.append(
+                f"visible_ready.p95_ms: {visible_ready.get('p95_ms')} > {budgets['visible_ready_p95_ms']}"
+            )
         if budgets["cli_roundtrip_p95_ms"] > 0 and cli.get("p95_ms", 0) > budgets["cli_roundtrip_p95_ms"]:
             failures.append(f"cli_roundtrip.p95_ms: {cli.get('p95_ms')} > {budgets['cli_roundtrip_p95_ms']}")
 
@@ -532,9 +713,17 @@ def print_summary(result: dict) -> None:
     print(f"  launch_socket_ready_ms={result.get('measurements', {}).get('launch_socket_ready_ms')}")
     print(f"  cli_roundtrip={switch.get('cli_roundtrip')}")
     print(f"  handoff={switch.get('handoff')}")
+    print(f"  visible_ready={switch.get('visible_ready')}")
+    print(f"  terminal_swiftui_visible={switch.get('terminal_swiftui_visible')}")
+    print(f"  terminal_hosted_visible={switch.get('terminal_hosted_visible')}")
+    print(f"  terminal_portal_visible={switch.get('terminal_portal_visible')}")
+    print(f"  browser_portal_visible={switch.get('browser_portal_visible')}")
+    print(f"  portal_priority={switch.get('portal_priority')}")
     print(f"  async_done={switch.get('async_done')}")
     if switch.get("missing_handoff_samples"):
         print(f"  missing_handoff_samples={switch.get('missing_handoff_samples')}")
+    if switch.get("missing_visible_ready_samples"):
+        print(f"  missing_visible_ready_samples={switch.get('missing_visible_ready_samples')}")
     failures = result.get("failures", [])
     if failures:
         print("  budget_failures:")
@@ -565,7 +754,9 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--launch-timeout", type=float, default=45)
     parser.add_argument("--switch-log-timeout", type=float, default=5)
+    parser.add_argument("--visible-settle-ms", type=float, default=120)
     parser.add_argument("--budget-handoff-p95-ms", type=float, default=100)
+    parser.add_argument("--budget-visible-ready-p95-ms", type=float, default=100)
     parser.add_argument("--budget-cli-roundtrip-p95-ms", type=float, default=0)
     return parser.parse_args()
 
