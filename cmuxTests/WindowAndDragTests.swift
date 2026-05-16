@@ -786,7 +786,7 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-        XCTAssertEqual(ranges.count, 3)
+        XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
 
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
@@ -863,6 +863,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertEqual(
             MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
             CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset) - TitlebarControlsVisualMetrics.verticalLift,
             accuracy: 0.001
         )
     }

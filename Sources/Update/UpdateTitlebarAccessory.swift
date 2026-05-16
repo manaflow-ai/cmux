@@ -39,7 +39,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: 12,
                 buttonSize: 20,
                 badgeSize: 12,
-                badgeOffset: CGSize(width: 1, height: -1),
+                badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
@@ -52,7 +52,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: 11,
                 buttonSize: 18,
                 badgeSize: 11,
-                badgeOffset: CGSize(width: 1, height: -1),
+                badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
@@ -65,7 +65,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: 13,
                 buttonSize: 22,
                 badgeSize: 13,
-                badgeOffset: CGSize(width: 1, height: -1),
+                badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
@@ -78,7 +78,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: 12,
                 buttonSize: 20,
                 badgeSize: 12,
-                badgeOffset: CGSize(width: 1, height: -1),
+                badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(top: 1, leading: 3, bottom: 1, trailing: 3),
                 buttonBackground: false,
@@ -91,7 +91,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: 12,
                 buttonSize: 21,
                 badgeSize: 12,
-                badgeOffset: CGSize(width: 1, height: -1),
+                badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: true,
@@ -113,6 +113,26 @@ struct TitlebarControlsStyleConfig {
     let buttonBackground: Bool
     let buttonCornerRadius: CGFloat
     let hoverBackground: Bool
+}
+
+enum TitlebarControlsVisualMetrics {
+    static let verticalLift: CGFloat = 2
+
+    static func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
+        yOffset + verticalLift
+    }
+
+    static func liftedTopInset(_ topInset: CGFloat) -> CGFloat {
+        topInset - verticalLift
+    }
+}
+
+func titlebarNotificationBadgeFontSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
+    max(7, config.badgeSize - 6)
+}
+
+func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
+    1
 }
 
 final class TitlebarControlsViewModel: ObservableObject {
@@ -505,7 +525,7 @@ private struct TitlebarControlButtonStyleBody: View {
                         .stroke(Color.primary.opacity(borderOpacity), lineWidth: 0.5)
                 }
             }
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.12), value: isHovering)
             .contentShape(Rectangle())
@@ -729,7 +749,7 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: max(8, config.badgeSize - 5), weight: .semibold))
+                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
@@ -1727,8 +1747,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
             leadingInset: debugSnapshot.leftControlsLeadingInset
         )
-        let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        let baseYOffset = max(0, (containerHeight - contentSize.height) / 2.0)
             + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
+        let yOffset = TitlebarControlsVisualMetrics.liftedYOffset(baseYOffset)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,

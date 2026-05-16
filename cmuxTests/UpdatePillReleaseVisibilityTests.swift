@@ -197,6 +197,41 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             )
         }
     }
+
+    func testTitlebarControlsUseSharedVisualLift() {
+        XCTAssertEqual(
+            TitlebarControlsVisualMetrics.liftedYOffset(3),
+            5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            TitlebarControlsVisualMetrics.liftedTopInset(-2),
+            -4,
+            accuracy: 0.001
+        )
+    }
+
+    func testNotificationBadgeIsSmallAndShiftedUpRight() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+
+            XCTAssertLessThan(
+                titlebarNotificationBadgeFontSize(for: config),
+                8,
+                "Expected a compact notification badge font for style \(style)"
+            )
+            XCTAssertGreaterThanOrEqual(
+                config.badgeOffset.width,
+                3,
+                "Expected notification badge to sit farther right for style \(style)"
+            )
+            XCTAssertLessThanOrEqual(
+                config.badgeOffset.height,
+                -3,
+                "Expected notification badge to sit farther up for style \(style)"
+            )
+        }
+    }
 }
 
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
@@ -257,6 +292,11 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
             )
         }
+    }
+
+    func testPressedStateDoesNotScaleTitlebarButtons() {
+        XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
+        XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
     }
 
     func testDisabledStateMutesTitlebarButtons() {

@@ -2288,6 +2288,7 @@ struct ContentView: View {
             },
             visibilityMode: .alwaysVisible
         )
+        .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
     }
 
     private var titlebarControlsConfig: TitlebarControlsStyleConfig {
@@ -9418,7 +9419,7 @@ struct VerticalTabsSidebar: View {
                             )
                             .padding(
                                 .top,
-                                MinimalModeTitlebarDebugSettings.leftControlsTopInset()
+                                MinimalModeSidebarTitlebarControlsMetrics.topInset
                             )
                     }
                 }

@@ -550,7 +550,9 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
     }
 
     static func topInset(defaults: UserDefaults = .standard) -> CGFloat {
-        MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
+        TitlebarControlsVisualMetrics.liftedTopInset(
+            MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
+        )
     }
 
     static let hostWidth: CGFloat = 164
