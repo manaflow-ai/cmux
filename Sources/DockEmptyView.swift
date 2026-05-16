@@ -101,12 +101,13 @@ struct DockEmptyView: View {
             2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.
             3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.
 
-            Dock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.
+            Dock is cmux's right-sidebar terminal control area. A Dock config is JSONC-compatible with a top-level `controls` array, so comments and trailing commas are allowed. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.
 
             Choose where to write the config:
             - In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.
             - For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.
-            - If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.
+            - `dock.jsonc` is also supported if you want the filename to advertise comments. If `dock.json` and `dock.jsonc` both exist in the same config directory, `dock.json` wins.
+            - If both project and global configs exist, project `.cmux/dock.json` or `.cmux/dock.jsonc` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.
             - If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.
 
             Schema:
@@ -134,9 +135,9 @@ struct DockEmptyView: View {
             - Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.
 
             Deliverable:
-            - Create or update the appropriate dock.json.
+            - Create or update the appropriate Dock config file (`dock.json` or `dock.jsonc`).
             - Preserve existing useful controls unless the user asked to replace them.
-            - Validate that the JSON parses.
+            - Validate that the JSONC parses.
             - Summarize what each control does and any commands the user should review before trusting the Dock config.
             """
         )
