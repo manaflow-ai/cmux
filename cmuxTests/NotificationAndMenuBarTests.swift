@@ -658,6 +658,51 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(store.notifications.first?.isRead, false)
     }
 
+    func testCrashBreadcrumbNotificationRowRequiresRequestedSurface() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let store = TerminalNotificationStore.shared
+        let notificationId = UUID()
+        let requestedSurfaceId = UUID()
+        let crashFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
+            .standardizedFileURL
+        let pendingCrash = GhosttyCrashBreadcrumb.PendingCrash(
+            fileURL: crashFileURL,
+            modifiedAt: Date()
+        )
+        var revealedURL: URL?
+
+        appDelegate.notificationStore = store
+        appDelegate.configureGhosttyCrashBreadcrumbFileRevealerForTesting { revealedURL = $0.standardizedFileURL }
+        defer { appDelegate.resetGhosttyCrashBreadcrumbFileRevealerForTesting() }
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: notificationId,
+                tabId: GhosttyCrashBreadcrumb.notificationTabId,
+                surfaceId: nil,
+                title: "Crash",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false,
+                paneFlash: true,
+                userInfo: GhosttyCrashBreadcrumb.notificationUserInfo(for: pendingCrash)
+            ),
+        ])
+
+        XCTAssertFalse(appDelegate.openNotification(
+            tabId: GhosttyCrashBreadcrumb.notificationTabId,
+            surfaceId: requestedSurfaceId,
+            notificationId: notificationId
+        ))
+        XCTAssertNil(revealedURL)
+        XCTAssertEqual(store.notifications.first?.isRead, false)
+    }
+
     func testNotificationBadgePreferenceDefaultsToEnabled() {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

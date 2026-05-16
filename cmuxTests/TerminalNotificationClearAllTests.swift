@@ -269,7 +269,8 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             surfaceId: movingPanelId,
             title: "Detached",
             subtitle: "",
-            body: "Move should rebind this surface contribution"
+            body: "Move should rebind this surface contribution",
+            userInfo: ["custom": "metadata"]
         )
         store.setFocusedReadIndicator(forTabId: sourceWorkspace.id, surfaceId: movingPanelId)
 
@@ -291,6 +292,10 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: destinationWorkspace.id, surfaceId: movingPanelId))
         XCTAssertEqual(store.focusedReadIndicatorSurfaceId(forTabId: destinationWorkspace.id), movingPanelId)
         XCTAssertTrue(store.notifications.contains { $0.tabId == destinationWorkspace.id && $0.surfaceId == movingPanelId })
+        XCTAssertEqual(
+            store.notifications.first { $0.tabId == destinationWorkspace.id && $0.surfaceId == movingPanelId }?.userInfo,
+            ["custom": "metadata"]
+        )
     }
 
     func testDetachingSurfaceDoesNotOverwriteDestinationFocusedReadIndicator() throws {

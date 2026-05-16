@@ -14196,6 +14196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         if let notificationId,
            let notification = notificationStore?.notifications.first(where: { $0.id == notificationId }),
+           notification.tabId == tabId,
+           notification.surfaceId == surfaceId,
            notification.tabId == GhosttyCrashBreadcrumb.notificationTabId,
            let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(from: notification.userInfo) {
             return openGhosttyCrashBreadcrumbNotification(

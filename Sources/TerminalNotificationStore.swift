@@ -1656,7 +1656,8 @@ final class TerminalNotificationStore: ObservableObject {
                 body: notification.body,
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
-                paneFlash: notification.paneFlash
+                paneFlash: notification.paneFlash,
+                userInfo: notification.userInfo
             )
         }
         if didMoveNotification {
