@@ -4390,7 +4390,14 @@ class TerminalController {
             return (
                 nil,
                 nil,
-                .err(code: "worktree_error", message: error.localizedDescription, data: nil)
+                .err(
+                    code: "worktree_error",
+                    message: String(
+                        localized: "error.ephemeralWorktree.operationFailed",
+                        defaultValue: "Failed to create ephemeral worktree."
+                    ),
+                    data: nil
+                )
             )
         }
     }
