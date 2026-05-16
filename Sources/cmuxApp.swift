@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import Combine
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -69,7 +70,6 @@ struct cmuxApp: App {
         let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
         fputs("\(message)\n", stderr)
         fflush(stderr)
-        NSLog("%@", message)
         Darwin.exit(64)
     }
 
@@ -4986,6 +4986,12 @@ struct SettingsView: View {
     @State private var searchHighlightToken = 0
     @State private var searchHighlightStartedAt: Date?
     @State private var settingsNavigationGeneration = 0
+    /// Combine relay used to surface the visible-section signal to the parent
+    /// view. Sending on a `PassthroughSubject` is **not** a state mutation —
+    /// the actual `@State` write happens in the parent's `.onReceive(...)`
+    /// lifecycle handler, which keeps `onPreferenceChange` free of any
+    /// `@State`-writing call chain (Cmux Swiftui State Layout rule).
+    var visibilityRelay: PassthroughSubject<SettingsNavigationTarget, Never>? = nil
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5657,7 +5663,6 @@ struct SettingsView: View {
 #if DEBUG
         cmuxDebugLog("notification.ui enableTapped state=\(state)")
 #endif
-        NSLog("notification.ui enableTapped state=%@", state)
         switch notificationStore.authorizationState {
         case .unknown, .notDetermined:
             notificationStore.requestAuthorizationFromSettings()
@@ -5703,14 +5708,14 @@ struct SettingsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"), section: .account)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
                     SettingsCard {
                         AuthSettingsRow(authManager: authManager)
                     }
                     .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .account, idSuffix: "account"))
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .app))
                     SettingsCard {
                         SettingsCardRow(
@@ -6213,7 +6218,7 @@ struct SettingsView: View {
 
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
                     SettingsCard {
                         SettingsCardRow(
@@ -6251,7 +6256,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
                         SettingsCardRow(
@@ -6440,7 +6445,7 @@ struct SettingsView: View {
                         dockEnabled: $rightSidebarDockEnabled
                     )
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
                     SettingsCard {
                         SettingsPickerRow(
@@ -6598,7 +6603,7 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"), section: .browser)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .browser))
                         .accessibilityIdentifier("SettingsBrowserSection")
                     SettingsCard {
@@ -6889,7 +6894,7 @@ struct SettingsView: View {
 
                     GlobalHotkeySection()
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .keyboardShortcuts))
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
@@ -6955,7 +6960,7 @@ struct SettingsView: View {
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .workspaceColors))
                     SettingsCard {
                         SettingsPickerRow(
@@ -7107,7 +7112,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"), section: .settingsJSON)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .settingsJSON))
                         .accessibilityIdentifier("SettingsJSONSection")
                     SettingsCard {
@@ -7150,7 +7155,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
+                    SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"), section: .reset)
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .reset))
                     SettingsCard {
                         HStack {
@@ -7175,6 +7180,16 @@ struct SettingsView: View {
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
             }
+        .coordinateSpace(name: SettingsSectionTracker.scrollCoordinateSpaceName)
+        .onPreferenceChange(SettingsSectionTrackerKey.self) { entries in
+            // Pure-function pick + Combine `send`. No `@State` is mutated in
+            // this closure (or in any helper it calls); the parent reacts on
+            // its own `.onReceive(...)` lifecycle handler, where `@State`
+            // writes are an explicit lifecycle event rather than a render-
+            // time side effect.
+            guard let target = SettingsSectionTracker.visibleTarget(from: entries) else { return }
+            visibilityRelay?.send(target)
+        }
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
@@ -7456,13 +7471,24 @@ struct SettingsView: View {
 
 struct SettingsSectionHeader: View {
     let title: String
+    let section: SettingsNavigationTarget?
+
+    init(title: String, section: SettingsNavigationTarget? = nil) {
+        self.title = title
+        self.section = section
+    }
 
     var body: some View {
-        Text(title)
+        let base = Text(title)
             .font(.system(size: 13, weight: .semibold))
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)
+        if let section {
+            base.trackSettingsSectionPosition(section)
+        } else {
+            base
+        }
     }
 }
 
@@ -8055,7 +8081,7 @@ private struct GlobalHotkeySection: View {
     }
 
     var body: some View {
-        SettingsSectionHeader(title: String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"))
+        SettingsSectionHeader(title: String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), section: .globalHotkey)
             .accessibilityIdentifier("SettingsGlobalHotkeySection")
             .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .globalHotkey))
 
@@ -8118,6 +8144,20 @@ private struct SettingsRootView: View {
     @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID = SettingsSearchIndex.defaultSelectionID
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var searchText = ""
+    @State private var pendingNavigationTarget: SettingsNavigationTarget?
+    @State private var pendingLayoutPassesObserved = 0
+    /// Visible-section signal channel from the detail view. Held in `@State`
+    /// so the same `PassthroughSubject` instance survives view rebuilds; the
+    /// subject itself is a reference-typed event relay, not observed state.
+    @State private var visibilityRelay = PassthroughSubject<SettingsNavigationTarget, Never>()
+
+    /// Maximum number of preference-driven layout passes we'll wait for the
+    /// programmatic scroll to reach `pendingNavigationTarget` before lifting
+    /// the suppression flag unconditionally. Sized to comfortably cover a
+    /// standard SwiftUI scroll animation (~300–500 ms at 60 fps); after the
+    /// animation finishes there are no further layout passes, so the budget
+    /// is only consumed while scroll work is actually happening.
+    private static let pendingScrollSettleBudget = 60
 
     private var selectedSection: SettingsNavigationTarget {
         SettingsNavigationTarget(rawValue: selectedSectionRaw) ?? .account
@@ -8160,7 +8200,7 @@ private struct SettingsRootView: View {
             )
             .navigationSplitViewColumnWidth(210)
         } detail: {
-            SettingsView()
+            SettingsView(visibilityRelay: visibilityRelay)
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: SettingsWindowPresenter.minimumSize.width, minHeight: SettingsWindowPresenter.minimumSize.height)
@@ -8178,10 +8218,81 @@ private struct SettingsRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+            beginProgrammaticScroll(to: target)
             let selectedEntry = SettingsSearchIndex.entry(withID: selectedSidebarEntryID)
             let shouldPreserveSearchSelection = isSearching && selectedEntry?.target == target
             navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection, postRequest: false)
         }
+        .onReceive(visibilityRelay) { target in
+            // `.onReceive(...)` is a SwiftUI lifecycle handler, not a render
+            // callback — `@State` writes here do not violate the Cmux Swiftui
+            // State Layout rule. The PassthroughSubject in `SettingsView.body`
+            // only sends; this handler decides whether to update the sidebar
+            // selection.
+            handleVisibleSectionChanged(target)
+        }
+    }
+
+    private func handleVisibleSectionChanged(_ target: SettingsNavigationTarget) {
+        if let pending = pendingNavigationTarget {
+            // Defensive guard: `.browserImport` has no tracking header in
+            // the scroll layout, so it can never be reported by the
+            // PreferenceKey-based tracker. `beginProgrammaticScroll(to:)`
+            // therefore stores `.browser` whenever the user navigates to
+            // `.browserImport` — but if anything ever stores `.browserImport`
+            // here we lift suppression immediately rather than wedging the
+            // sidebar sync forever.
+            if pending == .browserImport {
+                pendingNavigationTarget = nil
+                pendingLayoutPassesObserved = 0
+                guard target.rawValue != selectedSectionRaw else { return }
+                navigate(to: target, postRequest: false)
+                return
+            }
+            // Programmatic scroll reached the requested section; resume sync.
+            if target == pending {
+                pendingNavigationTarget = nil
+                pendingLayoutPassesObserved = 0
+                return
+            }
+            // Greptile P1: terminal sections (e.g. `.reset`) whose header can
+            // never cross the visibility threshold — because there is not
+            // enough content below them to scroll the header upward — would
+            // leave `pendingNavigationTarget` set forever, permanently
+            // breaking the auto-sync feature for the rest of the session. We
+            // count the layout passes observed while pending and force-clear
+            // the suppression flag after a generous budget. Crucially, we
+            // keep the user's clicked sidebar selection intact (no call to
+            // `navigate`) so the highlight reflects the intent of their
+            // click rather than the section that happened to settle below
+            // the threshold.
+            pendingLayoutPassesObserved += 1
+            if pendingLayoutPassesObserved >= Self.pendingScrollSettleBudget {
+                pendingNavigationTarget = nil
+                pendingLayoutPassesObserved = 0
+            }
+            return
+        }
+        guard target.rawValue != selectedSectionRaw else { return }
+        navigate(to: target, postRequest: false)
+    }
+
+    private func beginProgrammaticScroll(to target: SettingsNavigationTarget) {
+        // Map every navigation target to the section whose header is
+        // actually tracked by the scroll PreferenceKey. `.browserImport` is
+        // a sub-section of `.browser` and has no tracking header of its own,
+        // so storing it as the pending target would leave the suppression
+        // flag set forever (`handleVisibleSectionChanged` would never see a
+        // matching report). Map it to `.browser` so the pending target can
+        // be cleared once the browser section scrolls into view.
+        let trackedTarget: SettingsNavigationTarget
+        if target == .browserImport {
+            trackedTarget = .browser
+        } else {
+            trackedTarget = target
+        }
+        pendingNavigationTarget = trackedTarget
+        pendingLayoutPassesObserved = 0
     }
 
     private func selectSidebarEntry(_ entryID: String) {

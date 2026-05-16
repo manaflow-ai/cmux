@@ -111,6 +111,58 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     }
 }
 
+enum SettingsSectionTracker {
+    static let scrollCoordinateSpaceName = "cmux.settings.detail.scroll"
+
+    /// Header offset (relative to the named scroll coordinate space) below
+    /// which a section header is considered "above" the visible region. The
+    /// section with the largest minY <= this threshold is what the sidebar
+    /// should highlight.
+    static let visibilityThreshold: CGFloat = 32
+
+    /// Pure helper for picking the visible section from preference entries.
+    /// Kept here so call sites can invoke it without mutating any `@State`
+    /// in their `onPreferenceChange` callbacks.
+    static func visibleTarget(from entries: [SettingsSectionTrackerEntry]) -> SettingsNavigationTarget? {
+        let candidates = entries.filter { $0.minY <= visibilityThreshold }
+        if let chosen = candidates.max(by: { $0.minY < $1.minY }) {
+            return chosen.target
+        }
+        return entries.min(by: { $0.minY < $1.minY })?.target
+    }
+}
+
+struct SettingsSectionTrackerEntry: Equatable {
+    let target: SettingsNavigationTarget
+    let minY: CGFloat
+}
+
+struct SettingsSectionTrackerKey: PreferenceKey {
+    static let defaultValue: [SettingsSectionTrackerEntry] = []
+
+    static func reduce(value: inout [SettingsSectionTrackerEntry], nextValue: () -> [SettingsSectionTrackerEntry]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+extension View {
+    func trackSettingsSectionPosition(_ target: SettingsNavigationTarget) -> some View {
+        background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: SettingsSectionTrackerKey.self,
+                    value: [
+                        SettingsSectionTrackerEntry(
+                            target: target,
+                            minY: geo.frame(in: .named(SettingsSectionTracker.scrollCoordinateSpaceName)).minY
+                        )
+                    ]
+                )
+            }
+        )
+    }
+}
+
 enum SettingsNavigationRequest {
     static let notificationName = Notification.Name("cmux.settings.navigate")
     private static let targetKey = "target"
