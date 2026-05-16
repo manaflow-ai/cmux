@@ -4522,7 +4522,10 @@ extension BrowserPanel {
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if String(describing: type(of: root)).contains("WKInspector") {
+        let className = String(describing: type(of: root))
+        let objcClassName = NSStringFromClass(type(of: root))
+        if className.contains("WKInspector") || className.contains("WebInspector") ||
+            objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector") {
             return true
         }
         for subview in root.subviews where windowContainsInspectorViews(subview) {
@@ -5916,7 +5919,10 @@ extension BrowserPanel {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if String(describing: type(of: subview)).contains("WKInspector") {
+                let className = String(describing: type(of: subview))
+                let objcClassName = NSStringFromClass(type(of: subview))
+                if className.contains("WKInspector") || className.contains("WebInspector") ||
+                    objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector") {
                     count += 1
                 }
                 stack.append(subview)
@@ -6018,7 +6024,10 @@ private extension BrowserPanel {
     }
 
     static func isInspectorView(_ view: NSView) -> Bool {
-        String(describing: type(of: view)).contains("WKInspector")
+        let className = String(describing: type(of: view))
+        let objcClassName = NSStringFromClass(type(of: view))
+        return className.contains("WKInspector") || className.contains("WebInspector") ||
+            objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector")
     }
 
     static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {

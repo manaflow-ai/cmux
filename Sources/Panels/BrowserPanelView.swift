@@ -16,6 +16,10 @@ private func browserPanelViewRectDescription(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
 }
 
+private func browserPanelViewIsInspectorClassName(_ className: String) -> Bool {
+    className.contains("WKInspector") || className.contains("WebInspector")
+}
+
 private extension NSObject {
     @discardableResult
     func browserPanelCallVoidIfAvailable(_ rawSelector: String) -> Bool {
@@ -49,7 +53,8 @@ private extension WKWebView {
     }
 
     var cmuxBrowserPanelIsInspectorFrontend: Bool {
-        String(describing: type(of: self)).contains("WKInspector")
+        browserPanelViewIsInspectorClassName(String(describing: type(of: self))) ||
+            browserPanelViewIsInspectorClassName(NSStringFromClass(type(of: self)))
     }
 
     private func cmuxBrowserPanelApplyRenderingStateRefresh(
@@ -6017,7 +6022,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         fileprivate static func isInspectorView(_ view: NSView) -> Bool {
-            String(describing: type(of: view)).contains("WKInspector")
+            browserPanelViewIsInspectorClassName(String(describing: type(of: view))) ||
+                browserPanelViewIsInspectorClassName(NSStringFromClass(type(of: view)))
         }
 
         fileprivate static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
@@ -6089,14 +6095,16 @@ struct WebViewRepresentable: NSViewRepresentable {
     private static func isLikelyInspectorResponder(_ responder: NSResponder?) -> Bool {
         guard let responder else { return false }
         let responderType = String(describing: type(of: responder))
-        if responderType.contains("WKInspector") {
+        if browserPanelViewIsInspectorClassName(responderType) ||
+            browserPanelViewIsInspectorClassName(NSStringFromClass(type(of: responder))) {
             return true
         }
         guard let view = responder as? NSView else { return false }
         var node: NSView? = view
         var hops = 0
         while let current = node, hops < 64 {
-            if String(describing: type(of: current)).contains("WKInspector") {
+            if browserPanelViewIsInspectorClassName(String(describing: type(of: current))) ||
+                browserPanelViewIsInspectorClassName(NSStringFromClass(type(of: current))) {
                 return true
             }
             node = current.superview
@@ -6201,7 +6209,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            guard className.contains("WK") else { continue }
             if containsInspectorFrontend(view) {
 #if DEBUG
                 cmuxDebugLog(
@@ -6211,10 +6218,10 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 continue
             }
-            if className.contains("WKInspector") &&
-                (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
+            if browserPanelViewIsInspectorClassName(className) {
                 continue
             }
+            guard className.contains("WK") else { continue }
             append(view)
         }
 
