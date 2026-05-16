@@ -759,7 +759,7 @@ extension RestorableAgentSessionIndex {
         return sessionId
     }
 
-    private static func normalized(_ rawValue: String?) -> String? {
+    static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil

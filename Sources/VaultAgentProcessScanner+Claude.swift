@@ -58,7 +58,7 @@ extension RestorableAgentSessionIndex {
             observed: observed,
             executablePath: executablePath,
             tail: claudeLaunchTail(observed: observed),
-            workingDirectory: normalizedClaudeValue(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
+            workingDirectory: normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
         )
     }
 
@@ -92,7 +92,7 @@ extension RestorableAgentSessionIndex {
                 observed: observed,
                 environment: processArguments.environment
             )
-            let workingDirectory = normalizedClaudeValue(
+            let workingDirectory = normalized(
                 observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
             )
             guard let launchCommand = claudeLaunchCommand(
@@ -150,7 +150,7 @@ extension RestorableAgentSessionIndex {
         _ process: CmuxTopProcessInfo,
         environment: [String: String]
     ) -> Bool {
-        guard let rawPID = normalizedClaudeValue(environment["CMUX_CLAUDE_PID"]) else {
+        guard let rawPID = normalized(environment["CMUX_CLAUDE_PID"]) else {
             return true
         }
         return Int(rawPID) == process.pid
@@ -166,7 +166,7 @@ extension RestorableAgentSessionIndex {
                 ?? claudeSessionIdValue(afterOption: "-r", in: tail)
         return claudeSessionIdValue(afterOption: "--session-id", in: tail)
             ?? resumeSessionId
-            ?? normalizedClaudeValue(environment["CLAUDE_SESSION_ID"])
+            ?? normalized(environment["CLAUDE_SESSION_ID"])
     }
 
     private static func claudeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {
@@ -181,7 +181,7 @@ extension RestorableAgentSessionIndex {
         observed: VaultObservedAgentProcess,
         environment: [String: String]
     ) -> String {
-        if let launchExecutable = normalizedClaudeValue(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
+        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
             return launchExecutable
         }
         let argumentExecutable = observed.claudeExecutableArgument
@@ -223,7 +223,7 @@ extension RestorableAgentSessionIndex {
         workingDirectory: String?
     ) -> AgentLaunchCommandSnapshot? {
         let environment = observed.environment
-        let inheritedLauncher = normalizedClaudeValue(environment["CMUX_AGENT_LAUNCH_KIND"])
+        let inheritedLauncher = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
         let inheritedArguments = decodeNULSeparatedBase64(environment["CMUX_AGENT_LAUNCH_ARGV_B64"])
         let canonicalInheritedLauncher = inheritedLauncher.flatMap(canonicalClaudeInheritedLauncher)
         if inheritedLauncher != nil,
@@ -239,7 +239,7 @@ extension RestorableAgentSessionIndex {
             ) else {
                 return nil
             }
-            let inheritedExecutable = normalizedClaudeValue(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"])
+            let inheritedExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"])
                 ?? inheritedArguments.first
                 ?? executablePath
             let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
@@ -320,7 +320,7 @@ extension RestorableAgentSessionIndex {
     }
 
     private static func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
-        guard let rawValue = normalizedClaudeValue(rawValue),
+        guard let rawValue = normalized(rawValue),
               let data = Data(base64Encoded: rawValue) else {
             return nil
         }
@@ -344,14 +344,6 @@ extension RestorableAgentSessionIndex {
             parts.append(value)
         }
         return parts.isEmpty ? nil : parts
-    }
-
-    private static func normalizedClaudeValue(_ rawValue: String?) -> String? {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawValue.isEmpty else {
-            return nil
-        }
-        return rawValue
     }
 }
 
