@@ -23,7 +23,7 @@ Keep this workflow focused on existing debug windows and menu entries. Do not ad
 ```bash
 skills/cmux-debug-windows/scripts/debug_windows_snapshot.sh --copy
 ```
-5. After code edits, run the tagged reload:
+1. After code edits, run the tagged reload:
 ```bash
 ./scripts/reload.sh --tag <tag>
 ```
