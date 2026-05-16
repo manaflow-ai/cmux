@@ -4648,7 +4648,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Ghostty's embedded surface creation still expects a view with a window, so use
         // a hidden bootstrap window until the real portal host is ready.
         if hasStartupWork {
-            scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
+            MainActor.assumeIsolated {
+                scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
+            }
         }
     }
 
@@ -4658,17 +4660,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceView.tabId = newTabId
     }
 
+    @MainActor
     private func scheduleHeadlessRuntimeStartIfNeeded(reason: String) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.scheduleHeadlessRuntimeStartIfNeeded(reason: reason)
-            }
-            return
-        }
-
-        MainActor.assumeIsolated {
-            startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
-        }
+        startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
     }
 
     @MainActor
@@ -4717,6 +4711,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     }
 
+    @MainActor
     private func releaseHeadlessStartupWindowIfNeeded(for view: GhosttyNSView) {
         guard let window = headlessStartupWindow else { return }
         guard let currentWindow = view.window, currentWindow !== window else { return }
@@ -5981,24 +5976,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.backgroundSurfaceStartQueued = false
-            guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil else { return }
+            MainActor.assumeIsolated {
+                self.backgroundSurfaceStartQueued = false
+                guard self.allowsRuntimeSurfaceCreation() else { return }
+                guard self.surface == nil else { return }
             #if DEBUG
-            let startedAt = ProcessInfo.processInfo.systemUptime
+                let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
-            if let view = self.attachedView, view.window != nil {
-                self.createSurface(for: view)
-            } else {
-                self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
+                if let view = self.attachedView, view.window != nil {
+                    self.createSurface(for: view)
+                } else {
+                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
+                }
+            #if DEBUG
+                let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+                let view = self.attachedView ?? self.surfaceView
+                cmuxDebugLog(
+                    "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+                )
+            #endif
             }
-            #if DEBUG
-            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
-            let view = self.attachedView ?? self.surfaceView
-            cmuxDebugLog(
-                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
-            )
-            #endif
         }
     }
 
