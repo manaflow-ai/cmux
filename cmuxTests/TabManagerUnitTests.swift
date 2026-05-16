@@ -2547,3 +2547,136 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(result, .completed)
     }
 }
+
+final class TabCloseButtonPositionSettingsTests: XCTestCase {
+    private func makeDefaults() -> UserDefaults {
+        let suite = "TabCloseButtonPositionSettingsTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+
+    func testDefaultIsLeadingToMatchMacOSConvention() {
+        let defaults = makeDefaults()
+        XCTAssertEqual(TabCloseButtonPositionSettings.current(defaults: defaults), .leading)
+    }
+
+    func testResolvedReturnsStoredValue() {
+        let defaults = makeDefaults()
+        defaults.set("trailing", forKey: TabCloseButtonPositionSettings.storageKey)
+        XCTAssertEqual(TabCloseButtonPositionSettings.current(defaults: defaults), .trailing)
+    }
+
+    func testResolvedFallsBackWhenValueIsUnknown() {
+        let defaults = makeDefaults()
+        defaults.set("somethingElse", forKey: TabCloseButtonPositionSettings.storageKey)
+        XCTAssertEqual(TabCloseButtonPositionSettings.current(defaults: defaults), .leading)
+    }
+
+    func testBonsplitValueBridgeMapsLeadingAndTrailing() {
+        XCTAssertEqual(TabCloseButtonPosition.leading.bonsplitValue, .leading)
+        XCTAssertEqual(TabCloseButtonPosition.trailing.bonsplitValue, .trailing)
+    }
+}
+
+final class WorkspaceBonsplitAppearanceTests: XCTestCase {
+    @MainActor
+    func testLeadingPositionProducesLeadingAppearance() {
+        let appearance = Workspace.bonsplitAppearance(
+            backgroundColor: .black,
+            backgroundOpacity: 1.0,
+            tabTitleFontSize: 11,
+            closeButtonPosition: .leading
+        )
+        XCTAssertEqual(appearance.closeButtonPosition, .leading)
+    }
+
+    @MainActor
+    func testTrailingPositionProducesTrailingAppearance() {
+        let appearance = Workspace.bonsplitAppearance(
+            backgroundColor: .black,
+            backgroundOpacity: 1.0,
+            tabTitleFontSize: 11,
+            closeButtonPosition: .trailing
+        )
+        XCTAssertEqual(appearance.closeButtonPosition, .trailing)
+    }
+}
+
+final class TabCloseButtonPositionLiveUpdateTests: XCTestCase {
+    @MainActor
+    func testApplyTabCloseButtonPositionMutatesControllerConfiguration() {
+        let controller = BonsplitController(
+            configuration: BonsplitConfiguration(
+                appearance: .init(closeButtonPosition: .trailing)
+            )
+        )
+        XCTAssertEqual(controller.configuration.appearance.closeButtonPosition, .trailing)
+
+        let changedToLeading = Workspace.applyTabCloseButtonPosition(to: controller, position: .leading)
+        XCTAssertTrue(changedToLeading)
+        XCTAssertEqual(controller.configuration.appearance.closeButtonPosition, .leading)
+
+        let unchangedOnRepeat = Workspace.applyTabCloseButtonPosition(to: controller, position: .leading)
+        XCTAssertFalse(unchangedOnRepeat, "repeat apply with same position should be a no-op")
+
+        let changedToTrailing = Workspace.applyTabCloseButtonPosition(to: controller, position: .trailing)
+        XCTAssertTrue(changedToTrailing)
+        XCTAssertEqual(controller.configuration.appearance.closeButtonPosition, .trailing)
+    }
+
+    @MainActor
+    func testNotifyDidChangePostsTheExpectedNotification() {
+        let expectation = XCTNSNotificationExpectation(
+            name: TabCloseButtonPositionSettings.didChangeNotification,
+            object: nil,
+            notificationCenter: .default
+        )
+        TabCloseButtonPositionSettings.notifyDidChange()
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    @MainActor
+    func testNotificationObservationUpdatesBonsplitController() {
+        // End-to-end simulation of Workspace's observer wiring: posting the
+        // notification should cause a subscriber to push the current setting
+        // onto its Bonsplit controller.
+        //
+        // Isolated from UserDefaults.standard and NotificationCenter.default
+        // so the test can't leak state onto the dev machine if it crashes and
+        // can't flake under parallel test execution.
+        let controller = BonsplitController(
+            configuration: BonsplitConfiguration(
+                appearance: .init(closeButtonPosition: .trailing)
+            )
+        )
+
+        let suiteName = "TabCloseButtonPositionLiveUpdateTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let notificationCenter = NotificationCenter()
+
+        let observer = notificationCenter.addObserver(
+            forName: TabCloseButtonPositionSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Workspace.applyTabCloseButtonPosition(
+                to: controller,
+                position: TabCloseButtonPositionSettings.current(defaults: defaults)
+            )
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        defaults.set(TabCloseButtonPosition.leading.rawValue, forKey: TabCloseButtonPositionSettings.storageKey)
+
+        TabCloseButtonPositionSettings.notifyDidChange(notificationCenter: notificationCenter)
+
+        // Drain the main queue so the observer block runs.
+        let drain = XCTestExpectation(description: "drain main queue after notification")
+        DispatchQueue.main.async { drain.fulfill() }
+        wait(for: [drain], timeout: 1.0)
+
+        XCTAssertEqual(controller.configuration.appearance.closeButtonPosition, .leading)
+    }
+}

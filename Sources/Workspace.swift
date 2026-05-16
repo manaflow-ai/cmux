@@ -7627,10 +7627,30 @@ final class Workspace: Identifiable, ObservableObject {
             "border=\(colors.borderHex ?? "nil")"
     }
 
+    /// Production wrapper that reads the close-button preference from the
+    /// global `UserDefaults.standard` suite via `TabCloseButtonPositionSettings`.
+    /// Tests should call the pure factory overload below with an explicit
+    /// `closeButtonPosition` instead.
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
         tabTitleFontSize: CGFloat = 11
+    ) -> BonsplitConfiguration.Appearance {
+        bonsplitAppearance(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            tabTitleFontSize: tabTitleFontSize,
+            closeButtonPosition: TabCloseButtonPositionSettings.current()
+        )
+    }
+
+    /// Pure factory overload that does not touch `UserDefaults` for the close-button
+    /// preference, useful for tests that need to assert appearance for a specific position.
+    static func bonsplitAppearance(
+        backgroundColor: NSColor,
+        backgroundOpacity: Double,
+        tabTitleFontSize: CGFloat,
+        closeButtonPosition: TabCloseButtonPosition
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
@@ -7649,7 +7669,8 @@ final class Workspace: Identifiable, ObservableObject {
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
             chromeColors: chromeColors,
-            usesSharedBackdrop: sharesWindowBackdrop
+            usesSharedBackdrop: sharesWindowBackdrop,
+            closeButtonPosition: closeButtonPosition.bonsplitValue
         )
     }
 
@@ -7900,7 +7921,17 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+
+        tabCloseButtonPositionObserver = NotificationCenter.default.addObserver(
+            forName: TabCloseButtonPositionSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applyTabCloseButtonPosition()
+        }
     }
+
+    private var tabCloseButtonPositionObserver: NSObjectProtocol?
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -7910,8 +7941,34 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
+        if let tabCloseButtonPositionObserver {
+            NotificationCenter.default.removeObserver(tabCloseButtonPositionObserver)
+        }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+    }
+
+    @MainActor
+    func applyTabCloseButtonPosition() {
+        Workspace.applyTabCloseButtonPosition(
+            to: bonsplitController,
+            position: TabCloseButtonPositionSettings.current()
+        )
+    }
+
+    /// Push the configured `TabCloseButtonPosition` onto a Bonsplit controller's appearance.
+    /// Exposed as a static helper so the live-update flow is unit-testable without
+    /// constructing a full `Workspace`.
+    @discardableResult
+    @MainActor
+    static func applyTabCloseButtonPosition(
+        to controller: BonsplitController,
+        position: TabCloseButtonPosition
+    ) -> Bool {
+        let next = position.bonsplitValue
+        guard controller.configuration.appearance.closeButtonPosition != next else { return false }
+        controller.configuration.appearance.closeButtonPosition = next
+        return true
     }
 
     func refreshSplitButtonTooltips() {

@@ -5063,6 +5063,8 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(TabCloseButtonPositionSettings.storageKey)
+    private var tabCloseButtonPositionRaw = TabCloseButtonPositionSettings.defaultPosition.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = SidebarWorkspaceDetailDefaults.showBranchDirectory
@@ -5221,6 +5223,17 @@ struct SettingsView: View {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
+    private var tabCloseButtonPositionSelection: Binding<String> {
+        Binding(
+            get: { TabCloseButtonPositionSettings.resolved(rawValue: tabCloseButtonPositionRaw).rawValue },
+            set: { newValue in
+                guard tabCloseButtonPositionRaw != newValue else { return }
+                tabCloseButtonPositionRaw = newValue
+                TabCloseButtonPositionSettings.notifyDidChange()
+            }
         )
     }
 
@@ -6440,6 +6453,26 @@ struct SettingsView: View {
                         dockEnabled: $rightSidebarDockEnabled
                     )
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.tabs", defaultValue: "Tabs"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .tabs))
+                    SettingsCard {
+                        SettingsPickerRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.tabCloseButton.label", defaultValue: "Tab close button position"),
+                            subtitle: String(
+                                localized: "settings.tabCloseButton.subtitle",
+                                defaultValue: "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+                            ),
+                            controlWidth: pickerColumnWidth,
+                            selection: tabCloseButtonPositionSelection
+                        ) {
+                            ForEach(TabCloseButtonPosition.allCases) { position in
+                                Text(position.displayName).tag(position.rawValue)
+                            }
+                        }
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .tabs, idSuffix: "close-button-position"))
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
                     SettingsCard {
@@ -7372,6 +7405,11 @@ struct SettingsView: View {
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        let previousTabCloseButtonPositionRaw = tabCloseButtonPositionRaw
+        tabCloseButtonPositionRaw = TabCloseButtonPositionSettings.defaultPosition.rawValue
+        if previousTabCloseButtonPositionRaw != tabCloseButtonPositionRaw {
+            TabCloseButtonPositionSettings.notifyDidChange()
+        }
         sidebarSelectionColorHex = nil
         sidebarNotificationBadgeColorHex = nil
         sidebarShowBranchDirectory = SidebarWorkspaceDetailDefaults.showBranchDirectory

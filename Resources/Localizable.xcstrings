@@ -112384,6 +112384,601 @@
     "rightSidebar.remote.error.modeUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar mode '%@' is not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーのモード '%@' は利用できません" } } } },
     "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } },
     "notificationHook.failure.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification Hook Failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知フックに失敗しました" } } } },
-    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } }
+    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } },
+    "settings.tabCloseButton.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab close button position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブの閉じるボタンの位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 닫기 버튼 위치"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tab close button position"
+          }
+        }
+      }
+    },
+    "settings.tabCloseButton.leading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Left"
+          }
+        }
+      }
+    },
+    "settings.tabCloseButton.trailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Right"
+          }
+        }
+      }
+    },
+    "settings.tabCloseButton.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS の Safari や Finder と同じく閉じるボタンを先頭に配置するか、末尾のままにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS의 Safari/Finder처럼 닫기(×) 버튼을 앞쪽에 두거나 뒤쪽에 유지합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Match macOS Safari/Finder by placing the close (×) on the leading edge, or keep it on the trailing edge."
+          }
+        }
+      }
+    },
+    "settings.section.tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Tabs"
+          }
+        }
+      }
+    }
   }
 }

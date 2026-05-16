@@ -6,6 +6,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case terminal
     case sidebarAppearance
     case betaFeatures
+    case tabs
     case automation
     case browser
     case browserImport
@@ -31,6 +32,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .betaFeatures:
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
+        case .tabs:
+            return String(localized: "settings.section.tabs", defaultValue: "Tabs")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .browser:
@@ -62,6 +65,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "sidebar.left"
         case .betaFeatures:
             return "exclamationmark.triangle"
+        case .tabs:
+            return "rectangle.split.3x1"
         case .automation:
             return "wand.and.sparkles"
         case .browser:
@@ -93,6 +98,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sidebar details branches badges material terminal background"
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
+        case .tabs:
+            return "\(title) tab close button position leading trailing left right safari finder hig macos"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini"
         case .browser:
@@ -335,6 +342,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.tabs, "close-button-position", String(localized: "settings.tabCloseButton.label", defaultValue: "Tab close button position"), "tab close button leading trailing left right safari finder hig position macos"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
