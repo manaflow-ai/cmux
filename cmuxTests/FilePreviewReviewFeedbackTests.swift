@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Carbon.HIToolbox
 import XCTest
 
@@ -108,7 +108,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
-        let firstPane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let firstPane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let existingPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: firstPane,
             filePath: originalURL.path,
@@ -121,7 +121,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             filePath: placeholderURL.path
         ))
         let targetPane = try XCTUnwrap(workspace.paneId(forPanelId: placeholderPanel.id))
-        let startingTargetTabs = workspace.bonsplitController.tabs(inPane: targetPane).count
+        let startingTargetTabs = workspace.layoutController.tabs(inPane: targetPane).count
         TerminalController.shared.setActiveTabManager(manager)
 
         let result = TerminalController.shared.v2FileOpen(params: [
@@ -142,7 +142,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertNotEqual(openedPanelId, existingPanel.id)
         XCTAssertEqual(payload["pane_id"] as? String, targetPane.id.uuidString)
         XCTAssertEqual(workspace.paneId(forPanelId: openedPanelId)?.id, targetPane.id)
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
     }
 
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {

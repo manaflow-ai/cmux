@@ -1,5 +1,5 @@
 import XCTest
-import Bonsplit
+import CMUXLayout
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -59,7 +59,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             tmuxStartCommand,
             "Programmatic tmux-compatible splits must preserve the original tmux command for pane format queries"
         )
-        guard let split = workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+        guard let split = workspaceSplitNodes(in: workspace.layoutController.treeSnapshot()).first else {
             XCTFail("Expected split terminal panel to create a split node")
             return
         }
@@ -74,7 +74,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
     func testNewTerminalSurfaceCarriesRequestedWorkingDirectoryAndStartupCommand() {
         let workspace = Workspace()
-        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+        guard let paneId = workspace.layoutController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
             return
         }
@@ -139,7 +139,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
     func testSessionSnapshotDoesNotPersistGenericTmuxStartCommand() throws {
         let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let genericCommand = "sleep 600"
         let panel = try XCTUnwrap(workspace.newTerminalSurface(
             inPane: paneId,

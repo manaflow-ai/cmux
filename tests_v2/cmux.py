@@ -1044,12 +1044,12 @@ class cmux:
             res["panel_id"] = res.get("surface_id")
         return res
 
-    def bonsplit_underflow_count(self) -> int:
-        res = self._call("debug.bonsplit_underflow.count") or {}
+    def workspaceLayout_underflow_count(self) -> int:
+        res = self._call("debug.workspaceLayout_underflow.count") or {}
         return int(res.get("count") or 0)
 
-    def reset_bonsplit_underflow_count(self) -> None:
-        self._call("debug.bonsplit_underflow.reset")
+    def reset_workspaceLayout_underflow_count(self) -> None:
+        self._call("debug.workspaceLayout_underflow.reset")
 
     def empty_panel_count(self) -> int:
         res = self._call("debug.empty_panel.count") or {}

@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 import WebKit
 
@@ -276,7 +276,7 @@ extension FileDropOverlayView {
         let interestingTypes = types.filter { type in
             let raw = type.rawValue
             return PasteboardFileURLReader.fileURLPasteboardTypes.contains(type)
-                || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
+                || raw == DragOverlayRoutingPolicy.workspaceLayoutTabTransferType.rawValue
                 || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
                 || raw.contains("public.text")
                 || raw.contains("public.url")
@@ -293,7 +293,7 @@ extension FileDropOverlayView {
     private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let types else { return false }
         return DragOverlayRoutingPolicy.hasFileDropPayload(types)
-            || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            || types.contains(DragOverlayRoutingPolicy.workspaceLayoutTabTransferType)
             || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
     }
 
@@ -390,10 +390,34 @@ extension FileDropOverlayView {
         return nil
     }
 
-    func shouldDeferFileDropOverlayToBonsplitTabBar(at point: NSPoint) -> Bool {
+    func shouldDeferFileDropOverlayToWorkspaceLayoutTabBar(at point: NSPoint) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
-        return BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: window)
+        return WorkspaceLayoutTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: window)
+    }
+
+    func shouldDeferFileDropOverlayToWorkspaceCanvasResize(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        switch eventType {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard WorkspaceCanvasResizeHitRegionRegistry.contains(pointInWindow: windowPoint, in: window) else {
+                return false
+            }
+            WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
+            return true
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return WorkspaceCanvasResizeHitRegionRegistry.isPointerResizeActive(in: window)
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            let wasActive = WorkspaceCanvasResizeHitRegionRegistry.isPointerResizeActive(in: window)
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: window)
+            return wasActive
+        default:
+            return false
+        }
     }
 
     func paneDropTargetUnderPoint(_ windowPoint: NSPoint) -> (any FileDropPaneTarget)? {

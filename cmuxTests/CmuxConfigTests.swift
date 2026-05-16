@@ -417,7 +417,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let icon = CmuxButtonIcon.imagePath("icons/codex.svg")
         XCTAssertEqual(
-            icon.bonsplitIcon(
+            icon.workspaceLayoutIcon(
                 configSourcePath: configPath,
                 globalConfigPath: configPath
             ),
@@ -449,7 +449,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let icon = CmuxButtonIcon.imagePath("icons/bad.svg")
         XCTAssertEqual(
-            icon.bonsplitIcon(
+            icon.workspaceLayoutIcon(
                 configSourcePath: projectConfigPath,
                 globalConfigPath: globalConfigPath
             ),
@@ -481,7 +481,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         let icon = CmuxButtonIcon.imagePath("icons/safe.svg")
         XCTAssertEqual(
-            icon.bonsplitIcon(
+            icon.workspaceLayoutIcon(
                 configSourcePath: projectConfigPath,
                 globalConfigPath: globalConfigPath,
                 allowProjectLocalImage: false
@@ -1780,12 +1780,12 @@ final class CmuxSplitDefinitionTests: XCTestCase {
         XCTAssertEqual(split.clampedSplitPosition, 0.9, accuracy: 0.001)
     }
 
-    func testSplitOrientationHorizontal() {
+    func testLayoutOrientationHorizontal() {
         let split = CmuxSplitDefinition(direction: .horizontal, split: nil, children: [])
         XCTAssertEqual(split.splitOrientation, .horizontal)
     }
 
-    func testSplitOrientationVertical() {
+    func testLayoutOrientationVertical() {
         let split = CmuxSplitDefinition(direction: .vertical, split: nil, children: [])
         XCTAssertEqual(split.splitOrientation, .vertical)
     }

@@ -1,8 +1,8 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import SwiftUI
 
-struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
+struct SidebarSurfaceWorkspaceDropOverlay: NSViewRepresentable {
     let currentSelectedTabId: () -> UUID?
     let sidebarIndexForTabId: (UUID) -> Int?
     let moveToExistingWorkspace: (UUID) -> Bool
@@ -13,29 +13,29 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     let updateAutoscroll: () -> Void
     let targets: [SidebarDropPlanner.WorkspaceDropTarget]
 
-    func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
-        SidebarBonsplitTabWorkspaceDropView()
+    func makeNSView(context: Context) -> SidebarCMUXLayoutTabWorkspaceDropView {
+        SidebarCMUXLayoutTabWorkspaceDropView()
     }
 
-    func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
+    func updateNSView(_ nsView: SidebarCMUXLayoutTabWorkspaceDropView, context: Context) {
         nsView.targets = targets
         nsView.hasValidTransfer = {
-            BonsplitTabDragPayload.currentTransfer() != nil
+            SurfaceTabDragPayload.currentTransfer() != nil
         }
         nsView.canPerformAction = { action in
-            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+            guard let transfer = SurfaceTabDragPayload.currentTransfer(),
                   let app = AppDelegate.shared else {
                 return false
             }
             switch action {
             case .existingWorkspace(let workspaceId):
-                if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
                    source.workspaceId == workspaceId {
                     return true
                 }
-                return app.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
+                return app.canMoveCMUXLayoutTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
             case .newWorkspace:
-                return app.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
+                return app.canMoveCMUXLayoutTabToNewWorkspace(tabId: transfer.tab.id)
             }
         }
         nsView.updateAutoscroll = updateAutoscroll
@@ -66,8 +66,8 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
-final class SidebarBonsplitTabWorkspaceDropView: NSView {
-    private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+final class SidebarCMUXLayoutTabWorkspaceDropView: NSView {
+    private static let pasteboardType = NSPasteboard.PasteboardType(SurfaceTabDragPayload.typeIdentifier)
 
     var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
     var hasValidTransfer: () -> Bool = { false }
@@ -201,7 +201,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
+        guard SurfaceTabDragPayload.currentTransfer() != nil else { return false }
         guard let eventType = NSApp.currentEvent?.type else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:

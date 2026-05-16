@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import Bonsplit
+import CMUXLayout
 import CMUXWorkstream
 import CoreServices
 import UserNotifications
@@ -771,9 +771,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var jumpUnreadFocusObserver: NSObjectProtocol?
     private var didSetupTerminalCmdClickUITest = false
     private var didSetupGotoSplitUITest = false
-    private var didSetupBonsplitTabDragUITest = false
+    private var didSetupCMUXLayoutTabDragUITest = false
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
-    private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
+    private var workspaceLayoutTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
@@ -1586,7 +1586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
-        setupBonsplitTabDragUITestIfNeeded()
+        setupCMUXLayoutTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
@@ -3951,11 +3951,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return windowId
     }
 
-    func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
-        let bonsplitTabId = TabID(uuid: tabId)
+    func locateCMUXLayoutSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
+        let workspaceLayoutTabId = SurfaceID(uuid: tabId)
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
+                if let panelId = workspace.panelIdFromSurfaceId(workspaceLayoutTabId) {
                     return (context.windowId, workspace.id, panelId, context.tabManager)
                 }
             }
@@ -3963,7 +3963,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for route in recoverableMainWindowRoutes() {
             guard let manager = route.tabManager else { continue }
             for workspace in manager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
+                if let panelId = workspace.panelIdFromSurfaceId(workspaceLayoutTabId) {
                     return (route.windowId, workspace.id, panelId, manager)
                 }
             }
@@ -3977,7 +3977,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         toWorkspace targetWorkspaceId: UUID,
         targetPane: PaneID? = nil,
         targetIndex: Int? = nil,
-        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        splitTarget: (orientation: LayoutOrientation, insertFirst: Bool)? = nil,
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
@@ -4029,9 +4029,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         let resolvedTargetPane = targetPane.flatMap { pane in
-            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? destinationWorkspace.bonsplitController.focusedPaneId
-            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+            destinationWorkspace.layoutController.allPaneIds.first(where: { $0 == pane })
+        } ?? destinationWorkspace.layoutController.focusedPaneId
+            ?? destinationWorkspace.layoutController.allPaneIds.first
 
         guard let resolvedTargetPane else {
 #if DEBUG
@@ -4046,7 +4046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
                 guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
+                      sourceWorkspace.layoutController.splitPane(
                         resolvedTargetPane,
                         orientation: splitTarget.orientation,
                         movingTab: sourceTabId,
@@ -4139,7 +4139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  destinationWorkspace.layoutController.splitPane(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,
@@ -4211,12 +4211,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func moveBonsplitTab(
+    func moveCMUXLayoutTab(
         tabId: UUID,
         toWorkspace targetWorkspaceId: UUID,
         targetPane: PaneID? = nil,
         targetIndex: Int? = nil,
-        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        splitTarget: (orientation: LayoutOrientation, insertFirst: Bool)? = nil,
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
@@ -4227,14 +4227,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return String(format: "%.2f", ms)
         }
         cmuxDebugLog(
-            "surface.moveBonsplit.begin tab=\(tabId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
+            "surface.moveCMUXLayout.begin tab=\(tabId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
             "targetPane=\(targetPane?.id.uuidString.prefix(5) ?? "auto") targetIndex=\(targetIndex.map(String.init) ?? "nil")"
         )
 #endif
-        guard let located = locateBonsplitSurface(tabId: tabId) else {
+        guard let located = locateCMUXLayoutSurface(tabId: tabId) else {
 #if DEBUG
             cmuxDebugLog(
-                "surface.moveBonsplit.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
+                "surface.moveCMUXLayout.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
                 "targetWs=\(targetWorkspaceId.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
             )
 #endif
@@ -4242,7 +4242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #if DEBUG
         cmuxDebugLog(
-            "surface.moveBonsplit.located tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
+            "surface.moveCMUXLayout.located tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
             "sourceWs=\(located.workspaceId.uuidString.prefix(5)) sourceWin=\(located.windowId.uuidString.prefix(5))"
         )
 #endif
@@ -4257,7 +4257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #if DEBUG
         cmuxDebugLog(
-            "surface.moveBonsplit.end tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
+            "surface.moveCMUXLayout.end tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
             "moved=\(moved ? 1 : 0) elapsedMs=\(elapsedMs(since: moveStart))"
         )
 #endif
@@ -4927,9 +4927,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focus: Bool
     ) {
         let rollbackPane = sourcePane.flatMap { pane in
-            workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
+            workspace.layoutController.allPaneIds.first(where: { $0 == pane })
+        } ?? workspace.layoutController.focusedPaneId
+            ?? workspace.layoutController.allPaneIds.first
         guard let rollbackPane else { return }
         _ = workspace.attachDetachedSurface(
             detached,
@@ -5637,8 +5637,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId) ?? true
     }
 
-    func syncBonsplitTabShortcutHintEligibility(in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.syncBonsplitTabShortcutHintEligibility()
+    func syncCMUXLayoutTabShortcutHintEligibility(in window: NSWindow?) {
+        keyboardFocusCoordinator(for: window)?.syncCMUXLayoutTabShortcutHintEligibility()
     }
 
     fileprivate struct TerminalKeyboardFocusRequest {
@@ -6480,8 +6480,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let workspace = context.tabManager.selectedWorkspace
             ?? context.tabManager.addWorkspace(workingDirectory: parentDirectory, select: true)
-        guard let paneId = workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let paneId = workspace.layoutController.focusedPaneId
+            ?? workspace.layoutController.allPaneIds.first else {
             return false
         }
 
@@ -6873,10 +6873,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
 
-        // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
+        // Seed the per-window CMUXLayout tab-bar leading inset before ContentView first
         // renders. The initial workspace is created inside TabManager.init, at which
         // point there is no source workspace or prior window inset to inherit from, so
-        // applyCreationChromeInheritance returns early and leaves the Bonsplit inset
+        // applyCreationChromeInheritance returns early and leaves the CMUXLayout inset
         // at 0 — which is wrong in minimal mode with the sidebar collapsed, where the
         // native traffic lights need an 80pt reserved strip on the tab bar. Without
         // this seed, the first-frame layout can mispaint in the new window until
@@ -6894,7 +6894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let fileExplorerState = FileExplorerState()
 #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1" {
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] == "1" {
             fileExplorerState.mode = .files
             fileExplorerState.isVisible = true
         }
@@ -7997,7 +7997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         await Task.yield()
 
-        let paneIds = workspace.bonsplitController.allPaneIds
+        let paneIds = workspace.layoutController.allPaneIds
         guard paneIds.count == paneCount else { return false }
 
         let additionalTabsPerPane = max(0, tabsPerPane - 1)
@@ -8031,7 +8031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private struct DebugStressTerminalLoadTarget {
         let workspace: Workspace
         let paneId: PaneID
-        let tabId: TabID
+        let tabId: SurfaceID
         let panelId: UUID
     }
 
@@ -8109,8 +8109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mountedWorkspaceCount = await waitForDebugStressMountedWorkspaces(workspaces)
 
         for (workspaceIndex, workspace) in workspaces.enumerated() {
-            for paneId in workspace.bonsplitController.allPaneIds {
-                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+            for paneId in workspace.layoutController.allPaneIds {
+                for tab in workspace.layoutController.tabs(inPane: paneId) {
                     guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
                           workspace.panel(for: tab.id) is TerminalPanel else {
                         continue
@@ -8623,14 +8623,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func setupBonsplitTabDragUITestIfNeeded() {
-        guard !didSetupBonsplitTabDragUITest else { return }
-        didSetupBonsplitTabDragUITest = true
+    private func setupCMUXLayoutTabDragUITestIfNeeded() {
+        guard !didSetupCMUXLayoutTabDragUITest else { return }
+        didSetupCMUXLayoutTabDragUITest = true
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+        guard env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1" else { return }
         guard tabManager != nil else { return }
-        let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
-        let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
+        let startWithHiddenSidebar = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_START_WITH_HIDDEN_SIDEBAR"] == "1"
+        let showRightSidebar = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
         func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
@@ -8648,7 +8648,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func runSetupWhenWindowReady() {
             guard Date() < deadline else {
-                writeBonsplitTabDragUITestData(["setupError": "Timed out waiting for main window"])
+                writeCMUXLayoutTabDragUITestData(["setupError": "Timed out waiting for main window"])
                 return
             }
             guard let (mainWindow, context) = mainWindowContextForUITest() else {
@@ -8661,7 +8661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
             if let screenFrame {
                 let targetSize: NSSize
-                if let rawSize = env["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] {
+                if let rawSize = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_WINDOW_SIZE"] {
                     let parts = rawSize
                         .split(separator: "x", maxSplits: 1)
                         .compactMap { Double(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
@@ -8688,7 +8688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let tabManager = context.tabManager
             guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
                   let alphaPanelId = workspace.focusedPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Missing initial workspace or panel"])
+                self.writeCMUXLayoutTabDragUITestData(["setupError": "Missing initial workspace or panel"])
                 return
             }
 
@@ -8700,7 +8700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.newSurface()
 
             guard let betaPanelId = workspace.focusedPanelId, betaPanelId != alphaPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Failed to create second surface"])
+                self.writeCMUXLayoutTabDragUITestData(["setupError": "Failed to create second surface"])
                 return
             }
 
@@ -8710,13 +8710,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
-                    self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
+                    self.writeCMUXLayoutTabDragUITestData(["setupError": "Missing right sidebar state"])
                     return
                 }
                 fileExplorerState.mode = .files
                 fileExplorerState.setVisible(true)
             }
-            self.writeBonsplitTabDragUITestData([
+            self.writeCMUXLayoutTabDragUITestData([
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
@@ -8727,7 +8727,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
             ])
-            self.startBonsplitTabDragUITestRecorder(
+            self.startCMUXLayoutTabDragUITestRecorder(
                 workspaceId: workspace.id,
                 alphaPanelId: alphaPanelId,
                 betaPanelId: betaPanelId
@@ -8740,38 +8740,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func bonsplitTabDragUITestDataPath() -> String? {
+    private func workspaceLayoutTabDragUITestDataPath() -> String? {
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
+        guard env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"],
               !path.isEmpty else {
             return nil
         }
         return path
     }
 
-    private func startBonsplitTabDragUITestRecorder(
+    private func startCMUXLayoutTabDragUITestRecorder(
         workspaceId: UUID,
         alphaPanelId: UUID,
         betaPanelId: UUID
     ) {
-        bonsplitTabDragUITestRecorder?.cancel()
-        bonsplitTabDragUITestRecorder = nil
+        workspaceLayoutTabDragUITestRecorder?.cancel()
+        workspaceLayoutTabDragUITestRecorder = nil
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
-            self?.recordBonsplitTabDragUITestState(
+            self?.recordCMUXLayoutTabDragUITestState(
                 workspaceId: workspaceId,
                 alphaPanelId: alphaPanelId,
                 betaPanelId: betaPanelId
             )
         }
-        bonsplitTabDragUITestRecorder = timer
+        workspaceLayoutTabDragUITestRecorder = timer
         timer.resume()
     }
 
-    private func recordBonsplitTabDragUITestState(
+    private func recordCMUXLayoutTabDragUITestState(
         workspaceId: UUID,
         alphaPanelId: UUID,
         betaPanelId: UUID
@@ -8783,19 +8783,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let trackedPaneId = workspace.paneId(forPanelId: alphaPanelId)
             ?? workspace.paneId(forPanelId: betaPanelId)
-            ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
+            ?? workspace.layoutController.focusedPaneId
+            ?? workspace.layoutController.allPaneIds.first
         guard let trackedPaneId else { return }
 
-        let titles: [String] = workspace.bonsplitController.tabs(inPane: trackedPaneId).compactMap { tab in
+        let titles: [String] = workspace.layoutController.tabs(inPane: trackedPaneId).compactMap { tab in
             guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return nil }
             return workspace.panelTitle(panelId: panelId)
         }
-        let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
+        let selectedTitle = workspace.layoutController.selectedTab(inPane: trackedPaneId)
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
 
-        writeBonsplitTabDragUITestData([
+        writeCMUXLayoutTabDragUITestData([
             "trackedPaneId": trackedPaneId.description,
             "trackedPaneTabTitles": titles.joined(separator: "|"),
             "trackedPaneTabCount": String(titles.count),
@@ -8803,9 +8803,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
     }
 
-    private func writeBonsplitTabDragUITestData(_ updates: [String: String]) {
-        guard let path = bonsplitTabDragUITestDataPath() else { return }
-        var payload = loadBonsplitTabDragUITestData(at: path)
+    private func writeCMUXLayoutTabDragUITestData(_ updates: [String: String]) {
+        guard let path = workspaceLayoutTabDragUITestDataPath() else { return }
+        var payload = loadCMUXLayoutTabDragUITestData(at: path)
         for (key, value) in updates {
             payload[key] = value
         }
@@ -8813,7 +8813,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
-    private func loadBonsplitTabDragUITestData(at path: String) -> [String: String] {
+    private func loadCMUXLayoutTabDragUITestData(at path: String) -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
@@ -8834,8 +8834,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func gotoSplitFindStateSnapshot(for workspace: Workspace) -> [String: String] {
         var updates: [String: String] = [
-            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
+            "focusedPaneId": workspace.layoutController.focusedPaneId?.description ?? ""
         ]
+        let canvasDocument = workspace.layoutController.canvasDocument
+        updates["canvasOverviewActive"] = workspace.layoutController.isCanvasOverviewActive ? "true" : "false"
+        updates["canvasPolicy"] = canvasDocument.policy.rawValue
+        updates["canvasItemCount"] = String(canvasDocument.items.count)
+        updates["canvasScale"] = String(format: "%.3f", workspace.layoutController.canvasViewport.scale)
+        updates["canvasFocusedItemId"] = workspace.layoutController.focusedCanvasItemID?.description ?? ""
 
         if let focusedPanelId = workspace.focusedPanelId {
             updates["focusedPanelId"] = focusedPanelId.uuidString
@@ -8933,8 +8939,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "browserPanelId": browserPanelId.uuidString,
                 "browserPaneId": browserPaneId.description,
                 "terminalPaneId": terminalPaneId.description,
-                "initialPaneCount": String(tab.bonsplitController.allPaneIds.count),
-                "focusedPaneId": tab.bonsplitController.focusedPaneId?.description ?? "",
+                "initialPaneCount": String(tab.layoutController.allPaneIds.count),
+                "focusedPaneId": tab.layoutController.focusedPaneId?.description ?? "",
                 "ghosttyGotoSplitLeftShortcut": ghosttyGotoSplitLeftShortcut?.displayString ?? "",
                 "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
                 "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
@@ -9031,13 +9037,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func paneIdsForGotoSplitUITest(tab: Workspace, browserPanelId: UUID) -> (browser: PaneID, terminal: PaneID)? {
-        let paneIds = tab.bonsplitController.allPaneIds
+        let paneIds = tab.layoutController.allPaneIds
         guard paneIds.count >= 2 else { return nil }
 
         var browserPane: PaneID?
         var terminalPane: PaneID?
         for paneId in paneIds {
-            guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+            guard let selected = tab.layoutController.selectedTab(inPane: paneId),
                   let panelId = tab.panelIdFromSurfaceId(selected.id) else { continue }
             if panelId == browserPanelId {
                 browserPane = paneId
@@ -9616,7 +9622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastSplitDirection"] = directionValue
-        updates["paneCountAfterSplit"] = String(workspace.bonsplitController.allPaneIds.count)
+        updates["paneCountAfterSplit"] = String(workspace.layoutController.allPaneIds.count)
         writeGotoSplitTestData(updates)
     }
 
@@ -9630,8 +9636,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let browserSnapshot = browserPanel.flatMap { BrowserWindowPortalRegistry.debugSnapshot(for: $0.webView) }
 
             var updates = self.gotoSplitFindStateSnapshot(for: workspace)
-            updates["splitZoomedAfterToggle"] = workspace.bonsplitController.isSplitZoomed ? "true" : "false"
-            updates["zoomedPaneIdAfterToggle"] = workspace.bonsplitController.zoomedPaneId?.description ?? ""
+            updates["splitZoomedAfterToggle"] = workspace.layoutController.isSplitZoomed ? "true" : "false"
+            updates["zoomedPaneIdAfterToggle"] = workspace.layoutController.zoomedPaneId?.description ?? ""
             updates["browserPanelIdAfterToggle"] = browserPanel?.id.uuidString ?? ""
             updates["browserContainerHiddenAfterToggle"] = browserSnapshot.map { $0.containerHidden ? "true" : "false" } ?? ""
             updates["browserVisibleFlagAfterToggle"] = browserSnapshot.map { $0.visibleInUI ? "true" : "false" } ?? ""
@@ -9659,7 +9665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } ?? ""
 
             let settled: Bool = {
-                if workspace.bonsplitController.isSplitZoomed {
+                if workspace.layoutController.isSplitZoomed {
                     if let focusedPanelId = workspace.focusedPanelId,
                        workspace.terminalPanel(for: focusedPanelId) != nil {
                         guard let browserSnapshot else { return false }
@@ -10415,7 +10421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
-    /// avoid mutating Bonsplit/SwiftUI-observed state during an active update pass.
+    /// avoid mutating CMUXLayout/SwiftUI-observed state during an active update pass.
     private func scheduleSplitButtonTooltipRefreshAcrossWorkspaces() {
         guard !splitButtonTooltipRefreshScheduled else { return }
         splitButtonTooltipRefreshScheduled = true
@@ -11453,6 +11459,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        if matchConfiguredShortcut(event: event, action: .canvasFreeform) {
+            return performCanvasModeShortcut(policy: .freeform, event: event)
+        }
+        if matchConfiguredShortcut(event: event, action: .canvasScrollingColumns) {
+            return performCanvasModeShortcut(policy: .scrollingColumns, event: event)
+        }
         // Configured split actions.
         if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG
@@ -11600,14 +11612,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
+            if performCanvasZoomShortcut(.zoomIn, event: event) {
+                return true
+            }
             return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
+            if performCanvasZoomShortcut(.zoomOut, event: event) {
+                return true
+            }
             return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
+            if performCanvasZoomShortcut(.reset, event: event) {
+                return true
+            }
             return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
         }
 
@@ -12223,6 +12244,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "moveWeb=\(movedToWebView ? 1 : 0) moveNil=\(movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
         )
         #endif
+    }
+
+    @discardableResult
+    private func performCanvasModeShortcut(policy: CanvasLayoutPolicy, event: NSEvent) -> Bool {
+        let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+        guard let workspace = routedManager?.selectedWorkspace else {
+            NSSound.beep()
+            return true
+        }
+        workspace.enterCanvasOverview(policy: policy)
+        return true
+    }
+
+    private enum CanvasZoomShortcutAction {
+        case zoomIn
+        case zoomOut
+        case reset
+    }
+
+    @discardableResult
+    private func performCanvasZoomShortcut(_ action: CanvasZoomShortcutAction, event: NSEvent) -> Bool {
+        let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+        guard let workspace = routedManager?.selectedWorkspace,
+              workspace.layoutController.isCanvasOverviewActive
+        else {
+            return false
+        }
+
+        switch action {
+        case .zoomIn:
+            workspace.zoomCanvasOverviewIn()
+        case .zoomOut:
+            workspace.zoomCanvasOverviewOut()
+        case .reset:
+            workspace.resetCanvasOverviewZoom()
+        }
+        return true
     }
 
     @discardableResult

@@ -4,7 +4,7 @@ Layout/flash regression tests for cmux splits.
 
 Goals:
   1) Ensure programmatic splits don't transiently render EmptyPanelView (visible flash).
-  2) Validate selected panel bounds are non-zero and aligned with bonsplit pane bounds.
+  2) Validate selected panel bounds are non-zero and aligned with CMUXLayout pane bounds.
 """
 
 import os

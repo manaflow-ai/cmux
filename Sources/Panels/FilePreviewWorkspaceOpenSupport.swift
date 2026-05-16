@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 extension Workspace {
@@ -10,7 +10,7 @@ extension Workspace {
         targetIndex: Int? = nil,
         reuseExisting: Bool = false
     ) -> [FilePreviewPanel] {
-        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let shouldFocusNewTabs = focus ?? (layoutController.focusedPaneId == paneId)
         var nextIndex = targetIndex
         var openedPanels: [FilePreviewPanel] = []
 

@@ -21,7 +21,7 @@ def surface_ids_from_layout(layout: dict):
     """Extract panel IDs keyed by vertical position from layout_debug output.
 
     Returns (top_surface_id, bottom_surface_id) based on pane frame y-origins.
-    Bonsplit's pane frames use a top-left origin (flipped) coordinate system,
+    CMUXLayout's pane frames use a top-left origin (flipped) coordinate system,
     so smaller y = higher on screen = top pane.
     """
     panels = layout.get("selectedPanels", [])

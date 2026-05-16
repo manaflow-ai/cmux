@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 extension TerminalController {
@@ -102,7 +102,7 @@ extension TerminalController {
             let hasExplicitPaneDestination = requestedPaneUUID != nil || requestedSurfaceUUID != nil
             let paneId: PaneID?
             if let paneUUID = requestedPaneUUID {
-                paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
+                paneId = ws.layoutController.allPaneIds.first(where: { $0.id == paneUUID })
                 if paneId == nil {
                     result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
                     return
@@ -118,7 +118,7 @@ extension TerminalController {
                 }
                 paneId = ws.paneId(forPanelId: surfaceId)
             } else {
-                paneId = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
+                paneId = ws.layoutController.focusedPaneId ?? ws.layoutController.allPaneIds.first
             }
 
             guard let paneId else {

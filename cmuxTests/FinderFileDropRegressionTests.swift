@@ -44,10 +44,10 @@ final class FinderFileDropRegressionTests: XCTestCase {
         )
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
-                pasteboardTypes: [.fileURL, DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                pasteboardTypes: [.fileURL, DragOverlayRoutingPolicy.workspaceLayoutTabTransferType],
                 hasLocalDraggingSource: true
             ),
-            "Bonsplit tab drags use the same pane drop destination while tab-bar hit testing still defers to Bonsplit"
+            "CMUXLayout tab drags use the same pane drop destination while tab-bar hit testing still defers to CMUXLayout"
         )
         XCTAssertTrue(
             DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -71,7 +71,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
                 pasteboardTypes: [
                     .fileURL,
                     DragOverlayRoutingPolicy.filePreviewTransferType,
-                    DragOverlayRoutingPolicy.bonsplitTabTransferType
+                    DragOverlayRoutingPolicy.workspaceLayoutTabTransferType
                 ],
                 modifierFlags: .command,
                 defaultBehavior: .text
@@ -334,7 +334,7 @@ final class FinderFileDropRegressionTests: XCTestCase {
         let pasteboard = NSPasteboard(name: .init("cmux-test-file-preview-transfer-drop-\(UUID().uuidString)"))
         pasteboard.clearContents()
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType)
 
         XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
         XCTAssertTrue(DragOverlayRoutingPolicy.hasFileDropPayload(pasteboard.types))

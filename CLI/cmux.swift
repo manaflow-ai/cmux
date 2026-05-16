@@ -4318,7 +4318,7 @@ struct CMUXCLI {
             let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "nil"
             let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "nil"
             let pane = formatHandle(item, kind: "pane", idFormat: idFormat) ?? "nil"
-            let bonsplitTab = debugString(item["bonsplit_tab_id"]) ?? "nil"
+            let layoutSurface = debugString(item["workspaceLayout_tab_id"]) ?? "nil"
             let lastKnownWorkspace = debugString(item["last_known_workspace_ref"]) ?? debugString(item["last_known_workspace_id"]) ?? "nil"
             let titleSuffix: String = {
                 guard let title = debugString(item["surface_title"]), !title.isEmpty else { return "" }
@@ -4352,7 +4352,7 @@ struct CMUXCLI {
             let line1 =
                 "[\(index)] \(surface)\(titleSuffix) " +
                 "mapped=\(debugFlag(item["mapped"])) tree=\(debugFlag(item["tree_visible"])) " +
-                "window=\(window) workspace=\(workspace) pane=\(pane) bonsplitTab=\(bonsplitTab) " +
+                "window=\(window) workspace=\(workspace) pane=\(pane) layoutSurface=\(layoutSurface) " +
                 "ctx=\(debugString(item["surface_context"]) ?? "nil")"
 
             let line2 =

@@ -272,7 +272,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         var snapshot = makeSnapshot()
         snapshot.windows[0].tabManager.workspaces[0].focusedPanelId = panelId
         snapshot.windows[0].tabManager.workspaces[0].layout = .pane(
-            SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)
+            SessionPanePaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)
         )
         snapshot.windows[0].tabManager.workspaces[0].panels = [
             SessionPanelSnapshot(
@@ -335,7 +335,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             isPinned: true,
             currentDirectory: "/tmp",
             focusedPanelId: nil,
-            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            layout: .pane(SessionPanePaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
             panels: [],
             statusEntries: [],
             logEntries: [],

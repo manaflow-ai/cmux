@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import CMUXAgentLaunch
 import Combine
 import Foundation
@@ -43,7 +43,7 @@ final class ClaudeMetadataCache: @unchecked Sendable {
 // MARK: - Drag registry
 
 /// Process-wide registry that pairs a synthetic drag UUID with a SessionEntry.
-/// Used to forward sessions through bonsplit's external-tab-drop hook (which only
+/// Used to forward sessions through workspaceLayout's external-tab-drop hook (which only
 /// carries UUIDs in its payload). Workspace.handleExternalTabDrop consults this
 /// to decide whether a drop should spawn a brand new terminal vs. move an existing tab.
 @MainActor

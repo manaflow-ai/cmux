@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import CMUXWorkstream
 import Observation
 import SwiftUI
@@ -256,7 +256,7 @@ struct RightSidebarPanelView: View {
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
-        .reportRightSidebarChromeGeometryForBonsplitUITest(
+        .reportRightSidebarChromeGeometryForCMUXLayoutUITest(
             isVisible: true,
             titlebarHeight: titlebarHeight
         )

@@ -125,6 +125,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+      { id: "canvasFreeform", combos: [["⌃", "⌘", "⇧", "F"]], description: { en: "Open freeform canvas", ja: "自由配置キャンバスを開く" } },
+      { id: "canvasScrollingColumns", combos: [["⌃", "⌘", "⇧", "C"]], description: { en: "Open Niri columns canvas", ja: "Niri列キャンバスを開く" } },
     ],
   },
   {
@@ -141,9 +143,9 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Reload page", ja: "ページを再読み込み" },
         note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
       },
-      { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
-      { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
-      { id: "browserZoomReset", combos: [["⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      { id: "browserZoomIn", combos: [["⌘", "="]], description: { en: "Zoom in browser or canvas", ja: "ブラウザまたはキャンバスを拡大" } },
+      { id: "browserZoomOut", combos: [["⌘", "-"]], description: { en: "Zoom out browser or canvas", ja: "ブラウザまたはキャンバスを縮小" } },
+      { id: "browserZoomReset", combos: [["⌘", "0"]], description: { en: "Reset browser or canvas zoom", ja: "ブラウザまたはキャンバスのズームをリセット" } },
       { id: "toggleBrowserDeveloperTools", combos: [["⌥", "⌘", "I"]], description: { en: "Toggle browser developer tools", ja: "ブラウザ開発者ツールを切り替え" } },
       { id: "showBrowserJavaScriptConsole", combos: [["⌥", "⌘", "C"]], description: { en: "Show browser JavaScript console", ja: "ブラウザJavaScriptコンソールを表示" } },
       {

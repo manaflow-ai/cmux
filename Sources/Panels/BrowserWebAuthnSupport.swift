@@ -1,6 +1,6 @@
 import AppKit
 import AuthenticationServices
-import Bonsplit
+import CMUXLayout
 import CoreBluetooth
 import Foundation
 import ObjectiveC.runtime

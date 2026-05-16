@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 #if DEBUG
-import Bonsplit
+import CMUXLayout
 #endif
 
 // MARK: - Settings

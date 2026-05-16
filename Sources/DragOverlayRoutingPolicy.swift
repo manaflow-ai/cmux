@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 enum FileDropResolvedBehavior: Equatable {
@@ -106,7 +106,7 @@ enum FileDropTextDropController {
         if workspace.panels[terminalSurfaceId] != nil {
             return terminalSurfaceId
         }
-        return workspace.panelIdFromSurfaceId(TabID(uuid: terminalSurfaceId))
+        return workspace.panelIdFromSurfaceId(SurfaceID(uuid: terminalSurfaceId))
     }
 
     @discardableResult
@@ -188,13 +188,13 @@ enum FileDropTextDropController {
 }
 
 enum DragOverlayRoutingPolicy {
-    static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    static let workspaceLayoutTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let filePreviewTransferType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
 
-    static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+    static func hasCMUXLayoutTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(bonsplitTabTransferType)
+        return pasteboardTypes.contains(workspaceLayoutTabTransferType)
     }
 
     static func hasFilePreviewTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
@@ -309,7 +309,7 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLocalDraggingSource: Bool
     ) -> Bool {
-        // The window overlay delegates Finder/sidebar files to pane-level Bonsplit targets.
+        // The window overlay delegates Finder/sidebar files to pane-level CMUXLayout targets.
         _ = hasLocalDraggingSource
         guard hasFileDropPayload(pasteboardTypes) else { return false }
         return true
@@ -356,7 +356,7 @@ enum DragOverlayRoutingPolicy {
         eventType: NSEvent.EventType?
     ) -> Bool {
         guard isPortalDragEvent(eventType) else { return false }
-        return hasBonsplitTabTransfer(pasteboardTypes)
+        return hasCMUXLayoutTabTransfer(pasteboardTypes)
             || hasFilePreviewTransfer(pasteboardTypes)
             || hasSidebarTabReorder(pasteboardTypes)
     }

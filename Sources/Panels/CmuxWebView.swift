@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
@@ -705,7 +705,7 @@ final class CmuxWebView: WKWebView {
     // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
     // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
-    // bonsplit focus tracks which pane the user clicked in.
+    // workspaceLayout focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
@@ -1964,15 +1964,15 @@ final class CmuxWebView: WKWebView {
     // MARK: - Drag-and-drop passthrough
 
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
-    // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
+    // CMUXLayout tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
     // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
     // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
     // AppKit only bubbles up through superviews, not siblings.
     //
-    // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
+    // Fix: filter out text-based types that conflict with workspaceLayout tab drags, but keep
     // file URL types so Finder file drops and HTML drag-and-drop work.
     private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
-        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
+        .string, // public.utf8-plain-text — matches workspaceLayout's NSString tab drags
         NSPasteboard.PasteboardType("public.text"),
         NSPasteboard.PasteboardType("public.plain-text"),
         NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
@@ -1980,7 +1980,7 @@ final class CmuxWebView: WKWebView {
     ]
 
     static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
     }
 

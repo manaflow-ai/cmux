@@ -3,7 +3,7 @@ import CoreGraphics
 enum WindowChromeMetrics {
     static let sharedChromeBarHeight: CGFloat = 28
     static let appTitlebarHeight: CGFloat = sharedChromeBarHeight
-    static let bonsplitTabBarHeight: CGFloat = sharedChromeBarHeight
+    static let workspaceLayoutTabBarHeight: CGFloat = sharedChromeBarHeight
     static let secondaryTitlebarHeight: CGFloat = sharedChromeBarHeight
     static let minimumTitlebarHeight: CGFloat = sharedChromeBarHeight
     static let maximumTitlebarHeight: CGFloat = 72

@@ -158,7 +158,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
         XCTAssertTrue(
             CmuxWebView.shouldRejectInternalPaneDrag([
-                DragOverlayRoutingPolicy.bonsplitTabTransferType,
+                DragOverlayRoutingPolicy.workspaceLayoutTabTransferType,
                 NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
             ])
         )
@@ -195,7 +195,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
 
         webView.registerForDraggedTypes([
             .string,
-            DragOverlayRoutingPolicy.bonsplitTabTransferType,
+            DragOverlayRoutingPolicy.workspaceLayoutTabTransferType,
             DragOverlayRoutingPolicy.sidebarTabReorderType,
         ] + externalTypes)
 
@@ -206,7 +206,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
                 "Browser web view should keep external drag type registered: \(pasteboardType)"
             )
         }
-        XCTAssertFalse(registeredTypes.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType))
+        XCTAssertFalse(registeredTypes.contains(DragOverlayRoutingPolicy.workspaceLayoutTabTransferType))
         XCTAssertFalse(registeredTypes.contains(DragOverlayRoutingPolicy.sidebarTabReorderType))
         XCTAssertFalse(registeredTypes.contains(.string))
     }
@@ -238,7 +238,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     func testInternalPaneDragDoesNotReachWebKitDragLifecycle() {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.internal-drag.\(UUID().uuidString)"))
         pasteboard.clearContents()
-        pasteboard.setString("tab-transfer", forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        pasteboard.setString("tab-transfer", forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType)
         pasteboard.setString("tab-title", forType: .string)
 
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())

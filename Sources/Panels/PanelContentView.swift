@@ -1,6 +1,6 @@
 import SwiftUI
 import Foundation
-import Bonsplit
+import CMUXLayout
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -20,6 +20,7 @@ struct PanelContentView: View {
 
     var body: some View {
         renderedPanel
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay {
                 paneDropTargetOverlay
             }

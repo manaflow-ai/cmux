@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 struct PaneDropContext: Equatable {
@@ -20,10 +20,10 @@ struct PaneDragTransfer: Equatable {
     }
 
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
-        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
+        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType) {
             return decode(from: data)
         }
-        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
+        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType) {
             return decode(from: Data(raw.utf8))
         }
         return nil
@@ -77,7 +77,7 @@ enum PaneDropRouting {
     static func filePreviewDestination(
         targetPane paneId: PaneID,
         zone: DropZone
-    ) -> BonsplitController.ExternalTabDropRequest.Destination {
+    ) -> WorkspaceLayoutController.ExternalTabDropRequest.Destination {
         switch zone {
         case .center:
             return .insert(targetPane: paneId, targetIndex: nil)

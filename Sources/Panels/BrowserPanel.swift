@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Network
 import CFNetwork
 import SQLite3
@@ -3530,7 +3530,7 @@ final class BrowserPanel: Panel, ObservableObject {
         closeDeveloperToolsForTeardown()
 
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
-        // bonsplit/SwiftUI reshuffles views during close.
+        // workspaceLayout/SwiftUI reshuffles views during close.
         unfocus()
 
         // Snapshot first: popup close unregisters itself from popupControllers.

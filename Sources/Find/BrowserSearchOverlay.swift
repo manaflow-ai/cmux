@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import SwiftUI
 
 struct BrowserSearchOverlay: View {

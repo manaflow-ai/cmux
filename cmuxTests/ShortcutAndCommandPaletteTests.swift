@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -252,10 +252,10 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
 
         workspace.focusPanel(terminalId)
         XCTAssertTrue(workspace.toggleSplitZoom(panelId: terminalId))
-        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertTrue(workspace.layoutController.isSplitZoomed)
 
         XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
-        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertFalse(workspace.layoutController.isSplitZoomed)
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
         XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
     }

@@ -14,7 +14,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
         assertClearBackdrop(snapshot.policy(for: .terminalCanvas))
-        assertClearBackdrop(snapshot.policy(for: .bonsplitChrome))
+        assertClearBackdrop(snapshot.policy(for: .workspaceLayoutChrome))
         assertClearBackdrop(snapshot.policy(for: .titlebar))
         assertClearBackdrop(snapshot.policy(for: .browserSurface))
         assertClearBackdrop(snapshot.policy(for: .leftSidebar))
@@ -26,7 +26,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
         assertClearBackdrop(snapshot.policy(for: .terminalCanvas))
-        assertClearBackdrop(snapshot.policy(for: .bonsplitChrome))
+        assertClearBackdrop(snapshot.policy(for: .workspaceLayoutChrome))
         assertClearBackdrop(snapshot.policy(for: .titlebar))
         assertClearBackdrop(snapshot.policy(for: .browserSurface))
 

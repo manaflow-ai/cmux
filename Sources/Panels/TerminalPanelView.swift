@@ -1,7 +1,7 @@
 import SwiftUI
 import Foundation
 import AppKit
-import Bonsplit
+import CMUXLayout
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -36,7 +36,7 @@ struct TerminalPanelView: View {
             onFocus: { _ in onFocus() },
             onTriggerFlash: onTriggerFlash
         )
-        // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
+        // Keep the NSViewRepresentable identity stable across workspaceLayout structural updates.
         // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
         .id(panel.id)
         .background(Color.clear)

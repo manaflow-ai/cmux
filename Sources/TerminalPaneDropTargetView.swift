@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 import SwiftUI
 
@@ -18,7 +18,7 @@ final class PaneDropTargetView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         registerForDraggedTypes(Array(Set([
-            DragOverlayRoutingPolicy.bonsplitTabTransferType,
+            DragOverlayRoutingPolicy.workspaceLayoutTabTransferType,
         ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
         setupDropZoneOverlayView()
     }
@@ -39,7 +39,7 @@ final class PaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        let hasTabTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        let hasTabTransfer = DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
         let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes)
         guard hasTabTransfer || hasFileDropPayload else { return false }
         guard let eventType else { return false }
@@ -168,7 +168,7 @@ final class PaneDropTargetView: NSView {
         }
 
         let zone = fileDropZone(for: sender)
-        let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+        let handled = workspace.handleExternalFileDrop(WorkspaceLayoutController.ExternalFileDropRequest(
             urls: urls,
             destination: PaneDropRouting.filePreviewDestination(
                 targetPane: dropContext.paneId,
@@ -283,7 +283,7 @@ final class PaneDropTargetView: NSView {
             )
         }
 
-        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
+        guard let tabId = workspace.layoutController.selectedTab(inPane: context.paneId)?.id,
               let panelId = workspace.panelIdFromSurfaceId(tabId),
               let panel = workspace.panels[panelId] else {
             return false
@@ -319,7 +319,7 @@ final class PaneDropTargetView: NSView {
             return .terminal
         }
 
-        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
+        guard let tabId = workspace.layoutController.selectedTab(inPane: context.paneId)?.id,
               let panelId = workspace.panelIdFromSurfaceId(tabId),
               let panel = workspace.panels[panelId] else {
             return nil
@@ -343,7 +343,7 @@ final class PaneDropTargetView: NSView {
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
         let windowPoint = convert(point, to: nil)
-        return BonsplitTabBarPassThrough
+        return WorkspaceLayoutTabBarPassThrough
             .shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: self)
             .result
     }
@@ -409,7 +409,7 @@ final class PaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) {
-        let hasTransferType = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        let hasTransferType = DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
         let hasFileDropPayload = DragOverlayRoutingPolicy.hasFileDropPayload(pasteboardTypes)
         guard hasTransferType || hasFileDropPayload || capture else { return }
 

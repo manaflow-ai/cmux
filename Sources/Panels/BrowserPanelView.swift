@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import SwiftUI
 import WebKit
 import AppKit
@@ -155,8 +155,8 @@ enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
 }
 
 enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
-    case bonsplitInactive
-    case bonsplitActive
+    case workspaceLayoutInactive
+    case workspaceLayoutActive
     case accent
     case tertiary
 
@@ -164,8 +164,8 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .bonsplitInactive: return "Bonsplit Inactive (Terminal/Globe)"
-        case .bonsplitActive: return "Bonsplit Active (Terminal/Globe)"
+        case .workspaceLayoutInactive: return "CMUXLayout Inactive (Terminal/Globe)"
+        case .workspaceLayoutActive: return "CMUXLayout Active (Terminal/Globe)"
         case .accent: return "Accent"
         case .tertiary: return "Tertiary"
         }
@@ -173,11 +173,11 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .bonsplitInactive:
-            // Matches Bonsplit tab icon tint for inactive tabs.
+        case .workspaceLayoutInactive:
+            // Matches CMUXLayout tab icon tint for inactive tabs.
             return Color(nsColor: .secondaryLabelColor)
-        case .bonsplitActive:
-            // Matches Bonsplit tab icon tint for active tabs.
+        case .workspaceLayoutActive:
+            // Matches CMUXLayout tab icon tint for active tabs.
             return Color(nsColor: .labelColor)
         case .accent:
             return cmuxAccentColor()
@@ -191,7 +191,7 @@ enum BrowserDevToolsButtonDebugSettings {
     static let iconNameKey = "browserDevToolsIconName"
     static let iconColorKey = "browserDevToolsIconColor"
     static let defaultIcon = BrowserDevToolsIconOption.wrenchAndScrewdriver
-    static let defaultColor = BrowserDevToolsIconColorOption.bonsplitInactive
+    static let defaultColor = BrowserDevToolsIconColorOption.workspaceLayoutInactive
 
     static func iconOption(defaults: UserDefaults = .standard) -> BrowserDevToolsIconOption {
         guard let raw = defaults.string(forKey: iconNameKey),
@@ -748,7 +748,7 @@ struct BrowserPanelView: View {
                 detail: "next=\(focused ? 1 : 0)"
             )
 #endif
-            // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
+            // Ensure this view doesn't retain focus while hidden (workspaceLayout keepAllAlive).
             if focused {
                 applyPendingAddressBarFocusRequestIfNeeded()
                 autoFocusOmnibarIfBlank()
@@ -1292,7 +1292,7 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
                 // BrowserPanel replaces its underlying WKWebView after process termination
-                // or when the browser moves to a different Bonsplit pane host.
+                // or when the browser moves to a different CMUXLayout pane host.
                 .id("\(panel.webViewInstanceID.uuidString)-\(paneId.id.uuidString)")
                 .contentShape(Rectangle())
                 .accessibilityIdentifier(browserContentAccessibilityIdentifier)

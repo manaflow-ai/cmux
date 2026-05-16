@@ -162,7 +162,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertNil(scope?.surfaceID)
     }
 
-    func testKernProcArgsTabIDFallback() {
+    func testKernProcArgsSurfaceIDFallback() {
         let tabID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let bytes = kernProcArgs(environment: [
             "CMUX_TAB_ID=\(tabID.uuidString)"

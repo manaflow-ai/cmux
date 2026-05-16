@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import CMUXAgentVault
 import SQLite3
 import SwiftUI
@@ -77,7 +77,7 @@ struct SessionIndexView: View {
             .toggleStyle(.checkbox)
             .controlSize(.small)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
+            .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(keyPrefix: "rightSidebarSecondaryControl_scope", isVisible: true)
             .disabled(store.currentDirectory == nil)
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
 
@@ -93,7 +93,7 @@ struct SessionIndexView: View {
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
-        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
+        .reportRightSidebarChromeGeometryForCMUXLayoutUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var loadingView: some View {
@@ -2262,8 +2262,8 @@ private struct RelativeTimestampSchedule: TimelineSchedule {
 
 // MARK: - Drag payload
 
-/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
-/// that bonsplit's external-drop path will decode and accept.
+/// Mirrors `CMUXLayout.SurfaceTabItem`'s Codable shape so we can produce a JSON payload
+/// that workspaceLayout's external-drop path will decode and accept.
 private struct MirrorTabItem: Codable {
     let id: UUID
     let title: String
@@ -2277,14 +2277,14 @@ private struct MirrorTabItem: Codable {
     let isPinned: Bool
 }
 
-/// Mirrors `Bonsplit.TabTransferData` exactly.
+/// Mirrors `CMUXLayout.SurfaceTabTransferData` exactly.
 private struct MirrorTabTransferData: Codable {
     let tab: MirrorTabItem
     let sourcePaneId: UUID
     let sourceProcessId: Int32
 }
 
-/// Build the encoded payload bonsplit's external-drop decoder accepts.
+/// Build the encoded payload workspaceLayout's external-drop decoder accepts.
 private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
     let mirror = MirrorTabTransferData(
         tab: MirrorTabItem(
@@ -2308,12 +2308,12 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// NSItemProvider used by `.onDrag {}`. Registers ONLY
 /// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
 /// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
-/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
+/// for our drag. With the terminal out of the way, workspaceLayout's SwiftUI
 /// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
 /// zones across the entire pane (including its center).
 ///
 /// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
-/// bonsplit's external-drop decoder reads from that pasteboard directly
+/// workspaceLayout's external-drop decoder reads from that pasteboard directly
 /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
 /// UTTypes there reliably.
 @MainActor

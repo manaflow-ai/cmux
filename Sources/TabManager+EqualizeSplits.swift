@@ -1,9 +1,9 @@
-import Bonsplit
+import CMUXLayout
 import CoreGraphics
 import Foundation
 
 extension TabManager {
-    /// Equalize splits - not directly supported by bonsplit.
+    /// Equalize splits - not directly supported by workspaceLayout.
     func equalizeSplits(tabId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
 
@@ -20,8 +20,8 @@ extension TabManager {
         var foundSplit = false
         var allSucceeded = true
         equalizeSplits(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
+            in: tab.layoutController.treeSnapshot(),
+            controller: tab.layoutController,
             foundSplit: &foundSplit,
             allSucceeded: &allSucceeded
         )
@@ -46,7 +46,7 @@ extension TabManager {
 
     private func equalizeSplits(
         in node: ExternalTreeNode,
-        controller: BonsplitController,
+        controller: WorkspaceLayoutController,
         foundSplit: inout Bool,
         allSucceeded: inout Bool
     ) {

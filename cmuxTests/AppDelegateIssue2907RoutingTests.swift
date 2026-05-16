@@ -273,7 +273,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(currentWorkspace["workspace_id"] as? String, recoveredWorkspace.id.uuidString)
     }
 
-    func testIssue2907BonsplitTabLookupUsesRecoveredRoute() throws {
+    func testIssue2907CMUXLayoutTabLookupUsesRecoveredRoute() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -302,12 +302,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        let bonsplitTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(terminalPanel.id)?.uuid)
+        let workspaceLayoutTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(terminalPanel.id)?.uuid)
 
         app.unregisterMainWindowContextForTesting(windowId: windowId)
         TerminalController.shared.setActiveTabManager(nil)
 
-        let located = try XCTUnwrap(app.locateBonsplitSurface(tabId: bonsplitTabId))
+        let located = try XCTUnwrap(app.locateCMUXLayoutSurface(tabId: workspaceLayoutTabId))
         XCTAssertEqual(located.windowId, windowId)
         XCTAssertEqual(located.workspaceId, workspace.id)
         XCTAssertEqual(located.panelId, terminalPanel.id)
@@ -359,7 +359,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let browserOnlyWorkspace = try XCTUnwrap(browserOnlyManager.selectedWorkspace)
         let browserOnlyTerminal = try XCTUnwrap(browserOnlyWorkspace.focusedTerminalPanel)
-        let browserPaneId = try XCTUnwrap(browserOnlyWorkspace.bonsplitController.allPaneIds.first)
+        let browserPaneId = try XCTUnwrap(browserOnlyWorkspace.layoutController.allPaneIds.first)
         let browserPanel = try XCTUnwrap(
             browserOnlyWorkspace.newBrowserSurface(
                 inPane: browserPaneId,

@@ -2,7 +2,7 @@ import XCTest
 import Foundation
 import CoreGraphics
 
-final class BonsplitTabDragUITests: XCTestCase {
+final class CMUXLayoutTabDragUITests: XCTestCase {
     private let launchTimeout: TimeInterval = 20.0
     private let setupTimeout: TimeInterval = 25.0
 
@@ -20,7 +20,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for minimal-mode Bonsplit tab drag UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode CMUXLayout tab drag UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -164,7 +164,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                 modeBarHeight,
                 alphaTab.frame.height,
                 accuracy: 2,
-                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)"
+                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to match CMUXLayout pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)"
             )
 
             if let referenceTopInset {
@@ -576,7 +576,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for collapsed-sidebar minimal-mode Bonsplit controls hover UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for collapsed-sidebar minimal-mode CMUXLayout controls hover UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -645,20 +645,20 @@ final class BonsplitTabDragUITests: XCTestCase {
         windowSize: String? = nil
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
-        let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
+        let dataPath = "/tmp/cmux-ui-test-workspaceLayout-tab-drag-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"] = dataPath
         if startWithHiddenSidebar {
-            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
         if let windowSize {
-            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] = windowSize
+            app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_WINDOW_SIZE"] = windowSize
         }
         if showRightSidebar {
-            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] = "1"
         }
         if alwaysShowShortcutHints {
             app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"

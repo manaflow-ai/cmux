@@ -1,10 +1,10 @@
 import Foundation
 import Combine
 import AppKit
-import Bonsplit
+import CMUXLayout
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
-/// This allows TerminalSurface to be used within the bonsplit-based layout system.
+/// This allows TerminalSurface to be used within the workspaceLayout-based layout system.
 @MainActor
 final class TerminalPanel: Panel, ObservableObject {
     let id: UUID
@@ -32,7 +32,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     /// Bump this token to force SwiftUI to call `updateNSView` on `GhosttyTerminalView`,
-    /// which re-attaches the hosted view after bonsplit close/reparent operations.
+    /// which re-attaches the hosted view after workspaceLayout close/reparent operations.
     ///
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
@@ -51,7 +51,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     var isDirty: Bool {
-        // Bonsplit's "dirty" indicator is a very small dot in the tab strip.
+        // CMUXLayout's "dirty" indicator is a very small dot in the tab strip.
         //
         // For terminals, `ghostty_surface_needs_confirm_quit` is driven by shell integration
         // heuristics and can be transiently (or permanently) wrong, which results in a dot
@@ -231,7 +231,7 @@ final class TerminalPanel: Panel, ObservableObject {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
 
         switch TmuxOverlayExperimentSettings.target() {
-        case .bonsplitPane:
+        case .workspaceLayoutPane:
             if let onRequestWorkspacePaneFlash {
                 onRequestWorkspacePaneFlash(reason)
                 return

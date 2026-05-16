@@ -27,7 +27,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
             .foregroundColor(isSelected ? selectedForeground : defaultForeground)
             .padding(.horizontal, horizontalPadding)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
             )

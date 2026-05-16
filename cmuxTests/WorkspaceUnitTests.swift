@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 import Combine
 
@@ -2259,6 +2259,22 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(defaultInsertedIndex, explicitInsertedIndex)
     }
 
+    func testSelectedCanvasModeCarriesIntoNewWorkspace() {
+        let manager = TabManager()
+        guard let source = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        source.layoutController.enterCanvasOverview(policy: .freeform, scale: 0.58)
+
+        let inserted = manager.addWorkspace()
+
+        XCTAssertTrue(inserted.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(inserted.layoutController.canvasLayoutPolicy, .freeform)
+        XCTAssertEqual(inserted.layoutController.canvasViewport.scale, 0.58, accuracy: 0.001)
+    }
+
     func testAddWorkspaceEndOverrideAlwaysAppends() {
         let manager = makeManagerWithThreeWorkspaces()
         let baselineCount = manager.tabs.count
@@ -3086,7 +3102,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
-        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
+        guard let sourcePaneId = workspace.layoutController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
             return
         }
@@ -3255,7 +3271,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the new split panel to be selected before simulating stale focus state"
         )
 
-        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
+        // Simulate the split-pane failure mode: CMUXLayout already points at the right panel,
         // but the active terminal state is still stale on the left panel.
         leftPanel.surface.setFocus(true)
         leftPanel.hostedView.setActive(true)
@@ -3315,7 +3331,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the clicked split pane to already be selected before simulating stale focus state"
         )
 
-        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
+        // Simulate the ghost-terminal race: the right pane is selected in CMUXLayout, but stale
         // active state remains on the left and the right pane's AppKit focus callback never fires
         // after split reparent/layout churn.
         leftPanel.surface.setFocus(true)
@@ -3509,7 +3525,7 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         }
 
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspaceLayoutPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
 
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -3578,7 +3594,7 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         appDelegate.notificationStore = notificationStore
         AppFocusState.overrideIsFocused = true
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspaceLayoutPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
 
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
@@ -3618,14 +3634,14 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
 
 @MainActor
 final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
-    private final class RejectingCreateTabDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+    private final class RejectingCreateTabDelegate: WorkspaceLayoutDelegate {
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldCreateTab tab: CMUXLayout.SurfaceTab, inPane pane: PaneID) -> Bool {
             false
         }
     }
 
-    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+    private final class RejectingSplitPaneDelegate: WorkspaceLayoutDelegate {
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldSplitPane pane: PaneID, orientation: LayoutOrientation) -> Bool {
             false
         }
     }
@@ -3634,7 +3650,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let workspace = Workspace()
         let profileA = try makeTemporaryBrowserProfile(named: "Alpha")
         let profileB = try makeTemporaryBrowserProfile(named: "Beta")
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let browserA = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -3658,8 +3674,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         )
 
         let leftSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserA.id))
-        workspace.bonsplitController.focusPane(paneId)
-        workspace.bonsplitController.selectTab(leftSurfaceId)
+        workspace.layoutController.focusPane(paneId)
+        workspace.layoutController.selectTab(leftSurfaceId)
 
         let created = try XCTUnwrap(
             workspace.newBrowserSurface(
@@ -3680,7 +3696,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
         let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         _ = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -3691,7 +3707,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
 
         let rejectingDelegate = RejectingCreateTabDelegate()
-        workspace.bonsplitController.delegate = rejectingDelegate
+        workspace.layoutController.delegate = rejectingDelegate
         let created = workspace.newBrowserSurface(
             inPane: paneId,
             focus: false,
@@ -3711,7 +3727,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
         let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let browser = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -3722,7 +3738,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
 
         let rejectingDelegate = RejectingSplitPaneDelegate()
-        workspace.bonsplitController.delegate = rejectingDelegate
+        workspace.layoutController.delegate = rejectingDelegate
         let created = workspace.newBrowserSplit(
             from: browser.id,
             orientation: .horizontal,
@@ -3742,8 +3758,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
-    private final class RejectingCreateTabDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+    private final class RejectingCreateTabDelegate: WorkspaceLayoutDelegate {
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldCreateTab tab: CMUXLayout.SurfaceTab, inPane pane: PaneID) -> Bool {
             false
         }
     }
@@ -3832,7 +3848,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Detaching the last surface should not auto-create a replacement panel"
         )
         XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: paneId).count, 0)
 
         drainMainQueue()
         drainMainQueue()
@@ -3868,13 +3884,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(detachedTerminalPanel.workspaceId, source.id)
 
         let destination = Workspace()
-        guard let destinationPaneId = destination.bonsplitController.focusedPaneId else {
+        guard let destinationPaneId = destination.layoutController.focusedPaneId else {
             XCTFail("Expected destination pane")
             return
         }
 
         let rejectingDelegate = RejectingCreateTabDelegate()
-        destination.bonsplitController.delegate = rejectingDelegate
+        destination.layoutController.delegate = rejectingDelegate
 
         let attachedPanelId = destination.attachDetachedSurface(
             detached,
@@ -3949,7 +3965,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         let destination = Workspace()
-        guard let destinationPane = destination.bonsplitController.allPaneIds.first else {
+        guard let destinationPane = destination.layoutController.allPaneIds.first else {
             XCTFail("Expected destination pane")
             return
         }
@@ -3963,7 +3979,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
 
         guard let attachedTabId = destination.surfaceIdFromPanelId(panelId),
-              let attachedTab = destination.bonsplitController.tab(attachedTabId) else {
+              let attachedTab = destination.layoutController.tab(attachedTabId) else {
             XCTFail("Expected attached tab mapping")
             return
         }
@@ -3992,16 +4008,16 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
         guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
               let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
-              let splitTab = workspace.bonsplitController
+              let splitTab = workspace.layoutController
               .tabs(inPane: splitPaneId)
               .first(where: { $0.id == splitTabId }) else {
             XCTFail("Expected split pane/tab mapping")
             return
         }
 
-        // Simulate one delayed stale split-selection callback from bonsplit.
+        // Simulate one delayed stale split-selection callback from workspaceLayout.
         DispatchQueue.main.async {
-            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+            workspace.splitTabBar(workspace.layoutController, didSelectTab: splitTab, inPane: splitPaneId)
         }
 
         drainMainQueue()
@@ -4014,12 +4030,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus split to reassert the pre-split focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.focusedPaneId,
+            workspace.layoutController.focusedPaneId,
             originalPaneId,
             "Expected focused pane to converge back to the pre-split pane"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to converge back to the pre-split focused panel"
         )
@@ -4078,7 +4094,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus terminal surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to stay on the original focused panel"
         )
@@ -4108,7 +4124,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus browser surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to stay on the original focused panel"
         )
@@ -4515,7 +4531,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "branch2", isDirty: false)
 
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch1", "branch2"])
-        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(leftPaneId))
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
     }
 }

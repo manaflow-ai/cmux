@@ -133,7 +133,7 @@ def main() -> int:
             raise cmuxError("Expected at least one surface after new_workspace")
         left_id = surfaces[0][1]
 
-        # Create a split to the right (this may trigger bonsplit reparenting/structural updates).
+        # Create a split to the right (this may trigger workspaceLayout reparenting/structural updates).
         right_id = c.new_split("right")
         if not right_id:
             # Should not happen with current server, but keep a fallback for older behavior.

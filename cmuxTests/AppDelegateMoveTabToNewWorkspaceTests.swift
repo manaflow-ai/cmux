@@ -16,7 +16,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.layoutController.allPaneIds.first)
         let remainingPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
         sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "Build logs")
@@ -41,7 +41,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(result.paneId, destinationWorkspace.paneId(forPanelId: movedPanel.id)?.id)
     }
 
-    func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
+    func testMoveBrowserCMUXLayoutTabToNewWorkspaceRequestsAddressBarFocus() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
@@ -49,7 +49,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.layoutController.allPaneIds.first)
         let browserPanel = try XCTUnwrap(
             sourceWorkspace.newBrowserSurface(
                 inPane: sourcePaneId,
@@ -61,7 +61,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         browserPanel.noteWebViewFocused()
         XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.webView))
 
-        let result = try XCTUnwrap(app.moveBonsplitTabToNewWorkspace(
+        let result = try XCTUnwrap(app.moveCMUXLayoutTabToNewWorkspace(
             tabId: browserTabId,
             focus: true,
             focusWindow: false

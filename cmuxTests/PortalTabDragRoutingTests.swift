@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-import Bonsplit
+import CMUXLayout
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -107,7 +107,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
 
         XCTAssertNil(
             fixture.host.performHitTest(at: fixture.pointInHost, currentEvent: event),
-            "Terminal portal should defer to the minimal tab strip while a Bonsplit tab is being dragged"
+            "Terminal portal should defer to the minimal tab strip while a CMUXLayout tab is being dragged"
         )
     }
 
@@ -131,10 +131,10 @@ final class PortalTabDragRoutingTests: XCTestCase {
     }
 
     func testTabStripPassThroughTreatsAppKitDragRoutingAsPointerEvents() {
-        XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.appKitDefined))
-        XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.applicationDefined))
-        XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.systemDefined))
-        XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.periodic))
+        XCTAssertTrue(WorkspaceLayoutTabBarPassThrough.isPassThroughPointerEvent(.appKitDefined))
+        XCTAssertTrue(WorkspaceLayoutTabBarPassThrough.isPassThroughPointerEvent(.applicationDefined))
+        XCTAssertTrue(WorkspaceLayoutTabBarPassThrough.isPassThroughPointerEvent(.systemDefined))
+        XCTAssertTrue(WorkspaceLayoutTabBarPassThrough.isPassThroughPointerEvent(.periodic))
     }
 
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {
@@ -164,7 +164,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         let point = NSPoint(x: contentView.bounds.midX, y: tabStrip.frame.midY)
         XCTAssertTrue(
             dropTarget.shouldDeferToPaneTabBar(at: point),
-            "Terminal pane drop target should not steal Bonsplit tab-strip drags"
+            "Terminal pane drop target should not steal CMUXLayout tab-strip drags"
         )
     }
 
@@ -189,7 +189,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
         XCTAssertTrue(
             TerminalPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType, .fileURL],
+                pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.workspaceLayoutTabTransferType, .fileURL],
                 eventType: .leftMouseUp
             )
         )
@@ -213,7 +213,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         }
     }
 
-    func testPaneDropRoutingMapsFileDropsToSharedBonsplitDestinations() {
+    func testPaneDropRoutingMapsFileDropsToSharedCMUXLayoutDestinations() {
         let paneId = PaneID()
 
         if case let .insert(targetPane, targetIndex) = PaneDropRouting.filePreviewDestination(
@@ -234,7 +234,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
             XCTAssertEqual(orientation, .horizontal)
             XCTAssertTrue(insertFirst)
         } else {
-            XCTFail("Left drops should use Bonsplit horizontal split routing")
+            XCTFail("Left drops should use CMUXLayout horizontal split routing")
         }
 
         if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
@@ -245,7 +245,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
             XCTAssertEqual(orientation, .vertical)
             XCTAssertFalse(insertFirst)
         } else {
-            XCTFail("Bottom drops should use Bonsplit vertical split routing")
+            XCTFail("Bottom drops should use CMUXLayout vertical split routing")
         }
     }
 

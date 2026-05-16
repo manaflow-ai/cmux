@@ -1,6 +1,6 @@
 import AppKit
 import AVKit
-import Bonsplit
+import CMUXLayout
 import Combine
 import Foundation
 import PDFKit
@@ -118,7 +118,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         let sourceProcessId: Int32
     }
 
-    static let bonsplitTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    static let workspaceLayoutTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
 
     private let filePath: String
     private let displayTitle: String
@@ -139,7 +139,7 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 
     static func dragID(from pasteboard: NSPasteboard) -> UUID? {
-        for type in [DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType] {
+        for type in [DragOverlayRoutingPolicy.filePreviewTransferType, Self.workspaceLayoutTransferType] {
             if let data = pasteboard.data(forType: type),
                let id = dragID(from: data) {
                 return id
@@ -193,13 +193,13 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         mirrorTransferDataToDragPasteboard(data)
         return [
             DragOverlayRoutingPolicy.filePreviewTransferType,
-            Self.bonsplitTransferType,
+            Self.workspaceLayoutTransferType,
             .fileURL
         ]
     }
 
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.bonsplitTransferType || type == DragOverlayRoutingPolicy.filePreviewTransferType {
+        if type == Self.workspaceLayoutTransferType || type == DragOverlayRoutingPolicy.filePreviewTransferType {
             let data = transferDataForDrag()
             mirrorTransferDataToDragPasteboard(data)
             return data
@@ -217,8 +217,8 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
         let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
         let write = { [transferData, fileURLString] in
             let pasteboard = NSPasteboard(name: .drag)
-            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.bonsplitTransferType, .fileURL], owner: nil)
-            pasteboard.setData(transferData, forType: Self.bonsplitTransferType)
+            pasteboard.addTypes([DragOverlayRoutingPolicy.filePreviewTransferType, Self.workspaceLayoutTransferType, .fileURL], owner: nil)
+            pasteboard.setData(transferData, forType: Self.workspaceLayoutTransferType)
             pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
             pasteboard.setString(fileURLString, forType: .fileURL)
         }

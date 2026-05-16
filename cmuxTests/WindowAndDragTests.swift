@@ -7,7 +7,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -541,7 +541,7 @@ final class InternalTabDragBundleDeclarationTests: XCTestCase {
 
         XCTAssertTrue(
             exported.contains("com.splittabbar.tabtransfer"),
-            "Expected app bundle to export bonsplit tab-transfer type, got \(exported)"
+            "Expected app bundle to export workspaceLayout tab-transfer type, got \(exported)"
         )
         XCTAssertTrue(
             exported.contains("com.cmux.sidebar-tab-reorder"),
@@ -2096,12 +2096,12 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(dragID, preparedDragID)
         XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
 
-        let bonsplitData = try XCTUnwrap(
-            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType) as? Data
+        let workspaceLayoutData = try XCTUnwrap(
+            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.workspaceLayoutTransferType) as? Data
         )
-        XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: bonsplitData), dragID)
+        XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: workspaceLayoutData), dragID)
         XCTAssertEqual(dragPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType), filePreviewData)
-        XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType), filePreviewData)
+        XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.workspaceLayoutTransferType), filePreviewData)
         XCTAssertEqual(dragPasteboard.string(forType: .fileURL), fileURL.absoluteString)
 
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: dragPasteboard)
@@ -2504,36 +2504,36 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 }
 
 
-final class BonsplitTabDragPayloadTests: XCTestCase {
+final class SurfaceTabDragPayloadTests: XCTestCase {
     func testRejectsFilePreviewCompatibilityPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
+        let pasteboard = try makeSurfacePayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
 
         XCTAssertNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            SurfaceTabDragPayload.transfer(from: pasteboard),
             "Sidebar workspace drop targets should ignore file-preview drags instead of treating them as movable tabs"
         )
     }
 
     func testAcceptsRealFilePreviewTabPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview")
+        let pasteboard = try makeSurfacePayloadPasteboard(kind: "filePreview")
 
         XCTAssertNotNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
-            "Existing file-preview tabs should still move through normal Bonsplit tab drag paths"
+            SurfaceTabDragPayload.transfer(from: pasteboard),
+            "Existing file-preview tabs should still move through normal CMUXLayout tab drag paths"
         )
     }
 
     func testAcceptsRegularCurrentProcessTabPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+        let pasteboard = try makeSurfacePayloadPasteboard(kind: nil)
 
-        XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
+        XCTAssertNotNil(SurfaceTabDragPayload.transfer(from: pasteboard))
     }
 
-    private func makeBonsplitPayloadPasteboard(
+    private func makeSurfacePayloadPasteboard(
         kind: String?,
         includesFilePreviewTransferType: Bool = false
     ) throws -> NSPasteboard {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.\(UUID().uuidString)"))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.workspaceLayout.\(UUID().uuidString)"))
         pasteboard.clearContents()
 
         var tab: [String: Any] = ["id": UUID().uuidString]
@@ -2546,7 +2546,7 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier))
+        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(SurfaceTabDragPayload.typeIdentifier))
         if includesFilePreviewTransferType {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }

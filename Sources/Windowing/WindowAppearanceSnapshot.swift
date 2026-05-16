@@ -13,7 +13,7 @@ enum GhosttyTerminalBackdropRenderingMode {
 enum WindowBackdropRole {
     case windowRoot
     case terminalCanvas
-    case bonsplitChrome
+    case workspaceLayoutChrome
     case titlebar
     case leftSidebar
     case rightSidebar
@@ -293,7 +293,7 @@ struct WindowAppearanceSnapshot {
         switch role {
         case .windowRoot:
             return terminalBackdropPolicy()
-        case .terminalCanvas, .bonsplitChrome, .titlebar, .browserSurface:
+        case .terminalCanvas, .workspaceLayoutChrome, .titlebar, .browserSurface:
             return .clear
         case .leftSidebar, .rightSidebar:
             if unifySurfaceBackdrops {

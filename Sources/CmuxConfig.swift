@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import Combine
 import CryptoKit
 import Foundation
@@ -282,11 +282,11 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
         }
     }
 
-    func bonsplitIcon(
+    func workspaceLayoutIcon(
         configSourcePath: String?,
         globalConfigPath: String,
         allowProjectLocalImage: Bool = true
-    ) -> BonsplitConfiguration.SplitActionButton.Icon {
+    ) -> WorkspaceLayoutConfiguration.SplitActionButton.Icon {
         switch self {
         case .symbol(let name):
             return .systemImage(name)
@@ -1046,29 +1046,29 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         action.workspaceCommandName
     }
 
-    func bonsplitActionButton(
+    func workspaceLayoutActionButton(
         configSourcePath: String?,
         globalConfigPath: String,
         allowProjectLocalIcon: Bool = true
-    ) -> BonsplitConfiguration.SplitActionButton {
-        let bonsplitAction: BonsplitConfiguration.SplitActionButton.Action = {
+    ) -> WorkspaceLayoutConfiguration.SplitActionButton {
+        let workspaceLayoutAction: WorkspaceLayoutConfiguration.SplitActionButton.Action = {
             switch action {
             case .builtIn(let builtIn):
-                return builtIn.bonsplitAction ?? .custom(id)
+                return builtIn.workspaceLayoutAction ?? .custom(id)
             case .command, .agent, .workspaceCommand, .actionReference:
                 return .custom(id)
             }
         }()
 
-        return BonsplitConfiguration.SplitActionButton(
+        return WorkspaceLayoutConfiguration.SplitActionButton(
             id: id,
-            icon: (icon ?? action.defaultButtonIcon).bonsplitIcon(
+            icon: (icon ?? action.defaultButtonIcon).workspaceLayoutIcon(
                 configSourcePath: iconSourcePath ?? configSourcePath,
                 globalConfigPath: globalConfigPath,
                 allowProjectLocalImage: allowProjectLocalIcon
             ),
             tooltip: tooltip ?? title ?? terminalCommand,
-            action: bonsplitAction
+            action: workspaceLayoutAction
         )
     }
 
@@ -1584,7 +1584,7 @@ struct CmuxSplitDefinition: Codable, Sendable {
         return min(0.9, max(0.1, value))
     }
 
-    var splitOrientation: SplitOrientation {
+    var splitOrientation: LayoutOrientation {
         switch direction {
         case .horizontal: return .horizontal
         case .vertical: return .vertical

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression tests for Bonsplit surface (tab) selection behavior when closing surfaces.
+Regression tests for CMUXLayout surface (tab) selection behavior when closing surfaces.
 
 Desired behavior:
 - When closing the currently focused surface at index i (and another surface exists at index i),

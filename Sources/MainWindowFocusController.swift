@@ -58,7 +58,7 @@ final class MainWindowFocusController {
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
-            syncBonsplitTabShortcutHintEligibility()
+            syncCMUXLayoutTabShortcutHintEligibility()
         }
     }
     private var rememberedRightSidebarMode: RightSidebarMode?
@@ -91,7 +91,7 @@ final class MainWindowFocusController {
         if rememberedRightSidebarMode == nil {
             rememberedRightSidebarMode = fileExplorerState?.mode
         }
-        syncBonsplitTabShortcutHintEligibility()
+        syncCMUXLayoutTabShortcutHintEligibility()
         publishFeedFocusSnapshot()
     }
 
@@ -158,7 +158,7 @@ final class MainWindowFocusController {
         }
     }
 
-    func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
+    func allowsCMUXLayoutTabShortcutHints(workspaceId: UUID) -> Bool {
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {
         case .rightSidebar:
@@ -707,12 +707,12 @@ final class MainWindowFocusController {
         feedHost?.applyFocusSnapshotFromController(snapshot)
     }
 
-    func syncBonsplitTabShortcutHintEligibility() {
+    func syncCMUXLayoutTabShortcutHintEligibility() {
         guard let tabManager else { return }
         for workspace in tabManager.tabs {
-            let enabled = allowsBonsplitTabShortcutHints(workspaceId: workspace.id)
-            if workspace.bonsplitController.tabShortcutHintsEnabled != enabled {
-                workspace.bonsplitController.tabShortcutHintsEnabled = enabled
+            let enabled = allowsCMUXLayoutTabShortcutHints(workspaceId: workspace.id)
+            if workspace.layoutController.tabShortcutHintsEnabled != enabled {
+                workspace.layoutController.tabShortcutHintsEnabled = enabled
             }
         }
     }

@@ -62,8 +62,8 @@ enum RightSidebarChromeUITestRecorder {
 #if DEBUG
     private static func dataPath() -> String? {
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
+        guard env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"],
               !path.isEmpty else {
             return nil
         }
@@ -154,7 +154,7 @@ final class RightSidebarChromeGeometryReportingView: NSView {
 }
 
 extension View {
-    func reportRightSidebarChromeGeometryForBonsplitUITest(
+    func reportRightSidebarChromeGeometryForCMUXLayoutUITest(
         role: RightSidebarChromeGeometryRole = .modeBar,
         isVisible: Bool,
         titlebarHeight: CGFloat
@@ -170,7 +170,7 @@ extension View {
     }
 
     @ViewBuilder
-    func reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+    func reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
         keyPrefix: String?,
         isVisible: Bool
     ) -> some View {

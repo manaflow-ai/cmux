@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Combine
 import SwiftUI
 
@@ -852,7 +852,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                     }
                 }
                 #if DEBUG
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
                     payload["minimalSidebarHostPinned"] = String(
                         isHoveringHost || nextHoveringWindowChrome || popoverVisibilityState.isShown(in: nextWindowNumber)
@@ -926,7 +926,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarObservedHoverWindowNumber"] = hoveredWindowNumber.map(String.init) ?? "nil"
                 payload["minimalSidebarObservedHostWindowNumber"] = hostWindowNumber.map(String.init) ?? "nil"
                 payload["minimalSidebarObservedPinned"] = String(shouldPinControls)
@@ -1111,10 +1111,10 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
 
         private func recordFrameForUITest() {
             #if DEBUG
-            guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+            guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1" else { return }
             guard window != nil else { return }
             let frameInWindow = convert(bounds, to: nil)
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarHostFrameInWindow"] = NSStringFromRect(frameInWindow)
             }
             #endif
@@ -1292,7 +1292,7 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     }
 }
 
-struct TitlebarControlsLayoutSnapshot: Equatable {
+struct TitlebarControlsPaneLayoutSnapshot: Equatable {
     let contentSize: NSSize
     let containerHeight: CGFloat
     let xOffset: CGFloat
@@ -1315,8 +1315,8 @@ func titlebarControlsShouldScheduleForViewSizeChange(
 }
 
 func titlebarControlsShouldApplyLayout(
-    previous: TitlebarControlsLayoutSnapshot?,
-    next: TitlebarControlsLayoutSnapshot,
+    previous: TitlebarControlsPaneLayoutSnapshot?,
+    next: TitlebarControlsPaneLayoutSnapshot,
     tolerance: CGFloat = 0.5
 ) -> Bool {
     guard let previous else { return true }
@@ -1336,7 +1336,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var fittingSizeNeedsRefresh = true
     private var cachedFittingSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
-    private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
+    private var lastAppliedPaneLayoutSnapshot: TitlebarControlsPaneLayoutSnapshot?
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
@@ -1469,19 +1469,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
             + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
-        let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
+        let nextPaneLayoutSnapshot = TitlebarControlsPaneLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
             xOffset: xOffset,
             yOffset: yOffset
         )
         guard titlebarControlsShouldApplyLayout(
-            previous: lastAppliedLayoutSnapshot,
-            next: nextLayoutSnapshot
+            previous: lastAppliedPaneLayoutSnapshot,
+            next: nextPaneLayoutSnapshot
         ) else {
             return
         }
-        lastAppliedLayoutSnapshot = nextLayoutSnapshot
+        lastAppliedPaneLayoutSnapshot = nextPaneLayoutSnapshot
         let containerWidth = contentSize.width + abs(xOffset)
         preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
         containerView.setFrameSize(NSSize(width: containerWidth, height: containerHeight))

@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -32,7 +32,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
             workspace.focusPanel(browserPanel.id)
             XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
-            XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+            XCTAssertFalse(workspace.layoutController.isSplitZoomed)
 
             var didAttachForTest = false
             if browserPanel.webView.superview == nil {
@@ -50,14 +50,14 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleShortcutMonitorEvent(event: event))
-            XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+            XCTAssertTrue(workspace.layoutController.isSplitZoomed)
             XCTAssertTrue(workspace.clearSplitZoom())
 #else
             XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
 #endif
 
             XCTAssertTrue(browserPanel.webView.performKeyEquivalent(with: event))
-            XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+            XCTAssertTrue(workspace.layoutController.isSplitZoomed)
         }
     }
 
@@ -83,7 +83,7 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let seededSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+        let seededSplits = shortcutRoutingSplitNodes(in: workspace.layoutController.treeSnapshot())
         XCTAssertGreaterThanOrEqual(seededSplits.count, 2, "Expected nested splits")
 
         var seededTargetsBySplitId: [String: Double] = [:]
@@ -94,10 +94,10 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             }
             let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
             seededTargetsBySplitId[split.id] = Double(targetPosition)
-            XCTAssertTrue(workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId))
+            XCTAssertTrue(workspace.layoutController.setDividerPosition(targetPosition, forSplit: splitId))
         }
 
-        let postSeedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+        let postSeedSplits = shortcutRoutingSplitNodes(in: workspace.layoutController.treeSnapshot())
         XCTAssertEqual(postSeedSplits.count, seededSplits.count)
         for split in postSeedSplits {
             guard let targetPosition = seededTargetsBySplitId[split.id] else {
@@ -108,8 +108,8 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
             XCTAssertNotEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
         }
 
-        workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = workspace.tmuxLayoutSnapshot else {
+        workspace.splitTabBar(workspace.layoutController, didChangeGeometry: workspace.layoutController.layoutSnapshot())
+        guard let seededPaneLayoutSnapshot = workspace.tmuxPaneLayoutSnapshot else {
             XCTFail("Expected cached layout snapshot after seeding split geometry")
             return
         }
@@ -127,19 +127,19 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
 #endif
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
 
-        let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
+        let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.layoutController.treeSnapshot())
         XCTAssertEqual(equalizedSplits.count, seededSplits.count)
         for split in equalizedSplits {
             XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
         }
 
-        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
-        guard let cachedEqualizedLayout = workspace.tmuxLayoutSnapshot else {
+        let liveEqualizedLayout = workspace.layoutController.layoutSnapshot()
+        guard let cachedEqualizedLayout = workspace.tmuxPaneLayoutSnapshot else {
             XCTFail("Expected cached layout snapshot after equalizing split geometry")
             return
         }
         XCTAssertNotEqual(
-            shortcutRoutingPaneFramesById(in: seededLayoutSnapshot),
+            shortcutRoutingPaneFramesById(in: seededPaneLayoutSnapshot),
             shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
         )
         shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
@@ -154,13 +154,13 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
-    private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {
+    private func shortcutRoutingPaneFramesById(in snapshot: PaneLayoutSnapshot) -> [String: PixelRect] {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
     }
 
     private func shortcutRoutingAssertPaneFramesMatch(
-        _ lhs: LayoutSnapshot,
-        _ rhs: LayoutSnapshot,
+        _ lhs: PaneLayoutSnapshot,
+        _ rhs: PaneLayoutSnapshot,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {

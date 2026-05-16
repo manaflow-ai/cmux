@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Combine
 import ImageIO
 import Observation
@@ -854,8 +854,8 @@ enum MountedWorkspacePresentationPolicy {
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
-            isPanelVisible: isRenderedVisible,
-            renderOpacity: isRenderedVisible ? 1 : 0
+            isPanelVisible: isSelectedWorkspace,
+            renderOpacity: isSelectedWorkspace ? 1 : 0
         )
     }
 }
@@ -1323,9 +1323,9 @@ struct ContentView: View {
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay,
               let workspace = tabManager.selectedWorkspace else { return nil }
-        let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
-            cachedSnapshot: workspace.tmuxLayoutSnapshot,
-            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
+        let layoutSnapshot = WorkspaceContentView.effectiveTmuxPaneLayoutSnapshot(
+            cachedSnapshot: workspace.tmuxPaneLayoutSnapshot,
+            liveSnapshot: workspace.layoutController.layoutSnapshot()
         )
         let contentView = window.contentView
 
@@ -1334,7 +1334,7 @@ struct ContentView: View {
             unreadRects = layoutSnapshot.panes.compactMap { pane in
                 guard let selectedTabId = pane.selectedTabId,
                       let tabUUID = UUID(uuidString: selectedTabId),
-                      let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)),
+                      let panelId = workspace.panelIdFromSurfaceId(SurfaceID(uuid: tabUUID)),
                       let panel = workspace.panels[panelId] else {
                     return nil
                 }
@@ -2458,7 +2458,7 @@ struct ContentView: View {
 
         if pwdMatches,
            let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
+           let paneId = workspace.layoutController.focusedPaneId {
             workspace.newTerminalSurface(
                 inPane: paneId,
                 focus: true,
@@ -2476,7 +2476,7 @@ struct ContentView: View {
 
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             return
         }
 
@@ -2722,7 +2722,7 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
-            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            AppDelegate.shared?.syncCMUXLayoutTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -3239,7 +3239,7 @@ struct ContentView: View {
             }
 
             refreshWindowChromeMetrics(for: window)
-            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+            // Keep content below the titlebar so drags on CMUXLayout's tab bar don't
             // get interpreted as window drags.
             // User settings decide whether window glass is active. The native Tahoe
             // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
@@ -3312,7 +3312,7 @@ struct ContentView: View {
         let mountedIdSet = Set(mountedWorkspaceIds)
         for workspace in currentTabs {
             workspace.setPortalRenderingEnabled(
-                mountedIdSet.contains(workspace.id),
+                mountedIdSet.contains(workspace.id) && workspace.id == effectiveSelectedId,
                 reason: "workspaceMount"
             )
         }
@@ -3586,6 +3586,9 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
+        if let workspace = tabManager.tabs.first(where: { $0.id == oldSelectedId }) {
+            workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoffStart")
+        }
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -6037,7 +6040,7 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
-                workspace.bonsplitController.allPaneIds.count > 1
+                workspace.layoutController.allPaneIds.count > 1
             )
             let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
@@ -6955,6 +6958,22 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.canvasScrollingColumns",
+                title: constant(String(localized: "command.canvasScrollingColumns.title", defaultValue: "Use Scrolling Columns Canvas")),
+                subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
+                keywords: ["canvas", "overview", "scrolling", "columns", "niri", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.canvasFreeform",
+                title: constant(String(localized: "command.canvasFreeform.title", defaultValue: "Use Freeform Canvas")),
+                subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
+                keywords: ["canvas", "overview", "freeform", "move", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,
@@ -7486,6 +7505,20 @@ struct ContentView: View {
             if !tabManager.toggleFocusedSplitZoom() {
                 NSSound.beep()
             }
+        }
+        registry.register(commandId: "palette.canvasScrollingColumns") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.enterCanvasOverview(policy: .scrollingColumns)
+        }
+        registry.register(commandId: "palette.canvasFreeform") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.enterCanvasOverview(policy: .freeform)
         }
         registry.register(commandId: "palette.equalizeSplits") {
             if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
@@ -9384,7 +9417,7 @@ struct VerticalTabsSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
             GeometryReader { proxy in
-                SidebarBonsplitTabWorkspaceDropOverlay(
+                SidebarSurfaceWorkspaceDropOverlay(
                     currentSelectedTabId: {
                         tabManager.selectedTabId
                     },
@@ -9392,15 +9425,15 @@ struct VerticalTabsSidebar: View {
                         tabManager.tabs.firstIndex { $0.id == workspaceId }
                     },
                     moveToExistingWorkspace: { workspaceId in
-                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                        guard let transfer = SurfaceTabDragPayload.currentTransfer(),
                               let app = AppDelegate.shared else {
                             return false
                         }
-                        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                        if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
                            source.workspaceId == workspaceId {
                             return true
                         }
-                        return app.moveBonsplitTab(
+                        return app.moveCMUXLayoutTab(
                             tabId: transfer.tab.id,
                             toWorkspace: workspaceId,
                             focus: true,
@@ -9408,9 +9441,9 @@ struct VerticalTabsSidebar: View {
                         )
                     },
                     moveToNewWorkspace: { insertionIndex in
-                        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+                        guard let transfer = SurfaceTabDragPayload.currentTransfer(),
                               let app = AppDelegate.shared,
-                              let result = app.moveBonsplitTabToNewWorkspace(
+                              let result = app.moveCMUXLayoutTabToNewWorkspace(
                                 tabId: transfer.tab.id,
                                 destinationManager: tabManager,
                                 focus: true,
@@ -11756,7 +11789,7 @@ private struct SidebarEmptyArea: View {
                 dragAutoScrollController: dragAutoScrollController,
                 dropIndicator: $dropIndicator
             ))
-            .overlay { SidebarBonsplitTabNewWorkspaceDropOverlay(tabManager: tabManager, selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, dropIndicator: $dropIndicator).frame(maxWidth: .infinity, maxHeight: .infinity) }
+            .overlay { SidebarCMUXLayoutTabNewWorkspaceDropOverlay(tabManager: tabManager, selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, dropIndicator: $dropIndicator).frame(maxWidth: .infinity, maxHeight: .infinity) }
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
@@ -12598,7 +12631,7 @@ private struct TabItemView: View, Equatable {
             dragAutoScrollController: dragAutoScrollController,
             dropIndicator: $dropIndicator
         ))
-        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
+        .onDrop(of: SurfaceTabDragPayload.dropContentTypes, delegate: SidebarCMUXLayoutTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
             selectedTabIds: $selectedTabIds,
@@ -14124,7 +14157,7 @@ enum SidebarTabDragPayload {
     }
 }
 
-enum BonsplitTabDragPayload {
+enum SurfaceTabDragPayload {
     static let typeIdentifier = "com.splittabbar.tabtransfer"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
@@ -14186,15 +14219,15 @@ enum BonsplitTabDragPayload {
     }
 }
 
-private struct SidebarBonsplitTabDropDelegate: DropDelegate {
+private struct SidebarCMUXLayoutTabDropDelegate: DropDelegate {
     let targetWorkspaceId: UUID
     let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
-        return BonsplitTabDragPayload.currentTransfer() != nil
+        guard info.hasItemsConforming(to: [SurfaceTabDragPayload.typeIdentifier]) else { return false }
+        return SurfaceTabDragPayload.currentTransfer() != nil
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -14204,18 +14237,18 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard validateDrop(info: info),
-              let transfer = BonsplitTabDragPayload.currentTransfer(),
+              let transfer = SurfaceTabDragPayload.currentTransfer(),
               let app = AppDelegate.shared else {
             return false
         }
 
-        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+        if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
            source.workspaceId == targetWorkspaceId {
             syncSidebarSelection()
             return true
         }
 
-        guard app.moveBonsplitTab(
+        guard app.moveCMUXLayoutTab(
             tabId: transfer.tab.id,
             toWorkspace: targetWorkspaceId,
             focus: true,
@@ -14666,7 +14699,7 @@ private struct WindowBackdropLayer: View {
             switch role {
             case .windowRoot:
                 Color(nsColor: backdropColor)
-            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
+            case .terminalCanvas, .workspaceLayoutChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
                 LayerBackedBackdropColor(color: backdropColor)
             }
         case let .sidebarMaterial(materialPolicy):

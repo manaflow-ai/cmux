@@ -1561,7 +1561,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected split pane IDs")
             return
         }
-        let layoutBefore = workspace.bonsplitController.layoutSnapshot()
+        let layoutBefore = workspace.layoutController.layoutSnapshot()
         guard let leftPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == leftPaneBefore.id.uuidString })?.frame,
               let rightPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == rightPaneBefore.id.uuidString })?.frame else {
             XCTFail("Expected pane frames before shortcut split")
@@ -1577,7 +1577,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         workspace.focusPanel(rightPanel.id)
-        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected Bonsplit selection to stay on the right pane")
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected CMUXLayout selection to stay on the right pane")
         leftPanel.hostedView.suppressReparentFocus()
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
         leftPanel.hostedView.clearSuppressReparentFocus()
@@ -1604,7 +1604,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected pane IDs after shortcut split")
             return
         }
-        let layoutAfter = workspace.bonsplitController.layoutSnapshot()
+        let layoutAfter = workspace.layoutController.layoutSnapshot()
         guard let newPaneFrame = layoutAfter.panes.first(where: { $0.paneId == newPaneId.id.uuidString })?.frame,
               let rightPaneAfterFrame = layoutAfter.panes.first(where: { $0.paneId == rightPaneAfter.id.uuidString })?.frame else {
             XCTFail("Expected pane frames after shortcut split")
@@ -2258,7 +2258,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ),
             0,
             accuracy: 0.5,
-            "Manually hosted minimal windows already have zero safe area, so the Bonsplit strip must not be pulled offscreen"
+            "Manually hosted minimal windows already have zero safe area, so the CMUXLayout strip must not be pulled offscreen"
         )
 
         XCTAssertEqual(
@@ -2303,7 +2303,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testWindowChromeTitlebarHeightClampsToSharedRange() {
-        [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.bonsplitTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
+        [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.workspaceLayoutTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
@@ -2346,8 +2346,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         // Recreate the regression shape: the window chrome state says minimal +
-        // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
-        sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
+        // collapsed sidebar, but the selected workspace's live CMUXLayout inset is stale.
+        sourceWorkspace.layoutController.configuration.appearance.tabBarLeadingInset = 0
 
         guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
@@ -2362,7 +2362,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            newWorkspace.layoutController.configuration.appearance.tabBarLeadingInset,
             80,
             accuracy: 0.5,
             "New minimal-mode workspaces should reserve traffic-light space immediately even when the source workspace inset is stale"
@@ -2410,7 +2410,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // No RunLoop spin before reading the inset — the seed must be applied by the
         // time createMainWindow returns, not lazily after onAppear runs.
         XCTAssertEqual(
-            initialWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            initialWorkspace.layoutController.configuration.appearance.tabBarLeadingInset,
             80,
             accuracy: 0.5,
             "New minimal-mode windows with collapsed sidebar should reserve traffic-light space on the initial workspace before first render"

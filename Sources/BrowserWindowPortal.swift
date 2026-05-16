@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import ObjectiveC
 import SwiftUI
 import WebKit
@@ -319,6 +319,11 @@ final class WindowBrowserHostView: NSView {
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
     private static let hostedInspectorDividerHitExpansion: CGFloat = 6
     private static let minimumHostedInspectorWidth: CGFloat = 120
+    private static let workspaceCanvasResizeBorderAccessibilityPrefix = "WorkspaceCanvasResizeBorder."
+    private static let workspaceCanvasCardAccessibilityPrefix = "WorkspaceCanvasCard."
+    private static let workspaceCanvasResizeHelp = "Resize"
+    private static let workspaceCanvasPortalResizeEdgeHitSize: CGFloat = 16
+    private static let workspaceCanvasPortalResizeCornerHitSize: CGFloat = 44
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var trackingArea: NSTrackingArea?
@@ -489,6 +494,20 @@ final class WindowBrowserHostView: NSView {
                 point: point,
                 titlebarPassThrough: true,
                 sidebarPassThrough: sidebarPassThrough,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
+            return nil
+        }
+        if shouldPassThroughToWorkspaceCanvasResizeHandle(at: point, eventType: eventType) {
+            clearActiveDividerCursor(restoreArrow: false)
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.canvasResizePass",
+                point: point,
+                titlebarPassThrough: false,
+                sidebarPassThrough: false,
                 dividerHit: dividerHit,
                 hitView: nil
             )
@@ -704,19 +723,150 @@ final class WindowBrowserHostView: NSView {
         // hits that land in native titlebar space or the custom titlebar strip
         // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        return windowPoint.y >= WorkspaceLayoutTabBarPassThrough.titlebarInteractionBandMinY(in: window)
     }
 
     private func shouldPassThroughToPaneTabBar(
         at point: NSPoint,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard let decision = BonsplitTabBarPassThrough.passThroughDecision(
+        guard let decision = WorkspaceLayoutTabBarPassThrough.passThroughDecision(
             at: point,
             in: self,
             eventType: eventType
         ) else { return false }
         return decision.result
+    }
+
+    private func shouldPassThroughToWorkspaceCanvasResizeHandle(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard WorkspaceLayoutTabBarPassThrough.isPassThroughPointerEvent(eventType) else {
+            return false
+        }
+        guard let window else {
+            return false
+        }
+        let windowPoint = convert(point, to: nil)
+        if WorkspaceCanvasResizeHitRegionRegistry.contains(pointInWindow: windowPoint, in: window) {
+            noteWorkspaceCanvasResizePointerEvent(eventType, in: window)
+            return true
+        }
+        if shouldPassThroughToWorkspaceCanvasPortalResizeEdge(at: point) {
+            noteWorkspaceCanvasResizePointerEvent(eventType, in: window)
+            return true
+        }
+        guard let contentView = window.contentView else {
+            return false
+        }
+
+        let screenPoint = window.convertPoint(toScreen: windowPoint)
+        guard let hitElement = contentView.accessibilityHitTest(screenPoint) else {
+            return false
+        }
+
+        return Self.accessibilityElementIsWorkspaceCanvasResizeHandle(hitElement)
+    }
+
+    private func noteWorkspaceCanvasResizePointerEvent(_ eventType: NSEvent.EventType?, in window: NSWindow) {
+        switch eventType {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: window)
+        default:
+            break
+        }
+    }
+
+    private func shouldPassThroughToWorkspaceCanvasPortalResizeEdge(at point: NSPoint) -> Bool {
+        for subview in subviews {
+            guard let slotView = subview as? WindowBrowserSlotView,
+                  !slotView.isHidden,
+                  slotView.alphaValue > 0,
+                  slotView.frame.contains(point) else {
+                continue
+            }
+            let localPoint = NSPoint(x: point.x - slotView.frame.minX, y: point.y - slotView.frame.minY)
+            let visualBounds = NSRect(origin: .zero, size: slotView.frame.size)
+            guard Self.workspaceCanvasPortalResizeEdgeContains(localPoint, in: visualBounds) else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    private static func workspaceCanvasPortalResizeEdgeContains(_ point: NSPoint, in bounds: NSRect) -> Bool {
+        guard bounds.width > 1,
+              bounds.height > 1,
+              bounds.contains(point) else {
+            return false
+        }
+
+        return CanvasResizeHitArea(
+            cardSize: bounds.size,
+            edgeHitSize: workspaceCanvasPortalResizeEdgeHitSize,
+            cornerHitSize: workspaceCanvasPortalResizeCornerHitSize
+        )
+        .handle(at: CGPoint(x: point.x - bounds.minX, y: point.y - bounds.minY)) != nil
+    }
+
+    private static func accessibilityElementIsWorkspaceCanvasResizeHandle(_ element: Any) -> Bool {
+        var current: Any? = element
+        var hopCount = 0
+        var foundResizeHelp = false
+        var foundCanvasCard = false
+        while let element = current, hopCount < 16 {
+            if let identifier = accessibilityIdentifier(of: element) {
+                if identifier.hasPrefix(workspaceCanvasResizeBorderAccessibilityPrefix) {
+                    return true
+                }
+                if identifier.hasPrefix(workspaceCanvasCardAccessibilityPrefix) {
+                    foundCanvasCard = true
+                }
+            }
+            if accessibilityHelp(of: element) == workspaceCanvasResizeHelp {
+                foundResizeHelp = true
+            }
+            if foundResizeHelp && foundCanvasCard {
+                return true
+            }
+            current = accessibilityParent(of: element)
+            hopCount += 1
+        }
+        return false
+    }
+
+    private static func accessibilityIdentifier(of element: Any) -> String? {
+        if let view = element as? NSView {
+            return view.accessibilityIdentifier()
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityIdentifier()
+        }
+        return nil
+    }
+
+    private static func accessibilityHelp(of element: Any) -> String? {
+        if let view = element as? NSView {
+            return view.accessibilityHelp()
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityHelp()
+        }
+        return nil
+    }
+
+    private static func accessibilityParent(of element: Any) -> Any? {
+        if let view = element as? NSView {
+            return view.accessibilityParent() ?? view.superview
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityParent()
+        }
+        return nil
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
@@ -898,9 +1048,9 @@ final class WindowBrowserHostView: NSView {
         case .cursorUpdate, .mouseEntered, .mouseExited, .mouseMoved:
             // Browser-side tab drags can surface as hover events with a mixed
             // pasteboard payload (tabtransfer plus promised-file UTIs). Prefer
-            // the explicit Bonsplit drag types so WKWebView cannot steal the
+            // the explicit CMUXLayout drag types so WKWebView cannot steal the
             // session as a file upload.
-            return DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+            return DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
                 || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
         default:
             return false
@@ -1321,10 +1471,10 @@ struct BrowserPaneDragTransfer: Equatable {
         if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
             return decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
         }
-        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
+        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType) {
             return decode(from: data)
         }
-        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
+        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType) {
             return decode(from: Data(raw.utf8))
         }
         return nil
@@ -1353,7 +1503,7 @@ struct BrowserPaneDragTransfer: Equatable {
 }
 
 struct BrowserPaneSplitTarget: Equatable {
-    let orientation: SplitOrientation
+    let orientation: LayoutOrientation
     let insertFirst: Bool
 }
 
@@ -1410,7 +1560,7 @@ enum BrowserPaneDropRouting {
     static func filePreviewDestination(
         target: BrowserPaneDropContext,
         zone: DropZone
-    ) -> BonsplitController.ExternalTabDropRequest.Destination {
+    ) -> WorkspaceLayoutController.ExternalTabDropRequest.Destination {
         PaneDropRouting.filePreviewDestination(targetPane: target.paneId, zone: zone)
     }
 }
@@ -1428,6 +1578,7 @@ final class WindowBrowserSlotView: NSView {
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
+    private var preservesHostedWebViewNativeBounds = false
     private var forwardedDropZone: DropZone?
     private var portalDragDropZone: DropZone?
     private var displayedDropZone: DropZone?
@@ -1701,6 +1852,7 @@ final class WindowBrowserSlotView: NSView {
         guard webView.superview === self else { return }
 
         let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let desiredAutoresizingMask: NSView.AutoresizingMask = preservesHostedWebViewNativeBounds ? [] : [.width, .height]
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
@@ -1709,7 +1861,7 @@ final class WindowBrowserSlotView: NSView {
             !hostedWebViewConstraints.isEmpty ||
             needsPlainWebViewFrameReset ||
             !webView.translatesAutoresizingMaskIntoConstraints ||
-            webView.autoresizingMask != [.width, .height]
+            webView.autoresizingMask != desiredAutoresizingMask
         guard needsFrameHosting else {
             needsLayout = true
             layoutSubtreeIfNeeded()
@@ -1723,12 +1875,23 @@ final class WindowBrowserSlotView: NSView {
         // Re-pin plain web views after cross-host reattach, but preserve the
         // WebKit-managed split frame when docked DevTools siblings are present.
         webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
+        webView.autoresizingMask = desiredAutoresizingMask
         if !hasCompanionWKSubviews {
             webView.frame = bounds
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    func setPreservesHostedWebViewNativeBounds(_ preserves: Bool) {
+        guard preservesHostedWebViewNativeBounds != preserves else { return }
+        preservesHostedWebViewNativeBounds = preserves
+        guard let hostedWebView, hostedWebView.superview === self else { return }
+        hostedWebView.autoresizingMask = preserves ? [] : [.width, .height]
+        if !Self.hasWebKitCompanionSubview(in: self, primaryWebView: hostedWebView) {
+            hostedWebView.frame = bounds
+        }
+        needsLayout = true
     }
 
     private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
@@ -1961,6 +2124,8 @@ final class WindowBrowserPortal: NSObject {
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private var interactiveFrameOverridesInWindowByWebViewId: [ObjectIdentifier: NSRect] = [:]
+    private var canvasSurfacePresentationsByWebViewId: [ObjectIdentifier: CanvasSurfacePresentation] = [:]
 
     init(window: NSWindow) {
         self.window = window
@@ -2752,6 +2917,8 @@ final class WindowBrowserPortal: NSObject {
 
     func detachWebView(withId webViewId: ObjectIdentifier) {
         cancelPendingHostedWebViewRefreshes(for: webViewId)
+        interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+        canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -2785,6 +2952,8 @@ final class WindowBrowserPortal: NSObject {
         preserveCurrentSuperview: Bool
     ) {
         cancelPendingHostedWebViewRefreshes(for: webViewId)
+        interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+        canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -2822,10 +2991,42 @@ final class WindowBrowserPortal: NSObject {
     /// do not keep an old anchor visible.
     func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
+        if !visibleInUI {
+            interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+            canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
+        }
         guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        synchronizeWebView(withId: webViewId, source: "visibility")
+    }
+
+    func setInteractiveFrameOverride(forWebViewId webViewId: ObjectIdentifier, frameInWindow: NSRect?) {
+        if let frameInWindow {
+            interactiveFrameOverridesInWindowByWebViewId[webViewId] = frameInWindow
+        } else {
+            interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+        }
+        synchronizeWebView(withId: webViewId, source: "interactiveOverride")
+    }
+
+    func setCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier, presentation: CanvasSurfacePresentation?) {
+        if let presentation {
+            canvasSurfacePresentationsByWebViewId[webViewId] = presentation
+        } else {
+            canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
+        }
+        synchronizeWebView(withId: webViewId, source: "canvasPresentation")
+    }
+
+    func clearInteractiveFrameOverrides() {
+        let webViewIds = Array(Set(interactiveFrameOverridesInWindowByWebViewId.keys).union(canvasSurfacePresentationsByWebViewId.keys))
+        interactiveFrameOverridesInWindowByWebViewId.removeAll()
+        canvasSurfacePresentationsByWebViewId.removeAll()
+        for webViewId in webViewIds {
+            synchronizeWebView(withId: webViewId, source: "interactiveOverride.clear")
+        }
     }
 
     func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -2838,6 +3039,8 @@ final class WindowBrowserPortal: NSObject {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         entry.visibleInUI = false
         entry.zPriority = 0
+        interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+        canvasSurfacePresentationsByWebViewId.removeValue(forKey: webViewId)
         entriesByWebViewId[webViewId] = entry
         synchronizeWebView(withId: webViewId, source: source)
     }
@@ -3333,7 +3536,17 @@ final class WindowBrowserPortal: NSObject {
         }
 
         _ = synchronizeHostFrameToReference()
-        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let anchorFrameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let canvasSurfacePresentation = canvasSurfacePresentationsByWebViewId[webViewId]
+        let interactiveFrameInWindow: NSRect? = {
+            guard let overrideFrame = interactiveFrameOverridesInWindowByWebViewId[webViewId] else { return nil }
+            if Self.rectApproximatelyEqual(anchorFrameInWindow, overrideFrame, epsilon: 1.0) {
+                interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
+                return nil
+            }
+            return overrideFrame
+        }()
+        let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
         let hostBounds = hostView.bounds
@@ -3401,7 +3614,9 @@ final class WindowBrowserPortal: NSObject {
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
         let targetFrame = hasVisibleIntersection ? clampedFrame : frameInHost
-        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let anchorHidden = canvasSurfacePresentation == nil &&
+            interactiveFrameInWindow == nil &&
+            Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
         let outsideHostBounds = !hasVisibleIntersection
         let shouldHide =
@@ -3482,15 +3697,23 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
         }
+        let frameSizeChanged =
+            abs(oldFrame.size.width - targetFrame.size.width) > 0.01 ||
+            abs(oldFrame.size.height - targetFrame.size.height) > 0.01
         if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             containerView.frame = targetFrame
             CATransaction.commit()
-            refreshReasons.append("frame")
+            if frameSizeChanged {
+                refreshReasons.append("frame")
+            }
         }
 
-        let expectedContainerBounds = NSRect(origin: .zero, size: targetFrame.size)
+        let expectedContainerBounds = NSRect(
+            origin: .zero,
+            size: canvasSurfacePresentation?.nativeContentSize ?? targetFrame.size
+        )
         if !Self.rectApproximatelyEqual(containerView.bounds, expectedContainerBounds) {
             let oldContainerBounds = containerView.bounds
             CATransaction.begin()
@@ -3506,10 +3729,12 @@ final class WindowBrowserPortal: NSObject {
 #endif
             refreshReasons.append("bounds")
         }
+        containerView.setPreservesHostedWebViewNativeBounds(canvasSurfacePresentation != nil)
 
         let containerOwnsWebView = webView.superview === containerView
         let containerBounds = containerView.bounds
         let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
+        let hasVisibleHostedInspector = Self.hasVisibleInspectorDescendant(in: containerView)
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)
         let inspectorHeightFromOverflow = max(0, preNormalizeWebFrame.maxY - containerBounds.maxY)
         let inspectorHeightApprox = max(inspectorHeightFromInsets, inspectorHeightFromOverflow)
@@ -3539,6 +3764,27 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameBottomDock")
+        } else if containerOwnsWebView &&
+            !hasVisibleHostedInspector &&
+            !Self.rectApproximatelyEqual(preNormalizeWebFrame, containerBounds, epsilon: 0.5) {
+            let oldWebFrame = preNormalizeWebFrame
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            webView.frame = containerBounds
+            CATransaction.commit()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webframe.fill web=\(browserPortalDebugToken(webView)) " +
+                "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
+                "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
+                "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
+                "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
+                "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
+                "inspectorSubviews=\(inspectorSubviews) " +
+                "source=\(source)"
+            )
+#endif
+            refreshReasons.append("webFrameFill")
         } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
@@ -3746,7 +3992,9 @@ final class WindowBrowserPortal: NSObject {
         return BrowserWindowPortalRegistry.DebugSnapshot(
             visibleInUI: entry.visibleInUI,
             containerHidden: entry.containerView?.isHidden ?? true,
-            frameInWindow: frameInWindow
+            frameInWindow: frameInWindow,
+            containerBounds: entry.containerView?.bounds ?? .zero,
+            webViewFrame: entry.webView?.frame ?? .zero
         )
     }
 
@@ -3786,6 +4034,8 @@ enum BrowserWindowPortalRegistry {
         let visibleInUI: Bool
         let containerHidden: Bool
         let frameInWindow: CGRect
+        let containerBounds: CGRect
+        let webViewFrame: CGRect
     }
 
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
@@ -3888,6 +4138,26 @@ enum BrowserWindowPortalRegistry {
     static func scheduleExternalGeometrySynchronizeForAllWindows() {
         for portal in portalsByWindowId.values {
             portal.scheduleExternalGeometrySynchronize()
+        }
+    }
+
+    static func setInteractiveFrameOverride(webView: WKWebView, frameInWindow: NSRect?) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.setInteractiveFrameOverride(forWebViewId: webViewId, frameInWindow: frameInWindow)
+    }
+
+    static func setCanvasSurfacePresentation(webView: WKWebView, presentation: CanvasSurfacePresentation?) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.setCanvasSurfacePresentation(forWebViewId: webViewId, presentation: presentation)
+    }
+
+    static func clearInteractiveFrameOverridesForAllWindows() {
+        for portal in portalsByWindowId.values {
+            portal.clearInteractiveFrameOverrides()
         }
     }
 

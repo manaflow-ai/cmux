@@ -1,5 +1,5 @@
 import Foundation
-import Bonsplit
+import CMUXLayout
 
 struct CloseOtherTabsConfirmationPrompt: Sendable {
     let title: String
@@ -38,14 +38,14 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 }
 
 extension Workspace {
-    func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {
+    func closeTabsFromContextMenu(_ tabIds: [SurfaceID], skipPinned: Bool = true) {
         let confirmationManager = owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
             ?? AppDelegate.shared?.tabManager
 
         guard confirmationManager?.isCloseConfirmationInFlight != true else { return }
 
-        let candidates = tabIds.compactMap { tabId -> (tabId: TabID, panelId: UUID?)? in
+        let candidates = tabIds.compactMap { tabId -> (tabId: SurfaceID, panelId: UUID?)? in
             let panelId = panelIdFromSurfaceId(tabId)
             if skipPinned, let panelId, isPanelPinned(panelId) {
                 return nil

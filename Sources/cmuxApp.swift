@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Darwin
-import Bonsplit
+import CMUXLayout
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -331,11 +331,11 @@ struct cmuxApp: App {
                     }
                     Button(
                         String(
-                            localized: "debug.menu.bonsplitTabBarDebug",
-                            defaultValue: "Bonsplit Tab Bar Debug…"
+                            localized: "debug.menu.workspaceLayoutTabBarDebug",
+                            defaultValue: "CMUXLayout Tab Bar Debug…"
                         )
                     ) {
-                        BonsplitTabBarDebugWindowController.shared.show()
+                        WorkspaceLayoutTabBarDebugWindowController.shared.show()
                     }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
@@ -1123,7 +1123,7 @@ struct cmuxApp: App {
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
-        BonsplitTabBarDebugWindowController.shared.show()
+        WorkspaceLayoutTabBarDebugWindowController.shared.show()
     }
 #endif
 }
@@ -1167,7 +1167,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.menubarDebug",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
-    "cmux.bonsplitTabBarDebug",
+    "cmux.workspaceLayoutTabBarDebug",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1748,11 +1748,11 @@ private struct DebugWindowControlsView: View {
                         }
                         Button(
                             String(
-                                localized: "debug.menu.bonsplitTabBarDebug",
-                                defaultValue: "Bonsplit Tab Bar Debug…"
+                                localized: "debug.menu.workspaceLayoutTabBarDebug",
+                                defaultValue: "CMUXLayout Tab Bar Debug…"
                             )
                         ) {
-                            BonsplitTabBarDebugWindowController.shared.show()
+                            WorkspaceLayoutTabBarDebugWindowController.shared.show()
                         }
                         Button(
                             String(
@@ -1796,7 +1796,7 @@ private struct DebugWindowControlsView: View {
                             AboutTitlebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
-                            BonsplitTabBarDebugWindowController.shared.show()
+                            WorkspaceLayoutTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
@@ -3150,7 +3150,7 @@ private struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
     @State private var sampleWidth: Double = 460
-    @State private var candidateSoftness: Double = Double(Workspace.bonsplitSplitButtonBackdropSoftness)
+    @State private var candidateSoftness: Double = Double(Workspace.workspaceLayoutSplitButtonBackdropSoftness)
 
     init() {
         let currentOpacity = Double(WindowAppearanceSnapshot.clampedOpacity(GhosttyApp.shared.defaultBackgroundOpacity))
@@ -3169,10 +3169,10 @@ private struct TabBarBackdropLabView: View {
         WindowChromeSeparatorColor.color(forChromeBackground: terminalColor)
     }
 
-    private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
+    private var candidateBackdropEffect: WorkspaceLayoutConfiguration.Appearance.SplitButtonBackdropEffect {
         let softness = CGFloat(min(max(0, candidateSoftness), 1))
-        let productionSoftness = Workspace.bonsplitSplitButtonBackdropSoftness
-        let production = Workspace.bonsplitSplitButtonBackdropEffect()
+        let productionSoftness = Workspace.workspaceLayoutSplitButtonBackdropSoftness
+        let production = Workspace.workspaceLayoutSplitButtonBackdropEffect()
         func interpolate(strong: CGFloat, production: CGFloat, soft: CGFloat) -> CGFloat {
             if softness <= productionSoftness {
                 let progress = softness / productionSoftness
@@ -3421,7 +3421,7 @@ private struct TabBarBackdropLabView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "debug.tabBarBackdropLab.title", defaultValue: "Tab Bar Backdrop Lab"))
                         .font(.headline)
-                    Text(String(localized: "debug.tabBarBackdropLab.subtitle", defaultValue: "Live Bonsplit tab bars with overflow tabs under the split buttons. The window background is transparent."))
+                    Text(String(localized: "debug.tabBarBackdropLab.subtitle", defaultValue: "Live CMUXLayout tab bars with overflow tabs under the split buttons. The window background is transparent."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -3482,7 +3482,7 @@ private struct TabBarBackdropLabView: View {
         id: String,
         title: String,
         detail: String,
-        effect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect,
+        effect: WorkspaceLayoutConfiguration.Appearance.SplitButtonBackdropEffect,
         chromeHex: String,
         tabBarHex: String? = nil,
         splitButtonBackdropHex: String? = nil,
@@ -3527,7 +3527,7 @@ private struct TabBarBackdropLabView: View {
 private struct TabBarBackdropLabSample: View {
     let variant: TabBarBackdropLabVariant
     let sidebarWidth: CGFloat
-    @State private var controller: BonsplitController
+    @State private var controller: WorkspaceLayoutController
 
     init(variant: TabBarBackdropLabVariant, sidebarWidth: CGFloat) {
         self.variant = variant
@@ -3563,7 +3563,7 @@ private struct TabBarBackdropLabSample: View {
                     )
                     .frame(height: 24)
 
-                    BonsplitView(controller: controller) { tab, _ in
+                    WorkspaceLayoutView(controller: controller) { tab, _ in
                         TabBarBackdropLabTerminalPane(
                             title: tab.title,
                             color: variant.terminalColor,
@@ -3603,9 +3603,9 @@ private struct TabBarBackdropLabSample: View {
         controller.configuration = Self.makeConfiguration(for: variant)
     }
 
-    private static func makeAppearance(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration.Appearance {
-        BonsplitConfiguration.Appearance(
-            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
+    private static func makeAppearance(for variant: TabBarBackdropLabVariant) -> WorkspaceLayoutConfiguration.Appearance {
+        WorkspaceLayoutConfiguration.Appearance(
+            tabBarHeight: WindowChromeMetrics.workspaceLayoutTabBarHeight,
             tabMinWidth: 138,
             tabMaxWidth: 210,
             tabTitleFontSize: 11,
@@ -3613,7 +3613,7 @@ private struct TabBarBackdropLabSample: View {
             minimumPaneWidth: 120,
             minimumPaneHeight: 80,
             showSplitButtons: true,
-            splitButtons: BonsplitConfiguration.SplitActionButton.defaults,
+            splitButtons: WorkspaceLayoutConfiguration.SplitActionButton.defaults,
             splitButtonsOnHover: false,
             splitButtonBackdropEffect: variant.effect,
             animationDuration: 0.0,
@@ -3628,8 +3628,8 @@ private struct TabBarBackdropLabSample: View {
         )
     }
 
-    private static func makeConfiguration(for variant: TabBarBackdropLabVariant) -> BonsplitConfiguration {
-        BonsplitConfiguration(
+    private static func makeConfiguration(for variant: TabBarBackdropLabVariant) -> WorkspaceLayoutConfiguration {
+        WorkspaceLayoutConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
             allowTabReordering: false,
@@ -3641,8 +3641,8 @@ private struct TabBarBackdropLabSample: View {
         )
     }
 
-    private static func makeController(for variant: TabBarBackdropLabVariant) -> BonsplitController {
-        let controller = BonsplitController(configuration: makeConfiguration(for: variant))
+    private static func makeController(for variant: TabBarBackdropLabVariant) -> WorkspaceLayoutController {
+        let controller = WorkspaceLayoutController(configuration: makeConfiguration(for: variant))
 
         let titles = [
             String(localized: "debug.tabBarBackdropLab.tab.agentBrowserLogs", defaultValue: "agent-browser logs"),

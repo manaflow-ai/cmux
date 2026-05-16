@@ -28,28 +28,28 @@ extension ContentView {
     }
 }
 
-struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
+struct SidebarCMUXLayoutTabNewWorkspaceDropOverlay: NSViewRepresentable {
     let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
 
-    func makeNSView(context: Context) -> SidebarBonsplitTabNewWorkspaceDropView {
-        return SidebarBonsplitTabNewWorkspaceDropView()
+    func makeNSView(context: Context) -> SidebarCMUXLayoutTabNewWorkspaceDropView {
+        return SidebarCMUXLayoutTabNewWorkspaceDropView()
     }
 
-    func updateNSView(_ nsView: SidebarBonsplitTabNewWorkspaceDropView, context: Context) {
+    func updateNSView(_ nsView: SidebarCMUXLayoutTabNewWorkspaceDropView, context: Context) {
         nsView.isValidTransfer = {
-            guard let transfer = BonsplitTabDragPayload.currentTransfer() else { return false }
-            return AppDelegate.shared?.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
+            guard let transfer = SurfaceTabDragPayload.currentTransfer() else { return false }
+            return AppDelegate.shared?.canMoveCMUXLayoutTabToNewWorkspace(tabId: transfer.tab.id) ?? false
         }
         nsView.setDropActive = { isActive in
             dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
         }
         nsView.performMove = {
-            guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+            guard let transfer = SurfaceTabDragPayload.currentTransfer(),
                   let app = AppDelegate.shared,
-                  let result = app.moveBonsplitTabToNewWorkspace(
+                  let result = app.moveCMUXLayoutTabToNewWorkspace(
                     tabId: transfer.tab.id,
                     destinationManager: tabManager,
                     focus: true,
@@ -75,8 +75,8 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
-final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
-    private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+final class SidebarCMUXLayoutTabNewWorkspaceDropView: NSView {
+    private static let pasteboardType = NSPasteboard.PasteboardType(SurfaceTabDragPayload.typeIdentifier)
 
     var isValidTransfer: () -> Bool = { false }
     var setDropActive: (Bool) -> Void = { _ in }
@@ -140,7 +140,7 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
+        guard SurfaceTabDragPayload.currentTransfer() != nil else { return false }
         guard let eventType = NSApp.currentEvent?.type else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:

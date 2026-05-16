@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 extension Workspace {
@@ -10,16 +10,16 @@ extension Workspace {
     ) -> DropZone {
         let sourcePane = PaneID(id: sourcePaneId)
         guard sourcePane != paneId,
-              bonsplitController.tab(TabID(uuid: tabId))?.kind == SurfaceKind.terminal else {
+              layoutController.tab(SurfaceID(uuid: tabId))?.kind == SurfaceKind.terminal else {
             return proposedZone
         }
 
         if proposedZone == .left,
-           bonsplitController.adjacentPane(to: sourcePane, direction: .right) == paneId {
+           layoutController.adjacentPane(to: sourcePane, direction: .right) == paneId {
             return .center
         }
         if proposedZone == .right,
-           bonsplitController.adjacentPane(to: sourcePane, direction: .left) == paneId {
+           layoutController.adjacentPane(to: sourcePane, direction: .left) == paneId {
             return .center
         }
         return proposedZone
@@ -37,7 +37,7 @@ extension Workspace {
             return true
         }
 
-        let destination: BonsplitController.ExternalTabDropRequest.Destination
+        let destination: WorkspaceLayoutController.ExternalTabDropRequest.Destination
         switch zone {
         case .center:
             destination = .insert(targetPane: paneId, targetIndex: nil)
@@ -51,8 +51,8 @@ extension Workspace {
             destination = .split(targetPane: paneId, orientation: .vertical, insertFirst: false)
         }
 
-        return handleExternalTabDrop(BonsplitController.ExternalTabDropRequest(
-            tabId: TabID(uuid: tabId),
+        return handleExternalTabDrop(WorkspaceLayoutController.ExternalTabDropRequest(
+            tabId: SurfaceID(uuid: tabId),
             sourcePaneId: sourcePane,
             destination: destination
         ))

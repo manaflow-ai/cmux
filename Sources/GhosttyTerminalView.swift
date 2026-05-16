@@ -8,7 +8,7 @@ import CoreText
 import Darwin
 import Carbon.HIToolbox
 import Sentry
-import Bonsplit
+import CMUXLayout
 import CMUXAgentLaunch
 import CMUXPasteboardFidelity
 import IOSurface
@@ -3368,7 +3368,7 @@ class GhosttyApp {
     private func focusDirection(from direction: ghostty_action_goto_split_e) -> NavigationDirection? {
         switch direction {
         // For previous/next, we use left/right as a reasonable default
-        // Bonsplit doesn't have cycle-based navigation
+        // CMUXLayout doesn't have cycle-based navigation
         case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .left
         case GHOSTTY_GOTO_SPLIT_NEXT: return .right
         case GHOSTTY_GOTO_SPLIT_UP: return .up
@@ -6025,7 +6025,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
-        let usesBonsplitPaneBackdrop = Workspace.usesBonsplitPaneTerminalBackdrop(
+        let usesCMUXLayoutPaneBackdrop = Workspace.usesCMUXLayoutPaneTerminalBackdrop(
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
@@ -6034,7 +6034,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // double-composite it against the surrounding chrome.
         let usesHostLayerFill = renderingMode.usesWindowHostBackdrop &&
             !sharesWindowBackdrop &&
-            !usesBonsplitPaneBackdrop
+            !usesCMUXLayoutPaneBackdrop
         let color = usesHostLayerFill
             ? effectiveBackgroundColor()
             : .clear
@@ -6049,7 +6049,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : (usesBonsplitPaneBackdrop ? "bonsplit-pane" : "terminal"))"
+            let signature = "\(usesHostLayerFill ? color.hexString() : "transparent-host"):\(String(format: "%.3f", color.alphaComponent)):\(sharesWindowBackdrop ? "shared" : (usesCMUXLayoutPaneBackdrop ? "workspaceLayout-pane" : "terminal"))"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
@@ -6060,10 +6060,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     : (
                         sharesWindowBackdrop
                             ? "sharedWindowBackdrop"
-                            : (usesBonsplitPaneBackdrop ? "bonsplitPaneBackdrop" : "ghosttyNativeBackground")
+                            : (usesCMUXLayoutPaneBackdrop ? "workspaceLayoutPaneBackdrop" : "ghosttyNativeBackground")
                     )
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) bonsplitPaneBackdrop=\(usesBonsplitPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) sharedWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) workspaceLayoutPaneBackdrop=\(usesCMUXLayoutPaneBackdrop ? 1 : 0) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
@@ -6970,9 +6970,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return result
             }
 
-            // Always notify the host app that this pane became the first responder so bonsplit
+            // Always notify the host app that this pane became the first responder so workspaceLayout
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
-            // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
+            // allowed a mismatch where AppKit focus moved but the UI focus indicator (workspaceLayout)
             // stayed behind.
             let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
             if isVisibleInUI && hasUsableFocusGeometry && !hiddenInHierarchy {
@@ -9292,7 +9292,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("terminal.draggingEntered surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
-        // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
+        // Defer to workspaceLayout when a tab/session drag is in flight: workspaceLayout's pane
         // drop overlays should win over the terminal's text/file drop handling.
         if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
             return []
@@ -9479,11 +9479,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
+    private var suppressDeselectedSurfaceReveal = false
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
-    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    // Intentionally no focus retry loops: rely on AppKit first-responder and workspaceLayout selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -10982,7 +10983,24 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    func setDeselectedSurfaceRevealSuppressed(_ suppressed: Bool) {
+        suppressDeselectedSurfaceReveal = suppressed
+    }
+
     func setVisibleInUI(_ visible: Bool) {
+        if visible, suppressDeselectedSurfaceReveal {
+#if DEBUG
+            if surfaceView.isVisibleInUI || !isHidden {
+                cmuxDebugLog(
+                    "ws.term.visible.suppressed surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")"
+                )
+            }
+#endif
+            if surfaceView.isVisibleInUI || !isHidden {
+                setVisibleInUI(false)
+            }
+            return
+        }
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
@@ -11367,15 +11385,15 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
               let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+              let paneId = tab.layoutController.allPaneIds.first(where: { paneId in
+                  tab.layoutController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.missingPane")
             return
         }
 
-        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
-              tab.bonsplitController.focusedPaneId == paneId else {
+        guard tab.layoutController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
+              tab.layoutController.focusedPaneId == paneId else {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.unfocusedPane")
             return
         }
@@ -11464,14 +11482,14 @@ final class GhosttySurfaceScrollView: NSView {
               tabManager.selectedTabId == tabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
               let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+              let paneId = tab.layoutController.allPaneIds.first(where: { paneId in
+                  tab.layoutController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {
             return false
         }
 
-        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
-            tab.bonsplitController.focusedPaneId == paneId
+        return tab.layoutController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
+            tab.layoutController.focusedPaneId == paneId
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during

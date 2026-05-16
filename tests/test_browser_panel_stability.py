@@ -67,7 +67,7 @@ def test_open_browser_then_new_surface_loop(client: cmux) -> tuple[bool, str]:
             try:
                 client.focus_webview(browser_id)
             except Exception:
-                # If focus is transient during bonsplit reshuffles, retry once with a short delay.
+                # If focus is transient during workspaceLayout reshuffles, retry once with a short delay.
                 time.sleep(0.05)
                 ensure_webview_focused(client, browser_id, timeout_s=0.8)
             if not client.is_webview_focused(browser_id):

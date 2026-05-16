@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -2125,7 +2125,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
         }
     }
 
-    private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
+    private final class CMUXLayoutMockSplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
         let surfaceView = GhosttyNSView(frame: frame)
@@ -2213,6 +2213,60 @@ final class WindowTerminalHostViewTests: XCTestCase {
             fatalError("Failed to create leftMouseDown event")
         }
         return event
+    }
+
+    func testHostViewPassesThroughCanvasResizeEdgesOverTerminalSurface() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let hostedView = makeHostedTerminalView(frame: NSRect(x: 80, y: 48, width: 220, height: 140))
+        host.addSubview(hostedView)
+
+        let bottomRightPoint = NSPoint(x: hostedView.frame.maxX - 2, y: hostedView.frame.minY + 2)
+        let bottomRightEvent = makeMouseDownEvent(
+            at: host.convert(bottomRightPoint, to: nil),
+            window: window
+        )
+        XCTAssertNil(
+            host.performHitTest(at: bottomRightPoint, currentEvent: bottomRightEvent),
+            "Terminal portal should yield the bottom-right canvas corner resize band"
+        )
+
+        let topRightPoint = NSPoint(x: hostedView.frame.maxX - 4, y: hostedView.frame.maxY - 4)
+        let topRightEvent = makeMouseDownEvent(
+            at: host.convert(topRightPoint, to: nil),
+            window: window
+        )
+        XCTAssertNil(
+            host.performHitTest(at: topRightPoint, currentEvent: topRightEvent),
+            "Terminal portal should yield the top-right canvas corner resize band"
+        )
+
+        let centerPoint = NSPoint(x: hostedView.frame.midX, y: hostedView.frame.midY)
+        let centerEvent = makeMouseDownEvent(
+            at: host.convert(centerPoint, to: nil),
+            window: window
+        )
+        assertHitFallsInsideHostedTerminal(
+            host.performHitTest(at: centerPoint, currentEvent: centerEvent),
+            hostedView: hostedView,
+            message: "Terminal content away from resize edges should remain interactive"
+        )
     }
 
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
@@ -2337,7 +2391,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
+        let splitDelegate = CMUXLayoutMockSplitDelegate()
         splitView.delegate = splitDelegate
         let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
         let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
@@ -2394,7 +2448,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
+        let splitDelegate = CMUXLayoutMockSplitDelegate()
         splitView.delegate = splitDelegate
         let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
         let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
@@ -3281,6 +3335,40 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             contentIndex,
             "Portal host must remain above content view so portal-hosted terminals stay visible"
         )
+    }
+
+    func testCanvasSurfacePresentationScalesHostedViewWithoutResizingNativeBounds() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 900),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 1_000, height: 700))
+        window.contentView?.addSubview(anchor)
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        )
+        let portal = WindowTerminalPortal(window: window)
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+
+        portal.setCanvasSurfacePresentation(
+            forHostedId: ObjectIdentifier(hostedView),
+            presentation: CanvasSurfacePresentation(
+                frameInWindow: NSRect(x: 100, y: 120, width: 400, height: 280),
+                nativeContentSize: CGSize(width: 1_000, height: 700),
+                scale: 0.4
+            )
+        )
+
+        XCTAssertEqual(hostedView.frame.size.width, 400, accuracy: 1)
+        XCTAssertEqual(hostedView.frame.size.height, 280, accuracy: 1)
+        XCTAssertEqual(hostedView.bounds.size.width, 1_000, accuracy: 0.5)
+        XCTAssertEqual(hostedView.bounds.size.height, 700, accuracy: 0.5)
     }
 
     func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {

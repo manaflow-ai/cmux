@@ -127,7 +127,7 @@ menubarDebugMultiDigitXAdjust="$(format_number "$(read_value menubarDebugMultiDi
 menubarDebugTextRectWidthAdjust="$(format_number "$(read_value menubarDebugTextRectWidthAdjust 1.80)" 2)"
 
 browserDevToolsIconName="$(read_value browserDevToolsIconName 'wrench.and.screwdriver')"
-browserDevToolsIconColor="$(read_value browserDevToolsIconColor bonsplitInactive)"
+browserDevToolsIconColor="$(read_value browserDevToolsIconColor workspaceLayoutInactive)"
 
 payload="$(cat <<PAYLOAD
 # Defaults domain

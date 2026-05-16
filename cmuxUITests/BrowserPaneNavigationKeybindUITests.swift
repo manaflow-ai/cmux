@@ -745,6 +745,128 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasPaletteShortcutDragResizeZoomAndTerminalActivation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "webViewFocused"], timeout: 12.0),
+            "Expected split setup data before opening the canvas. data=\(loadData() ?? [:])"
+        )
+
+        guard let terminalPaneId = loadData()?["terminalPaneId"] else {
+            XCTFail("Missing terminal pane id. data=\(loadData() ?? [:])")
+            return
+        }
+
+        openCanvasCommandFromPalette(app, query: "Freeform Canvas")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "freeform"
+            },
+            "Expected command palette to enter freeform canvas. data=\(loadData() ?? [:])"
+        )
+
+        let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch
+        XCTAssertTrue(overview.waitForExistence(timeout: 6.0), "Expected canvas overview")
+        XCTAssertTrue(
+            app.staticTexts["WorkspaceCanvasMode.freeform"].waitForExistence(timeout: 6.0),
+            "Expected freeform canvas mode label"
+        )
+
+        let terminalCard = canvasCard(app, paneId: terminalPaneId)
+        XCTAssertTrue(terminalCard.waitForExistence(timeout: 6.0), "Expected terminal canvas card for pane \(terminalPaneId)")
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                self.canvasCardCount(app) >= 2
+            },
+            "Expected terminal and browser cards in the canvas"
+        )
+
+        let frameBeforeMove = terminalCard.frame
+        let dragStart = terminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.52, dy: 0.05))
+        dragStart.press(
+            forDuration: 0.12,
+            thenDragTo: dragStart.withOffset(CGVector(dx: 90, dy: 65))
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                let frame = self.canvasCard(app, paneId: terminalPaneId).frame
+                return abs(frame.minX - frameBeforeMove.minX) > 20 || abs(frame.minY - frameBeforeMove.minY) > 20
+            },
+            "Expected dragging the canvas card header to move the terminal card"
+        )
+
+        let frameBeforeResize = canvasCard(app, paneId: terminalPaneId).frame
+        let resizeStart = canvasCard(app, paneId: terminalPaneId)
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.98))
+        resizeStart.press(
+            forDuration: 0.12,
+            thenDragTo: resizeStart.withOffset(CGVector(dx: 100, dy: 80))
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                let frame = self.canvasCard(app, paneId: terminalPaneId).frame
+                return frame.width > frameBeforeResize.width + 24 && frame.height > frameBeforeResize.height + 24
+            },
+            "Expected bottom-right canvas corner hit target to resize width and height"
+        )
+
+        guard let scaleBeforeZoom = Double(loadData()?["canvasScale"] ?? "") else {
+            XCTFail("Missing canvas scale before zoom. data=\(loadData() ?? [:])")
+            return
+        }
+        app.typeKey("-", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                (Double(data["canvasScale"] ?? "") ?? scaleBeforeZoom) < scaleBeforeZoom
+            },
+            "Expected Cmd+- to zoom the canvas out. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey("c", modifierFlags: [.command, .control, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "scrollingColumns"
+            },
+            "Expected Ctrl+Cmd+Shift+C to enter scrolling columns canvas. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey("f", modifierFlags: [.command, .control, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "freeform"
+            },
+            "Expected Ctrl+Cmd+Shift+F to return to freeform canvas. data=\(loadData() ?? [:])"
+        )
+
+        let focusedTerminalCard = canvasCard(app, paneId: terminalPaneId)
+        focusedTerminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.05)).click()
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["canvasOverviewActive"] == "false" &&
+                    data["focusedPaneId"] == terminalPaneId &&
+                    data["focusedPanelKind"] == "terminal" &&
+                    !(data["firstResponderTerminalPanelId"] ?? "").isEmpty
+            },
+            "Expected Return to activate the focused canvas terminal at native 1x. data=\(loadData() ?? [:])"
+        )
+
+        app.typeText("echo cmux_canvas_native_input_ok\n")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 4.0) { data in
+                data["focusedPanelKind"] == "terminal" &&
+                    !(data["firstResponderTerminalPanelId"] ?? "").isEmpty
+            },
+            "Expected native terminal input to stay focused after canvas activation. data=\(loadData() ?? [:])"
+        )
+    }
+
     func testCmdDSplitsRightWhenOmnibarFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1452,6 +1574,36 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private var zoomRoundTripPageURL: String {
         "data:text/html,%3Ctitle%3EIssue%201144%3C/title%3E%3Cbody%20style%3D%22margin:0;background:%231d1f24;color:white;font-family:system-ui;height:2200px%22%3E%3Cmain%20style%3D%22padding:32px%22%3E%3Ch1%3EIssue%201144%20Regression%20Page%3C/h1%3E%3Cp%3EZoom%20should%20not%20leave%20stale%20split%20chrome%20above%20the%20browser%20omnibar.%3C/p%3E%3C/main%3E%3C/body%3E"
+    }
+
+    private func openCanvasCommandFromPalette(_ app: XCUIApplication, query: String) {
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        let searchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 6.0), "Expected command palette search field")
+        searchField.click()
+        searchField.typeText(query)
+
+        let firstRow = app.descendants(matching: .any)
+            .matching(identifier: "CommandPaletteResultRow.0")
+            .firstMatch
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 6.0), "Expected first command palette result for \(query)")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForNonExistence(searchField, timeout: 6.0),
+            "Expected command palette to dismiss after selecting \(query)"
+        )
+    }
+
+    private func canvasCard(_ app: XCUIApplication, paneId: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "WorkspaceCanvasCard.\(paneId)")
+            .firstMatch
+    }
+
+    private func canvasCardCount(_ app: XCUIApplication) -> Int {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "WorkspaceCanvasCard."))
+            .count
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {

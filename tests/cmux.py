@@ -1117,7 +1117,7 @@ class cmux:
             return {}
 
     def layout_debug(self) -> dict:
-        """Return bonsplit layout snapshot + selected panel bounds."""
+        """Return workspaceLayout layout snapshot + selected panel bounds."""
         response = self._send_command("layout_debug")
         if not response.startswith("OK "):
             raise cmuxError(response)
@@ -1186,16 +1186,16 @@ class cmux:
             "path": path,
         }
 
-    def bonsplit_underflow_count(self) -> int:
-        """Return bonsplit arranged-subview underflow counter."""
-        response = self._send_command("bonsplit_underflow_count")
+    def workspaceLayout_underflow_count(self) -> int:
+        """Return CMUXLayout arranged-subview underflow counter."""
+        response = self._send_command("workspaceLayout_underflow_count")
         if response.startswith("OK "):
             return int(response.split(" ", 1)[1])
         raise cmuxError(response)
 
-    def reset_bonsplit_underflow_count(self) -> None:
-        """Reset bonsplit arranged-subview underflow counter."""
-        response = self._send_command("reset_bonsplit_underflow_count")
+    def reset_workspaceLayout_underflow_count(self) -> None:
+        """Reset CMUXLayout arranged-subview underflow counter."""
+        response = self._send_command("reset_workspaceLayout_underflow_count")
         if not response.startswith("OK"):
             raise cmuxError(response)
 

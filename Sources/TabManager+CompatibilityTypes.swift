@@ -1,6 +1,6 @@
 import Foundation
 import CoreGraphics
-import Bonsplit
+import CMUXLayout
 
 // MARK: - Direction Types for Backwards Compatibility
 
@@ -12,7 +12,7 @@ enum SplitDirection {
         self == .left || self == .right
     }
 
-    var orientation: SplitOrientation {
+    var orientation: LayoutOrientation {
         isHorizontal ? .horizontal : .vertical
     }
 

@@ -1,6 +1,6 @@
 import Foundation
 import AppKit
-import Bonsplit
+import CMUXLayout
 
 @MainActor
 private enum CmuxSelectionEventState {
@@ -105,7 +105,7 @@ extension Workspace {
     func publishCmuxSplitCreated(
         _ paneId: PaneID,
         sourcePaneId: PaneID?,
-        orientation: SplitOrientation,
+        orientation: LayoutOrientation,
         surfaceId: UUID?,
         kind: String,
         origin: String,

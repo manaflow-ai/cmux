@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -450,7 +450,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
-    private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
+    private final class CMUXLayoutMockSplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
@@ -522,6 +522,53 @@ final class WindowBrowserHostViewTests: XCTestCase {
         return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
     }
 
+    func testHostViewPassesThroughCanvasResizeEdgesOverBrowserSlot() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 80, y: 48, width: 220, height: 140))
+        let page = CapturingView(frame: slot.bounds)
+        page.autoresizingMask = [.width, .height]
+        slot.addSubview(page)
+        host.addSubview(slot)
+
+        XCTAssertNil(
+            host.hitTest(NSPoint(x: slot.frame.maxX - 2, y: slot.frame.minY + 2)),
+            "Browser portal should yield the bottom-right canvas corner resize band instead of starting a WebKit drag"
+        )
+        XCTAssertNil(
+            host.hitTest(NSPoint(x: slot.frame.minX + 2, y: slot.frame.midY)),
+            "Browser portal should yield the left canvas resize edge"
+        )
+        XCTAssertTrue(
+            host.hitTest(NSPoint(x: slot.frame.midX, y: slot.frame.midY)) === page,
+            "Browser content away from resize edges should remain interactive"
+        )
+        XCTAssertTrue(
+            host.hitTest(NSPoint(x: slot.frame.midX, y: slot.frame.maxY - 24)) === page,
+            "Browser content away from the enlarged resize edge should remain interactive"
+        )
+        XCTAssertNil(
+            host.hitTest(NSPoint(x: slot.frame.maxX - 4, y: slot.frame.maxY - 4)),
+            "Browser portal should yield the top-right canvas corner resize band"
+        )
+    }
+
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
         // The reported regression (#3193) was that the original window kept
         // working but later-created windows did not. Set up two windows and
@@ -575,7 +622,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
-        let splitDelegate = BonsplitMockSplitDelegate()
+        let splitDelegate = CMUXLayoutMockSplitDelegate()
         splitView.delegate = splitDelegate
         let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
         let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
@@ -674,13 +721,13 @@ final class WindowBrowserHostViewTests: XCTestCase {
     func testDragHoverEventsPassThroughForTabTransferOnBrowserHoverEvents() {
         XCTAssertTrue(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                pasteboardTypes: [DragOverlayRoutingPolicy.workspaceLayoutTabTransferType],
                 eventType: .cursorUpdate
             )
         )
         XCTAssertTrue(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                pasteboardTypes: [DragOverlayRoutingPolicy.workspaceLayoutTabTransferType],
                 eventType: .mouseEntered
             )
         )
@@ -763,7 +810,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         appSplit.autoresizingMask = [.width, .height]
         appSplit.isVertical = true
         appSplit.dividerStyle = .thin
-        let appSplitDelegate = BonsplitMockSplitDelegate()
+        let appSplitDelegate = CMUXLayoutMockSplitDelegate()
         appSplit.delegate = appSplitDelegate
         let leading = NSView(frame: NSRect(x: 0, y: 0, width: 210, height: contentView.bounds.height))
         let trailing = NSView(frame: NSRect(x: 211, y: 0, width: 209, height: contentView.bounds.height))
@@ -783,7 +830,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         inspectorSplit.autoresizingMask = [.width, .height]
         inspectorSplit.isVertical = false
         inspectorSplit.dividerStyle = .thin
-        let inspectorDelegate = BonsplitMockSplitDelegate()
+        let inspectorDelegate = CMUXLayoutMockSplitDelegate()
         inspectorSplit.delegate = inspectorDelegate
         let pageView = CapturingView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 160))
         let consoleView = CapturingView(frame: NSRect(x: 0, y: 161, width: host.bounds.width, height: 99))
@@ -856,7 +903,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         inspectorSplit.autoresizingMask = [.width, .height]
         inspectorSplit.isVertical = true
         inspectorSplit.dividerStyle = .thin
-        let inspectorDelegate = BonsplitMockSplitDelegate()
+        let inspectorDelegate = CMUXLayoutMockSplitDelegate()
         inspectorSplit.delegate = inspectorDelegate
         let pageView = CapturingView(frame: NSRect(x: 0, y: 0, width: 1, height: slot.bounds.height))
         let inspectorView = CapturingView(
@@ -2143,6 +2190,51 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             contentIndex,
             "Browser portal host must remain above content view so portal-hosted web views stay visible"
         )
+    }
+
+    func testCanvasSurfacePresentationScalesContainerWithoutResizingWebView() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 900),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 1_000, height: 700))
+        window.contentView?.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let portal = WindowBrowserPortal(window: window)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        portal.setCanvasSurfacePresentation(
+            forWebViewId: ObjectIdentifier(webView),
+            presentation: CanvasSurfacePresentation(
+                frameInWindow: NSRect(x: 100, y: 120, width: 400, height: 280),
+                nativeContentSize: CGSize(width: 1_000, height: 700),
+                scale: 0.4
+            )
+        )
+
+        let snapshot = try XCTUnwrap(portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView)))
+        XCTAssertEqual(snapshot.frameInWindow.size.width, 400, accuracy: 1)
+        XCTAssertEqual(snapshot.frameInWindow.size.height, 280, accuracy: 1)
+        XCTAssertEqual(snapshot.containerBounds.size.width, 1_000, accuracy: 0.5)
+        XCTAssertEqual(snapshot.containerBounds.size.height, 700, accuracy: 0.5)
+        XCTAssertEqual(snapshot.webViewFrame.size.width, 1_000, accuracy: 0.5)
+        XCTAssertEqual(snapshot.webViewFrame.size.height, 700, accuracy: 0.5)
+
+        webView.superview?.layoutSubtreeIfNeeded()
+
+        let postLayoutSnapshot = try XCTUnwrap(portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView)))
+        XCTAssertEqual(postLayoutSnapshot.frameInWindow.size.width, 400, accuracy: 1)
+        XCTAssertEqual(postLayoutSnapshot.frameInWindow.size.height, 280, accuracy: 1)
+        XCTAssertEqual(postLayoutSnapshot.containerBounds.size.width, 1_000, accuracy: 0.5)
+        XCTAssertEqual(postLayoutSnapshot.containerBounds.size.height, 700, accuracy: 0.5)
+        XCTAssertEqual(postLayoutSnapshot.webViewFrame.size.width, 1_000, accuracy: 0.5)
+        XCTAssertEqual(postLayoutSnapshot.webViewFrame.size.height, 700, accuracy: 0.5)
     }
 
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {

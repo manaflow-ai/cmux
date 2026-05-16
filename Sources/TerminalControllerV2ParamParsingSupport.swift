@@ -1,5 +1,5 @@
 import Foundation
-import Bonsplit
+import CMUXLayout
 
 extension TerminalController {
     func v2String(_ params: [String: Any], _ key: String) -> String? {
@@ -112,7 +112,7 @@ extension TerminalController {
         for item in windows {
             guard let tm = app.tabManagerFor(windowId: item.windowId) else { continue }
             for ws in tm.tabs {
-                if let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID }) {
+                if let paneId = ws.layoutController.allPaneIds.first(where: { $0.id == paneUUID }) {
                     return (item.windowId, tm, ws, paneId)
                 }
             }

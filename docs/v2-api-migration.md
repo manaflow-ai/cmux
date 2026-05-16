@@ -122,7 +122,7 @@ Debug / Test-only:
 - [x] read_terminal_text -> `debug.terminal.read_text`
 - [x] render_stats -> `debug.terminal.render_stats`
 - [x] layout_debug -> `debug.layout`
-- [x] bonsplit_underflow_count/reset -> `debug.bonsplit_underflow.*`
+- [x] workspaceLayout_underflow_count/reset -> `debug.workspaceLayout_underflow.*`
 - [x] empty_panel_count/reset -> `debug.empty_panel.*`
 - [x] focus_notification -> `debug.notification.focus`
 - [x] flash_count/reset -> `debug.flash.*`

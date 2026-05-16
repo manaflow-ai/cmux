@@ -760,6 +760,8 @@
               "splitDown",
               "toggleSplitZoom",
               "equalizeSplits",
+              "canvasFreeform",
+              "canvasScrollingColumns",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleFileExplorer",

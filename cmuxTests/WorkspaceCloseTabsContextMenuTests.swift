@@ -1,5 +1,5 @@
 import XCTest
-import Bonsplit
+import CMUXLayout
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -40,7 +40,7 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         let manager: TabManager
         let workspace: Workspace
         let paneId: PaneID
-        let tabIds: [TabID]
+        let tabIds: [SurfaceID]
     }
 
     private func makeWorkspaceWithFourConfirmingTabs() throws -> Fixture {
@@ -53,7 +53,7 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
         _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
 
-        let tabIds = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
+        let tabIds = workspace.layoutController.tabs(inPane: paneId).map(\.id)
         XCTAssertEqual(tabIds.count, 4, "Precondition: fixture should start with four tabs in one pane")
 
         for tabId in tabIds {
@@ -65,17 +65,17 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         return Fixture(manager: manager, workspace: workspace, paneId: paneId, tabIds: tabIds)
     }
 
-    private func invoke(_ action: TabContextAction, anchorTabId: TabID, fixture: Fixture) throws {
+    private func invoke(_ action: SurfaceContextAction, anchorTabId: SurfaceID, fixture: Fixture) throws {
         var promptCount = 0
         fixture.manager.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return true
         }
 
-        let anchorTab = try XCTUnwrap(fixture.workspace.bonsplitController.tab(anchorTabId))
+        let anchorTab = try XCTUnwrap(fixture.workspace.layoutController.tab(anchorTabId))
         fixture.workspace.splitTabBar(
-            fixture.workspace.bonsplitController,
-            didRequestTabContextAction: action,
+            fixture.workspace.layoutController,
+            didRequestSurfaceContextAction: action,
             for: anchorTab,
             inPane: fixture.paneId
         )
@@ -86,12 +86,12 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
     }
 
     private func assertRemainingTabs(
-        _ expected: [TabID],
+        _ expected: [SurfaceID],
         in fixture: Fixture,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let remaining = fixture.workspace.bonsplitController.tabs(inPane: fixture.paneId).map(\.id)
+        let remaining = fixture.workspace.layoutController.tabs(inPane: fixture.paneId).map(\.id)
         XCTAssertEqual(remaining, expected, file: file, line: line)
         for closedTabId in fixture.tabIds where !expected.contains(closedTabId) {
             XCTAssertNil(
