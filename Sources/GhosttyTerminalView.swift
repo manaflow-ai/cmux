@@ -5716,14 +5716,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
+    @MainActor
     @discardableResult
     func sendText(_ text: String) -> Bool {
-        if !Thread.isMainThread {
-            return DispatchQueue.main.sync {
-                self.sendText(text)
-            }
-        }
-
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
         guard surface != nil else {
             let queued = enqueuePendingSocketInput(.pasteText(data))
@@ -5739,14 +5734,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
+    @MainActor
     @discardableResult
     func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
-        if !Thread.isMainThread {
-            return DispatchQueue.main.sync {
-                self.sendNamedKey(keyName)
-            }
-        }
-
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
         if surface != nil {
             guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -5764,25 +5754,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path. Cold surfaces queue the same ordered events and
     /// flush them after runtime creation.
+    @MainActor
     @discardableResult
     func sendInput(_ text: String) -> Bool {
-        if !Thread.isMainThread {
-            return DispatchQueue.main.sync {
-                self.sendInput(text)
-            }
-        }
-
         return sendInputResult(text).accepted
     }
 
+    @MainActor
     @discardableResult
     func sendInputResult(_ text: String) -> InputSendResult {
-        if !Thread.isMainThread {
-            return DispatchQueue.main.sync {
-                self.sendInputResult(text)
-            }
-        }
-
         guard !text.isEmpty else { return .sent }
         guard surface != nil else {
             let queued = enqueuePendingSocketInput(text)
@@ -5798,6 +5778,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return .sent
     }
 
+    @MainActor
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {
             switch event {
@@ -5810,6 +5791,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
     private func enqueuePendingSocketInput(_ text: String) -> Bool {
         let inputs = Self.parsedSocketInputEvents(for: text).compactMap { event -> PendingSocketInput? in
             switch event {
@@ -5910,15 +5892,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
+    @MainActor
     private func liveSurfaceForSocketWrite(reason: String) -> ghostty_surface_t? {
-        guard Thread.isMainThread else {
-#if DEBUG
-            cmuxDebugLog(
-                "surface.socket_input.reject surface=\(id.uuidString.prefix(8)) reason=offMainThread"
-            )
-#endif
-            return nil
-        }
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
@@ -6105,12 +6080,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
     private func enqueuePendingSocketInput(_ input: PendingSocketInput) -> Bool {
         enqueuePendingSocketInputs([input])
     }
 
+    @MainActor
     private func enqueuePendingSocketInputs(_ inputs: [PendingSocketInput]) -> Bool {
-        assert(Thread.isMainThread)
         let incomingBytes = inputs.reduce(0) { $0 + $1.estimatedBytes }
         guard incomingBytes > 0 else { return true }
 
@@ -6141,8 +6117,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
+    @MainActor
     private func flushPendingSocketInputIfNeeded() {
-        assert(Thread.isMainThread)
         guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
