@@ -6701,10 +6701,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         let previousZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
-        panel.noteWebViewVisibility(
-            coordinator.desiredPortalVisibleInUI,
-            reason: coordinator.desiredPortalVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
-        )
+        let lifecycleVisibleInUI = coordinator.desiredPortalVisibleInUI
+        let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
+        DispatchQueue.main.async { [weak panel] in
+            panel?.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
+        }
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil

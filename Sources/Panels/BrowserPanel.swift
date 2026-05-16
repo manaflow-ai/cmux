@@ -2069,7 +2069,7 @@ private enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
-enum BrowserWebViewLifecycleState: String {
+nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
     case liveVisible = "live_visible"
     case liveHidden = "live_hidden"
@@ -2705,18 +2705,21 @@ final class BrowserPanel: Panel, ObservableObject {
         recordIfUnchanged: Bool = false
     ) {
         let changed = isWebViewVisibleInUI != visible
-        guard changed || recordIfUnchanged || webViewLastVisibilityChangeReason == nil else {
+        let isFirstVisibilityRecord = webViewLastVisibilityChangeReason == nil
+        guard changed || recordIfUnchanged || isFirstVisibilityRecord else {
             refreshWebViewLifecycleState()
             return
         }
 
-        isWebViewVisibleInUI = visible
-        if visible {
-            webViewLastVisibleAt = now
-        } else {
-            webViewLastHiddenAt = now
+        if changed || isFirstVisibilityRecord {
+            isWebViewVisibleInUI = visible
+            if visible {
+                webViewLastVisibleAt = now
+            } else {
+                webViewLastHiddenAt = now
+            }
+            webViewLastVisibilityChangeAt = now
         }
-        webViewLastVisibilityChangeAt = now
         webViewLastVisibilityChangeReason = reason
         refreshWebViewLifecycleState()
     }
@@ -2753,11 +2756,15 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewLifecycleState = nextState
     }
 
-    private static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
-        guard let date else { return NSNull() }
+    private static let webViewLifecycleTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
+        guard let date else { return NSNull() }
+        return webViewLifecycleTimestampFormatter.string(from: date)
     }
 
     private static func webViewHiddenDurationMilliseconds(
@@ -2767,6 +2774,16 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> Any {
         guard !visible, let hiddenAt else { return NSNull() }
         return max(0, Int((now.timeIntervalSince(hiddenAt) * 1000.0).rounded()))
+    }
+
+    private func resetWebViewLifecycleMetadata() {
+        webViewLifecycleState = .newTab
+        webViewLastVisibleAt = nil
+        webViewLastHiddenAt = nil
+        webViewLastVisibilityChangeAt = nil
+        webViewLastVisibilityChangeReason = nil
+        isWebViewVisibleInUI = false
+        isClosingWebViewLifecycle = false
     }
 
     /// Popups inherit this panel's exact WebKit storage and process context.
@@ -4604,6 +4621,7 @@ extension BrowserPanel {
         restoredSessionShouldRenderWebView = nil
         faviconPNGData = nil
         lastFaviconURLString = nil
+        resetWebViewLifecycleMetadata()
         activePortalHostLease = nil
         pendingDistinctPortalHostReplacementPaneId = nil
         lockedPortalHost = nil
@@ -4626,6 +4644,7 @@ extension BrowserPanel {
         webViewInstanceID = UUID()
         webView = replacement
         shouldRenderWebView = false
+        refreshWebViewLifecycleState()
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
         refreshNavigationAvailability()

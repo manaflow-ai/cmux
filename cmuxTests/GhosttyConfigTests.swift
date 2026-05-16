@@ -1192,13 +1192,13 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
     func testLifecycleTracksVisibleHiddenAndClosingStates() {
         let hiddenAt = Date(timeIntervalSince1970: 100)
-        let now = hiddenAt.addingTimeInterval(1.25)
+        let duplicateHiddenAt = hiddenAt.addingTimeInterval(10)
+        let now = hiddenAt.addingTimeInterval(11.25)
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "https://example.test/")!,
             isRemoteWorkspace: false
         )
-        defer { panel.close() }
 
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
 
@@ -1207,13 +1207,19 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        panel.noteWebViewVisibility(
+            false,
+            reason: "test.hidden.duplicate",
+            now: duplicateHiddenAt,
+            recordIfUnchanged: true
+        )
 
         let payload = panel.webViewLifecycleTopPayload(now: now)
         XCTAssertEqual(payload["state"] as? String, "live_hidden")
         XCTAssertEqual(payload["visible_in_ui"] as? Bool, false)
         XCTAssertEqual(payload["should_render"] as? Bool, true)
-        XCTAssertEqual(payload["last_visibility_change_reason"] as? String, "test.hidden")
-        XCTAssertEqual(payload["hidden_duration_ms"] as? Int, 1250)
+        XCTAssertEqual(payload["last_visibility_change_reason"] as? String, "test.hidden.duplicate")
+        XCTAssertEqual(payload["hidden_duration_ms"] as? Int, 11250)
 
         panel.close()
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
