@@ -164,11 +164,15 @@ enum WorkspaceCanvasResizeHitRegionRegistry {
         var itemID: LayoutItemID?
         var handle: CanvasResizeHandle?
         var frameInWindow: CGRect
+        var edgeHitSize: CGFloat?
+        var cornerHitSize: CGFloat?
     }
 
     struct Hit {
         var itemID: LayoutItemID
         var handle: CanvasResizeHandle
+        var frameInWindow: CGRect
+        var usesFrameMaxForLocalY: Bool
     }
 
     private static var regionsByWindowId: [ObjectIdentifier: [ObjectIdentifier: [Region]]] = [:]
@@ -229,12 +233,62 @@ enum WorkspaceCanvasResizeHitRegionRegistry {
         guard let regions = regionsByWindowId[ObjectIdentifier(window)] else { return nil }
         for viewRegions in regions.values {
             for region in viewRegions where region.frameInWindow.insetBy(dx: -2, dy: -2).contains(point) {
-                guard let itemID = region.itemID,
-                      let handle = region.handle else {
+                guard let itemID = region.itemID else {
                     continue
                 }
-                return Hit(itemID: itemID, handle: handle)
+                if let handle = region.handle {
+                    return Hit(
+                        itemID: itemID,
+                        handle: handle,
+                        frameInWindow: region.frameInWindow.standardized,
+                        usesFrameMaxForLocalY: true
+                    )
+                }
+                let frame = region.frameInWindow.standardized
+                let hitArea = CanvasResizeHitArea(
+                    cardSize: frame.size,
+                    edgeHitSize: region.edgeHitSize ?? 16,
+                    cornerHitSize: region.cornerHitSize ?? 44
+                )
+                let localPointFromTop = CGPoint(
+                    x: point.x - frame.minX,
+                    y: frame.maxY - point.y
+                )
+                let localPointFromBottom = CGPoint(
+                    x: point.x - frame.minX,
+                    y: point.y - frame.minY
+                )
+                let topHandle = hitArea.handle(at: localPointFromTop)
+                let bottomHandle = hitArea.handle(at: localPointFromBottom)
+                guard let preferred = preferredHandle(topHandle, bottomHandle) else {
+                    continue
+                }
+                return Hit(
+                    itemID: itemID,
+                    handle: preferred.handle,
+                    frameInWindow: frame,
+                    usesFrameMaxForLocalY: preferred.usesFrameMaxForLocalY
+                )
             }
+        }
+        return nil
+    }
+
+    private static func preferredHandle(
+        _ first: CanvasResizeHandle?,
+        _ second: CanvasResizeHandle?
+    ) -> (handle: CanvasResizeHandle, usesFrameMaxForLocalY: Bool)? {
+        if let first, first.isCorner {
+            return (first, true)
+        }
+        if let second, second.isCorner {
+            return (second, false)
+        }
+        if let first {
+            return (first, true)
+        }
+        if let second {
+            return (second, false)
         }
         return nil
     }
@@ -311,6 +365,17 @@ enum WorkspaceCanvasDragHitRegionRegistry {
 
     static func isPointerDragActive(in window: NSWindow) -> Bool {
         activeDragWindowIds.contains(ObjectIdentifier(window))
+    }
+}
+
+private extension CanvasResizeHandle {
+    var isCorner: Bool {
+        switch self {
+        case .topLeft, .topRight, .bottomLeft, .bottomRight:
+            return true
+        case .top, .bottom, .left, .right:
+            return false
+        }
     }
 }
 
@@ -680,13 +745,15 @@ private final class CanvasResizeInteractionView: NSView {
             WorkspaceCanvasResizeHitRegionRegistry.remove(view: self)
             return
         }
-        let regions = resizeHitArea.hitRegions().map { region in
+        let regions = [
             WorkspaceCanvasResizeHitRegionRegistry.Region(
                 itemID: itemID,
-                handle: region.handle,
-                frameInWindow: convert(region.frame, to: nil)
+                handle: nil,
+                frameInWindow: convert(bounds, to: nil),
+                edgeHitSize: edgeHitSize,
+                cornerHitSize: cornerHitSize
             )
-        }
+        ]
         WorkspaceCanvasResizeHitRegionRegistry.update(
             view: self,
             window: window,
@@ -738,7 +805,9 @@ private final class CanvasResizeEventMonitorView: NSView {
     private var activeResize: (
         itemID: LayoutItemID,
         handle: CanvasResizeHandle,
-        startPointInWindow: NSPoint
+        startPointInWindow: NSPoint,
+        frameInWindow: CGRect,
+        usesFrameMaxForLocalY: Bool
     )?
 
     override var isOpaque: Bool { false }
@@ -785,14 +854,27 @@ private final class CanvasResizeEventMonitorView: NSView {
             ) else {
                 return event
             }
-            activeResize = (hit.itemID, hit.handle, event.locationInWindow)
+            activeResize = (
+                hit.itemID,
+                hit.handle,
+                event.locationInWindow,
+                hit.frameInWindow,
+                hit.usesFrameMaxForLocalY
+            )
             WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
             return nil
         case .leftMouseDragged:
             guard let activeResize else { return event }
+            let frame = activeResize.frameInWindow
+            let startY = activeResize.usesFrameMaxForLocalY
+                ? frame.maxY - activeResize.startPointInWindow.y
+                : activeResize.startPointInWindow.y - frame.minY
+            let currentY = activeResize.usesFrameMaxForLocalY
+                ? frame.maxY - event.locationInWindow.y
+                : event.locationInWindow.y - frame.minY
             let translation = CGSize(
                 width: event.locationInWindow.x - activeResize.startPointInWindow.x,
-                height: activeResize.startPointInWindow.y - event.locationInWindow.y
+                height: currentY - startY
             )
             onResizeChanged?(activeResize.itemID, activeResize.handle, translation)
             return nil
@@ -1870,6 +1952,28 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     }
 
                     canvasAlignmentGuideOverlay(activeAlignmentGuides, transform: transform)
+
+                    CanvasResizeEventMonitorLayer(
+                        onResizeChanged: { itemID, handle, translation in
+                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                                return
+                            }
+                            updateFreeformResize(
+                                for: item,
+                                scale: scale,
+                                handle: handle,
+                                translation: translation
+                            )
+                        },
+                        onResizeEnded: { itemID, _ in
+                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                                return
+                            }
+                            endFreeformResize(for: item, scale: scale)
+                        }
+                    )
+                    .frame(width: 1, height: 1)
+                    .accessibilityHidden(true)
                 }
                 .frame(width: contentBounds.size.width, height: contentBounds.size.height, alignment: .topLeading)
                 .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
@@ -2328,53 +2432,25 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private func canvasResizeHitTargets(item: CanvasItem, scale: CGFloat) -> some View {
-        GeometryReader { proxy in
-            let hitArea = CanvasResizeHitArea(
-                cardSize: proxy.size,
-                edgeHitSize: canvasResizeEdgeHitSize,
-                cornerHitSize: canvasResizeCornerHitSize
-            )
-            ZStack(alignment: .topLeading) {
-                ForEach(hitArea.hitRegions(), id: \.handle) { region in
-                    canvasResizeHitRegion(item: item, scale: scale, region: region)
-                }
+        CanvasResizeInteractionLayer(
+            itemID: item.id,
+            edgeHitSize: canvasResizeEdgeHitSize,
+            cornerHitSize: canvasResizeCornerHitSize,
+            onResizeChanged: { handle, translation in
+                updateFreeformResize(
+                    for: item,
+                    scale: scale,
+                    handle: handle,
+                    translation: translation
+                )
+            },
+            onResizeEnded: { _ in
+                endFreeformResize(for: item, scale: scale)
             }
-        }
+        )
         .help(String(localized: "canvas.resize.help", defaultValue: "Resize"))
         .accessibilityLabel(String(localized: "canvas.resize.help", defaultValue: "Resize"))
         .accessibilityIdentifier("WorkspaceCanvasResizeLayer.\(item.id.description)")
-    }
-
-    private func canvasResizeHitRegion(
-        item: CanvasItem,
-        scale: CGFloat,
-        region: CanvasResizeHitRegion
-    ) -> some View {
-        Rectangle()
-            .fill(Color.black.opacity(0.001))
-            .contentShape(Rectangle())
-            .frame(width: max(1, region.frame.width), height: max(1, region.frame.height))
-            .offset(x: region.frame.minX, y: region.frame.minY)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let translation = value.translation
-                        guard abs(translation.width) >= 1 || abs(translation.height) >= 1 else { return }
-                        updateFreeformResize(
-                            for: item,
-                            scale: scale,
-                            handle: region.handle,
-                            translation: translation
-                        )
-                    }
-                    .onEnded { value in
-                        let translation = value.translation
-                        if abs(translation.width) >= 1 || abs(translation.height) >= 1 {
-                            endFreeformResize(for: item, scale: scale)
-                        }
-                    }
-            )
-            .accessibilityIdentifier("WorkspaceCanvasResizeHandle.\(item.id.description).\(region.handle.rawValue)")
     }
 
     private func updateFreeformDrag(

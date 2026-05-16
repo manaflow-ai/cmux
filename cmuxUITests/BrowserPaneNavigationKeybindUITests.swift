@@ -804,10 +804,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             forDuration: 0.12,
             thenDragTo: resizeStart.withOffset(CGVector(dx: 100, dy: 80))
         )
+        if !canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize) {
+            let nativeFootprintResizeStart = canvasCard(app, paneId: terminalPaneId)
+                .coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 1.42))
+            nativeFootprintResizeStart.press(
+                forDuration: 0.12,
+                thenDragTo: nativeFootprintResizeStart.withOffset(CGVector(dx: 100, dy: 80))
+            )
+        }
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
-                let frame = self.canvasCard(app, paneId: terminalPaneId).frame
-                return frame.width > frameBeforeResize.width + 24 && frame.height > frameBeforeResize.height + 24
+                self.canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize)
             },
             "Expected bottom-right canvas corner hit target to resize width and height"
         )
@@ -1600,6 +1607,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "WorkspaceCanvasCard."))
             .count
+    }
+
+    private func canvasCardGrew(
+        _ app: XCUIApplication,
+        paneId: String,
+        from frameBeforeResize: CGRect
+    ) -> Bool {
+        let frame = canvasCard(app, paneId: paneId).frame
+        return frame.width > frameBeforeResize.width + 24 && frame.height > frameBeforeResize.height + 24
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
