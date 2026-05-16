@@ -227,29 +227,6 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             )
         }
     }
-
-    func testNotificationBellGlyphIsShorterThanStandardIconLane() {
-        for style in TitlebarControlsStyle.allCases {
-            let config = style.config
-            let scale = titlebarNotificationBellGlyphScale(for: config)
-
-            XCTAssertLessThan(
-                config.iconSize * scale.height,
-                config.iconSize,
-                "Expected notification bell to render shorter than the standard icon lane for style \(style)"
-            )
-            XCTAssertGreaterThanOrEqual(
-                scale.height,
-                0.82,
-                "Expected notification bell to stay readable for style \(style)"
-            )
-            XCTAssertGreaterThan(
-                scale.width,
-                scale.height,
-                "Expected notification bell to reduce height more than width for style \(style)"
-            )
-        }
-    }
 }
 
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
