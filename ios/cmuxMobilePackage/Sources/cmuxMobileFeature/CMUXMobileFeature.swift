@@ -1597,6 +1597,7 @@ struct WorkspaceDetailView: View {
     @State private var isTerminalKeyboardVisible = false
     @State private var terminalKeyboardOverlap: CGFloat = 0
     @State private var terminalInputFocusRequest = 0
+    @State private var isTerminalPickerPresented = false
 
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == selectedTerminalID } ?? workspace.terminals.first
@@ -1772,23 +1773,9 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
 
-        Menu {
-            ForEach(workspace.terminals) { terminal in
-                Button {
-                    dismissTerminalKeyboardForChrome()
-                    selectedTerminalID = terminal.id
-                } label: {
-                    Label(terminal.name, systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal")
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
-
-            Divider()
-
-            Button(action: createTerminalFromToolbar) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
+        Button {
+            dismissTerminalKeyboardForChrome()
+            isTerminalPickerPresented = true
         } label: {
             Image(systemName: "terminal")
         }
@@ -1796,11 +1783,51 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(selectedTerminal?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                dismissTerminalKeyboardForChrome()
+        .popover(isPresented: $isTerminalPickerPresented, arrowEdge: .top) {
+            terminalPickerContent
+        }
+    }
+
+    private var terminalPickerContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
+                .font(.headline)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
+
+            ForEach(workspace.terminals) { terminal in
+                Button {
+                    selectTerminalFromPicker(terminal.id)
+                } label: {
+                    Label(
+                        terminal.name,
+                        systemImage: terminal.id == selectedTerminal?.id ? "checkmark.circle.fill" : "terminal"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
             }
-        )
+
+            Divider()
+                .padding(.vertical, 4)
+
+            Button(action: createTerminalFromToolbar) {
+                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileNewTerminalMenuItem")
+        }
+        .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
+        .presentationCompactAdaptation(.popover)
     }
 
     private func createWorkspaceFromToolbar() {
@@ -1810,7 +1837,14 @@ struct WorkspaceDetailView: View {
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        isTerminalPickerPresented = false
         createTerminal()
+    }
+
+    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+        dismissTerminalKeyboardForChrome()
+        isTerminalPickerPresented = false
+        selectedTerminalID = terminalID
     }
 
     private func dismissTerminalKeyboardForChrome() {

@@ -869,6 +869,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ターミナル" } }
       }
     },
+    "mobile.terminal.picker.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminals" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル" } }
+      }
+    },
     "mobile.terminal.select" : {
       "extractionState" : "manual",
       "localizations" : {
