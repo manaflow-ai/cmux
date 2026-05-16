@@ -3299,6 +3299,51 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/focused tty claude repo")
     }
 
+    func testProcessDetectionKeepsCMUXScopedClaudeWhenFallbackTTYIsStale() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let scopedClaude = makeTopProcess(
+            pid: 10_014,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: 44_010,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyName: "cmux-stale-tty"
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == scopedClaude.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        "717c09f4-7a51-4d5f-96ad-7aef1877f83b"
+                    ],
+                    environment: ["PWD": "/tmp/stale tty scoped claude repo"]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "717c09f4-7a51-4d5f-96ad-7aef1877f83b")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/stale tty scoped claude repo")
+    }
+
     func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {
         let workspaceId = UUID()
         let panelId = UUID()

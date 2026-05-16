@@ -282,12 +282,12 @@ extension RestorableAgentSessionIndex {
                   fallbackScope.ttyDevice != nil || fallbackScope.ttyName != nil else {
                 return nil
             }
-            return Set(
-                processDetectionFallbackProcesses(
-                    processSnapshot: processSnapshot,
-                    fallbackScope: fallbackScope
-                ).map(\.pid)
+            let fallbackProcesses = processDetectionFallbackProcesses(
+                processSnapshot: processSnapshot,
+                fallbackScope: fallbackScope
             )
+            guard !fallbackProcesses.isEmpty else { return nil }
+            return Set(fallbackProcesses.map(\.pid))
         }()
 
         for process in processSnapshot.cmuxScopedProcesses() {
