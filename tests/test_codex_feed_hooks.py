@@ -341,7 +341,7 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
-def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
+def test_codex_prompt_submit_skips_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-lease-failure.sock"
     transcript_path = root / "codex-session-lease-failure.jsonl"
     bad_state_dir = root / "hook-state-file"
@@ -378,7 +378,8 @@ def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str
                     f"hooks codex prompt-submit failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
-            wait_for_monitor_pids(session_id, present=True, timeout=5)
+            if monitor_pids_for_session(session_id):
+                raise AssertionError("prompt-submit started a codex monitor without a lease")
         finally:
             for pid in monitor_pids_for_session(session_id):
                 subprocess.run(["/bin/kill", str(pid)], check=False)
@@ -1804,7 +1805,7 @@ def main() -> int:
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
-            test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)
+            test_codex_prompt_submit_skips_monitor_when_lease_write_fails(cli_path, root)
             test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)

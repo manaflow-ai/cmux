@@ -21017,17 +21017,34 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                             "has_surface_id": normalizedHookValue(surfaceId) != nil,
                         ]
                     )
-                    retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
                 }
                 if let ownerPID = ownerPID {
-                    let leasePath = createCodexMonitorLease(
+                    if let leasePath = createCodexMonitorLease(
                         sessionId: sessionId,
                         turnId: input.turnId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         env: env
-                    )
-                    if leasePath == nil {
+                    ) {
+                        retireCodexMonitorLeases(
+                            sessionId: sessionId,
+                            turnId: nil,
+                            preservingLeasePath: leasePath,
+                            env: env
+                        )
+                        startCodexTranscriptMonitor(
+                            sessionId: sessionId,
+                            turnId: input.turnId,
+                            transcriptPath: normalizedHookValue(input.transcriptPath),
+                            cwd: hookCwd ?? mapped?.cwd,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            ownerPID: ownerPID,
+                            leasePath: leasePath,
+                            env: env,
+                            telemetry: telemetry
+                        )
+                    } else {
                         telemetry.breadcrumb(
                             "codex-hook.monitor.lease-unavailable",
                             data: [
@@ -21035,27 +21052,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                 "has_owner_pid": true,
                             ]
                         )
-                        retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
-                    } else {
-                        retireCodexMonitorLeases(
-                            sessionId: sessionId,
-                            turnId: nil,
-                            preservingLeasePath: leasePath,
-                            env: env
-                        )
                     }
-                    startCodexTranscriptMonitor(
-                        sessionId: sessionId,
-                        turnId: input.turnId,
-                        transcriptPath: normalizedHookValue(input.transcriptPath),
-                        cwd: hookCwd ?? mapped?.cwd,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        ownerPID: ownerPID,
-                        leasePath: leasePath,
-                        env: env,
-                        telemetry: telemetry
-                    )
                 }
             }
 
