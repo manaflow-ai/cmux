@@ -723,14 +723,16 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1
     fi
-    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >/dev/null 2>&1 &
+    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
   elif [[ -n "${TAG_SLUG:-}" ]]; then
     APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1
     fi
-    "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >/dev/null 2>&1 &
+    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
@@ -746,6 +748,14 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # Safety: ensure only one instance is running.
   sleep 0.2
   PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
+  if [[ -n "${TAG_SLUG:-}" && "${#PIDS[@]}" -eq 0 ]]; then
+    echo "error: tagged app exited immediately after launch" >&2
+    if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
+      echo "Launch log: $TAG_LAUNCH_LOG" >&2
+      tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
+    fi
+    exit 1
+  fi
   if [[ "${#PIDS[@]}" -gt 1 ]]; then
     NEWEST_PID=""
     NEWEST_AGE=999999
@@ -761,6 +771,27 @@ if [[ "$LAUNCH" -eq 1 ]]; then
         kill "$PID" 2>/dev/null || true
       fi
     done
+  fi
+  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+    SOCKET_READY=0
+    for _ in {1..80}; do
+      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
+        SOCKET_READY=1
+        break
+      fi
+      if ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+    if [[ "$SOCKET_READY" -ne 1 ]]; then
+      echo "error: tagged app did not create socket: $CMUX_SOCKET_PATH_VALUE" >&2
+      if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
+        echo "Launch log: $TAG_LAUNCH_LOG" >&2
+        tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
+      fi
+      exit 1
+    fi
   fi
 fi
 
