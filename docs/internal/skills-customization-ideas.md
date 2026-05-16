@@ -34,6 +34,13 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 - `cmux-cloud-vm`: operate Cloud VM create, attach, exec, SSH endpoint, billing, provider, and smoke-test workflows.
 - `cmux-vault`: manage vault-backed agent configuration, credential references, and restore behavior without leaking secrets into prompts.
 
+## Distribution Notes
+
+- Vercel `skills` expects each skill in a folder with `SKILL.md` frontmatter containing `name` and `description`. Keep optional `scripts`, `references`, `assets`, and `agents/openai.yaml` next to the skill.
+- Standard install is `npx skills add manaflow-ai/cmux -g -y`. Omit `--skill` to install all cmux skills. Use repeated `--skill <name>` flags to install selected skills. Do not use `--all` to mean all skills, because that flag installs to every supported agent.
+- Keep end-user cmux skills in the cmux repo for now. A dedicated skills repo only helps if clone/install time becomes painful, or if the skills need a release cadence that should not track the app repo.
+- Timing check from this worktree, with `skills@latest` warm in npm cache: local single-skill install took 3.37s, local all-skills install took 4.07s, and remote GitHub single-skill install took 10.91s. These numbers are small enough that a separate repo is not justified yet.
+
 ## Product Customization Ideas
 
 - Feed customization: default filter, default decision buttons, feed-to-Dock presets, feed event retention, and per-agent display grouping.
