@@ -3198,7 +3198,13 @@ struct CMUXCLI {
             }
 
         case "ssh":
-            try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runSSH(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
         case "ssh-session-end":
             try runSSHSessionEnd(commandArgs: commandArgs, client: client)
         case "vm-pty-attach":
@@ -5404,14 +5410,20 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         // Use the socket path from this invocation (supports --socket overrides).
         let localSocketPath = client.socketPath
         let remoteRelayPort = generateRemoteRelayPort()
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
-        let sshOptions = try parseSSHCommandOptions(commandArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
+        let sshOptions = try parseSSHCommandOptions(
+            commandArgs,
+            localSocketPath: localSocketPath,
+            remoteRelayPort: remoteRelayPort,
+            windowOverride: windowOverride
+        )
         try runSSHWithOptions(
             sshOptions,
             relayID: relayID,
@@ -5688,7 +5700,12 @@ struct CMUXCLI {
         }
     }
 
-    private func parseSSHCommandOptions(_ commandArgs: [String], localSocketPath: String = "", remoteRelayPort: Int = 0) throws -> SSHCommandOptions {
+    private func parseSSHCommandOptions(
+        _ commandArgs: [String],
+        localSocketPath: String = "",
+        remoteRelayPort: Int = 0,
+        windowOverride: String? = nil
+    ) throws -> SSHCommandOptions {
         var destination: String?
         var port: Int?
         var identityFile: String?
@@ -5777,7 +5794,7 @@ struct CMUXCLI {
             port: port,
             identityFile: identityFile,
             workspaceName: workspaceName,
-            windowRaw: windowRaw,
+            windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
             sshOptions: sshOptions,
             extraArguments: extraArguments,
