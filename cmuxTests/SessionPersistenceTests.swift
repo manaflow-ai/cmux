@@ -3287,6 +3287,51 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
+    func testSurfaceResumeBindingStartupInputUsesExactCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OpenCode",
+            kind: "opencode",
+            command: "opencode --session ses_123",
+            cwd: "/tmp/project",
+            checkpointId: "ses_123",
+            source: "cli",
+            updatedAt: 1_777_777_777
+        )
+
+        XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
+    }
+
+    func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "-L", "dev", "attach-session", "-t", "work"],
+                environment: ["PWD": "/tmp/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "tmux")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.cwd, "/tmp/project")
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingParsesNewAttachSession() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "new", "-As", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
     func testMarkdownFileLinkResolverRecognizesMarkdownPathLikeStrings() {
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("other-markdown.md"))
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("test/markdown.md"))

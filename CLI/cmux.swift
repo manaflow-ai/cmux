@@ -3066,6 +3066,24 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
+        case "surface":
+            try runSurfaceCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        case "surface-resume":
+            try runSurfaceResumeCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "close-surface":
             let csWsFlag = optionValue(commandArgs, name: "--workspace")
             let workspaceArg = csWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
@@ -4411,6 +4429,122 @@ struct CMUXCLI {
         } else {
             print(fallbackText)
         }
+    }
+
+    private func runSurfaceCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "surface requires a subcommand. Try: cmux surface resume show --json")
+        }
+        switch subcommand {
+        case "resume":
+            try runSurfaceResumeCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        default:
+            throw CLIError(message: "Unsupported surface subcommand: \(subcommand)")
+        }
+    }
+
+    private func runSurfaceResumeCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "show"
+        let rest = commandArgs.first == nil ? [] : Array(commandArgs.dropFirst())
+        switch subcommand {
+        case "set":
+            var params = try surfaceResumeTargetParams(rest, client: client, windowOverride: windowOverride)
+            let (name, rem1) = parseOption(rest, name: "--name")
+            let (kind, rem2) = parseOption(rem1, name: "--kind")
+            let (checkpoint, rem3) = parseOption(rem2, name: "--checkpoint")
+            let (checkpointID, rem4) = parseOption(rem3, name: "--checkpoint-id")
+            let (source, rem5) = parseOption(rem4, name: "--source")
+            let (cwd, rem6) = parseOption(rem5, name: "--cwd")
+            let (shellCommand, rem7) = parseOption(rem6, name: "--shell")
+
+            if let name { params["name"] = name }
+            if let kind { params["kind"] = kind }
+            if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
+            params["source"] = source ?? "cli"
+            params["cwd"] = cwd ?? ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
+
+            let commandText: String
+            if let shellCommand {
+                commandText = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                let argv = rem7.first == "--" ? Array(rem7.dropFirst()) : rem7
+                guard !argv.isEmpty else {
+                    throw CLIError(message: "surface resume set requires --shell <command> or -- <argv...>")
+                }
+                commandText = argv.map(cliShellQuote).joined(separator: " ")
+            }
+            guard !commandText.isEmpty else {
+                throw CLIError(message: "surface resume set requires a non-empty command")
+            }
+            params["command"] = commandText
+
+            let payload = try client.sendV2(method: "surface.resume.set", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "show", "get":
+            let params = try surfaceResumeTargetParams(rest, client: client, windowOverride: windowOverride)
+            let payload = try client.sendV2(method: "surface.resume.get", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else if let binding = payload["resume_binding"] as? [String: Any],
+                      let command = binding["command"] as? String,
+                      !command.isEmpty {
+                print(command)
+            } else {
+                print("No resume binding")
+            }
+
+        case "clear":
+            let params = try surfaceResumeTargetParams(rest, client: client, windowOverride: windowOverride)
+            let payload = try client.sendV2(method: "surface.resume.clear", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        default:
+            throw CLIError(message: "Unsupported surface resume subcommand: \(subcommand)")
+        }
+    }
+
+    private func surfaceResumeTargetParams(
+        _ args: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> [String: Any] {
+        let (workspaceOpt, rem1) = parseOption(args, name: "--workspace")
+        let (surfaceOpt, _) = parseOption(rem1, name: "--surface")
+        let env = ProcessInfo.processInfo.environment
+        let workspaceRaw = workspaceOpt ?? (windowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+        let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? env["CMUX_SURFACE_ID"] : nil)
+        var params: [String: Any] = [:]
+        if let windowOverride {
+            params["window_id"] = windowOverride
+        }
+        let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+        if let workspaceId { params["workspace_id"] = workspaceId }
+        let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId)
+        if let surfaceId { params["surface_id"] = surfaceId }
+        return params
+    }
+
+    private func cliShellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func debugString(_ value: Any?) -> String? {
@@ -9874,6 +10008,29 @@ struct CMUXCLI {
             Example:
               cmux surface-health
               cmux surface-health --workspace workspace:2
+            """
+        case "surface", "surface-resume":
+            return """
+            Usage: cmux surface resume set [flags] -- <argv...>
+                   cmux surface resume set [flags] --shell <command>
+                   cmux surface resume show [--json] [flags]
+                   cmux surface resume clear [flags]
+
+            Attach a restart command to a terminal surface.
+
+            Flags:
+              --workspace <id|ref>     Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>       Surface context (default: $CMUX_SURFACE_ID)
+              --cwd <path>             Working directory for restore (default: $PWD)
+              --name <name>            Display name for the binding
+              --kind <kind>            Binding kind, for example agent or tmux
+              --checkpoint <id>        Provider checkpoint or session id
+              --source <source>        Binding source label
+
+            Examples:
+              cmux surface resume set --kind tmux --shell "tmux attach -t work"
+              cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123
+              cmux surface resume show --json
             """
         case "debug-terminals":
             return """
@@ -16431,6 +16588,16 @@ struct CMUXCLI {
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: "claude",
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    sessionId: sessionId,
+                    cwd: parsedInput.cwd,
+                    launchCommand: launchCommand
+                )
             }
             // Register PID for stale-session detection and OSC suppression.
             // Startup/resume SessionStart remains non-visible; /clear is a
@@ -16512,6 +16679,16 @@ struct CMUXCLI {
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: sessionId,
+                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        launchCommand: mappedSession?.launchCommand
+                    )
                 }
 
                 try? setClaudeStatus(
@@ -16583,6 +16760,16 @@ struct CMUXCLI {
                     isRestorable: true,
                     markActive: true,
                     turnId: parsedInput.turnId
+                )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: "claude",
+                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                    sessionId: sessionId,
+                    cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                    launchCommand: mappedSession?.launchCommand
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
@@ -18882,6 +19069,208 @@ struct CMUXCLI {
         )
     }
 
+    private func publishAgentSurfaceResumeBinding(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        kind: String,
+        displayName: String,
+        sessionId: String,
+        cwd: String?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) {
+        guard let command = agentSurfaceResumeCommand(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: cwd
+        ) else {
+            return
+        }
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+            "name": displayName,
+            "kind": kind,
+            "checkpoint_id": sessionId,
+            "source": "agent-hook",
+            "command": command
+        ]
+        if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
+            params["cwd"] = cwd
+        }
+        _ = try? client.sendV2(method: "surface.resume.set", params: params)
+    }
+
+    private func agentSurfaceResumeCommand(
+        kind: String,
+        sessionId: String,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        workingDirectory: String?
+    ) -> String? {
+        let normalizedSessionId = normalizedHookValue(sessionId)
+        guard let normalizedSessionId else { return nil }
+
+        let argv: [String]?
+        switch launchCommand?.launcher {
+        case "claudeTeams":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
+            var tail = original.tail
+            if tail.first == "claude-teams" { tail.removeFirst() }
+            argv = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail).map {
+                [original.executable, "claude-teams", "--resume", normalizedSessionId] + $0
+            }
+        case "omo":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
+            var tail = original.tail
+            if tail.first == "omo" { tail.removeFirst() }
+            argv = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail).map {
+                [original.executable, "omo", "--session", normalizedSessionId] + $0
+            }
+        case "omx", "omc":
+            argv = nil
+        default:
+            argv = agentSurfaceResumeArguments(kind: kind, sessionId: normalizedSessionId, launchCommand: launchCommand)
+        }
+
+        guard let argv, !argv.isEmpty else { return nil }
+        return agentSurfaceResumeShellCommand(
+            argv: argv,
+            kind: kind,
+            environment: launchCommand?.environment,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
+        )
+    }
+
+    private func agentSurfaceResumeArguments(
+        kind: String,
+        sessionId: String,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> [String]? {
+        switch kind {
+        case "claude":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
+        case "codex":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
+            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
+                [original.executable, "resume"] + $0 + [sessionId]
+            }
+        case "pi":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "pi", option: "--session", sessionId: sessionId)
+        case "amp":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
+            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
+                [original.executable, "threads", "continue"] + $0 + [sessionId]
+            }
+        case "cursor":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "cursor-agent", option: "--resume", sessionId: sessionId)
+        case "gemini":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "gemini", option: "--resume", sessionId: sessionId)
+        case "opencode":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
+            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
+                [original.executable, "--session", sessionId] + $0
+            }
+        case "rovodev":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "acli")
+            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
+                [original.executable, "rovodev", "run", "--restore", sessionId] + $0
+            }
+        case "hermes-agent":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "hermes")
+            return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
+                [original.executable] + $0 + ["--resume", sessionId]
+            }
+        case "copilot":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "copilot", option: "--resume", sessionId: sessionId)
+        case "codebuddy":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "codebuddy", option: "--resume", sessionId: sessionId)
+        case "factory":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "droid", option: "--resume", sessionId: sessionId)
+        case "qoder":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "qodercli", option: "--resume", sessionId: sessionId)
+        default:
+            return nil
+        }
+    }
+
+    private func agentSurfaceResumeWithOption(
+        kind: String,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        fallbackExecutable: String,
+        option: String,
+        sessionId: String
+    ) -> [String]? {
+        let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: fallbackExecutable)
+        return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
+            [original.executable, option, sessionId] + $0
+        }
+    }
+
+    private func agentSurfaceResumeCommandParts(
+        launchCommand: AgentHookLaunchCommandRecord?,
+        fallbackExecutable: String
+    ) -> (executable: String, tail: [String]) {
+        let arguments = launchCommand?.arguments ?? []
+        let executable = normalizedHookValue(launchCommand?.executablePath)
+            ?? arguments.first
+            ?? fallbackExecutable
+        let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
+        return (executable: executable, tail: tail)
+    }
+
+    private func agentSurfaceResumeShellCommand(
+        argv: [String],
+        kind: String,
+        environment: [String: String]?,
+        workingDirectory: String?
+    ) -> String {
+        var commandParts: [String] = []
+        let environmentParts = agentSurfaceResumeEnvironmentParts(kind: kind, environment: environment)
+        if !environmentParts.isEmpty {
+            commandParts.append("env")
+            commandParts.append(contentsOf: environmentParts)
+        }
+        commandParts.append(contentsOf: argv)
+
+        var command = commandParts.map(cliShellQuote).joined(separator: " ")
+        if let cwd = normalizedHookValue(workingDirectory) {
+            command = "cd \(cliShellQuote(cwd)) && \(command)"
+        }
+        return command
+    }
+
+    private func agentSurfaceResumeEnvironmentParts(
+        kind: String,
+        environment: [String: String]?
+    ) -> [String] {
+        guard let environment else { return [] }
+        let selected = selectedAgentLaunchEnvironment(from: environment)
+        guard !selected.isEmpty else { return [] }
+
+        let claudeAuthKeys: Set<String> = [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_SMALL_FAST_MODEL",
+            "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX",
+            "CLAUDE_CONFIG_DIR"
+        ]
+        var parts = selected.keys.sorted().compactMap { key in
+            selected[key].map { "\(key)=\($0)" }
+        }
+        if kind == "claude" {
+            let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
+            if !preservedClaudeKeys.isEmpty {
+                parts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
+                parts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeKeys.joined(separator: ","))")
+            }
+        }
+        return parts
+    }
+
     private func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
         guard let rawValue = normalizedHookValue(rawValue),
               let data = Data(base64Encoded: rawValue) else {
@@ -20774,6 +21163,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     pid: pid,
                     launchCommand: launchCommand
                 )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: sessionId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    launchCommand: launchCommand
+                )
             }
             if let pid {
                 _ = try? sendV1Command(
@@ -20807,6 +21206,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
+                )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: sessionId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }
             if let pid {
@@ -20915,6 +21324,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                       launchCommand: launchCommand,
                                       lastSubtitle: subtitle,
                                       lastBody: body)
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: def.name,
+                        displayName: def.displayName,
+                        sessionId: sessionId,
+                        cwd: cwd,
+                        launchCommand: launchCommand ?? mapped?.launchCommand
+                    )
                 }
                 if let pid {
                     _ = try? sendV1Command(
@@ -24121,6 +24540,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
+          surface resume <set|show|clear> [--workspace <id|ref>] [--surface <id|ref>]
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
           refresh-surfaces

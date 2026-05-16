@@ -221,11 +221,68 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
+struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+    var name: String?
+    var kind: String?
+    var command: String
+    var cwd: String?
+    var checkpointId: String?
+    var source: String?
+    var updatedAt: TimeInterval
+
+    init(
+        name: String? = nil,
+        kind: String? = nil,
+        command: String,
+        cwd: String? = nil,
+        checkpointId: String? = nil,
+        source: String? = nil,
+        updatedAt: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        self.name = Self.normalized(name)
+        self.kind = Self.normalized(kind)
+        self.command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.cwd = Self.normalized(cwd)
+        self.checkpointId = Self.normalized(checkpointId)
+        self.source = Self.normalized(source)
+        self.updatedAt = updatedAt
+    }
+
+    var startupInput: String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed + "\n"
+    }
+
+    private static func normalized(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
+    }
+}
+
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var resumeBinding: SurfaceResumeBindingSnapshot?
+
+    init(
+        workingDirectory: String? = nil,
+        scrollback: String? = nil,
+        agent: SessionRestorableAgentSnapshot? = nil,
+        tmuxStartCommand: String? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
+    ) {
+        self.workingDirectory = workingDirectory
+        self.scrollback = scrollback
+        self.agent = agent
+        self.tmuxStartCommand = tmuxStartCommand
+        self.resumeBinding = resumeBinding
+    }
 }
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?

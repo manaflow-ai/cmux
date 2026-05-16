@@ -2609,6 +2609,12 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceRefresh(params: params))
         case "surface.health":
             return v2Result(id: id, self.v2SurfaceHealth(params: params))
+        case "surface.resume.set":
+            return v2Result(id: id, self.v2SurfaceResumeSet(params: params))
+        case "surface.resume.get":
+            return v2Result(id: id, self.v2SurfaceResumeGet(params: params))
+        case "surface.resume.clear":
+            return v2Result(id: id, self.v2SurfaceResumeClear(params: params))
         case "debug.terminals":
             return v2Result(id: id, self.v2DebugTerminals(params: params))
         case "surface.send_text":
@@ -3001,6 +3007,9 @@ class TerminalController {
             "tab.action",
             "surface.refresh",
             "surface.health",
+            "surface.resume.set",
+            "surface.resume.get",
+            "surface.resume.clear",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -5998,6 +6007,7 @@ class TerminalController {
                     item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
+                    item["resume_binding"] = v2SurfaceResumeBindingPayload(ws.surfaceResumeBinding(panelId: panel.id))
                 }
                 return item
             }
@@ -6051,6 +6061,152 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         return .ok(payload)
+    }
+
+    private func v2SurfaceResumeSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let command = v2RawString(params, "command")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing command", data: nil)
+        }
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: v2OptionalTrimmedRawString(params, "name"),
+            kind: v2OptionalTrimmedRawString(params, "kind"),
+            command: command,
+            cwd: v2OptionalTrimmedRawString(params, "cwd"),
+            checkpointId: v2OptionalTrimmedRawString(params, "checkpoint_id") ?? v2OptionalTrimmedRawString(params, "checkpointId"),
+            source: v2OptionalTrimmedRawString(params, "source"),
+            updatedAt: Date().timeIntervalSince1970
+        )
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? workspace.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard workspace.terminalPanel(for: surfaceId) != nil else {
+                result = .err(code: "invalid_state", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard workspace.setSurfaceResumeBinding(binding, panelId: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Resume command is empty", data: nil)
+                return
+            }
+            result = .ok(v2SurfaceResumeResult(
+                tabManager: tabManager,
+                workspace: workspace,
+                surfaceId: surfaceId,
+                binding: binding,
+                cleared: false
+            ))
+        }
+        return result
+    }
+
+    private func v2SurfaceResumeGet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? workspace.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard workspace.terminalPanel(for: surfaceId) != nil else {
+                result = .err(code: "invalid_state", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            result = .ok(v2SurfaceResumeResult(
+                tabManager: tabManager,
+                workspace: workspace,
+                surfaceId: surfaceId,
+                binding: workspace.surfaceResumeBinding(panelId: surfaceId),
+                cleared: false
+            ))
+        }
+        return result
+    }
+
+    private func v2SurfaceResumeClear(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? workspace.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard workspace.terminalPanel(for: surfaceId) != nil else {
+                result = .err(code: "invalid_state", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            _ = workspace.clearSurfaceResumeBinding(panelId: surfaceId)
+            result = .ok(v2SurfaceResumeResult(
+                tabManager: tabManager,
+                workspace: workspace,
+                surfaceId: surfaceId,
+                binding: nil,
+                cleared: true
+            ))
+        }
+        return result
+    }
+
+    private func v2SurfaceResumeResult(
+        tabManager: TabManager,
+        workspace: Workspace,
+        surfaceId: UUID,
+        binding: SurfaceResumeBindingSnapshot?,
+        cleared: Bool
+    ) -> [String: Any] {
+        let paneId = workspace.paneId(forPanelId: surfaceId)?.id
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return [
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "pane_id": v2OrNull(paneId?.uuidString),
+            "pane_ref": v2Ref(kind: .pane, uuid: paneId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "cleared": cleared,
+            "resume_binding": v2SurfaceResumeBindingPayload(binding)
+        ]
+    }
+
+    private func v2SurfaceResumeBindingPayload(_ binding: SurfaceResumeBindingSnapshot?) -> Any {
+        guard let binding else { return NSNull() }
+        return [
+            "name": v2OrNull(binding.name),
+            "kind": v2OrNull(binding.kind),
+            "command": binding.command,
+            "cwd": v2OrNull(binding.cwd),
+            "checkpoint_id": v2OrNull(binding.checkpointId),
+            "source": v2OrNull(binding.source),
+            "updated_at": binding.updatedAt
+        ]
     }
 
     private func v2SurfaceFocus(params: [String: Any]) -> V2CallResult {

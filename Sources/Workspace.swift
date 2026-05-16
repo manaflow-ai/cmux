@@ -162,7 +162,8 @@ extension Workspace {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
@@ -183,7 +184,9 @@ extension Workspace {
                 sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
+                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    resumeBinding: surfaceResumeBindingsByPanelId[panelId]
+                        ?? surfaceResumeBindingIndex?.binding(workspaceId: id, panelId: panelId)
                 )
             }
 
@@ -249,6 +252,7 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+        surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
@@ -388,7 +392,8 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
-        restorableAgent: SessionRestorableAgentSnapshot?
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
@@ -458,7 +463,8 @@ extension Workspace {
                 fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
             ) && Self.shouldReplaySessionScrollback(
                 restorableAgent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand
+                tmuxStartCommand: restorableTmuxStartCommand,
+                resumeBinding: resumeBinding
             )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
@@ -482,7 +488,8 @@ extension Workspace {
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand
+                tmuxStartCommand: restorableTmuxStartCommand,
+                resumeBinding: resumeBinding
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -561,12 +568,13 @@ extension Workspace {
 
     nonisolated static func shouldReplaySessionScrollback(
         restorableAgent: SessionRestorableAgentSnapshot?,
-        tmuxStartCommand: String? = nil
+        tmuxStartCommand: String? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Bool {
         // Agent restores relaunch from the provider's session ID. Replaying the
         // old TUI scrollback can print stale launch commands and race the resume input.
         // OMX HUD panes restore from their tmux start command for the same reason.
-        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil
+        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeBinding?.startupInput == nil
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
@@ -765,14 +773,17 @@ extension Workspace {
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
+            let resumeBinding = snapshot.terminal?.resumeBinding
             let workingDirectory =
                 snapshot.terminal?.workingDirectory
+                ?? resumeBinding?.cwd
                 ?? snapshot.terminal?.agent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
             let restorableAgent = snapshot.terminal?.agent
-            let restorableTmuxStartCommand = restorableAgent == nil
+            let restoredBindingInput = resumeBinding?.startupInput
+            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -784,12 +795,14 @@ extension Workspace {
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let shouldReplayScrollback = Self.shouldReplaySessionScrollback(
                 restorableAgent: restorableAgent,
-                tmuxStartCommand: restoredTmuxStartCommand
+                tmuxStartCommand: restoredTmuxStartCommand,
+                resumeBinding: resumeBinding
             )
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             let restoredAgentResumeInput = autoResumeAgentSessions
-                ? restorableAgent?.resumeStartupInput()
+                ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
+            let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -803,6 +816,14 @@ extension Workspace {
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
+            if let resumeBinding {
+                cmuxDebugLog(
+                    "session.restore.surfaceResume panel=\(snapshot.id.uuidString.prefix(5)) " +
+                    "kind=\(resumeBinding.kind ?? "unknown") source=\(resumeBinding.source ?? "unknown") " +
+                    "hasInput=\(restoredBindingInput == nil ? 0 : 1) " +
+                    "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
+                )
+            }
 #endif
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
@@ -813,10 +834,15 @@ extension Workspace {
                 workingDirectory: localWorkingDirectory,
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                initialInput: restoredAgentResumeInput,
+                initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
+            }
+            if let resumeBinding {
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = resumeBinding
+            } else {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             let fallbackScrollback = shouldReplayScrollback
                 ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
@@ -7349,6 +7375,7 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand
@@ -8816,6 +8843,25 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
     }
 
+    @discardableResult
+    func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
+        guard terminalPanel(for: panelId) != nil,
+              binding.startupInput != nil else {
+            return false
+        }
+        surfaceResumeBindingsByPanelId[panelId] = binding
+        return true
+    }
+
+    @discardableResult
+    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+    }
+
+    func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
+    }
+
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
         Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
@@ -9049,6 +9095,9 @@ final class Workspace: Identifiable, ObservableObject {
             refreshTrackedAgentPorts()
         }
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
@@ -11579,6 +11628,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
+            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -11628,6 +11678,11 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeBinding = detached.resumeBinding {
+            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+        } else {
+            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -14073,6 +14128,7 @@ extension Workspace: BonsplitDelegate {
                 restoredUnread: restoredUnreadPanelIds.contains(panelId),
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                resumeBinding: surfaceResumeBindingsByPanelId[panelId],
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

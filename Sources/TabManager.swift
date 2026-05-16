@@ -7315,7 +7315,8 @@ class TabManager: ObservableObject {
 
 extension TabManager {
     func sessionAutosaveFingerprint(
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
@@ -7360,6 +7361,11 @@ extension TabManager {
                         workspaceId: workspace.id,
                         panelId: panelId
                     ),
+                    into: &hasher
+                )
+                Self.hashSurfaceResumeBindingSnapshot(
+                    workspace.surfaceResumeBinding(panelId: panelId)
+                        ?? surfaceResumeBindingIndex.binding(workspaceId: workspace.id, panelId: panelId),
                     into: &hasher
                 )
             }
@@ -7435,6 +7441,25 @@ extension TabManager {
         hashOptionalString(launchCommand.source, into: &hasher)
     }
 
+    nonisolated private static func hashSurfaceResumeBindingSnapshot(
+        _ snapshot: SurfaceResumeBindingSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hashOptionalString(snapshot.name, into: &hasher)
+        hashOptionalString(snapshot.kind, into: &hasher)
+        hasher.combine(snapshot.command)
+        hashOptionalString(snapshot.cwd, into: &hasher)
+        hashOptionalString(snapshot.checkpointId, into: &hasher)
+        hashOptionalString(snapshot.source, into: &hasher)
+        hashOptionalDouble(snapshot.updatedAt, into: &hasher)
+    }
+
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
         if let value {
             hasher.combine(true)
@@ -7455,7 +7480,8 @@ extension TabManager {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
@@ -7464,7 +7490,8 @@ extension TabManager {
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in

@@ -535,6 +535,260 @@ extension RestorableAgentSessionIndex {
     }
 }
 
+extension SurfaceResumeBindingIndex {
+    static func processDetectedTmuxBindings(
+        fileManager: FileManager
+    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
+        _ = fileManager
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard let binding = tmuxResumeBinding(observed: observed, capturedAt: capturedAt) else {
+                continue
+            }
+            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+        }
+
+        return resolved
+    }
+
+    static func tmuxResumeBindingForTesting(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = 1_777_777_777
+    ) -> SurfaceResumeBindingSnapshot? {
+        tmuxResumeBinding(
+            observed: VaultObservedAgentProcess(
+                processName: processName,
+                processPath: processPath,
+                arguments: arguments,
+                environment: environment
+            ),
+            capturedAt: capturedAt
+        )
+    }
+
+    private static func tmuxResumeBinding(
+        observed: VaultObservedAgentProcess,
+        capturedAt: TimeInterval
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let invocation = tmuxResumeInvocation(observed: observed) else { return nil }
+        let command = invocation.argv.map(shellSingleQuoted).joined(separator: " ")
+        let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
+        return SurfaceResumeBindingSnapshot(
+            name: invocation.sessionName.map { "tmux \($0)" } ?? "tmux",
+            kind: "tmux",
+            command: command,
+            cwd: cwd,
+            checkpointId: invocation.sessionName,
+            source: "process-detected",
+            updatedAt: capturedAt
+        )
+    }
+
+    private struct TmuxResumeInvocation {
+        let argv: [String]
+        let sessionName: String?
+    }
+
+    private static func tmuxResumeInvocation(observed: VaultObservedAgentProcess) -> TmuxResumeInvocation? {
+        guard observed.isTmuxProcess else { return nil }
+
+        let executable = tmuxExecutable(observed: observed)
+        let tail = tmuxTailArguments(observed: observed)
+        let parsed = parseTmuxTopLevelArguments(tail)
+        guard parsed.isSafe else { return nil }
+
+        var argv = [executable]
+        argv.append(contentsOf: parsed.socketFlags)
+        argv.append("attach")
+        if let sessionName = parsed.sessionName {
+            argv.append(contentsOf: ["-t", sessionName])
+        }
+        return TmuxResumeInvocation(argv: argv, sessionName: parsed.sessionName)
+    }
+
+    private static func tmuxExecutable(observed: VaultObservedAgentProcess) -> String {
+        if let first = observed.arguments.first,
+           VaultObservedAgentProcess.argumentLooksLikeTmux(first) {
+            return first
+        }
+        if let path = normalized(observed.processPath),
+           VaultObservedAgentProcess.argumentLooksLikeTmux(path) {
+            return path
+        }
+        return "tmux"
+    }
+
+    private static func tmuxTailArguments(observed: VaultObservedAgentProcess) -> [String] {
+        guard let first = observed.arguments.first else { return [] }
+        return VaultObservedAgentProcess.argumentLooksLikeTmux(first)
+            ? Array(observed.arguments.dropFirst())
+            : observed.arguments
+    }
+
+    private struct ParsedTmuxTopLevelArguments {
+        let socketFlags: [String]
+        let sessionName: String?
+        let isSafe: Bool
+    }
+
+    private static func parseTmuxTopLevelArguments(_ arguments: [String]) -> ParsedTmuxTopLevelArguments {
+        var index = 0
+        var socketFlags: [String] = []
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                index += 1
+                break
+            }
+            guard argument.hasPrefix("-") else { break }
+            if appendTmuxSocketFlag(argument, arguments: arguments, index: &index, into: &socketFlags) {
+                continue
+            }
+            index += tmuxTopLevelOptionWidth(argument, arguments: arguments, index: index)
+        }
+
+        guard index < arguments.count else {
+            return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: true)
+        }
+
+        let command = arguments[index]
+        let commandArgs = Array(arguments.dropFirst(index + 1))
+        switch command {
+        case "attach-session", "attach":
+            return ParsedTmuxTopLevelArguments(
+                socketFlags: socketFlags,
+                sessionName: tmuxOptionValue(commandArgs, short: "t", long: "target-session"),
+                isSafe: true
+            )
+        case "new-session", "new":
+            guard tmuxHasFlag(commandArgs, short: "A", long: "attach") else {
+                return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
+            }
+            return ParsedTmuxTopLevelArguments(
+                socketFlags: socketFlags,
+                sessionName: tmuxOptionValue(commandArgs, short: "s", long: "session-name"),
+                isSafe: true
+            )
+        default:
+            return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
+        }
+    }
+
+    private static func appendTmuxSocketFlag(
+        _ argument: String,
+        arguments: [String],
+        index: inout Int,
+        into socketFlags: inout [String]
+    ) -> Bool {
+        for option in ["L", "S"] {
+            let short = "-\(option)"
+            if argument == short {
+                let valueIndex = index + 1
+                guard valueIndex < arguments.count,
+                      let value = normalized(arguments[valueIndex]) else {
+                    index = valueIndex
+                    return true
+                }
+                socketFlags.append(contentsOf: [short, value])
+                index += 2
+                return true
+            }
+            if argument.hasPrefix(short), argument.count > short.count {
+                let value = String(argument.dropFirst(short.count))
+                if let normalizedValue = normalized(value) {
+                    socketFlags.append(contentsOf: [short, normalizedValue])
+                }
+                index += 1
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func tmuxTopLevelOptionWidth(_ argument: String, arguments: [String], index: Int) -> Int {
+        if argument.contains("=") { return 1 }
+        let valueOptions: Set<String> = ["-f"]
+        guard valueOptions.contains(argument), index + 1 < arguments.count else { return 1 }
+        return 2
+    }
+
+    private static func tmuxHasFlag(_ arguments: [String], short: Character, long: String) -> Bool {
+        for argument in arguments {
+            if argument == "--\(long)" { return true }
+            if argument == "-\(short)" { return true }
+            if argument.hasPrefix("-"), !argument.hasPrefix("--"), argument.contains(short) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func tmuxOptionValue(_ arguments: [String], short: Character, long: String) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--\(long)" || argument == "-\(short)" {
+                return valueAfter(arguments, index: index)
+            }
+            let longPrefix = "--\(long)="
+            if argument.hasPrefix(longPrefix) {
+                return normalized(String(argument.dropFirst(longPrefix.count)))
+            }
+            let shortPrefix = "-\(short)"
+            if argument.hasPrefix(shortPrefix), argument.count > shortPrefix.count {
+                return normalized(String(argument.dropFirst(shortPrefix.count)))
+            }
+            if argument.hasPrefix("-"),
+               !argument.hasPrefix("--"),
+               let shortIndex = argument.firstIndex(of: short) {
+                let afterShort = argument.index(after: shortIndex)
+                if afterShort < argument.endIndex {
+                    return normalized(String(argument[afterShort...]))
+                }
+                return valueAfter(arguments, index: index)
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private static func valueAfter(_ arguments: [String], index: Int) -> String? {
+        let nextIndex = index + 1
+        guard nextIndex < arguments.count else { return nil }
+        return normalized(arguments[nextIndex])
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func normalized(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
+    }
+}
+
 private struct VaultObservedAgentProcess: Sendable {
     let processName: String
     let processPath: String?
@@ -552,6 +806,10 @@ private struct VaultObservedAgentProcess: Sendable {
 
     var isOpenCodeProcess: Bool {
         processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
+    }
+
+    var isTmuxProcess: Bool {
+        executableBasenames.contains(where: Self.argumentLooksLikeTmux)
     }
 
     var openCodeExecutableArgument: String? {
@@ -594,6 +852,13 @@ private struct VaultObservedAgentProcess: Sendable {
             basename == ".opencode" ||
             basename == "opencode-ai" ||
             basename == "open-code"
+    }
+
+    static func argumentLooksLikeTmux(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename == "tmux" || basename.hasPrefix("tmux:")
     }
 
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {

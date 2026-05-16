@@ -1006,6 +1006,35 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 }
 
+struct SurfaceResumeBindingIndex: Sendable {
+    static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
+
+    typealias PanelKey = RestorableAgentSessionIndex.PanelKey
+
+    private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
+
+    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
+        self.bindingsByPanel = bindingsByPanel
+    }
+
+    func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
+    static func load() -> SurfaceResumeBindingIndex {
+        .empty
+    }
+
+    static func loadIncludingProcessDetectedBindings(
+        fileManager: FileManager = .default
+    ) async -> SurfaceResumeBindingIndex {
+        await Task.detached(priority: .utility) {
+            let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
+            return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+        }.value
+    }
+}
+
 private extension CmuxTopProcessArguments {
     func environmentUUID(forKey key: String) -> UUID? {
         guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
