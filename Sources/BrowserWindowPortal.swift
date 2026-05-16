@@ -2447,7 +2447,7 @@ final class WindowBrowserPortal: NSObject {
     private static func containsInspectorView(in root: NSView) -> Bool {
         var stack: [NSView] = [root]
         while let current = stack.popLast() {
-            if Self.isInspectorView(current) {
+            if String(describing: type(of: current)).contains("WKInspector") {
                 return true
             }
             stack.append(contentsOf: current.subviews)
