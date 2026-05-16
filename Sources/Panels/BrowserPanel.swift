@@ -2706,7 +2706,8 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         let changed = isWebViewVisibleInUI != visible
         let isFirstVisibilityRecord = webViewLastVisibilityChangeReason == nil
-        guard changed || recordIfUnchanged || isFirstVisibilityRecord else {
+        let shouldRecordVisibleHeartbeat = visible && recordIfUnchanged
+        guard changed || shouldRecordVisibleHeartbeat || isFirstVisibilityRecord else {
             refreshWebViewLifecycleState()
             return
         }
@@ -2719,8 +2720,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 webViewLastHiddenAt = now
             }
             webViewLastVisibilityChangeAt = now
+            webViewLastVisibilityChangeReason = reason
+        } else if shouldRecordVisibleHeartbeat {
+            webViewLastVisibleAt = now
         }
-        webViewLastVisibilityChangeReason = reason
         refreshWebViewLifecycleState()
     }
 
@@ -3414,9 +3417,11 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
+        resetWebViewLifecycleMetadata()
         webView = replacement
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
+        refreshWebViewLifecycleState()
 
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
@@ -3764,8 +3769,10 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
+        resetWebViewLifecycleMetadata()
         webView = replacement
         shouldRenderWebView = wasRenderable
+        refreshWebViewLifecycleState()
 
         bindWebView(replacement)
         applyBrowserThemeModeIfNeeded()
