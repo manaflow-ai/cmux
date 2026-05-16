@@ -59583,6 +59583,244 @@
         }
       }
     },
+    "settings.automation.claudeCode.notificationHook": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Codeアイドル通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code Idle Notifications"
+          }
+        }
+      }
+    },
+    "settings.automation.claudeCode.notificationHook.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Codeが入力待ちのときに通知します。完了通知は引き続きStopフックを使用します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook."
+          }
+        }
+      }
+    },
     "settings.automation.claudeCode.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
@@ -77611,6 +77849,125 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "automation.claudeCodeIntegration claude code hooks agent integration status notifications програма загальні параметри поведінка док рядок меню статус бічна панель автоматизація api cli керування сокет агент хуки порти середовище редактор файл код відкрити шлях сповіщення непрочитане повідомлення значок кільце спалах звук робочий стіл Інтеграція з"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.automation.claude-notification-hook": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.claudeCodeNotificationHook claude code idle notification hook waiting input"
                 }
             }
         }
