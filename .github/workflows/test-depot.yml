@@ -88,6 +88,10 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
       - name: Create virtual display
         run: |
           set -euo pipefail

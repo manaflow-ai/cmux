@@ -96,6 +96,10 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
       - name: Install Bun for Feed sidebar tests
         if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

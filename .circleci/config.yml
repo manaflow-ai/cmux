@@ -60,6 +60,13 @@ commands:
             export HOMEBREW_NO_ENV_HINTS=1
             ./scripts/install-zig-ci.sh
 
+  install-rust:
+    steps:
+      - run:
+          name: Install Rust
+          no_output_timeout: 15m
+          command: ./scripts/install-rust-ci.sh
+
   print-xcode:
     steps:
       - run:
@@ -142,6 +149,7 @@ jobs:
       - checkout-source:
           submodules: true
       - print-xcode
+      - install-rust
       - restore-swift-package-cache:
           prefix: unit
       - restore-zig-cache
@@ -237,6 +245,7 @@ jobs:
       - checkout-source:
           submodules: true
       - print-xcode
+      - install-rust
       - restore-swift-package-cache:
           prefix: debug-build
       - restore-zig-cache
@@ -271,6 +280,7 @@ jobs:
       - checkout-source:
           submodules: true
       - print-xcode
+      - install-rust
       - restore-swift-package-cache:
           prefix: release
       - restore-zig-cache

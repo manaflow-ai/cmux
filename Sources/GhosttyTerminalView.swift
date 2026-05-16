@@ -4432,8 +4432,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     private(set) var tabId: UUID
-    /// Port ordinal for CMUX_PORT range assignment
-    var portOrdinal: Int = 0
+    /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
+    /// every runtime startup path uses the same immutable workspace port range.
+    private let portOrdinal: Int
     /// Snapshotted once per app session so all workspaces use consistent values
     private static let sessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: AutomationSettings.portBaseKey)
@@ -4468,6 +4469,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var queuedBackgroundSurfaceStartAllowsOffWindow = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
@@ -4544,6 +4546,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
@@ -4560,6 +4563,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.portOrdinal = portOrdinal
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4575,9 +4579,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
-        // Surface is created when attached to a view
-        hostedView.attachSurface(self)
         TerminalSurfaceRegistry.shared.register(self)
+        // Attach records the concrete GhosttyNSView immediately. Visual mounts
+        // still wait for a backing window, while explicit runtime requests from
+        // the socket/control plane may start from this attached view off-window.
+        hostedView.attachSurface(self)
     }
 
     func updateWorkspaceId(_ newTabId: UUID) {
@@ -5034,8 +5040,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         attachedView = view
 
-        // If surface doesn't exist yet, create it once the view is in a real window so
-        // content scale and pixel geometry are derived from the actual backing context.
+        // The ordinary visual lifecycle remains lazy until this view has a real
+        // window so model-only panels, unit tests, and restored-but-unpresented
+        // workspaces do not spawn PTYs just by constructing TerminalPanel objects.
+        // Control-plane callers use requestBackgroundSurfaceStartIfNeeded() below,
+        // which can start the runtime off-window once an attachedView exists.
         if surface == nil {
             guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -5056,7 +5065,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 return
             }
 #if DEBUG
-            cmuxDebugLog("surface.attach.create surface=\(id.uuidString.prefix(5))")
+            cmuxDebugLog(
+                "surface.attach.create surface=\(id.uuidString.prefix(5)) " +
+                "inWindow=\(view.window != nil ? 1 : 0)"
+            )
 #endif
             createSurface(for: view)
 #if DEBUG
@@ -5666,25 +5678,33 @@ final class TerminalSurface: Identifiable, ObservableObject {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
-    func requestBackgroundSurfaceStartIfNeeded() {
+    // Socket/API operations are an explicit runtime demand: they must be able to
+    // start a terminal in a background workspace without selecting that workspace.
+    // Ghostty can create from the attached NSView while it is off-window; geometry
+    // and display id are reconciled later when the view is presented.
+    func requestBackgroundSurfaceStartIfNeeded(allowOffWindow: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.requestBackgroundSurfaceStartIfNeeded()
+                self?.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: allowOffWindow)
             }
             return
         }
 
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil, attachedView != nil else { return }
+        queuedBackgroundSurfaceStartAllowsOffWindow =
+            queuedBackgroundSurfaceStartAllowsOffWindow || allowOffWindow
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let allowOffWindow = self.queuedBackgroundSurfaceStartAllowsOffWindow
+            self.queuedBackgroundSurfaceStartAllowsOffWindow = false
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
-            guard view.window != nil else {
+            guard allowOffWindow || view.window != nil else {
                 #if DEBUG
                 cmuxDebugLog(
                     "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
