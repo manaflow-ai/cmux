@@ -1695,10 +1695,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
-    // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
-    // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
-    // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
-    // so XCTSkip can't detect CI from inside the test.
     func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1712,13 +1708,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let targetWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel,
+              let targetSurfaceView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected test window, manager, workspace, and terminal panel")
             return
         }
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.tabs[0].panels.count, 1)
+        targetWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(targetWindow.makeFirstResponder(targetSurfaceView), "Expected Ghostty view to become first responder")
+        XCTAssertTrue(targetWindow.firstResponder === targetSurfaceView, "Expected Ghostty view to own first responder")
+
+#if DEBUG
+        // Keep the real Ghostty view for shortcut routing, but release the runtime
+        // surface so headless CI does not have to tear down a live PTY on window close.
+        terminalPanel.surface.releaseSurfaceForTesting()
+        XCTAssertNil(terminalPanel.surface.surface, "Expected test helper to release the runtime surface")
+#else
+        XCTFail("releaseSurfaceForTesting is only available in DEBUG")
+#endif
 
         guard let event = makeKeyDownEvent(
             key: "w",
