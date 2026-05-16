@@ -1,4 +1,10 @@
 import Foundation
+import os
+
+private let ephemeralWorktreeLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ephemeral-worktree"
+)
 
 enum EphemeralWorktreeCleanupPolicy: String, Codable, Sendable, Equatable {
     case snapshot
@@ -311,10 +317,8 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
             do {
                 _ = try self.cleanup(record, userConfirmed: userConfirmed)
             } catch {
-                NSLog(
-                    "[cmux] Ephemeral worktree cleanup failed for session %@: %@",
-                    String(record.sessionId.prefix(8)),
-                    error.localizedDescription
+                ephemeralWorktreeLogger.error(
+                    "Ephemeral worktree cleanup failed for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
                 )
 #if DEBUG
                 let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription

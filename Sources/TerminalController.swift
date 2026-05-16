@@ -4624,62 +4624,42 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
 
-        var found = false
-        var protected = false
-        var worktreeRecords: [EphemeralWorktreeRecord] = []
+        var result: V2CallResult?
         v2MainSync {
-            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                guard tabManager.canCloseWorkspace(ws) else {
-                    protected = true
-                    found = true
-                    return
-                }
-                worktreeRecords = Array(ws.ephemeralWorktreesByPanelId.values)
-                found = true
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            guard let ws = tabManager.tabs.first(where: { $0.id == wsId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: [
+                    "workspace_id": wsId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                ])
+                return
             }
-        }
-
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        if protected {
-            return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId),
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
-                "pinned": true
-            ])
-        }
-        guard found else {
-            return .err(code: "not_found", message: "Workspace not found", data: [
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-            ])
-        }
-
-        if let worktreeError = v2BlockedEphemeralWorktreeError(for: worktreeRecords) {
-            return worktreeError
-        }
-
-        var didClose = false
-        v2MainSync {
-            if let ws = tabManager.tabs.first(where: { $0.id == wsId }),
-               tabManager.canCloseWorkspace(ws) {
-                tabManager.closeWorkspace(ws)
-                didClose = true
+            guard tabManager.canCloseWorkspace(ws) else {
+                result = .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": wsId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                    "pinned": true
+                ])
+                return
             }
-        }
-
-        return didClose
-            ? .ok([
+            if let worktreeError = v2BlockedEphemeralWorktreeError(
+                for: Array(ws.ephemeralWorktreesByPanelId.values)
+            ) {
+                result = worktreeError
+                return
+            }
+            tabManager.closeWorkspace(ws)
+            result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": wsId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
             ])
-            : .err(code: "not_found", message: "Workspace not found", data: [
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-            ])
+        }
+
+        return result ?? .err(code: "internal_error", message: "Failed to close workspace", data: nil)
     }
 
     private func workspaceCloseProtectedMessage() -> String {

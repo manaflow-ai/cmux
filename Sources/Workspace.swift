@@ -7,6 +7,12 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import os
+
+private let workspaceEphemeralWorktreeLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ephemeral-worktree"
+)
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -905,10 +911,8 @@ extension Workspace {
             try EphemeralWorktreeRegistry.shared.register(record)
             return record
         } catch {
-            NSLog(
-                "[cmux] Failed to register restored ephemeral worktree for session %@: %@",
-                String(record.sessionId.prefix(8)),
-                error.localizedDescription
+            workspaceEphemeralWorktreeLogger.error(
+                "Failed to register restored ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
 #if DEBUG
             let detail = (error as? EphemeralWorktreeLifecycleError)?.debugDescription
