@@ -4556,7 +4556,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    if NSString(string: trimmed).isAbsolutePath {
+    if trimmed.hasPrefix("/") {
         return URL(fileURLWithPath: trimmed)
     }
 
