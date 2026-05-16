@@ -1292,6 +1292,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            if browserIsOAuthFlowURL(parsed) {
+                #if DEBUG
+                dlog("link.resolve result=external(oauth) url=\(parsed)")
+                #endif
+                return .external(parsed)
+            }
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
                 cmuxDebugLog("link.resolve result=external(invalidHost) url=\(parsed)")
@@ -1310,6 +1316,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
+        if browserIsOAuthFlowURL(webURL) {
+            #if DEBUG
+            dlog("link.resolve result=external(bareHost-oauth) url=\(webURL)")
+            #endif
+            return .external(webURL)
+        }
         guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
             #if DEBUG
             cmuxDebugLog("link.resolve result=external(bareHost-invalidHost) url=\(webURL)")
