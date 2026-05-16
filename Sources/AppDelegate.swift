@@ -13822,23 +13822,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleGhosttyCrashBreadcrumbNotificationResponse(_ response: UNNotificationResponse) -> Bool {
-        guard let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(
-            from: response.notification.request.content.userInfo
-        ) else {
+        let userInfo = response.notification.request.content.userInfo
+        guard let tabIdString = userInfo["tabId"] as? String,
+              UUID(uuidString: tabIdString) == GhosttyCrashBreadcrumb.notificationTabId,
+              let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(from: userInfo) else {
             return false
         }
 
         let notificationId = notificationId(from: response)
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
-            Task { @MainActor [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 _ = self?.openGhosttyCrashBreadcrumbNotification(
                     crashFileURL,
                     notificationId: notificationId
                 )
             }
         case UNNotificationDismissActionIdentifier:
-            Task { @MainActor [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 if let notificationId {
                     self?.notificationStore?.markRead(id: notificationId)
                 }
@@ -14195,6 +14196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         if let notificationId,
            let notification = notificationStore?.notifications.first(where: { $0.id == notificationId }),
+           notification.tabId == GhosttyCrashBreadcrumb.notificationTabId,
            let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(from: notification.userInfo) {
             return openGhosttyCrashBreadcrumbNotification(
                 crashFileURL,
