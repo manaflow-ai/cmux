@@ -76,7 +76,10 @@ Add a Command Palette action that opens Codex in a new tab. It will appear in Cm
 }
 ```
 
-Replace the plus-button click and define the plus-button right-click menu. This is the pattern for "bring your own worktree, multiple checkouts, or SSH setup":
+Replace the plus-button click and define the plus-button right-click menu.
+This is the pattern for "bring your own worktree, multiple checkouts, or SSH
+setup". The `workspaceCommand` action ID is `worktree-agents`, and its
+`commandName` must match a command named `Worktree Agents` in the same config:
 
 ```json
 {
@@ -98,7 +101,36 @@ Replace the plus-button click and define the plus-button right-click menu. This 
         { "action": "cmux.newBrowser", "title": "New Browser" }
       ]
     }
-  }
+  },
+  "commands": [
+    {
+      "name": "Worktree Agents",
+      "description": "Create a worktree and open agents inside it",
+      "workspace": {
+        "name": "Worktree Agents",
+        "cwd": "../worktrees/my-feature",
+        "layout": {
+          "direction": "horizontal",
+          "children": [
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "terminal", "name": "Codex", "command": "codex" }
+                ]
+              }
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "terminal", "name": "SSH", "command": "ssh devbox" }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -109,9 +141,9 @@ Add a project workspace layout:
   "commands": [
     {
       "name": "dev",
-      "cwd": ".",
       "workspace": {
         "name": "Dev",
+        "cwd": ".",
         "layout": {
           "direction": "horizontal",
           "children": [
