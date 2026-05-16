@@ -2535,6 +2535,297 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectedClaudeRecognizesWrapperAndSessionId() {
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeClaude(
+                processName: "claude",
+                processPath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--session-id",
+                    "claude-session",
+                    "--settings",
+                    #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux hooks claude session-start"}]}]}}"#,
+                    "--dangerously-skip-permissions"
+                ],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "claude"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeClaude(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: [
+                    "node",
+                    "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                    "--resume",
+                    "resumed-session"
+                ]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeClaude(
+                processName: "2.1.143",
+                processPath: "/Users/lawrence/.local/share/claude/versions/2.1.143",
+                arguments: [
+                    "/Users/lawrence/.local/share/claude/versions/2.1.143",
+                    "--resume",
+                    "versioned-session"
+                ]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeClaude(
+                processName: "helper",
+                processPath: "/usr/bin/helper",
+                arguments: ["/usr/bin/helper"],
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "claude"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeClaude(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: [
+                    "node",
+                    "/Users/lawrence/projects/claude-code/server.js",
+                    "--resume",
+                    "not-claude"
+                ]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeClaude(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: [
+                    "node",
+                    "/Users/lawrence/work/claude-code/dist/server.js",
+                    "--resume",
+                    "not-claude"
+                ]
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--session-id",
+                    "claude-session"
+                ],
+                environment: [:]
+            ),
+            "claude-session"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "resumed-session"
+                ],
+                environment: [:]
+            ),
+            "resumed-session"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "node",
+                    "-r",
+                    "/tmp/preload-hook.js",
+                    "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                    "--session-id",
+                    "node-wrapper-session"
+                ],
+                environment: [:]
+            ),
+            "node-wrapper-session"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "node",
+                    "-r",
+                    "/tmp/preload-hook.js",
+                    "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js"
+                ],
+                environment: [:]
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "--model",
+                    "opus"
+                ],
+                environment: [:]
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "parent-session",
+                    "--fork-session",
+                    "--model",
+                    "opus"
+                ],
+                environment: [:]
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "parent-session",
+                    "--fork-session"
+                ],
+                environment: ["CLAUDE_SESSION_ID": "child-session"]
+            ),
+            "child-session"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.claudeSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude"
+                ],
+                environment: ["CLAUDE_SESSION_ID": "env-session"]
+            ),
+            "env-session"
+        )
+    }
+
+    func testProcessDetectedClaudeLaunchArgumentsDropHookSettingsAndSessionFlag() {
+        let arguments = RestorableAgentSessionIndex.claudeLaunchArgumentsForProcess(
+            arguments: [
+                "/Users/lawrence/.local/bin/claude",
+                "--session-id",
+                "claude-session",
+                "--settings",
+                #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux hooks claude session-start"}]}]}}"#,
+                "--model",
+                "opus",
+                "--dangerously-skip-permissions",
+                "prompt should not replay"
+            ],
+            environment: [:]
+        )
+
+        XCTAssertEqual(
+            arguments,
+            [
+                "/Users/lawrence/.local/bin/claude",
+                "--model",
+                "opus",
+                "--dangerously-skip-permissions"
+            ]
+        )
+    }
+
+    func testProcessDetectedClaudePreservesInheritedLauncherMetadata() {
+        let launchCommand = RestorableAgentSessionIndex.claudeLaunchCommandForProcess(
+            arguments: [
+                "/Users/lawrence/.local/bin/claude",
+                "--session-id",
+                "claude-session",
+                "--settings",
+                #"{"hooks":{"SessionStart":[{"hooks":[{"command":"cmux hooks claude session-start"}]}]}}"#,
+                "--dangerously-skip-permissions"
+            ],
+            environment: [
+                "CMUX_AGENT_LAUNCH_KIND": "claude-teams",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "claude-teams",
+                    "--model",
+                    "opus"
+                ]),
+                "CMUX_AGENT_LAUNCH_CWD": "/Users/lawrence/project",
+                "PATH": "/tmp/bin:/usr/bin",
+                "ANTHROPIC_API_KEY": "secret"
+            ]
+        )
+
+        XCTAssertEqual(launchCommand?.launcher, "claudeTeams")
+        XCTAssertEqual(launchCommand?.executablePath, "/Applications/cmux.app/Contents/Resources/bin/cmux")
+        XCTAssertEqual(
+            launchCommand?.arguments,
+            [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "claude-teams",
+                "--model",
+                "opus"
+            ]
+        )
+        XCTAssertEqual(launchCommand?.workingDirectory, "/Users/lawrence/project")
+        XCTAssertNil(launchCommand?.environment?["ANTHROPIC_API_KEY"])
+        XCTAssertNil(launchCommand?.capturedAt)
+        XCTAssertEqual(launchCommand?.source, "environment")
+    }
+
+    func testProcessDetectedClaudeRejectsUnsupportedInheritedLauncher() {
+        let launchCommand = RestorableAgentSessionIndex.claudeLaunchCommandForProcess(
+            arguments: [
+                "/Users/lawrence/.local/bin/claude",
+                "--session-id",
+                "claude-session"
+            ],
+            environment: [
+                "CMUX_AGENT_LAUNCH_KIND": "omc",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "omc"
+                ])
+            ]
+        )
+
+        XCTAssertNil(launchCommand)
+
+        XCTAssertNil(
+            RestorableAgentSessionIndex.claudeLaunchCommandForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--session-id",
+                    "claude-session"
+                ],
+                environment: [
+                    "CMUX_AGENT_LAUNCH_KIND": "codexTeams",
+                    "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                        "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                        "codex-teams",
+                        "--model",
+                        "gpt-5.4"
+                    ])
+                ]
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.claudeLaunchCommandForProcess(
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--session-id",
+                    "claude-session"
+                ],
+                environment: [
+                    "CMUX_AGENT_LAUNCH_KIND": "omo",
+                    "CMUX_AGENT_LAUNCH_EXECUTABLE": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                        "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                        "omo"
+                    ])
+                ]
+            )
+        )
+    }
+
     func testProcessDetectedOpenCodeResolvesBareExecutableWithCapturedPath() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2750,6 +3041,609 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1
             )
+        )
+    }
+
+    func testProcessDetectionUsesFocusedTTYFallbackForClaudeWithoutCMUXEnvironment() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_001
+        let process = makeTopProcess(
+            pid: 10_001,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        "claude-tty-session"
+                    ],
+                    environment: ["PWD": "/tmp/claude repo"]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "claude-tty-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/claude repo")
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
+    }
+
+    func testProcessDetectionUsesFocusedTTYFallbackForOpenCodeWithoutCMUXEnvironment() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_002
+        let process = makeTopProcess(
+            pid: 10_002,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/opt/homebrew/bin/opencode",
+                        "--session",
+                        "opencode-tty-session"
+                    ],
+                    environment: ["PWD": "/tmp/opencode repo"]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-tty-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/opencode repo")
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
+    }
+
+    func testProcessDetectionKeepsCMUXScopedClaudeOverFocusedTTYFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_003
+        let scopedClaude = makeTopProcess(
+            pid: 10_003,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallbackClaude = makeTopProcess(
+            pid: 10_004,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedClaude, fallbackClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case scopedClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-scoped-session"
+                        ],
+                        environment: ["PWD": "/tmp/scoped claude repo"]
+                    )
+                case fallbackClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-fallback-session"
+                        ],
+                        environment: ["PWD": "/tmp/fallback claude repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "claude-scoped-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped claude repo")
+    }
+
+    func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_005
+        let realClaude = makeTopProcess(
+            pid: 10_007,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let inheritedHelper = makeTopProcess(
+            pid: 10_008,
+            name: "node",
+            path: "/opt/homebrew/bin/node",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [realClaude, inheritedHelper],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case realClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-real-session"
+                        ],
+                        environment: [
+                            "CMUX_CLAUDE_PID": String(realClaude.pid),
+                            "PWD": "/tmp/real claude repo"
+                        ]
+                    )
+                case inheritedHelper.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "node",
+                            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                            "--resume",
+                            "claude-helper-session"
+                        ],
+                        environment: [
+                            "CMUX_CLAUDE_PID": String(realClaude.pid),
+                            "PWD": "/tmp/helper claude repo"
+                        ]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "claude-real-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/real claude repo")
+    }
+
+    func testProcessDetectionKeepsCMUXScopedOpenCodeOverFocusedTTYFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_004
+        let scopedOpenCode = makeTopProcess(
+            pid: 10_005,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallbackOpenCode = makeTopProcess(
+            pid: 10_006,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedOpenCode, fallbackOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case scopedOpenCode.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "opencode-scoped-session"
+                        ],
+                        environment: ["PWD": "/tmp/scoped opencode repo"]
+                    )
+                case fallbackOpenCode.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "opencode-fallback-session"
+                        ],
+                        environment: ["PWD": "/tmp/fallback opencode repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-scoped-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped opencode repo")
+    }
+
+    func testProcessDetectionSkipsClaudeForkParentResumeSessionId() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let process = makeTopProcess(
+            pid: 10_007,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: 44_005,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        "parent-session",
+                        "--fork-session",
+                        "--model",
+                        "opus"
+                    ],
+                    environment: ["PWD": "/tmp/claude fork repo"]
+                )
+            }
+        )
+
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+    }
+
+    func testProcessDetectionPrefersForegroundClaudeOverBackgroundClaudeForSamePanel() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_006
+        let foregroundClaude = makeTopProcess(
+            pid: 10_008,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 300,
+            terminalProcessGroupID: 300
+        )
+        let backgroundClaude = makeTopProcess(
+            pid: 10_009,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 100,
+            terminalProcessGroupID: 300
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [foregroundClaude, backgroundClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case foregroundClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-foreground-session"
+                        ],
+                        environment: ["PWD": "/tmp/foreground claude repo"]
+                    )
+                case backgroundClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-background-session"
+                        ],
+                        environment: ["PWD": "/tmp/background claude repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "claude-foreground-session")
+    }
+
+    func testProcessDetectionSkipsBackgroundClaudeWithoutForegroundCandidate() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_008
+        let backgroundClaude = makeTopProcess(
+            pid: 10_010,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 100,
+            terminalProcessGroupID: 300
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [backgroundClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == backgroundClaude.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        "claude-background-session"
+                    ],
+                    environment: ["PWD": "/tmp/background claude repo"]
+                )
+            }
+        )
+
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+    }
+
+    func testProcessDetectionPrefersForegroundOpenCodeOverBackgroundClaudeForSamePanel() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_003
+        let backgroundClaude = makeTopProcess(
+            pid: 10_003,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 100,
+            terminalProcessGroupID: 200
+        )
+        let foregroundOpenCode = makeTopProcess(
+            pid: 10_004,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 300,
+            terminalProcessGroupID: 300
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [backgroundClaude, foregroundOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case backgroundClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-background-session"
+                        ],
+                        environment: ["PWD": "/tmp/claude repo"]
+                    )
+                case foregroundOpenCode.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "opencode-foreground-session"
+                        ],
+                        environment: ["PWD": "/tmp/opencode repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-foreground-session")
+    }
+
+    func testProcessDetectionSkipsBackgroundOpenCodeWithoutForegroundCandidate() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_009
+        let backgroundOpenCode = makeTopProcess(
+            pid: 10_011,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 100,
+            terminalProcessGroupID: 300
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [backgroundOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == backgroundOpenCode.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/opt/homebrew/bin/opencode",
+                        "--session",
+                        "opencode-background-session"
+                    ],
+                    environment: ["PWD": "/tmp/background opencode repo"]
+                )
+            }
+        )
+
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+    }
+
+    func testProcessDetectionFocusedTTYFallbackRejectsBackgroundAndMismatchedProcesses() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_004
+        let background = makeTopProcess(
+            pid: 10_005,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            processGroupID: 100,
+            terminalProcessGroupID: 200
+        )
+        let mismatched = makeTopProcess(
+            pid: 10_006,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice,
+            workspaceId: UUID(),
+            panelId: nil
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [background, mismatched],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case background.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "background-session"
+                        ],
+                        environment: ["PWD": "/tmp/background"]
+                    )
+                case mismatched.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "mismatched-session"
+                        ],
+                        environment: ["PWD": "/tmp/mismatched"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
         )
     }
 
@@ -3209,6 +4103,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
 
+    private func makeTopProcess(
+        pid: Int,
+        name: String,
+        path: String?,
+        ttyDevice: Int64,
+        workspaceId: UUID? = nil,
+        panelId: UUID? = nil,
+        processGroupID: Int? = 100,
+        terminalProcessGroupID: Int? = 100
+    ) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: pid,
+            parentPID: 1,
+            name: name,
+            path: path,
+            ttyDevice: ttyDevice,
+            cmuxWorkspaceID: workspaceId,
+            cmuxSurfaceID: panelId,
+            cmuxAttributionReason: workspaceId == nil && panelId == nil ? nil : "test",
+            processGroupID: processGroupID,
+            terminalProcessGroupID: terminalProcessGroupID,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+    }
+
+    private func base64NULSeparated(_ values: [String]) -> String {
+        var data = Data()
+        for value in values {
+            data.append(contentsOf: value.utf8)
+            data.append(0)
+        }
+        return data.base64EncodedString()
+    }
 }
 
 final class SidebarDragFailsafePolicyTests: XCTestCase {

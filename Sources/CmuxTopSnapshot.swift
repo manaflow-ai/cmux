@@ -122,6 +122,19 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return Set(pidsByTTYDevice[device] ?? [])
     }
 
+    func processes(forTTYName ttyName: String) -> [CmuxTopProcessInfo] {
+        guard let device = Self.deviceIdentifier(forTTYName: ttyName) else {
+            return []
+        }
+        return processes(forTTYDevice: device)
+    }
+
+    func processes(forTTYDevice ttyDevice: Int64) -> [CmuxTopProcessInfo] {
+        (pidsByTTYDevice[ttyDevice] ?? [])
+            .compactMap { processesByPID[$0] }
+            .sorted { $0.pid < $1.pid }
+    }
+
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
     }

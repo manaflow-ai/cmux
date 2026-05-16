@@ -1127,6 +1127,8 @@ struct ContentView: View {
     @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
     @State var commandPaletteForkableAgentSnapshotFingerprintsByPanelKey: [String: String] = [:]
     @State var commandPaletteForkableAgentRemoteContextsByPanelKey: [String: Bool] = [:]
+    @State var commandPaletteForkableAgentTTYNamesByPanelKey: [String: String] = [:]
+    @State var commandPaletteForkableAgentProbeCompletedAtByPanelKey: [String: TimeInterval] = [:]
     @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
     @State private var commandPaletteForkableAgentProbeFingerprintsByPanelKey: [String: String] = [:]
     @State private var isCommandPaletteSearchPending = false
@@ -1448,6 +1450,7 @@ struct ContentView: View {
     enum CommandPaletteContextKeys {
         static let hasWorkspace = "workspace.hasSelection"
         static let workspaceName = "workspace.name"
+        static let workspaceId = "workspace.id"
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceHasCustomDescription = "workspace.hasCustomDescription"
         static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
@@ -1462,10 +1465,13 @@ struct ContentView: View {
         static let sidebarMatchTerminalBackground = "sidebar.matchTerminalBackground"
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
+        static let panelId = "panel.id"
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
+        static let panelIsRemoteTerminal = "panel.isRemoteTerminal"
         static let panelHasPane = "panel.hasPane"
         static let panelHasForkableAgent = "panel.hasForkableAgent"
+        static let panelTTYName = "panel.ttyName"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -5787,6 +5793,8 @@ struct ContentView: View {
         "\(workspaceId.uuidString):\(panelId.uuidString)"
     }
 
+    static let commandPaletteForkableAgentProbeCacheLifetime: TimeInterval = 2.0
+
     private enum CommandPaletteForkSnapshotAvailability {
         case unsupported
         case supportedWithoutProbe
@@ -5843,14 +5851,26 @@ struct ContentView: View {
         panelId: UUID,
         supportedPanelKeys: Set<String>,
         supportedRemoteContextsByPanelKey: [String: Bool] = [:],
+        supportedTTYNamesByPanelKey: [String: String] = [:],
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        isRemoteTerminal: Bool = false
+        isRemoteTerminal: Bool = false,
+        ttyName: String? = nil
     ) -> Bool {
         let panelKey = commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
             panelId: panelId
         )
         if supportedPanelKeys.contains(panelKey) {
+            let cachedTTYName = supportedTTYNamesByPanelKey[panelKey] ?? ""
+            guard cachedTTYName == commandPaletteTTYCacheValue(ttyName) else {
+                if let fallbackSnapshot {
+                    return commandPaletteSnapshotForkAvailability(
+                        fallbackSnapshot,
+                        isRemoteTerminal: isRemoteTerminal
+                    ) == .supportedWithoutProbe
+                }
+                return false
+            }
             if let fallbackSnapshot {
                 return commandPaletteSnapshotForkAvailability(
                     fallbackSnapshot,
@@ -5871,6 +5891,26 @@ struct ContentView: View {
         return false
     }
 
+    static func commandPaletteForkableAgentProbeCacheIsFresh(
+        panelKey: String,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool],
+        supportedTTYNamesByPanelKey: [String: String],
+        probeCompletedAtByPanelKey: [String: TimeInterval],
+        isRemoteTerminal: Bool,
+        ttyName: String?,
+        now: TimeInterval,
+        maximumAge: TimeInterval = commandPaletteForkableAgentProbeCacheLifetime
+    ) -> Bool {
+        guard supportedPanelKeys.contains(panelKey),
+              supportedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+              supportedTTYNamesByPanelKey[panelKey] == commandPaletteTTYCacheValue(ttyName),
+              let completedAt = probeCompletedAtByPanelKey[panelKey] else {
+            return false
+        }
+        return now - completedAt < maximumAge
+    }
+
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
         guard scope == .commands,
               let panelContext = focusedPanelContext,
@@ -5883,10 +5923,29 @@ struct ContentView: View {
         let workspaceId = panelContext.workspace.id
         let panelId = panelContext.panelId
         let isRemoteTerminal = panelContext.workspace.isRemoteTerminalSurface(panelId)
+        let ttyName = panelContext.workspace.surfaceTTYNames[panelId]
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
         let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+        let ttyCacheValue = Self.commandPaletteTTYCacheValue(ttyName)
+        let hasForkableAgentCache =
+            commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey) ||
+            commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil ||
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] != nil ||
+            commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] != nil ||
+            commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] != nil ||
+            commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] != nil
+        if hasForkableAgentCache,
+           (commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] ?? "") != ttyCacheValue {
+            cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+        }
 
         if let fallbackSnapshot {
             let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
@@ -5897,6 +5956,8 @@ struct ContentView: View {
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
             }
             switch Self.commandPaletteSnapshotForkAvailability(
                 fallbackSnapshot,
@@ -5908,6 +5969,8 @@ struct ContentView: View {
                 commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = fallbackFingerprint
                 commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyCacheValue
+                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
                 return
             case .unsupported:
                 cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
@@ -5915,11 +5978,14 @@ struct ContentView: View {
                 commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
                 return
             case .requiresProbe:
                 if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] == fallbackFingerprint,
                    commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+                   commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] == ttyCacheValue,
                    !panelChanged {
                     return
                 }
@@ -5929,14 +5995,23 @@ struct ContentView: View {
                     panelId: panelId,
                     fallbackSnapshot: fallbackSnapshot,
                     fallbackFingerprint: fallbackFingerprint,
-                    isRemoteTerminal: isRemoteTerminal
+                    isRemoteTerminal: isRemoteTerminal,
+                    ttyName: ttyName
                 )
                 return
             }
         }
 
-        if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
-           commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+        if Self.commandPaletteForkableAgentProbeCacheIsFresh(
+            panelKey: panelKey,
+            supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+            supportedTTYNamesByPanelKey: commandPaletteForkableAgentTTYNamesByPanelKey,
+            probeCompletedAtByPanelKey: commandPaletteForkableAgentProbeCompletedAtByPanelKey,
+            isRemoteTerminal: isRemoteTerminal,
+            ttyName: ttyName,
+            now: CACurrentMediaTime()
+        ),
            !panelChanged {
             return
         }
@@ -5947,7 +6022,8 @@ struct ContentView: View {
             panelId: panelId,
             fallbackSnapshot: nil,
             fallbackFingerprint: nil,
-            isRemoteTerminal: isRemoteTerminal
+            isRemoteTerminal: isRemoteTerminal,
+            ttyName: ttyName
         )
     }
 
@@ -5957,9 +6033,15 @@ struct ContentView: View {
         panelId: UUID,
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         fallbackFingerprint: String?,
-        isRemoteTerminal: Bool
+        isRemoteTerminal: Bool,
+        ttyName: String?
     ) {
-        let probeFingerprint = "\(fallbackFingerprint ?? "")\u{1f}\(isRemoteTerminal ? "remote" : "local")"
+        let normalizedTTYName = Self.commandPaletteNormalizedTTYName(ttyName)
+        let probeFingerprint = [
+            fallbackFingerprint ?? "",
+            isRemoteTerminal ? "remote" : "local",
+            normalizedTTYName ?? ""
+        ].joined(separator: "\u{1f}")
         if let task = commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] {
             guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] != probeFingerprint else { return }
             task.cancel()
@@ -5972,7 +6054,14 @@ struct ContentView: View {
         commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
 
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
-            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
+                fallbackScope: Self.commandPaletteProcessDetectionFallbackScope(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    isRemoteTerminal: isRemoteTerminal,
+                    ttyName: normalizedTTYName
+                )
+            )
             guard !Task.isCancelled else { return }
             let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
             let supportsFork: Bool
@@ -5989,10 +6078,16 @@ struct ContentView: View {
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                guard let currentContext = focusedPanelContext,
+                      currentContext.workspace.id == workspaceId,
+                      currentContext.panelId == panelId,
+                      Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId]) == normalizedTTYName else {
+                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                    return
+                }
                 if let fallbackFingerprint,
-                   let currentContext = focusedPanelContext,
-                   currentContext.workspace.id == workspaceId,
-                   currentContext.panelId == panelId,
                    let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
                    Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
                     commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
@@ -6007,6 +6102,8 @@ struct ContentView: View {
                     shouldRefreshResults = !wasSupported
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                    commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = Self.commandPaletteTTYCacheValue(normalizedTTYName)
+                    commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] = CACurrentMediaTime()
                     if let snapshot {
                         commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
                         commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
@@ -6020,6 +6117,8 @@ struct ContentView: View {
                     commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
                 }
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
@@ -6034,6 +6133,18 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    static func commandPaletteNormalizedTTYName(_ ttyName: String?) -> String? {
+        let trimmed = ttyName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty, trimmed != "not a tty" else {
+            return nil
+        }
+        return trimmed
+    }
+
+    static func commandPaletteTTYCacheValue(_ ttyName: String?) -> String {
+        commandPaletteNormalizedTTYName(ttyName) ?? ""
     }
 
     private func cancelCommandPaletteForkableAgentAvailabilityProbe() {
@@ -6199,6 +6310,7 @@ struct ContentView: View {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
+            snapshot.setString(CommandPaletteContextKeys.workspaceId, workspace.id.uuidString)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
@@ -6234,10 +6346,15 @@ struct ContentView: View {
             let panelIsTerminal = panelContext.panel.panelType == .terminal
             let panelIsRemoteTerminal = workspace.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
+            snapshot.setString(CommandPaletteContextKeys.panelId, panelId.uuidString)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsRemoteTerminal, panelIsRemoteTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
+            if let ttyName = Self.commandPaletteNormalizedTTYName(workspace.surfaceTTYNames[panelId]) {
+                snapshot.setString(CommandPaletteContextKeys.panelTTYName, ttyName)
+            }
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
             snapshot.setBool(
                 CommandPaletteContextKeys.panelHasForkableAgent,
@@ -6246,8 +6363,10 @@ struct ContentView: View {
                     panelId: panelId,
                     supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
                     supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                    supportedTTYNamesByPanelKey: commandPaletteForkableAgentTTYNamesByPanelKey,
                     fallbackSnapshot: fallbackForkableSnapshot,
-                    isRemoteTerminal: panelIsRemoteTerminal
+                    isRemoteTerminal: panelIsRemoteTerminal,
+                    ttyName: workspace.surfaceTTYNames[panelId]
                 )
             )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)

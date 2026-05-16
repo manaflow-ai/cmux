@@ -30,6 +30,32 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
     }
 
+    func testManagedSocketPathUsesActiveListenerPath() {
+        let injectedPath = TerminalSurface.managedSocketPath(
+            preferredPath: "/tmp/cmux-nightly.sock",
+            activeSocketPath: { preferred in
+                XCTAssertEqual(preferred, "/tmp/cmux-nightly.sock")
+                return "/Users/example/Library/Application Support/cmux/cmux-501.sock"
+            }
+        )
+
+        XCTAssertEqual(injectedPath, "/Users/example/Library/Application Support/cmux/cmux-501.sock")
+
+        SocketControlSettings.resetProcessActiveSocketPathForTests()
+        defer { SocketControlSettings.resetProcessActiveSocketPathForTests() }
+
+        XCTAssertEqual(
+            TerminalSurface.managedSocketPath(preferredPath: "/tmp/cmux-nightly.sock"),
+            "/tmp/cmux-nightly.sock"
+        )
+
+        SocketControlSettings.recordProcessActiveSocketPath("/Users/example/Library/Application Support/cmux/cmux-501.sock")
+        XCTAssertEqual(
+            TerminalSurface.managedSocketPath(preferredPath: "/tmp/cmux-nightly.sock"),
+            "/Users/example/Library/Application Support/cmux/cmux-501.sock"
+        )
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(

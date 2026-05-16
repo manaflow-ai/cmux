@@ -669,13 +669,15 @@ struct RestorableAgentSessionIndex: Sendable {
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
             let detectedSnapshots = processDetectedSnapshots(
                 registry: registry,
-                fileManager: fileManager
+                fileManager: fileManager,
+                fallbackScope: fallbackScope
             )
             return load(
                 homeDirectory: homeDirectory,

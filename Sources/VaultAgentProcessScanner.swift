@@ -2,6 +2,58 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+struct RestorableAgentProcessDetectionScope: Sendable {
+    let workspaceId: UUID
+    let panelId: UUID
+    let ttyName: String?
+    let ttyDevice: Int64?
+
+    init(workspaceId: UUID, panelId: UUID, ttyName: String?) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        let trimmedTTYName = ttyName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.ttyName = trimmedTTYName?.isEmpty == false && trimmedTTYName != "not a tty" ? trimmedTTYName : nil
+        self.ttyDevice = nil
+    }
+
+    init(workspaceId: UUID, panelId: UUID, ttyDevice: Int64) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.ttyName = nil
+        self.ttyDevice = ttyDevice
+    }
+}
+
+enum RestorableAgentProcessDetectionCandidateSource {
+    case cmuxScoped
+    case fallbackScope
+}
+
+struct RestorableAgentProcessDetectionCandidate {
+    let panelKey: RestorableAgentSessionIndex.PanelKey
+    let process: CmuxTopProcessInfo
+    let arguments: CmuxTopProcessArguments
+    let source: RestorableAgentProcessDetectionCandidateSource
+}
+
+extension CmuxTopProcessInfo {
+    var hasForegroundProcessStatus: Bool {
+        processGroupID != nil && terminalProcessGroupID != nil
+    }
+
+    var isForegroundProcess: Bool {
+        guard let processGroupID,
+              let terminalProcessGroupID else {
+            return false
+        }
+        return processGroupID == terminalProcessGroupID
+    }
+
+    var canBeActiveAgentProcess: Bool {
+        !hasForegroundProcessStatus || isForegroundProcess
+    }
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -31,15 +83,48 @@ extension AgentLaunchCommandSnapshot {
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager
+        fileManager: FileManager,
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil,
+        processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false),
+        processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
-        var resolved = processDetectedOpenCodeSnapshots(
+        let candidates = processDetectionCandidates(
             processSnapshot: processSnapshot,
+            fallbackScope: fallbackScope,
+            processArguments: processArguments
+        )
+        var resolved = processDetectedClaudeSnapshots(
+            candidates: candidates,
+            capturedAt: capturedAt
+        )
+        for (key, value) in processDetectedOpenCodeSnapshots(
+            candidates: candidates,
             capturedAt: capturedAt,
             fileManager: fileManager
-        )
+        ) {
+            if resolved[key] != nil {
+                if processDetectionShouldPreferOpenCodeOnBuiltinConflict(
+                    panelKey: key,
+                    candidates: candidates
+                ) {
+                    sentryBreadcrumb(
+                        "session.process_detected.builtin_conflict",
+                        category: "session.restore",
+                        data: ["kept": "opencode", "dropped": "claude"]
+                    )
+                    resolved[key] = value
+                    continue
+                }
+                sentryBreadcrumb(
+                    "session.process_detected.builtin_conflict",
+                    category: "session.restore",
+                    data: ["kept": "claude", "dropped": "opencode"]
+                )
+                continue
+            }
+            resolved[key] = value
+        }
 
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -58,12 +143,10 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
-                continue
-            }
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
             let observed = VaultObservedAgentProcess(
                 processName: process.name,
                 processPath: process.path,
@@ -96,10 +179,140 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (snapshot: snapshot, updatedAt: capturedAt)
+            resolved[candidate.panelKey] = (snapshot: snapshot, updatedAt: capturedAt)
         }
 
         return resolved
+    }
+
+    private static func processDetectionShouldPreferOpenCodeOnBuiltinConflict(
+        panelKey: PanelKey,
+        candidates: [RestorableAgentProcessDetectionCandidate]
+    ) -> Bool {
+        var hasCMUXScopedClaude = false
+        var hasCMUXScopedOpenCode = false
+        var hasForegroundClaude = false
+        var hasForegroundOpenCode = false
+        for candidate in candidates where candidate.panelKey == panelKey {
+            switch processDetectionBuiltinKind(candidate) {
+            case .some(.claude):
+                if candidate.source == .cmuxScoped {
+                    hasCMUXScopedClaude = true
+                }
+                if candidate.process.isForegroundProcess {
+                    hasForegroundClaude = true
+                }
+            case .some(.opencode):
+                if candidate.source == .cmuxScoped {
+                    hasCMUXScopedOpenCode = true
+                }
+                if candidate.process.isForegroundProcess {
+                    hasForegroundOpenCode = true
+                }
+            default:
+                break
+            }
+        }
+        if hasCMUXScopedClaude != hasCMUXScopedOpenCode {
+            return hasCMUXScopedOpenCode
+        }
+        return hasForegroundOpenCode && !hasForegroundClaude
+    }
+
+    private static func processDetectionBuiltinKind(
+        _ candidate: RestorableAgentProcessDetectionCandidate
+    ) -> RestorableAgentKind? {
+        let observed = VaultObservedAgentProcess(
+            processName: candidate.process.name,
+            processPath: candidate.process.path,
+            arguments: candidate.arguments.arguments,
+            environment: candidate.arguments.environment
+        )
+        if observed.isOpenCodeProcess {
+            return .opencode
+        }
+        if observed.isClaudeProcess {
+            return .claude
+        }
+        return nil
+    }
+
+    private static func processDetectionCandidates(
+        processSnapshot: CmuxTopProcessSnapshot,
+        fallbackScope: RestorableAgentProcessDetectionScope?,
+        processArguments: (Int) -> CmuxTopProcessArguments?
+    ) -> [RestorableAgentProcessDetectionCandidate] {
+        var candidates: [RestorableAgentProcessDetectionCandidate] = []
+        var seenPIDs = Set<Int>()
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  let arguments = processArguments(process.pid) else {
+                continue
+            }
+            seenPIDs.insert(process.pid)
+            candidates.append(
+                RestorableAgentProcessDetectionCandidate(
+                    panelKey: PanelKey(workspaceId: workspaceId, panelId: panelId),
+                    process: process,
+                    arguments: arguments,
+                    source: .cmuxScoped
+                )
+            )
+        }
+
+        guard let fallbackScope else { return candidates }
+        let fallbackProcesses = processDetectionFallbackProcesses(
+            processSnapshot: processSnapshot,
+            fallbackScope: fallbackScope
+        )
+        for process in fallbackProcesses where !seenPIDs.contains(process.pid) {
+            guard processMatchesFallbackScope(process, fallbackScope: fallbackScope),
+                  let arguments = processArguments(process.pid) else {
+                continue
+            }
+            seenPIDs.insert(process.pid)
+            candidates.append(
+                RestorableAgentProcessDetectionCandidate(
+                    panelKey: PanelKey(workspaceId: fallbackScope.workspaceId, panelId: fallbackScope.panelId),
+                    process: process,
+                    arguments: arguments,
+                    source: .fallbackScope
+                )
+            )
+        }
+
+        return candidates
+    }
+
+    private static func processDetectionFallbackProcesses(
+        processSnapshot: CmuxTopProcessSnapshot,
+        fallbackScope: RestorableAgentProcessDetectionScope
+    ) -> [CmuxTopProcessInfo] {
+        if let ttyDevice = fallbackScope.ttyDevice {
+            return processSnapshot.processes(forTTYDevice: ttyDevice)
+        }
+        guard let ttyName = fallbackScope.ttyName else {
+            return []
+        }
+        return processSnapshot.processes(forTTYName: ttyName)
+    }
+
+    private static func processMatchesFallbackScope(
+        _ process: CmuxTopProcessInfo,
+        fallbackScope: RestorableAgentProcessDetectionScope
+    ) -> Bool {
+        if let workspaceId = process.cmuxWorkspaceID,
+           workspaceId != fallbackScope.workspaceId {
+            return false
+        }
+        if let panelId = process.cmuxSurfaceID,
+           panelId != fallbackScope.panelId {
+            return false
+        }
+        guard process.canBeActiveAgentProcess else { return false }
+        return true
     }
 
     static func processLooksLikeOpenCode(
@@ -182,7 +395,7 @@ extension RestorableAgentSessionIndex {
     }
 
     private static func processDetectedOpenCodeSnapshots(
-        processSnapshot: CmuxTopProcessSnapshot,
+        candidates: [RestorableAgentProcessDetectionCandidate],
         capturedAt: TimeInterval,
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
@@ -195,17 +408,20 @@ extension RestorableAgentSessionIndex {
                 observed: VaultObservedAgentProcess,
                 environment: [String: String],
                 workingDirectory: String?,
-                workingDirectoryKey: String
+                workingDirectoryKey: String,
+                source: RestorableAgentProcessDetectionCandidateSource,
+                isForeground: Bool
             )
         ] = []
+        var selectedCandidateByPanelKey: [
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+        ] = [:]
         var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
-                continue
-            }
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
             let observed = VaultObservedAgentProcess(
                 processName: process.name,
                 processPath: process.path,
@@ -216,13 +432,15 @@ extension RestorableAgentSessionIndex {
 
             let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
-            let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            let panelKey = candidate.panelKey
             openCodeProcesses.append((
                 panelKey: panelKey,
                 observed: observed,
                 environment: processArguments.environment,
                 workingDirectory: cwd,
-                workingDirectoryKey: cwdKey
+                workingDirectoryKey: cwdKey,
+                source: candidate.source,
+                isForeground: process.isForegroundProcess
             ))
             panelKeysByWorkingDirectory[cwdKey, default: []].insert(panelKey)
         }
@@ -278,9 +496,24 @@ extension RestorableAgentSessionIndex {
                     environment: process.observed.environment
                 )
             )
+            if let existing = selectedCandidateByPanelKey[process.panelKey] {
+                if existing.source == .cmuxScoped,
+                   process.source != .cmuxScoped {
+                    continue
+                }
+                if existing.source == process.source,
+                   existing.isForeground,
+                   !process.isForeground {
+                    continue
+                }
+            }
             resolved[process.panelKey] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt
+            )
+            selectedCandidateByPanelKey[process.panelKey] = (
+                source: process.source,
+                isForeground: process.isForeground
             )
         }
 
@@ -451,7 +684,7 @@ extension RestorableAgentSessionIndex {
             .path
     }
 
-    private static func executablePath(
+    static func executablePath(
         named name: String,
         environment: [String: String]
     ) -> String? {
@@ -535,7 +768,7 @@ extension RestorableAgentSessionIndex {
     }
 }
 
-private struct VaultObservedAgentProcess: Sendable {
+struct VaultObservedAgentProcess: Sendable {
     let processName: String
     let processPath: String?
     let arguments: [String]
@@ -596,7 +829,7 @@ private struct VaultObservedAgentProcess: Sendable {
             basename == "open-code"
     }
 
-    private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
+    static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
         switch basename.lowercased() {
         case "node":
             return true
@@ -605,7 +838,7 @@ private struct VaultObservedAgentProcess: Sendable {
         }
     }
 
-    private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
+    static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
         guard !arguments.isEmpty else { return nil }
         var index = 0
         if wrapperLooksLikeNodeRuntime((arguments[0] as NSString).lastPathComponent) {
@@ -706,7 +939,7 @@ private extension CmuxVaultAgentSessionIDSource {
     }
 }
 
-private extension Array where Element == String {
+extension Array where Element == String {
     var hasOpenCodeForkFlag: Bool {
         contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
     }

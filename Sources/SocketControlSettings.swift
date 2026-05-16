@@ -299,6 +299,8 @@ struct SocketControlSettings {
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     private static let lastSocketPathFileName = "last-socket-path"
+    private static let processActiveSocketPathLock = NSLock()
+    private nonisolated(unsafe) static var processActiveSocketPathValue: String?
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
     static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
 
@@ -474,13 +476,28 @@ struct SocketControlSettings {
             return taggedDebugPath
         }
         if bundleIdentifier == "com.cmuxterm.app.nightly" {
-            return "/tmp/cmux-nightly.sock"
+            return resolvedFixedDefaultSocketPath(
+                preferredPath: "/tmp/cmux-nightly.sock",
+                fallbackFileName: "cmux-nightly-\(currentUserID).sock",
+                currentUserID: currentUserID,
+                probePathEntry: probeStableDefaultPathEntry
+            )
         }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isDebugBuild {
-            return "/tmp/cmux-debug.sock"
+            return resolvedFixedDefaultSocketPath(
+                preferredPath: "/tmp/cmux-debug.sock",
+                fallbackFileName: "cmux-debug-\(currentUserID).sock",
+                currentUserID: currentUserID,
+                probePathEntry: probeStableDefaultPathEntry
+            )
         }
         if isStagingBundleIdentifier(bundleIdentifier) {
-            return "/tmp/cmux-staging.sock"
+            return resolvedFixedDefaultSocketPath(
+                preferredPath: "/tmp/cmux-staging.sock",
+                fallbackFileName: "cmux-staging-\(currentUserID).sock",
+                currentUserID: currentUserID,
+                probePathEntry: probeStableDefaultPathEntry
+            )
         }
         return resolvedStableDefaultSocketPath(
             currentUserID: currentUserID,
@@ -489,9 +506,32 @@ struct SocketControlSettings {
     }
 
     static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        userScopedSocketPath(fileName: "cmux-\(currentUserID).sock")
+    }
+
+    static func userScopedSocketPath(fileName: String) -> String {
         stableSocketDirectoryURL()?
-            .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
-            .path ?? "/tmp/cmux-\(currentUserID).sock"
+            .appendingPathComponent(fileName, isDirectory: false)
+            .path ?? "/tmp/\(fileName)"
+    }
+
+    static func userScopedFallbackSocketPath(
+        forDefaultPath requestedPath: String,
+        currentUserID: uid_t = getuid()
+    ) -> String? {
+        if requestedPath == stableDefaultSocketPath || requestedPath == legacyStableDefaultSocketPath {
+            return userScopedStableSocketPath(currentUserID: currentUserID)
+        }
+        switch requestedPath {
+        case "/tmp/cmux-nightly.sock":
+            return userScopedSocketPath(fileName: "cmux-nightly-\(currentUserID).sock")
+        case "/tmp/cmux-debug.sock":
+            return userScopedSocketPath(fileName: "cmux-debug-\(currentUserID).sock")
+        case "/tmp/cmux-staging.sock":
+            return userScopedSocketPath(fileName: "cmux-staging-\(currentUserID).sock")
+        default:
+            return nil
+        }
     }
 
     static func resolvedStableDefaultSocketPath(
@@ -508,12 +548,51 @@ struct SocketControlSettings {
         }
     }
 
+    private static func resolvedFixedDefaultSocketPath(
+        preferredPath: String,
+        fallbackFileName: String,
+        currentUserID: uid_t,
+        probePathEntry: (String) -> StableDefaultSocketPathEntry
+    ) -> String {
+        switch probePathEntry(preferredPath) {
+        case .missing:
+            return preferredPath
+        case .socket(let ownerUserID) where ownerUserID == currentUserID:
+            return preferredPath
+        case .socket, .other, .inaccessible:
+            return userScopedSocketPath(fileName: fallbackFileName)
+        }
+    }
+
     static func recordLastSocketPath(_ path: String, filePath: String = lastSocketPathFile) {
         let payload = Data((path + "\n").utf8)
         writeSocketPathMarker(payload, to: filePath)
         if filePath != legacyLastSocketPathFile {
             writeSocketPathMarker(payload, to: legacyLastSocketPathFile)
         }
+    }
+
+    static func recordProcessActiveSocketPath(_ path: String) {
+        processActiveSocketPathLock.lock()
+        defer { processActiveSocketPathLock.unlock() }
+        processActiveSocketPathValue = path
+    }
+
+    static func clearProcessActiveSocketPath() {
+        processActiveSocketPathLock.lock()
+        defer { processActiveSocketPathLock.unlock() }
+        processActiveSocketPathValue = nil
+    }
+
+    static func resetProcessActiveSocketPathForTests() {
+        clearProcessActiveSocketPath()
+    }
+
+    static func processActiveSocketPath(preferredPath: String) -> String {
+        processActiveSocketPathLock.lock()
+        defer { processActiveSocketPathLock.unlock() }
+        let activePath = processActiveSocketPathValue
+        return activePath ?? preferredPath
     }
 
     static func shouldHonorSocketPathOverride(
