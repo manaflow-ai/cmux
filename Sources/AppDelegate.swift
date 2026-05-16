@@ -1635,7 +1635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ),
                 body: String(
                     localized: "crashBreadcrumb.body",
-                    defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
+                    defaultValue: "A diagnostic file is available. Open this notification to reveal it."
                 ),
                 userInfo: GhosttyCrashBreadcrumb.notificationUserInfo(for: pendingCrash)
             )
