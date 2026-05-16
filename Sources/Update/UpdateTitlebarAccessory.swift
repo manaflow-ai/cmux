@@ -430,6 +430,8 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
+    var onToggleVoice: (() -> Void)? = nil
+    var voiceActivity: VoiceActivity = .idle
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
@@ -596,6 +598,22 @@ struct TitlebarControlsView: View {
             }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
+            if let onToggleVoice {
+                TitlebarControlButton(
+                    config: config,
+                    accessibilityIdentifier: "titlebarControl.voiceInput",
+                    accessibilityLabel: String(localized: "titlebar.voice.accessibilityLabel", defaultValue: "Toggle Voice Input"),
+                    action: {
+                        onToggleVoice()
+                    }
+                ) {
+                    voiceMicIcon(config: config)
+                }
+                .safeHelp(KeyboardShortcutSettings.Action.toggleVoiceInput.tooltip(
+                    String(localized: "titlebar.voice.tooltip", defaultValue: "Toggle voice input")
+                ))
+            }
+
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -708,6 +726,28 @@ struct TitlebarControlsView: View {
     ) -> some View {
         ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
             .frame(minHeight: titlebarShortcutHintHeight(for: config))
+    }
+
+    private func voiceMicSystemName() -> String {
+        switch voiceActivity {
+        case .idle, .connecting: return "mic"
+        case .listening, .processing, .executing: return "mic.fill"
+        case .error: return "mic.slash"
+        }
+    }
+
+    private func voiceMicTint() -> Color {
+        switch voiceActivity {
+        case .idle, .connecting: return .secondary
+        case .listening, .processing, .executing: return .green
+        case .error: return .red
+        }
+    }
+
+    @ViewBuilder
+    private func voiceMicIcon(config: TitlebarControlsStyleConfig) -> some View {
+        iconLabel(systemName: voiceMicSystemName(), config: config)
+            .foregroundStyle(voiceMicTint())
     }
 
     @ViewBuilder

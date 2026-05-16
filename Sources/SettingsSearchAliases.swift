@@ -27,6 +27,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.settingsJSON", defaultValue: "configuration config file json jsonc dotfile ~/.config schema docs")
         case .reset:
             return localized("settings.search.alias.section.reset", defaultValue: "factory defaults restore clear preferences")
+        case .voice:
+            return localized("settings.search.alias.section.voice", defaultValue: "speech recognition microphone input transcription dictation audio")
         }
     }
 

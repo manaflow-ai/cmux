@@ -14,6 +14,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case workspaceColors
     case settingsJSON
     case reset
+    case voice
 
     var id: Self { self }
 
@@ -45,6 +46,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json")
         case .reset:
             return String(localized: "settings.section.reset", defaultValue: "Reset")
+        case .voice:
+            return String(localized: "settings.section.voice", defaultValue: "Voice")
         }
     }
 
@@ -76,6 +79,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "doc.text"
         case .reset:
             return "arrow.counterclockwise"
+        case .voice:
+            return "waveform"
         }
     }
 
@@ -107,6 +112,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) config file preferences editor documentation schema jsonc reload"
         case .reset:
             return "\(title) defaults"
+        case .voice:
+            return "\(title) speech recognition microphone input transcription"
         }
     }
 }

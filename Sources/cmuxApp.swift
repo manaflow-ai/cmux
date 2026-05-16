@@ -63,6 +63,7 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        appDelegate.voiceController = VoiceInputController(tabManager: tabManager)
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -699,6 +700,13 @@ struct cmuxApp: App {
                 }
             }
 
+            splitCommandButton(
+                title: String(localized: "menu.view.toggleVoice", defaultValue: "Toggle Voice Input"),
+                shortcut: menuShortcut(for: .toggleVoiceInput)
+            ) {
+                appDelegate.voiceController?.toggle()
+            }
+
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 _ = activeTabManager.zoomInFocusedBrowser()
             }
@@ -839,6 +847,9 @@ struct cmuxApp: App {
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         applyAppearance()
+        if UserDefaults.standard.bool(forKey: "voice.autoStart") {
+            appDelegate.voiceController?.activate()
+        }
     }
 
     private var currentSocketMode: SocketControlMode {
@@ -848,6 +859,22 @@ struct cmuxApp: App {
     func menuShortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.menuShortcut(for: action)
+    }
+
+    private func micIconName(for activity: VoiceActivity) -> String {
+        switch activity {
+        case .idle, .connecting: return "mic"
+        case .listening, .processing, .executing: return "mic.fill"
+        case .error: return "mic.slash"
+        }
+    }
+
+    private func micColor(for activity: VoiceActivity) -> Color {
+        switch activity {
+        case .idle, .connecting: return .secondary
+        case .listening, .processing, .executing: return .green
+        case .error: return .red
+        }
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
@@ -7158,6 +7185,11 @@ struct SettingsView: View {
                         .padding(.vertical, 10)
                         .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
                     }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.voice", defaultValue: "Voice"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .voice))
+                    VoiceSettingsView()
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .voice, idSuffix: "api-key"))
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)

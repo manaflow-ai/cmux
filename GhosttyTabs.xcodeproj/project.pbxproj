@@ -458,6 +458,17 @@
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
+		VO001101 /* VoiceInputState.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO001001 /* VoiceInputState.swift */; };
+		VO002101 /* VoiceInputStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO002001 /* VoiceInputStateTests.swift */; };
+		VO003101 /* VoiceKeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO003001 /* VoiceKeychainStore.swift */; };
+		VO004101 /* VoiceToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO004001 /* VoiceToolDefinitions.swift */; };
+		VO005101 /* VoiceToolDefinitionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO005001 /* VoiceToolDefinitionsTests.swift */; };
+		VO006101 /* VoiceRealtimeTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO006001 /* VoiceRealtimeTransport.swift */; };
+		VO007101 /* VoiceRealtimeTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO007001 /* VoiceRealtimeTransportTests.swift */; };
+		VO008101 /* VoiceToolExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO008001 /* VoiceToolExecutor.swift */; };
+		VO009101 /* VoiceInputController.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO009001 /* VoiceInputController.swift */; };
+		VO010101 /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO010001 /* VoiceSettingsView.swift */; };
+		VO011101 /* VoiceHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = VO011001 /* VoiceHUDView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -971,6 +982,17 @@
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevHookConfigTests.swift; sourceTree = "<group>"; };
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
+		VO001001 /* VoiceInputState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceInputState.swift; sourceTree = "<group>"; };
+		VO002001 /* VoiceInputStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceInputStateTests.swift; sourceTree = "<group>"; };
+		VO003001 /* VoiceKeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceKeychainStore.swift; sourceTree = "<group>"; };
+		VO004001 /* VoiceToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceToolDefinitions.swift; sourceTree = "<group>"; };
+		VO005001 /* VoiceToolDefinitionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceToolDefinitionsTests.swift; sourceTree = "<group>"; };
+		VO006001 /* VoiceRealtimeTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceRealtimeTransport.swift; sourceTree = "<group>"; };
+		VO007001 /* VoiceRealtimeTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice/VoiceRealtimeTransportTests.swift; sourceTree = "<group>"; };
+		VO008001 /* VoiceToolExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceToolExecutor.swift; sourceTree = "<group>"; };
+		VO009001 /* VoiceInputController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceInputController.swift; sourceTree = "<group>"; };
+		VO010001 /* VoiceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceSettingsView.swift; sourceTree = "<group>"; };
+		VO011001 /* VoiceHUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Voice/VoiceHUDView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1186,6 +1208,14 @@
 				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
+				VO001001 /* VoiceInputState.swift */,
+				VO003001 /* VoiceKeychainStore.swift */,
+				VO004001 /* VoiceToolDefinitions.swift */,
+				VO006001 /* VoiceRealtimeTransport.swift */,
+				VO008001 /* VoiceToolExecutor.swift */,
+				VO009001 /* VoiceInputController.swift */,
+				VO010001 /* VoiceSettingsView.swift */,
+				VO011001 /* VoiceHUDView.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
 				9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
@@ -1544,6 +1574,9 @@
 				FE002001 /* FileExplorerRootResolverTests.swift */,
 				FE002002 /* FileExplorerStoreTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
+				VO002001 /* VoiceInputStateTests.swift */,
+				VO005001 /* VoiceToolDefinitionsTests.swift */,
+				VO007001 /* VoiceRealtimeTransportTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -1865,6 +1898,14 @@
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
+				VO001101 /* VoiceInputState.swift in Sources */,
+				VO003101 /* VoiceKeychainStore.swift in Sources */,
+				VO004101 /* VoiceToolDefinitions.swift in Sources */,
+				VO006101 /* VoiceRealtimeTransport.swift in Sources */,
+				VO008101 /* VoiceToolExecutor.swift in Sources */,
+				VO009101 /* VoiceInputController.swift in Sources */,
+				VO010101 /* VoiceSettingsView.swift in Sources */,
+				VO011101 /* VoiceHUDView.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
@@ -2266,6 +2307,9 @@
 				FE002101 /* FileExplorerRootResolverTests.swift in Sources */,
 				FE002102 /* FileExplorerStoreTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
+				VO002101 /* VoiceInputStateTests.swift in Sources */,
+				VO005101 /* VoiceToolDefinitionsTests.swift in Sources */,
+				VO007101 /* VoiceRealtimeTransportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -665,6 +665,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
+    var voiceController: VoiceInputController?
     weak var sidebarState: SidebarState?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
@@ -12030,6 +12031,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
             if !didHandle { NSSound.beep() }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleVoiceInput) {
+            voiceController?.toggle()
             return true
         }
 
