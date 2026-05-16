@@ -25,13 +25,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Current markdown content read from the file.
     @Published private(set) var content: String = ""
 
-    /// Current raw text shown by the TextEdit mode.
+    /// Current raw text shown by the markdown editor mode.
     @Published private(set) var textContent: String = ""
 
-    /// Whether TextEdit mode has unsaved changes.
+    /// Whether markdown editor mode has unsaved changes.
     @Published private(set) var isDirty: Bool = false
 
-    /// Whether TextEdit mode is saving to disk.
+    /// Whether markdown editor mode is saving to disk.
     @Published private(set) var isSaving: Bool = false
 
     /// The current view mode for this markdown panel. New panels default to preview.
@@ -124,6 +124,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         pendingSearchNeedle = trimmed
         setDisplayMode(.text)
         applyPendingSearchNeedleIfPossible()
+    }
+
+    @discardableResult
+    func openLinkedMarkdownFile(rawPath: String) -> Bool {
+        guard let resolved = MarkdownPanelFileLinkResolver.resolve(
+            rawPath: rawPath,
+            relativeToMarkdownFile: filePath
+        ) else {
+            return false
+        }
+        return openMarkdownFile(resolved)
     }
 
     func updateTextContent(_ nextContent: String) {
@@ -259,6 +270,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         pendingSearchNeedle = nil
+    }
+
+    private func openMarkdownFile(_ path: String) -> Bool {
+        guard let app = AppDelegate.shared,
+              let location = app.workspaceContainingPanel(
+                  panelId: id,
+                  preferredWorkspaceId: workspaceId
+              ),
+              let paneId = location.workspace.paneId(forPanelId: id) else {
+            return false
+        }
+
+        return location.workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: path,
+            focus: true
+        ) != nil
     }
 
     // MARK: - File watcher via DispatchSource

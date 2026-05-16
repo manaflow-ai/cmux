@@ -180,6 +180,93 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(after["top"] ?? .greatestFiniteMagnitude, before["top"] ?? 0, accuracy: 6)
     }
 
+    func testMarkdownEditorOutlineExtractsAtxAndSetextHeadingsOutsideCodeFences() {
+        let markdown = """
+        # Title
+
+        Body
+
+        ```
+        ## Not a heading
+        ```
+
+        Section
+        -------
+
+        ### Details ###
+        """
+
+        let headings = MarkdownEditorOutline.headings(in: markdown)
+
+        XCTAssertEqual(headings.map(\.level), [1, 2, 3])
+        XCTAssertEqual(headings.map(\.title), ["Title", "Section", "Details"])
+    }
+
+    func testMarkdownEditorContinuesTaskListsAndExitsEmptyItems() throws {
+        let markdown = "- [ ] First task"
+        let edit = try XCTUnwrap(MarkdownEditorTextCommands.continuationEdit(
+            markdown: markdown,
+            selectedRange: NSRange(location: (markdown as NSString).length, length: 0)
+        ))
+
+        XCTAssertEqual(edit.replacement, "\n- [ ] ")
+        XCTAssertEqual(edit.selectedRange.location, (markdown as NSString).length + ("\n- [ ] " as NSString).length)
+
+        let empty = "- [ ] "
+        let exitEdit = try XCTUnwrap(MarkdownEditorTextCommands.continuationEdit(
+            markdown: empty,
+            selectedRange: NSRange(location: (empty as NSString).length, length: 0)
+        ))
+
+        XCTAssertEqual(exitEdit.replacementRange, NSRange(location: 0, length: (empty as NSString).length))
+        XCTAssertEqual(exitEdit.replacement, "")
+    }
+
+    func testMarkdownEditorTogglesCheckboxNearMarker() throws {
+        let markdown = "- [ ] Ship editor"
+        let edit = try XCTUnwrap(MarkdownEditorTextCommands.checkboxToggleEdit(
+            markdown: markdown,
+            characterIndex: 3
+        ))
+
+        XCTAssertEqual(edit.replacementRange, NSRange(location: 3, length: 1))
+        XCTAssertEqual(edit.replacement, "x")
+    }
+
+    func testMarkdownEditorFormattingCommandsWrapSelection() throws {
+        let markdown = "make this strong"
+        let selected = NSRange(location: 10, length: 6)
+        let edit = try XCTUnwrap(MarkdownEditorTextCommands.edit(
+            command: .bold,
+            markdown: markdown,
+            selectedRange: selected
+        ))
+
+        XCTAssertEqual(edit.replacementRange, selected)
+        XCTAssertEqual(edit.replacement, "**strong**")
+        XCTAssertEqual(edit.selectedRange, NSRange(location: 12, length: 6))
+    }
+
+    func testMarkdownEditorDetectsInlineWikiAndRawMarkdownLinks() {
+        let inline = "[Read](docs/guide.md)"
+        XCTAssertEqual(
+            MarkdownEditorLinkDetector.linkTarget(in: inline, characterIndex: 3),
+            "docs/guide.md"
+        )
+
+        let wiki = "[[Research Note|note]]"
+        XCTAssertEqual(
+            MarkdownEditorLinkDetector.linkTarget(in: wiki, characterIndex: 4),
+            "Research Note.md"
+        )
+
+        let raw = "Open docs/plan.md now"
+        XCTAssertEqual(
+            MarkdownEditorLinkDetector.linkTarget(in: raw, characterIndex: 10),
+            "docs/plan.md"
+        )
+    }
+
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))

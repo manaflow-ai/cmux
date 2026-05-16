@@ -80,6 +80,7 @@
 		D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */; };
 		D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */; };
 		D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */; };
+		D0B10024A1B2C3D4E5F60001 /* MarkdownEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10025A1B2C3D4E5F60001 /* MarkdownEditorView.swift */; };
 		D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */; };
 		D0B1001EA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001FA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift */; };
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
@@ -702,6 +703,7 @@
 		D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneDropRoutingSupport.swift; sourceTree = "<group>"; };
 		D0B1001FA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneDropTargetView.swift; sourceTree = "<group>"; };
 		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
+		D0B10025A1B2C3D4E5F60001 /* MarkdownEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorView.swift; sourceTree = "<group>"; };
 		A5001451A5001451A5001451 /* FilePreviewNativeBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewNativeBackground.swift; sourceTree = "<group>"; };
 		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
@@ -1331,6 +1333,7 @@
 				A5001418 /* MarkdownPanel.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				D0B10025A1B2C3D4E5F60001 /* MarkdownEditorView.swift */,
 				A50014F4 /* MarkdownWebRenderer.swift */,
 				A50014F1 /* MarkdownViewerAssets.swift */,
 				A5001423 /* FilePreviewPanel.swift */,
@@ -2046,6 +2049,7 @@
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
+				D0B10024A1B2C3D4E5F60001 /* MarkdownEditorView.swift in Sources */,
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
 				A5001422 /* FilePreviewPanel.swift in Sources */,
