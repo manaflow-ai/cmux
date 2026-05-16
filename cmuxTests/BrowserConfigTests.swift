@@ -2077,6 +2077,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class WKInspectorProbeWebView: WKWebView {
+    }
+
     private final class FakeInspector: NSObject {
         enum HideBehavior {
             case unsupported
@@ -2293,6 +2296,80 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "User-closing a detached Web Inspector window must synchronously close the owning _inspector before AppKit/WebKit teardown continues"
         )
         XCTAssertFalse(panel.isDeveloperToolsVisible())
+    }
+
+    func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { inspectorWindow.orderOut(nil) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        var willCloseNotificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: inspectorWindow,
+            queue: nil
+        ) { _ in
+            willCloseNotificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let handled = NSApp.sendAction(
+            NSSelectorFromString("__close"),
+            to: inspectorWindow,
+            from: inspectorWindow.standardWindowButton(.closeButton)
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(
+            inspector.closeCount,
+            1,
+            "The close-button action must close the owning inspector before WebKit's NSWindowWillClose observer can run"
+        )
+        XCTAssertEqual(
+            willCloseNotificationCount,
+            0,
+            "The intercepted close-button action should not fall through to AppKit's window close path"
+        )
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
@@ -2582,6 +2659,55 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertNotNil(panel.webView.superview)
         window.orderOut(nil)
+    }
+
+    func testPortalBindDoesNotMoveInspectorFrontendOutOfDetachedWindowOwner() {
+        let (panel, inspector) = makePanelWithInspector()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: panel.webView)
+            window.orderOut(nil)
+        }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        let anchor = NSView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(anchor)
+
+        panel.webView.frame = sourceSlot.bounds
+        sourceSlot.addSubview(panel.webView)
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        sourceSlot.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        XCTAssertFalse(
+            panel.webView.superview === sourceSlot,
+            "The page web view should move to the portal host for this regression setup"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === sourceSlot,
+            "The portal must not reparent WKInspector frontend views; WebKit owns their window/controller lifecycle"
+        )
     }
 
     func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
