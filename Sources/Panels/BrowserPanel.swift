@@ -2069,6 +2069,13 @@ private enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
+enum BrowserWebViewLifecycleState: String {
+    case newTab = "new_tab"
+    case liveVisible = "live_visible"
+    case liveHidden = "live_hidden"
+    case closing
+}
+
 /// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
 @MainActor
 final class BrowserSearchState: ObservableObject {
@@ -2487,8 +2494,22 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
-    @Published private(set) var shouldRenderWebView: Bool = false
+    @Published private(set) var shouldRenderWebView: Bool = false {
+        didSet {
+            if oldValue != shouldRenderWebView {
+                refreshWebViewLifecycleState()
+            }
+        }
+    }
     private var restoredSessionShouldRenderWebView: Bool?
+
+    @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
+    private(set) var webViewLastVisibleAt: Date?
+    private(set) var webViewLastHiddenAt: Date?
+    private(set) var webViewLastVisibilityChangeAt: Date?
+    private(set) var webViewLastVisibilityChangeReason: String?
+    private var isWebViewVisibleInUI: Bool = false
+    private var isClosingWebViewLifecycle: Bool = false
 
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
@@ -2675,6 +2696,77 @@ final class BrowserPanel: Panel, ObservableObject {
 
     var currentBrowserThemeMode: BrowserThemeMode {
         browserThemeMode
+    }
+
+    func noteWebViewVisibility(
+        _ visible: Bool,
+        reason: String,
+        now: Date = Date(),
+        recordIfUnchanged: Bool = false
+    ) {
+        let changed = isWebViewVisibleInUI != visible
+        guard changed || recordIfUnchanged || webViewLastVisibilityChangeReason == nil else {
+            refreshWebViewLifecycleState()
+            return
+        }
+
+        isWebViewVisibleInUI = visible
+        if visible {
+            webViewLastVisibleAt = now
+        } else {
+            webViewLastHiddenAt = now
+        }
+        webViewLastVisibilityChangeAt = now
+        webViewLastVisibilityChangeReason = reason
+        refreshWebViewLifecycleState()
+    }
+
+    func webViewLifecycleTopPayload(now: Date = Date()) -> [String: Any] {
+        return [
+            "state": webViewLifecycleState.rawValue,
+            "visible_in_ui": isWebViewVisibleInUI,
+            "should_render": shouldRenderWebView,
+            "last_visible_at": Self.webViewLifecycleTimestamp(webViewLastVisibleAt),
+            "last_hidden_at": Self.webViewLifecycleTimestamp(webViewLastHiddenAt),
+            "last_visibility_change_at": Self.webViewLifecycleTimestamp(webViewLastVisibilityChangeAt),
+            "last_visibility_change_reason": webViewLastVisibilityChangeReason.map { $0 as Any } ?? NSNull(),
+            "hidden_duration_ms": Self.webViewHiddenDurationMilliseconds(
+                hiddenAt: webViewLastHiddenAt,
+                visible: isWebViewVisibleInUI,
+                now: now
+            )
+        ]
+    }
+
+    private func refreshWebViewLifecycleState() {
+        let nextState: BrowserWebViewLifecycleState
+        if isClosingWebViewLifecycle {
+            nextState = .closing
+        } else if !shouldRenderWebView {
+            nextState = .newTab
+        } else if isWebViewVisibleInUI {
+            nextState = .liveVisible
+        } else {
+            nextState = .liveHidden
+        }
+        guard webViewLifecycleState != nextState else { return }
+        webViewLifecycleState = nextState
+    }
+
+    private static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
+        guard let date else { return NSNull() }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private static func webViewHiddenDurationMilliseconds(
+        hiddenAt: Date?,
+        visible: Bool,
+        now: Date
+    ) -> Any {
+        guard !visible, let hiddenAt else { return NSNull() }
+        return max(0, Int((now.timeIntervalSince(hiddenAt) * 1000.0).rounded()))
     }
 
     /// Popups inherit this panel's exact WebKit storage and process context.
@@ -3769,6 +3861,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        isClosingWebViewLifecycle = true
+        refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
 
@@ -6210,6 +6304,11 @@ private extension BrowserPanel {
 
 extension BrowserPanel {
     func hideBrowserPortalView(source: String) {
+        noteWebViewVisibility(
+            false,
+            reason: "portal.\(source)",
+            recordIfUnchanged: true
+        )
         BrowserWindowPortalRegistry.hide(
             webView: webView,
             source: source

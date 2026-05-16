@@ -714,6 +714,10 @@ struct BrowserPanelView: View {
             if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
                 browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
             }
+            panel.noteWebViewVisibility(
+                isVisibleInUI && isCurrentPaneOwner,
+                reason: "view.onAppear"
+            )
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
             applyPendingAddressBarFocusRequestIfNeeded()
@@ -774,6 +778,10 @@ struct BrowserPanelView: View {
             }
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
+            panel.noteWebViewVisibility(
+                visibleInUI && isCurrentPaneOwner,
+                reason: visibleInUI ? "view.visible" : "view.hidden"
+            )
             if visibleInUI {
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
                 return
@@ -6693,6 +6701,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         let previousZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
+        panel.noteWebViewVisibility(
+            coordinator.desiredPortalVisibleInUI,
+            reason: coordinator.desiredPortalVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
+        )
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
