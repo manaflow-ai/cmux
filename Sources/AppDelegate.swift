@@ -21,6 +21,44 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+private struct MultiWindowRouteCLIResult {
+    let status: String
+    let stdout: String
+    let stderr: String
+}
+
+private func runMultiWindowRouteCLI(
+    cliURL: URL,
+    socketPath: String,
+    processEnv: [String: String],
+    arguments: [String]
+) -> MultiWindowRouteCLIResult {
+    let process = Process()
+    process.executableURL = cliURL
+    process.arguments = ["--socket", socketPath] + arguments
+    process.environment = processEnv
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    do {
+        try process.run()
+    } catch {
+        return MultiWindowRouteCLIResult(status: "-1", stdout: "", stderr: String(describing: error))
+    }
+    process.waitUntilExit()
+
+    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    return MultiWindowRouteCLIResult(
+        status: String(process.terminationStatus),
+        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+        stderr: String(data: stderrData, encoding: .utf8) ?? ""
+    )
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -10453,39 +10491,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "6",
         ]) { _, new in new }
 
-        struct CLIResult {
-            let status: String
-            let stdout: String
-            let stderr: String
-        }
-
-        func runCLI(_ arguments: [String]) -> CLIResult {
-            let process = Process()
-            process.executableURL = cliURL
-            process.arguments = ["--socket", socketPath] + arguments
-            process.environment = processEnv
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            do {
-                try process.run()
-            } catch {
-                return CLIResult(status: "-1", stdout: "", stderr: String(describing: error))
-            }
-            process.waitUntilExit()
-
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            return CLIResult(
-                status: String(process.terminationStatus),
-                stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-                stderr: String(data: stderrData, encoding: .utf8) ?? ""
-            )
-        }
-
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
         guard health.socketPathExists else {
             writeMultiWindowNotificationTestData([
@@ -10496,31 +10501,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let create = runCLI([
-                "new-workspace",
-                "--window",
-                window2Id.uuidString,
-                "--name",
-                title,
-                "--focus",
-                "false",
-            ])
-            let window2List = runCLI([
-                "--json",
-                "--id-format",
-                "uuids",
-                "list-workspaces",
-                "--window",
-                window2Id.uuidString,
-            ])
-            let window1List = runCLI([
-                "--json",
-                "--id-format",
-                "uuids",
-                "list-workspaces",
-                "--window",
-                window1Id.uuidString,
-            ])
+            let create = runMultiWindowRouteCLI(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                processEnv: processEnv,
+                arguments: [
+                    "new-workspace",
+                    "--window",
+                    window2Id.uuidString,
+                    "--name",
+                    title,
+                    "--focus",
+                    "false",
+                ]
+            )
+            let window2List = runMultiWindowRouteCLI(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                processEnv: processEnv,
+                arguments: [
+                    "--json",
+                    "--id-format",
+                    "uuids",
+                    "list-workspaces",
+                    "--window",
+                    window2Id.uuidString,
+                ]
+            )
+            let window1List = runMultiWindowRouteCLI(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                processEnv: processEnv,
+                arguments: [
+                    "--json",
+                    "--id-format",
+                    "uuids",
+                    "list-workspaces",
+                    "--window",
+                    window1Id.uuidString,
+                ]
+            )
 
             DispatchQueue.main.async {
                 self?.writeMultiWindowNotificationTestData([
