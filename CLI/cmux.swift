@@ -18786,6 +18786,7 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        defer { removeCodexMonitorLease(path: leasePath) }
         let ownerPIDRaw = optionValue(commandArgs, name: "--owner-pid")
         let ownerPID: Int?
         if let ownerPIDRaw {
@@ -18805,7 +18806,6 @@ struct CMUXCLI {
             return
         }
 
-        defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
         let ownerExitWatcher = CodexMonitorOwnerExitWatcher(ownerPID: ownerPID)
         var nextOwnerCheck = Date.distantPast
