@@ -21446,23 +21446,6 @@
         }
       }
     },
-    "command.supportedFileRouting.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File Preview"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルプレビュー"
-          }
-        }
-      }
-    },
     "command.disableBrowser.title": {
       "extractionState": "manual",
       "localizations": {
@@ -21476,23 +21459,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを無効にする"
-          }
-        }
-      }
-    },
-    "command.disableSupportedFileRouting.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disable Cmd-click File Previews"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+クリックのファイルプレビューを無効にする"
           }
         }
       }
@@ -21539,23 +21505,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxブラウザを有効にする"
-          }
-        }
-      }
-    },
-    "command.enableSupportedFileRouting.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable Cmd-click File Previews"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+クリックのファイルプレビューを有効にする"
           }
         }
       }
