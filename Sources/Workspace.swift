@@ -225,6 +225,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            isHidden: isHidden ? true : nil,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
@@ -286,6 +287,7 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        isHidden = snapshot.isHidden ?? false
         setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -7169,6 +7171,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    @Published var isHidden: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
@@ -7374,6 +7377,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($title),
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
+            sidebarObservationSignal($isHidden),
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
             sidebarObservationSignal($latestConversationMessage),

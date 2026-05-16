@@ -1944,6 +1944,27 @@ class TabManager: ObservableObject {
         return tabs.first(where: { $0.id == selectedTabId })
     }
 
+    var visibleWorkspaceTabs: [Workspace] {
+        tabs.filter { !$0.isHidden }
+    }
+
+    var hiddenWorkspaceTabs: [Workspace] {
+        tabs.filter(\.isHidden)
+    }
+
+    func workspaceTabs(includeHidden: Bool) -> [Workspace] {
+        includeHidden ? tabs : visibleWorkspaceTabs
+    }
+
+    func canHideWorkspaces(_ workspaceIds: Set<UUID>) -> Bool {
+        let visibleTargets = workspaceIds.filter { workspaceId in
+            guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+            return !workspace.isHidden
+        }
+        guard !visibleTargets.isEmpty else { return true }
+        return visibleWorkspaceTabs.contains { !visibleTargets.contains($0.id) }
+    }
+
     // Keep selectedTab as convenience alias
     var selectedTab: Workspace? { selectedWorkspace }
 
@@ -4001,6 +4022,53 @@ class TabManager: ObservableObject {
         tab.setTerminalScrollBarHidden(hidden)
     }
 
+    @discardableResult
+    func setWorkspaceHidden(tabId: UUID, hidden: Bool) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return setWorkspaceHidden(tab, hidden: hidden)
+    }
+
+    @discardableResult
+    func setWorkspaceHidden(_ tab: Workspace, hidden: Bool) -> Bool {
+        guard tabs.contains(where: { $0.id == tab.id }) else { return false }
+        if hidden, !tab.isHidden, !canHideWorkspaces([tab.id]) {
+            return false
+        }
+        guard tab.isHidden != hidden else { return true }
+
+        let nextSelection = hidden && selectedTabId == tab.id
+            ? nextVisibleWorkspaceId(afterHiding: tab.id)
+            : nil
+
+        tab.isHidden = hidden
+        if hidden {
+            sidebarSelectedWorkspaceIds.remove(tab.id)
+        }
+        if let nextSelection {
+            selectedTabId = nextSelection
+        }
+        tabs = tabs
+        return true
+    }
+
+    private func nextVisibleWorkspaceId(afterHiding hiddenId: UUID) -> UUID? {
+        guard let hiddenIndex = tabs.firstIndex(where: { $0.id == hiddenId }) else {
+            return visibleWorkspaceTabs.first?.id
+        }
+
+        let afterRange = tabs.indices.drop(while: { $0 <= hiddenIndex })
+        if let nextIndex = afterRange.first(where: { !tabs[$0].isHidden }) {
+            return tabs[nextIndex].id
+        }
+
+        let beforeRange = tabs.indices.prefix(hiddenIndex)
+        if let previousIndex = beforeRange.first(where: { !tabs[$0].isHidden }) {
+            return tabs[previousIndex].id
+        }
+
+        return nil
+    }
+
     func togglePin(tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]
@@ -4228,16 +4296,25 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            ensureAtLeastOneVisibleWorkspace()
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
                 // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
                 // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
+                selectedTabId = visibleWorkspaceIdForFocus(afterRemovingAt: index) ?? tabs[min(index, max(0, tabs.count - 1))].id
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    private func visibleWorkspaceIdForFocus(afterRemovingAt removedIndex: Int) -> UUID? {
+        guard !tabs.isEmpty else { return nil }
+        let startIndex = min(removedIndex, tabs.count - 1)
+        if let nextIndex = (startIndex..<tabs.count).first(where: { !tabs[$0].isHidden }) {
+            return tabs[nextIndex].id
+        }
+        return tabs.first(where: { !$0.isHidden })?.id
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -4258,13 +4335,19 @@ class TabManager: ObservableObject {
             _ = addWorkspace()
             return removed
         }
+        ensureAtLeastOneVisibleWorkspace()
 
         if selectedTabId == removed.id {
             let nextIndex = min(index, max(0, tabs.count - 1))
-            selectedTabId = tabs[nextIndex].id
+            selectedTabId = visibleWorkspaceIdForFocus(afterRemovingAt: index) ?? tabs[nextIndex].id
         }
 
         return removed
+    }
+
+    private func ensureAtLeastOneVisibleWorkspace() {
+        guard !tabs.isEmpty, !tabs.contains(where: { !$0.isHidden }) else { return }
+        tabs[0].isHidden = false
     }
 
     /// Attach an existing workspace to this window.
@@ -4373,7 +4456,7 @@ class TabManager: ObservableObject {
     }
 
     func setSidebarSelectedWorkspaceIds(_ workspaceIds: Set<UUID>) {
-        let existingIds = Set(tabs.map(\.id))
+        let existingIds = Set(visibleWorkspaceTabs.map(\.id))
         sidebarSelectedWorkspaceIds = workspaceIds.intersection(existingIds)
     }
 
@@ -5321,27 +5404,37 @@ class TabManager: ObservableObject {
     }
 
     func selectNextTab() {
+        let visibleTabs = visibleWorkspaceTabs
+        guard !visibleTabs.isEmpty else { return }
         guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let nextIndex = (currentIndex + 1) % tabs.count
+              let currentIndex = visibleTabs.firstIndex(where: { $0.id == currentId }) else {
+            selectedTabId = visibleTabs.first?.id
+            return
+        }
+        let nextIndex = (currentIndex + 1) % visibleTabs.count
 #if DEBUG
-        let nextId = tabs[nextIndex].id
+        let nextId = visibleTabs[nextIndex].id
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[nextIndex].id
+        selectedTabId = visibleTabs[nextIndex].id
     }
 
     func selectPreviousTab() {
+        let visibleTabs = visibleWorkspaceTabs
+        guard !visibleTabs.isEmpty else { return }
         guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
+              let currentIndex = visibleTabs.firstIndex(where: { $0.id == currentId }) else {
+            selectedTabId = visibleTabs.first?.id
+            return
+        }
+        let prevIndex = (currentIndex - 1 + visibleTabs.count) % visibleTabs.count
 #if DEBUG
-        let prevId = tabs[prevIndex].id
+        let prevId = visibleTabs[prevIndex].id
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[prevIndex].id
+        selectedTabId = visibleTabs[prevIndex].id
     }
 
     private func activateWorkspaceCycleHotWindow() {
@@ -5456,15 +5549,16 @@ class TabManager: ObservableObject {
 #endif
 
     func selectTab(at index: Int) {
-        guard index >= 0 && index < tabs.count else { return }
+        let visibleTabs = visibleWorkspaceTabs
+        guard index >= 0 && index < visibleTabs.count else { return }
 #if DEBUG
-        debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
+        debugPrimeWorkspaceSwitchTrigger("select_index", to: visibleTabs[index].id)
 #endif
-        selectedTabId = tabs[index].id
+        selectedTabId = visibleTabs[index].id
     }
 
     func selectLastTab() {
-        guard let lastTab = tabs.last else { return }
+        guard let lastTab = visibleWorkspaceTabs.last else { return }
         selectedTabId = lastTab.id
     }
 
@@ -5603,7 +5697,7 @@ class TabManager: ObservableObject {
         var targetIndex = historyIndex - 1
         while targetIndex >= 0 {
             let tabId = tabHistory[targetIndex]
-            if tabs.contains(where: { $0.id == tabId }) {
+            if tabs.contains(where: { $0.id == tabId && !$0.isHidden }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
                 selectedTabId = tabId
@@ -5624,7 +5718,7 @@ class TabManager: ObservableObject {
         let targetIndex = historyIndex + 1
         while targetIndex < tabHistory.count {
             let tabId = tabHistory[targetIndex]
-            if tabs.contains(where: { $0.id == tabId }) {
+            if tabs.contains(where: { $0.id == tabId && !$0.isHidden }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
                 selectedTabId = tabId
@@ -5639,13 +5733,13 @@ class TabManager: ObservableObject {
 
     var canNavigateBack: Bool {
         historyIndex > 0 && tabHistory.prefix(historyIndex).contains { tabId in
-            tabs.contains { $0.id == tabId }
+            tabs.contains { $0.id == tabId && !$0.isHidden }
         }
     }
 
     var canNavigateForward: Bool {
         historyIndex < tabHistory.count - 1 && tabHistory.suffix(from: historyIndex + 1).contains { tabId in
-            tabs.contains { $0.id == tabId }
+            tabs.contains { $0.id == tabId && !$0.isHidden }
         }
     }
 
@@ -7330,6 +7424,7 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            hasher.combine(workspace.isHidden)
             hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
@@ -7540,14 +7635,18 @@ extension TabManager {
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
+        if newTabs.allSatisfy(\.isHidden) {
+            newTabs[0].isHidden = false
+        }
 
         // Determine selection before mutating @Published properties.
         let newSelectedId: UUID?
         if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
-           newTabs.indices.contains(selectedWorkspaceIndex) {
+           newTabs.indices.contains(selectedWorkspaceIndex),
+           !newTabs[selectedWorkspaceIndex].isHidden {
             newSelectedId = newTabs[selectedWorkspaceIndex].id
         } else {
-            newSelectedId = newTabs.first?.id
+            newSelectedId = newTabs.first(where: { !$0.isHidden })?.id ?? newTabs.first?.id
         }
 
         // Single atomic assignment of @Published properties so SwiftUI observers

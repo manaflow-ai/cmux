@@ -2536,6 +2536,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceMoveToWindow(params: params))
         case "workspace.reorder":
             return v2Result(id: id, self.v2WorkspaceReorder(params: params))
+        case "workspace.hide":
+            return v2Result(id: id, self.v2WorkspaceSetHidden(params: params, hidden: true))
+        case "workspace.show":
+            return v2Result(id: id, self.v2WorkspaceSetHidden(params: params, hidden: false))
         case "workspace.prompt_submit":
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
@@ -2964,6 +2968,8 @@ class TerminalController {
             "workspace.close",
             "workspace.move_to_window",
             "workspace.reorder",
+            "workspace.hide",
+            "workspace.show",
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.action",
@@ -3261,6 +3267,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        let includeHidden = v2Bool(params, "include_hidden") ?? false
 
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
@@ -3307,7 +3314,8 @@ class TerminalController {
                     continue
                 }
 
-                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                let treeWorkspaces = manager.workspaceTabs(includeHidden: includeHidden)
+                let workspaceNodesForWindow = treeWorkspaces.enumerated().map { workspaceIndex, workspace in
                     v2TreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
@@ -3864,6 +3872,7 @@ class TerminalController {
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
+            "hidden": workspace.isHidden,
             "panes": panes
         ]
     }
@@ -4296,6 +4305,7 @@ class TerminalController {
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
+            "hidden": workspace.isHidden,
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
@@ -4312,9 +4322,17 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let includeHidden = v2Bool(params, "include_hidden") ?? false
+        let workspaceFilter = v2UUID(params, "workspace_id")
         var workspaces: [[String: Any]] = []
         v2MainSync {
-            workspaces = tabManager.tabs.enumerated().map { index, ws in
+            let sourceTabs: [Workspace]
+            if let workspaceFilter {
+                sourceTabs = tabManager.tabs.filter { $0.id == workspaceFilter }
+            } else {
+                sourceTabs = tabManager.workspaceTabs(includeHidden: includeHidden)
+            }
+            workspaces = sourceTabs.enumerated().map { index, ws in
                 v2WorkspaceSummaryPayload(
                     workspace: ws,
                     index: index,
@@ -4327,6 +4345,7 @@ class TerminalController {
         return .ok([
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "include_hidden": includeHidden,
             "workspaces": workspaces
         ])
     }
@@ -4604,6 +4623,53 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "index": v2OrNull(newIndex)
         ])
+    }
+
+    private func v2WorkspaceSetHidden(params: [String: Any], hidden: Bool) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let tabManager = v2ResolveWorkspaceOwner(workspaceId) ?? v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+        ])
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if hidden, !tabManager.canHideWorkspaces([workspaceId]) {
+                result = .err(
+                    code: "last_visible_workspace",
+                    message: "Cannot hide the last visible workspace",
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                    ]
+                )
+                return
+            }
+
+            _ = tabManager.setWorkspaceHidden(workspace, hidden: hidden)
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
+            result = .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "hidden": workspace.isHidden,
+                "selected_workspace_id": v2OrNull(tabManager.selectedTabId?.uuidString),
+                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: tabManager.selectedTabId),
+                "workspace": v2WorkspaceSummaryPayload(
+                    workspace: workspace,
+                    index: index,
+                    selected: workspace.id == tabManager.selectedTabId
+                )
+            ])
+        }
+        return result
     }
 
     private func v2WorkspacePromptSubmit(params: [String: Any]) -> V2CallResult {
