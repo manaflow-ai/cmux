@@ -2122,6 +2122,7 @@ class TabManager: ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
@@ -2137,7 +2138,9 @@ class TabManager: ObservableObject {
         // entire creation path. Release ARC can otherwise drop retains early across the
         // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
+            let dir = inheritWorkingDirectory
+                ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
+                : nil
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -7604,4 +7607,8 @@ extension Notification.Name {
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
     static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+}
+
+enum BrowserFirstResponderNotificationUserInfoKey {
+    static let pointerInitiated = "pointerInitiated"
 }

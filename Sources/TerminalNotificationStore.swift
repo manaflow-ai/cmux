@@ -1538,8 +1538,10 @@ final class TerminalNotificationStore: ObservableObject {
     func markAllRead() {
         var updated = notifications
         var idsToClear: [String] = []
+        var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
         for index in updated.indices {
             if !updated[index].isRead {
+                tabIdsToClearPanelUnread.insert(updated[index].tabId)
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
             }
@@ -1548,7 +1550,7 @@ final class TerminalNotificationStore: ObservableObject {
             notifications = updated
         }
         clearWorkspaceManualUnread()
-        clearAllWorkspacePanelUnread(forTabIds: panelDerivedUnreadWorkspaceIds)
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
@@ -1579,10 +1581,11 @@ final class TerminalNotificationStore: ObservableObject {
             !manualUnreadWorkspaceIds.isEmpty ||
             !panelDerivedUnreadWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
+        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
-        clearAllWorkspacePanelUnread(forTabIds: panelDerivedUnreadWorkspaceIds)
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()

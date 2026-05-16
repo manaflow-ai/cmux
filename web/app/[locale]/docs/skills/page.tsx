@@ -16,6 +16,22 @@ const skills = [
     useKey: "cmuxUse",
   },
   {
+    id: "cmux-workspace",
+    path: "skills/cmux-workspace/SKILL.md",
+    command: "cmux current-workspace --json",
+    nameKey: "workspaceName",
+    descriptionKey: "workspaceDescription",
+    useKey: "workspaceUse",
+  },
+  {
+    id: "cmux-settings",
+    path: "skills/cmux-settings/SKILL.md",
+    command: "skills/cmux-settings/scripts/cmux-settings list-supported",
+    nameKey: "settingsName",
+    descriptionKey: "settingsDescription",
+    useKey: "settingsUse",
+  },
+  {
     id: "cmux-browser",
     path: "skills/cmux-browser/SKILL.md",
     command: "cmux browser surface:2 snapshot --interactive",
@@ -39,13 +55,83 @@ const skills = [
     descriptionKey: "debugWindowsDescription",
     useKey: "debugWindowsUse",
   },
+] as const;
+
+const skillCoverage = [
   {
-    id: "release",
-    path: "skills/release/SKILL.md",
-    command: "./scripts/bump-version.sh",
-    nameKey: "releaseName",
-    descriptionKey: "releaseDescription",
-    useKey: "releaseUse",
+    id: "cmux",
+    nameKey: "cmuxName",
+    scopeKey: "cmuxScope",
+    referencesKey: "cmuxReferences",
+  },
+  {
+    id: "cmux-workspace",
+    nameKey: "workspaceName",
+    scopeKey: "workspaceScope",
+    referencesKey: "workspaceReferences",
+  },
+  {
+    id: "cmux-settings",
+    nameKey: "settingsName",
+    scopeKey: "settingsScope",
+    referencesKey: "settingsReferences",
+  },
+  {
+    id: "cmux-browser",
+    nameKey: "browserName",
+    scopeKey: "browserScope",
+    referencesKey: "browserReferences",
+  },
+  {
+    id: "cmux-markdown",
+    nameKey: "markdownName",
+    scopeKey: "markdownScope",
+    referencesKey: "markdownReferences",
+  },
+  {
+    id: "cmux-debug-windows",
+    nameKey: "debugWindowsName",
+    scopeKey: "debugWindowsScope",
+    referencesKey: "debugWindowsReferences",
+  },
+] as const;
+
+const suggestedSkills = [
+  {
+    id: "cmux-custom-commands",
+    nameKey: "suggestCustomCommandsName",
+    useKey: "suggestCustomCommandsUse",
+    whyKey: "suggestCustomCommandsWhy",
+  },
+  {
+    id: "cmux-agent-hooks",
+    nameKey: "suggestAgentHooksName",
+    useKey: "suggestAgentHooksUse",
+    whyKey: "suggestAgentHooksWhy",
+  },
+  {
+    id: "cmux-notifications",
+    nameKey: "suggestNotificationsName",
+    useKey: "suggestNotificationsUse",
+    whyKey: "suggestNotificationsWhy",
+  },
+  {
+    id: "cmux-ssh",
+    nameKey: "suggestSshName",
+    useKey: "suggestSshUse",
+    whyKey: "suggestSshWhy",
+  },
+  {
+    id: "cmux-cloud-vm",
+    nameKey: "suggestCloudVmName",
+    useKey: "suggestCloudVmUse",
+    whyKey: "suggestCloudVmWhy",
+  },
+  {
+    id: "cmux-vault",
+    nameKey: "suggestVaultName",
+    useKey: "suggestVaultUse",
+    whyKey: "suggestVaultWhy",
   },
 ] as const;
 
@@ -124,6 +210,31 @@ export default function SkillsPage() {
         </tbody>
       </table>
 
+      <DocsHeading level={2} id="coverage-title">{t("coverageTitle")}</DocsHeading>
+      <p>{t("coverageIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("skillHeader")}</th>
+            <th>{t("scopeHeader")}</th>
+            <th>{t("referencesHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {skillCoverage.map((skill) => (
+            <tr key={skill.id}>
+              <td>
+                <strong>{t(skill.nameKey)}</strong>
+                <br />
+                <code>{skill.id}</code>
+              </td>
+              <td>{t(skill.scopeKey)}</td>
+              <td>{t(skill.referencesKey)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
       <DocsHeading level={2} id="help-menu-title">{t("helpMenuTitle")}</DocsHeading>
       <p>
         {t.rich("helpMenuIntro", {
@@ -144,6 +255,32 @@ skills/<name>/templates/*`}</CodeBlock>
           code: (chunks) => <code>{chunks}</code>,
         })}
       </Callout>
+
+      <DocsHeading level={2} id="suggestions-title">{t("suggestionsTitle")}</DocsHeading>
+      <p>{t("suggestionsIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("suggestionHeader")}</th>
+            <th>{t("suggestionUseHeader")}</th>
+            <th>{t("suggestionWhyHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {suggestedSkills.map((skill) => (
+            <tr key={skill.id}>
+              <td>
+                <strong>{t(skill.nameKey)}</strong>
+                <br />
+                <code>{skill.id}</code>
+              </td>
+              <td>{t(skill.useKey)}</td>
+              <td>{t(skill.whyKey)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Callout type="info">{t("suggestionsCallout")}</Callout>
 
       <DocsHeading level={2} id="related-title">{t("relatedTitle")}</DocsHeading>
       <ul>

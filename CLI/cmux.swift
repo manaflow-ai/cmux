@@ -12508,7 +12508,12 @@ struct CMUXCLI {
         let pid = topInt(process["pid"]).map(String.init) ?? "?"
         let name = topLabelText(process["name"] as? String)
         let label = name.isEmpty ? "process" : name
-        return "process \(pid) \(label)"
+        var parts = ["process", pid, label]
+        let attributionReason = topLabelText(process["attribution_reason"] as? String)
+        if !attributionReason.isEmpty {
+            parts.append("[\(attributionReason)]")
+        }
+        return parts.joined(separator: " ")
     }
 
     private func topResourceColumns(node: [String: Any]) -> String {
@@ -18505,7 +18510,12 @@ struct CMUXCLI {
         }
     }
 
-    private func retireCodexMonitorLeases(sessionId: String, turnId: String?, env: [String: String]) {
+    private func retireCodexMonitorLeases(
+        sessionId: String,
+        turnId: String?,
+        preservingLeasePath: String? = nil,
+        env: [String: String]
+    ) {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionId.isEmpty else { return }
 
@@ -18513,6 +18523,9 @@ struct CMUXCLI {
         let now = Date().timeIntervalSince1970
         let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let shouldMatchTurn = normalizedTurnId?.isEmpty == false
+        let preservingPath = preservingLeasePath.map {
+            URL(fileURLWithPath: $0, isDirectory: false).standardizedFileURL.path
+        }
         let directory = codexMonitorLeaseDirectory(env: env)
         let targetPaths = ((try? fileManager.contentsOfDirectory(
             at: directory,
@@ -18521,6 +18534,10 @@ struct CMUXCLI {
         )) ?? []).map(\.path)
 
         for path in targetPaths {
+            let standardizedPath = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.path
+            guard preservingPath == nil || standardizedPath != preservingPath else {
+                continue
+            }
             guard var record = readCodexMonitorLease(path: path),
                   record.sessionId == normalizedSessionId,
                   !shouldMatchTurn || record.turnId == normalizedTurnId,
@@ -20861,6 +20878,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     telemetry.breadcrumb(
                         "codex-hook.monitor.lease-unavailable",
                         data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                    )
+                } else {
+                    retireCodexMonitorLeases(
+                        sessionId: sessionId,
+                        turnId: nil,
+                        preservingLeasePath: leasePath,
+                        env: env
                     )
                 }
                 startCodexTranscriptMonitor(
