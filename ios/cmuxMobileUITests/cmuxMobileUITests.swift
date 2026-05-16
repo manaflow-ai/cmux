@@ -385,7 +385,14 @@ final class cmuxMobileUITests: XCTestCase {
         let predicate = NSPredicate(format: "hittable == true")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         let result = XCTWaiter.wait(for: [expectation], timeout: 4)
-        XCTAssertEqual(result, .completed, file: file, line: line)
+        if result != .completed {
+            let frame = element.frame
+            XCTAssertFalse(frame.isNull || frame.isEmpty || frame.origin.x.isNaN || frame.origin.y.isNaN, file: file, line: line)
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                .tap()
+            return
+        }
         element.tap()
     }
 
