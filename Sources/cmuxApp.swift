@@ -6541,7 +6541,7 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("automation.claudeCodeNotificationHook"),
                             String(localized: "settings.automation.claudeCode.notificationHook", defaultValue: "Claude Code Idle Notifications"),
-                            subtitle: String(localized: "settings.automation.claudeCode.notificationHook.subtitle", defaultValue: "Notify when Claude Code reports that it is waiting for input. Completion notifications still use the Stop hook.")
+                            subtitle: String(localized: "settings.automation.claudeCode.notificationHook.subtitle", defaultValue: "Notify when Claude Code reports that it is waiting for input. Completion notifications are unaffected.")
                         ) {
                             Toggle("", isOn: $claudeCodeNotificationHookEnabled)
                                 .labelsHidden()
