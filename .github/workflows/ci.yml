@@ -33,6 +33,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate CI skips zig Ghostty helper builds on macOS
+        run: ./tests/test_ci_skip_zig_build_guard.sh
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -161,6 +164,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
+    env:
+      CMUX_SKIP_ZIG_BUILD: 1
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -335,6 +340,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
+    env:
+      CMUX_SKIP_ZIG_BUILD: 1
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -606,6 +613,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
+    env:
+      CMUX_SKIP_ZIG_BUILD: 1
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
