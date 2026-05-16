@@ -175,10 +175,14 @@ extension AgentLaunchSanitizer {
             "-m",
             "--permission-mode",
             "--reasoning-effort",
+            "--resume",
+            "-r",
             "--rules",
             "--sandbox",
             "--system-prompt-override",
-            "--tools"
+            "--tools",
+            "--worktree",
+            "-w"
         ],
         optionalValueOptions: [
             "--resume",
