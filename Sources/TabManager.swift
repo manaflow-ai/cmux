@@ -948,6 +948,13 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
+#if DEBUG
+    /// Test hook: intercepts the window close that fires when the last workspace is closed
+    /// (e.g. Cmd+W on the last surface). When set, this handler is called instead of
+    /// `window.performClose(nil)`, avoiding Ghostty surface teardown that blocks on CI.
+    var debugLastWorkspaceWindowCloseHandler: ((NSWindow) -> Void)?
+#endif
+
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
@@ -4632,6 +4639,12 @@ class TabManager: ObservableObject {
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
             if let window {
+#if DEBUG
+                if let debugLastWorkspaceWindowCloseHandler {
+                    debugLastWorkspaceWindowCloseHandler(window)
+                    return
+                }
+#endif
                 window.performClose(nil)
             } else {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)

@@ -1695,18 +1695,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
-    // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
-    // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
-    // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
-    // so XCTSkip can't detect CI from inside the test.
     func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
-
-        // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop.
-        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
 
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
@@ -1719,6 +1712,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(manager.tabs[0].panels.count, 1)
+
+        // Intercept the window close instead of actually performing it. The real
+        // performClose triggers Ghostty surface/PTY teardown which blocks on
+        // headless CI runners (thread joins on renderer + IO threads hang).
+        var closedWindow: NSWindow?
+        manager.debugLastWorkspaceWindowCloseHandler = { window in
+            closedWindow = window
+        }
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -1738,8 +1739,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertNil(
-            self.window(withId: windowId),
+        XCTAssertEqual(
+            closedWindow, targetWindow,
             "Cmd+W on the last surface in the last workspace should close the window"
         )
     }
