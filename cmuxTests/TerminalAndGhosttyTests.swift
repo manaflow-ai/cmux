@@ -4293,6 +4293,18 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testTrimsTrailingSentencePunctuationFromWebURLs() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://docs.x.ai/build/overview."))
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.scheme, "https")
+            XCTAssertEqual(url.host, "docs.x.ai")
+            XCTAssertEqual(url.path, "/build/overview")
+        default:
+            XCTFail("Expected web URL with trailing sentence punctuation to route to embedded browser")
+        }
+    }
+
     func testResolvesBareDomainAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
         switch target {
@@ -4411,6 +4423,20 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
         XCTAssertEqual(
             cmuxResolveQuicklookPathForTesting(
                 "\(strippedPath).",
+                cwd: "/tmp",
+                existingPaths: [strippedPath]
+            ),
+            strippedPath
+        )
+    }
+
+    func testResolveQuicklookExpandsTildeBeforeTryingPunctuationTrimmedMarkdownPath() {
+        let rawPath = "~/.grok/docs/user-guide/10-hooks.md."
+        let strippedPath = ("~/.grok/docs/user-guide/10-hooks.md" as NSString).expandingTildeInPath
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                rawPath,
                 cwd: "/tmp",
                 existingPaths: [strippedPath]
             ),
