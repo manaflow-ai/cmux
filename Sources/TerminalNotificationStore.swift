@@ -673,6 +673,227 @@ struct TerminalNotification: Identifiable, Hashable {
     var paneFlash: Bool = true
 }
 
+struct GrokTerminalNotificationEnricher {
+    static var grokHomeOverrideForTesting: URL?
+
+    static func enriched(
+        title: String,
+        subtitle: String,
+        body: String,
+        cwd: String?
+    ) -> (title: String, subtitle: String, body: String) {
+        guard isGrokTurnCompletion(title: title, body: body) else {
+            return (title, subtitle, body)
+        }
+        guard let summary = latestSessionSummary(cwd: cwd) else {
+            return (title, subtitle, body)
+        }
+
+        let enrichedBody = summary.lastAssistantMessage ?? summary.title
+        guard let enrichedBody, !enrichedBody.isEmpty else {
+            return (title, subtitle, body)
+        }
+
+        return (
+            title: String(localized: "agent.grok.completion.title", defaultValue: "Grok"),
+            subtitle: completedSubtitle(projectName: projectName(fromCWD: cwd)),
+            body: truncate(normalizedSingleLine(enrichedBody), maxLength: 240)
+        )
+    }
+
+    private struct SessionSummary {
+        let title: String?
+        let lastAssistantMessage: String?
+    }
+
+    private static func isGrokTurnCompletion(title: String, body: String) -> Bool {
+        guard title.range(of: "grok", options: [.caseInsensitive, .diacriticInsensitive]) != nil else {
+            return false
+        }
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedBody.range(
+            of: #"^turn complete in [0-9]+(?:\.[0-9]+)?s\.?$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private static func latestSessionSummary(cwd: String?) -> SessionSummary? {
+        let sessionsRoot = grokHomeURL().appendingPathComponent("sessions", isDirectory: true)
+        guard let sessionDirectory = latestSessionDirectory(sessionsRoot: sessionsRoot, cwd: cwd) else {
+            return nil
+        }
+
+        let title = sessionTitle(
+            at: sessionDirectory.appendingPathComponent("summary.json", isDirectory: false)
+        )
+        let assistantMessage = lastAssistantMessage(
+            at: sessionDirectory.appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        )
+
+        guard title != nil || assistantMessage != nil else { return nil }
+        return SessionSummary(title: title, lastAssistantMessage: assistantMessage)
+    }
+
+    private static func latestSessionDirectory(sessionsRoot: URL, cwd: String?) -> URL? {
+        if let cwd, !cwd.isEmpty {
+            let encodedCWD = encodedSessionCWD(NSString(string: cwd).expandingTildeInPath)
+            let projectDirectory = sessionsRoot.appendingPathComponent(encodedCWD, isDirectory: true)
+            if let sessionDirectory = newestSessionDirectory(in: projectDirectory) {
+                return sessionDirectory
+            }
+        }
+
+        guard let projectDirectories = try? FileManager.default.contentsOfDirectory(
+            at: sessionsRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        return projectDirectories
+            .compactMap { newestSessionDirectory(in: $0) }
+            .max { sessionSortDate($0) < sessionSortDate($1) }
+    }
+
+    private static func newestSessionDirectory(in projectDirectory: URL) -> URL? {
+        guard (try? projectDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+              let sessionDirectories = try? FileManager.default.contentsOfDirectory(
+                at: projectDirectory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+              )
+        else { return nil }
+
+        return sessionDirectories
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .max { sessionSortDate($0) < sessionSortDate($1) }
+    }
+
+    private static func sessionSortDate(_ sessionDirectory: URL) -> Date {
+        let candidates = [
+            sessionDirectory.appendingPathComponent("chat_history.jsonl", isDirectory: false),
+            sessionDirectory.appendingPathComponent("summary.json", isDirectory: false),
+            sessionDirectory,
+        ]
+        return candidates
+            .compactMap {
+                try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            }
+            .max()
+            ?? .distantPast
+    }
+
+    private static func grokHomeURL() -> URL {
+        if let grokHomeOverrideForTesting {
+            return grokHomeOverrideForTesting
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".grok", isDirectory: true)
+    }
+
+    private static func encodedSessionCWD(_ cwd: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
+    }
+
+    private static func sessionTitle(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return firstString(in: object, keys: ["session_summary", "generated_title"])
+    }
+
+    private static func lastAssistantMessage(at url: URL) -> String? {
+        guard let content = tailString(at: url, maxBytes: 128 * 1024) else { return nil }
+
+        var lastAssistantMessage: String?
+        for line in content.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let lineData = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  object["type"] as? String == "assistant",
+                  let text = assistantText(from: object)
+            else { continue }
+            lastAssistantMessage = text
+        }
+        return lastAssistantMessage
+    }
+
+    private static func tailString(at url: URL, maxBytes: UInt64) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+
+        let size = (try? handle.seekToEnd()) ?? 0
+        let offset = size > maxBytes ? size - maxBytes : 0
+        do {
+            try handle.seek(toOffset: offset)
+            let data = try handle.readToEnd() ?? Data()
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func assistantText(from object: [String: Any]) -> String? {
+        if let text = object["content"] as? String {
+            let normalized = normalizedSingleLine(text)
+            return normalized.isEmpty ? nil : normalized
+        }
+        if let blocks = object["content"] as? [[String: Any]] {
+            let text = blocks.compactMap { block -> String? in
+                guard (block["type"] as? String) == "text",
+                      let text = block["text"] as? String else { return nil }
+                let normalized = normalizedSingleLine(text)
+                return normalized.isEmpty ? nil : normalized
+            }
+            .joined(separator: " ")
+            return text.isEmpty ? nil : text
+        }
+        return nil
+    }
+
+    private static func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = object[key] as? String else { continue }
+            let normalized = normalizedSingleLine(value)
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+        return nil
+    }
+
+    private static func completedSubtitle(projectName: String?) -> String {
+        guard let projectName, !projectName.isEmpty else {
+            return String(localized: "agent.codex.completion.subtitle.completed", defaultValue: "Completed")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "agent.codex.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+            projectName
+        )
+    }
+
+    private static func projectName(fromCWD cwd: String?) -> String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        let path = NSString(string: cwd).expandingTildeInPath
+        let tail = URL(fileURLWithPath: path).lastPathComponent
+        return tail.isEmpty ? path : tail
+    }
+
+    private static func normalizedSingleLine(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func truncate(_ value: String, maxLength: Int) -> String {
+        guard value.count > maxLength else { return value }
+        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 3))
+        return String(value[..<index]) + "..."
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -1221,14 +1442,20 @@ final class TerminalNotificationStore: ObservableObject {
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let enrichedNotification = GrokTerminalNotificationEnricher.enriched(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            cwd: cwd
+        )
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: title,
-                subtitle: subtitle,
-                body: body,
+                title: enrichedNotification.title,
+                subtitle: enrichedNotification.subtitle,
+                body: enrichedNotification.body,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel

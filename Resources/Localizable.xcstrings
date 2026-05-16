@@ -20669,6 +20669,23 @@
         }
       }
     },
+    "agent.grok.completion.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        }
+      }
+    },
     "agent.codex.error.status.auth": {
       "extractionState": "manual",
       "localizations": {

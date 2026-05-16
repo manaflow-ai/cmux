@@ -949,6 +949,77 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(localFeedbackNotificationIDs, [createdNotificationID])
     }
 
+    func testGrokOSCTurnCompleteNotificationUsesPersistedAssistantMessage() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("AppDelegate.shared must be set for this test")
+            return
+        }
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-osc-\(UUID().uuidString)", isDirectory: true)
+        let grokHome = root.appendingPathComponent(".grok", isDirectory: true)
+        let workspaceURL = root.appendingPathComponent("fun", isDirectory: true)
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalGrokHomeOverride = GrokTerminalNotificationEnricher.grokHomeOverrideForTesting
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        GrokTerminalNotificationEnricher.grokHomeOverrideForTesting = grokHome
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            GrokTerminalNotificationEnricher.grokHomeOverrideForTesting = originalGrokHomeOverride
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        var grokSessionAllowedCharacters = CharacterSet.alphanumerics
+        grokSessionAllowedCharacters.insert(charactersIn: "-._~")
+        let encodedSessionCWD = workspaceURL.path.addingPercentEncoding(withAllowedCharacters: grokSessionAllowedCharacters)
+            ?? workspaceURL.path
+        let sessionDirectory = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(encodedSessionCWD, isDirectory: true)
+            .appendingPathComponent("019e2e3c-5aac-7012-a9cc-5284c9aa94ce", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try #"{"session_summary":"Fix Grok OSC notifications"}"#
+            .write(to: sessionDirectory.appendingPathComponent("summary.json"), atomically: true, encoding: .utf8)
+        try """
+        {"type":"user","content":[{"type":"text","text":"make the notification useful"}]}
+        {"type":"assistant","content":"Inspected the terminal notification path and replaced the generic Grok completion text."}
+        """
+        .write(to: sessionDirectory.appendingPathComponent("chat_history.jsonl"), atomically: true, encoding: .utf8)
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected selected workspace with a focused terminal panel")
+            return
+        }
+        workspace.updatePanelDirectory(panelId: terminalPanel.id, directory: workspaceURL.path)
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Waiting - grok",
+            subtitle: "",
+            body: "Turn complete in 4.1s."
+        )
+
+        let notification = try XCTUnwrap(store.notifications.first)
+        XCTAssertEqual(notification.title, "Grok")
+        XCTAssertEqual(notification.subtitle, "Completed in fun")
+        XCTAssertTrue(notification.body.contains("Inspected the terminal notification path"), notification.body)
+        XCTAssertFalse(notification.body.contains("Turn complete"), notification.body)
+    }
+
     func testFocusedTerminalSuppressedNotificationRunsCustomCommand() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("AppDelegate.shared must be set for this test")
