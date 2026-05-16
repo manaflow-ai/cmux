@@ -4796,7 +4796,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
-    @MainActor
     func liveSurfaceForGhosttyAccess(reason: String) -> ghostty_surface_t? {
         guard hasLiveSurface, let surface else { return nil }
         let registry = TerminalSurfaceRegistry.shared
@@ -5638,7 +5637,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         cmuxDebugLog("forceRefresh: \(id) reason=\(reason) \(viewState)")
         #endif
         guard let view = attachedView,
-              let surface,
+              surface != nil,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
@@ -5772,7 +5771,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        sendInputResult(text).accepted
+        return sendInputResult(text).accepted
     }
 
     @discardableResult
@@ -5919,9 +5918,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             return nil
         }
-        return MainActor.assumeIsolated {
-            liveSurfaceForGhosttyAccess(reason: reason)
-        }
+        return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
     // Socket/API operations are an explicit runtime demand: they must be able to
