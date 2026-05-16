@@ -9479,7 +9479,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, opencode, pi, amp, cursor, gemini, grok, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -9494,11 +9494,13 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.config/amp/plugins/cmux-session.ts
+              ~/.grok/hooks/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
               cmux hooks setup
               cmux hooks setup --agent codex
+              cmux hooks setup grok
               cmux hooks setup rovo
               cmux hooks uninstall rovo
               cmux hooks codex install
@@ -17521,9 +17523,9 @@ struct CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "turn_id", "turnId",
+            "tool_name", "toolName", "turn_id", "turnId",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
-            "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "source",
+            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source",
             "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
         ] {
@@ -17532,7 +17534,7 @@ struct CMUXCLI {
             }
         }
 
-        if let toolInput = object["tool_input"] as? [String: Any] {
+        if let toolInput = (object["tool_input"] as? [String: Any]) ?? (object["toolInput"] as? [String: Any]) {
             var compactToolInput: [String: Any] = [:]
             for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
@@ -17601,7 +17603,7 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "turn_id", "turnId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
             return 80
         case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
@@ -19246,10 +19248,10 @@ struct CMUXCLI {
                 break
             }
         }
-        // Layer in Feed bridge entries with a long (120000 ms = 120s)
-        // timeout so blocking user decisions don't trip the agent's
-        // default per-event timeout.
-        let feedTimeoutMs = 120_000
+        // Layer in Feed bridge entries with a long timeout so blocking user
+        // decisions don't trip the agent's default per-event timeout. Most
+        // nested-hook agents use milliseconds; Grok's hook files use seconds.
+        let feedTimeoutMs = def.name == "grok" ? 120 : 120_000
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
             switch def.format {
@@ -19900,9 +19902,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
-            return
+        var configDirIsDirectory = ObjCBool(false)
+        if !fm.fileExists(atPath: configDir, isDirectory: &configDirIsDirectory) {
+            if def.name == "grok" {
+                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+            } else {
+                print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
+                return
+            }
+        } else if !configDirIsDirectory.boolValue {
+            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
         }
 
         var existing: [String: Any] = [:]
@@ -21034,11 +21043,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             event["workspace_id"] = workspaceId
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
-        let toolName = parsedInput.object?["tool_name"] as? String
+        let toolName = (parsedInput.object?["tool_name"] as? String)
+            ?? (parsedInput.object?["toolName"] as? String)
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
-        if let toolInput = parsedInput.object?["tool_input"] {
+        if let toolInput = parsedInput.object?["tool_input"] ?? parsedInput.object?["toolInput"] {
             event["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -21362,10 +21372,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let toolName, let dict = feedToolInputDictionary(toolInput) else { return nil }
         let lower = toolName.lowercased()
         var summary: String?
-        if lower == "bash" {
+        if lower == "bash" || lower == "run_terminal_cmd" {
             summary = firstString(in: dict, keys: ["description", "command"])
-        } else if ["write", "edit", "multiedit", "read"].contains(lower) {
-            summary = firstString(in: dict, keys: ["file_path", "path"])
+        } else if ["write", "edit", "multiedit", "read", "search_replace", "write_file", "read_file"].contains(lower) {
+            summary = firstString(in: dict, keys: ["file_path", "path", "filePath"])
         } else if lower == "askuserquestion" {
             if let questions = dict["questions"] as? [[String: Any]],
                let first = questions.first {
@@ -22885,11 +22895,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Derive the hook event name, mapped to our wire format. Claude
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
         let rawEvent = (stdinObj["hook_event_name"] as? String)
+            ?? (stdinObj["hookEventName"] as? String)
             ?? (stdinObj["event"] as? String)
             ?? optionValue(commandArgs, name: "--event")
             ?? ""
-        let toolName = (stdinObj["tool_name"] as? String) ?? ""
-        let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
+        let toolName = (stdinObj["tool_name"] as? String)
+            ?? (stdinObj["toolName"] as? String)
+            ?? ""
+        let sessionId = (stdinObj["session_id"] as? String)
+            ?? (stdinObj["sessionId"] as? String)
+            ?? UUID().uuidString
 
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
@@ -22913,6 +22928,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case "codex":    envKey = "CMUX_CODEX_PID"
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
+            case "grok":     envKey = "CMUX_GROK_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
             case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
@@ -22938,7 +22954,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput = stdinObj["tool_input"] {
+        if let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] {
             eventDict["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -23085,7 +23101,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         switch event {
-        case "PreToolUse", "beforeShellExecution":
+        case "PreToolUse", "beforeShellExecution", "pre_tool_use":
             if source == "codex" { return ("PreToolUse", false) }
             switch toolName {
             case "ExitPlanMode":
@@ -23105,17 +23121,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         case "PermissionRequest":
             return ("PermissionRequest", true)
-        case "PostToolUse":
+        case "PostToolUse", "post_tool_use":
             return ("PostToolUse", false)
-        case "UserPromptSubmit":
+        case "PostToolUseFailure", "post_tool_use_failure":
+            return ("PostToolUse", false)
+        case "UserPromptSubmit", "user_prompt_submit":
             return ("UserPromptSubmit", false)
-        case "SessionStart":
+        case "SessionStart", "session_start":
             return ("SessionStart", false)
-        case "SessionEnd":
+        case "SessionEnd", "session_end":
             return ("SessionEnd", false)
-        case "Stop", "SubagentStop":
+        case "Stop", "SubagentStop", "stop", "subagent_stop":
             return ("Stop", false)
-        case "Notification":
+        case "Notification", "notification":
             return ("Notification", false)
         default:
             return ("PreToolUse", false)
@@ -23129,11 +23147,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// intentionally excluded.
     private static let sideEffectingTools: Set<String> = [
         "Bash",
+        "bash",
         "Write",
         "Edit",
         "MultiEdit",
         "NotebookEdit",
         "apply_patch",   // Codex
+        "run_terminal_cmd", // Grok
+        "search_replace",   // Grok
+        "write_file",       // Grok
         "shell",         // Codex / other agents
         "terminal",      // Hermes Agent
     ]
@@ -23262,6 +23284,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return "{}"
             }
+            if source == "grok" {
+                if mode == "deny" {
+                    return encode([
+                        "decision": "deny",
+                        "reason": "User denied permission via cmux Feed.",
+                    ])
+                }
+                return encode(["decision": "allow"])
+            }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
@@ -23323,6 +23354,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return "{}"
             }
+            if source == "grok" {
+                if let feedback, !feedback.isEmpty {
+                    return encode([
+                        "decision": "deny",
+                        "reason": "User rejected the plan via cmux Feed and wants this change: \(feedback)",
+                    ])
+                }
+                if mode == "deny" {
+                    return encode([
+                        "decision": "deny",
+                        "reason": "User rejected the plan via cmux Feed.",
+                    ])
+                }
+                return encode(["decision": "allow"])
+            }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
                 return encode(nonClaudePreToolDecision(
@@ -23371,6 +23417,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         message: message
                     ))
                 }
+                if source == "grok" {
+                    return encode([
+                        "decision": "deny",
+                        "reason": message,
+                    ])
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: message,
@@ -23387,6 +23439,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     body = "The user answered: \(selections.joined(separator: ", "))"
                 }
                 return encode(["context": body])
+            }
+            if source == "grok" {
+                let body: String
+                if selections.isEmpty {
+                    body = "The user submitted an empty answer."
+                } else if selections.count == 1 {
+                    body = "The user answered: \(selections[0])"
+                } else {
+                    body = "The user answered: \(selections.joined(separator: ", "))"
+                }
+                return encode([
+                    "decision": "deny",
+                    "reason": "[cmux Feed] \(body). Treat this as the user's response and continue without asking the same question again.",
+                ])
             }
             if source == "claude" {
                 let updatedInput = claudeAskUserQuestionInput(
@@ -23681,7 +23747,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && (def.name == "rovodev" || def.name == "grok"))
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1

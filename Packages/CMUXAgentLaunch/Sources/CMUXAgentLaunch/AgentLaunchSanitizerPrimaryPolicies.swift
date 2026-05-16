@@ -347,6 +347,94 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    static let grokPolicy = Policy(
+        valueOptions: [
+            "--agent",
+            "--agents",
+            "--allow",
+            "--best-of-n",
+            "--cwd",
+            "--deny",
+            "--disallowed-tools",
+            "--effort",
+            "--max-turns",
+            "--model",
+            "-m",
+            "--output-format",
+            "--permission-mode",
+            "--prompt-file",
+            "--prompt-json",
+            "--reasoning-effort",
+            "--resume",
+            "-r",
+            "--rules",
+            "--sandbox",
+            "--single",
+            "-p",
+            "--system-prompt-override",
+            "--tools",
+            "--worktree",
+            "-w"
+        ],
+        optionalValueOptions: [
+            "--resume",
+            "-r",
+            "--worktree",
+            "-w"
+        ],
+        variadicOptions: [
+            "--allow",
+            "--deny"
+        ],
+        nonRestorableCommands: [
+            "agent",
+            "help",
+            "import",
+            "inspect",
+            "leader",
+            "login",
+            "mcp",
+            "memory",
+            "models",
+            "sessions",
+            "setup",
+            "share",
+            "ssh",
+            "trace",
+            "update",
+            "version",
+            "worktree"
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--resume",
+            "-r",
+            "--worktree",
+            "-w"
+        ],
+        droppedOptionPrefixes: [
+            "--resume=",
+            "-r=",
+            "--worktree=",
+            "-w="
+        ],
+        rejectOptions: [
+            "--best-of-n",
+            "--check",
+            "--help",
+            "-h",
+            "--output-format",
+            "--prompt-file",
+            "--prompt-json",
+            "--single",
+            "-p",
+            "--verbatim",
+            "--version",
+            "-v"
+        ]
+    )
+
     static let cursorPolicy = Policy(
         valueOptions: [
             "--api-key",

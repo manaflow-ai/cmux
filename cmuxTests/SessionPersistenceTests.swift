@@ -1408,7 +1408,7 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
-            case .cursor, .rovodev, .factory, .custom:
+            case .cursor, .grok, .rovodev, .factory, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]

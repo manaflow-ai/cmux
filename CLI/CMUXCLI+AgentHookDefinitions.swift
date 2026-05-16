@@ -160,6 +160,19 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
+            name: "grok", displayName: "Grok", statusKey: "grok",
+            configDir: ".grok/hooks", configFile: "cmux.json",
+            sessionStoreSuffix: "grok", disableEnvVar: "CMUX_GROK_HOOKS_DISABLED",
+            hookMarker: "cmux hooks grok", format: .nested(timeoutMs: 5),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            feedHookEvents: ["PreToolUse", "PostToolUse", "Notification"]
+        ),
+        AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
             configDir: ".rovodev", configFile: "config.yml", binaryName: "acli",
             sessionStoreSuffix: "rovodev", disableEnvVar: "CMUX_ROVODEV_HOOKS_DISABLED",

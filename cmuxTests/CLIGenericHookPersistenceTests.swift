@@ -72,6 +72,43 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
             ),
             GenericHookPersistenceScenario(
+                agent: "grok",
+                subcommand: "prompt-submit",
+                sessionId: "grok-session-123",
+                executable: "/Users/example/.grok/bin/grok",
+                launchArguments: [
+                    "/Users/example/.grok/bin/grok",
+                    "--model",
+                    "grok-build",
+                    "--resume",
+                    "old-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--allow",
+                    "run_terminal_cmd",
+                    "--permission-mode",
+                    "default",
+                    "--worktree",
+                    "scratch"
+                ],
+                extraEnvironment: [
+                    "GROK_SANDBOX": "danger-full-access",
+                    "GROK_CODE_XAI_API_KEY": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.grok/bin/grok",
+                    "--model",
+                    "grok-build",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--allow",
+                    "run_terminal_cmd",
+                    "--permission-mode",
+                    "default"
+                ],
+                expectedEnvironment: ["GROK_SANDBOX": "danger-full-access"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "copilot",
                 subcommand: "session-start",
                 sessionId: "copilot-session-123",
@@ -276,5 +313,114 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+    }
+
+    func testGrokSetupCreatesGlobalHooksFile() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-hooks-\(UUID().uuidString)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let fakeGrokURL = binDir.appendingPathComponent("grok", isDirectory: false)
+
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeGrokURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGrokURL.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "grok", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("grok:"), result.stdout)
+
+        let hooksURL = root
+            .appendingPathComponent(".grok/hooks", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        let hooksData = try Data(contentsOf: hooksURL)
+        let hooksObject = try JSONSerialization.jsonObject(with: hooksData)
+        let json = try XCTUnwrap(hooksObject as? [String: Any])
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+
+        let sessionStart = try XCTUnwrap((hooks["SessionStart"] as? [[String: Any]])?.first)
+        let sessionHook = try XCTUnwrap((sessionStart["hooks"] as? [[String: Any]])?.first)
+        XCTAssertEqual(sessionHook["timeout"] as? Int, 5)
+        XCTAssertTrue((sessionHook["command"] as? String)?.contains("cmux hooks grok session-start") == true)
+
+        let preToolUse = try XCTUnwrap((hooks["PreToolUse"] as? [[String: Any]])?.first)
+        let feedHook = try XCTUnwrap((preToolUse["hooks"] as? [[String: Any]])?.first)
+        XCTAssertEqual(feedHook["timeout"] as? Int, 120)
+        XCTAssertTrue((feedHook["command"] as? String)?.contains("cmux hooks feed --source grok --event PreToolUse") == true)
+    }
+
+    func testGrokFeedHookAcceptsCamelCasePayloadAndRendersDecision() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-feed")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "feed.push" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected_method", "message": method])
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "status": "resolved",
+                    "decision": ["kind": "permission", "mode": "deny"],
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "grok", "--event", "PreToolUse"],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"sessionId":"grok-session-123","hookEventName":"pre_tool_use","cwd":"/tmp/grok repo","toolName":"run_terminal_cmd","toolInput":{"command":"npm test"}}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let stdoutObject = try JSONSerialization.jsonObject(with: Data(result.stdout.utf8))
+        let stdout = try XCTUnwrap(stdoutObject as? [String: Any])
+        XCTAssertEqual(stdout["decision"] as? String, "deny")
+        XCTAssertEqual(stdout["reason"] as? String, "User denied permission via cmux Feed.")
+
+        let request = try XCTUnwrap(state.commands.compactMap { self.jsonObject($0) }.first)
+        let params = try XCTUnwrap(request["params"] as? [String: Any])
+        let event = try XCTUnwrap(params["event"] as? [String: Any])
+        XCTAssertEqual(event["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(event["tool_name"] as? String, "run_terminal_cmd")
+        XCTAssertEqual(event["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(event["session_id"] as? String, "grok-grok-session-123")
     }
 }

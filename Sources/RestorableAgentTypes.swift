@@ -7,6 +7,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case amp
     case cursor
     case gemini
+    case grok
     case opencode
     case rovodev
     case hermesAgent
@@ -24,6 +25,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .amp,
         .cursor,
         .gemini,
+        .grok,
         .opencode,
         .rovodev,
         .hermesAgent,
@@ -42,6 +44,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "amp": self = .amp
         case "cursor": self = .cursor
         case "gemini": self = .gemini
+        case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -63,6 +66,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .amp: return "amp"
         case .cursor: return "cursor"
         case .gemini: return "gemini"
+        case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"

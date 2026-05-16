@@ -211,6 +211,37 @@ extension SocketListenerAcceptPolicyTests {
                 source: "process"
             )
         )
+        let grok = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "grok-session-123",
+            workingDirectory: "/tmp/grok repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "/Users/example/.grok/bin/grok",
+                arguments: [
+                    "/Users/example/.grok/bin/grok",
+                    "--model",
+                    "grok-build",
+                    "--resume",
+                    "old-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--allow",
+                    "run_terminal_cmd",
+                    "--permission-mode",
+                    "default",
+                    "--worktree",
+                    "scratch"
+                ],
+                workingDirectory: "/tmp/grok repo",
+                environment: [
+                    "GROK_SANDBOX": "danger-full-access",
+                    "GROK_CODE_XAI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
         let pi = SessionRestorableAgentSnapshot(
             kind: .pi, sessionId: "pi-session-123", workingDirectory: "/tmp/pi repo",
             launchCommand: AgentLaunchCommandSnapshot(
@@ -264,6 +295,10 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertEqual(
             qoder.resumeCommand,
             "cd '/tmp/qoder repo' && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
+        )
+        XCTAssertEqual(
+            grok.resumeCommand,
+            "cd '/tmp/grok repo' && 'env' 'GROK_SANDBOX=danger-full-access' '/Users/example/.grok/bin/grok' '--resume' 'grok-session-123' '--model' 'grok-build' '--sandbox' 'danger-full-access' '--allow' 'run_terminal_cmd' '--permission-mode' 'default'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(
@@ -542,6 +577,17 @@ extension SocketListenerAcceptPolicyTests {
                 "--workspace",
                 "/tmp/qoder repo"
             ]
+        )
+        XCTAssertNil(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.grok/bin/grok",
+                    "-p",
+                    "single-turn prompts should not restore"
+                ],
+                launcher: "grok",
+                fallbackKind: "grok"
+            )
         )
     }
 }

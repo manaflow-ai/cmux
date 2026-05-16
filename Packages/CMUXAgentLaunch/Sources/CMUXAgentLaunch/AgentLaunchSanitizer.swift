@@ -94,6 +94,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(tail, policy: cursorPolicy)
         case "gemini":
             return preserveOptions(args, policy: geminiPolicy)
+        case "grok":
+            return preserveOptions(args, policy: grokPolicy)
         case "opencode":
             return preserveOptions(
                 args.filter { !isOpenCodeInternalWorkerArgument($0) },

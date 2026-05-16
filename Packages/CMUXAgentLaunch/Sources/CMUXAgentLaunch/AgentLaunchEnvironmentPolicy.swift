@@ -55,6 +55,7 @@ public enum AgentLaunchEnvironmentPolicy {
         "COPILOT_PROVIDER_WIRE_API",
         "COPILOT_PROVIDER_WIRE_MODEL",
         "GEMINI_CLI_HOME",
+        "GROK_SANDBOX",
         "GH_HOST",
         "HERMES_HOME",
         "NODE_OPTIONS",
