@@ -4688,6 +4688,14 @@ struct CMUXCLI {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
         if isUUID(trimmed) || isHandleRef(trimmed) {
+            if let windowHandle {
+                return try validatePaneHandleInWindow(
+                    trimmed,
+                    client: client,
+                    workspaceHandle: workspaceHandle,
+                    windowHandle: windowHandle
+                )
+            }
             return trimmed
         }
         guard let wantedIndex = Int(trimmed) else {
@@ -4707,6 +4715,81 @@ struct CMUXCLI {
             return (item["id"] as? String) ?? (item["ref"] as? String)
         }
         throw CLIError(message: "Pane index not found")
+    }
+
+    private func validatePaneHandleInWindow(
+        _ paneHandle: String,
+        client: SocketClient,
+        workspaceHandle: String?,
+        windowHandle: String
+    ) throws -> String {
+        if let workspaceHandle {
+            if let matched = try matchingPaneHandleInWorkspace(
+                paneHandle,
+                client: client,
+                workspaceHandle: workspaceHandle,
+                windowHandle: windowHandle
+            ) {
+                return matched
+            }
+            throw CLIError(message: "Pane not found in window")
+        }
+
+        let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+        let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+        for workspace in workspaces {
+            guard let workspaceHandle = (workspace["id"] as? String) ?? (workspace["ref"] as? String) else {
+                continue
+            }
+            if let matched = try matchingPaneHandleInWorkspace(
+                paneHandle,
+                client: client,
+                workspaceHandle: workspaceHandle,
+                windowHandle: windowHandle
+            ) {
+                return matched
+            }
+        }
+        throw CLIError(message: "Pane not found in window")
+    }
+
+    private func matchingPaneHandleInWorkspace(
+        _ paneHandle: String,
+        client: SocketClient,
+        workspaceHandle: String,
+        windowHandle: String
+    ) throws -> String? {
+        let listed = try client.sendV2(
+            method: "pane.list",
+            params: [
+                "workspace_id": workspaceHandle,
+                "window_id": windowHandle,
+            ]
+        )
+        let panes = listed["panes"] as? [[String: Any]] ?? []
+        for pane in panes where paneHandleMatches(paneHandle, item: pane) {
+            return (pane["id"] as? String) ?? (pane["ref"] as? String) ?? paneHandle
+        }
+        return nil
+    }
+
+    private func paneHandleMatches(_ handle: String, item: [String: Any]) -> Bool {
+        guard let target = normalizedHandleValue(handle) else { return false }
+        for candidate in [item["id"] as? String, item["ref"] as? String] {
+            guard let candidate = normalizedHandleValue(candidate) else { continue }
+            if handlesMatch(target, candidate) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func handlesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        if let lhsUUID = UUID(uuidString: lhs),
+           let rhsUUID = UUID(uuidString: rhs) {
+            return lhsUUID == rhsUUID
+        }
+        return lhs.lowercased() == rhs.lowercased()
     }
 
     func normalizeSurfaceHandle(

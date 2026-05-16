@@ -145,6 +145,63 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(missingData["window_ref"])
     }
 
+    func testPaneFocusWindowSelectorRejectsPaneFromOtherWindow() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId1 = UUID()
+        let windowId2 = UUID()
+        let window1 = makeMainWindow(id: windowId1)
+        let window2 = makeMainWindow(id: windowId2)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId1)
+            app.unregisterMainWindowContextForTesting(windowId: windowId2)
+            window1.orderOut(nil)
+            window2.orderOut(nil)
+        }
+
+        let manager1 = TabManager()
+        let manager2 = TabManager()
+        app.registerMainWindow(
+            window1,
+            windowId: windowId1,
+            tabManager: manager1,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            window2,
+            windowId: windowId2,
+            tabManager: manager2,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager1)
+
+        let workspace1 = try XCTUnwrap(manager1.selectedWorkspace)
+        let workspace2 = try XCTUnwrap(manager2.selectedWorkspace)
+        let surface2 = try XCTUnwrap(workspace2.focusedPanelId)
+        let pane2 = try XCTUnwrap(workspace2.paneId(forPanelId: surface2)?.id)
+
+        let error = try v2Error(
+            method: "pane.focus",
+            params: [
+                "window_id": windowId1.uuidString,
+                "pane_id": pane2.uuidString,
+            ]
+        )
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(manager1.selectedTabId, workspace1.id)
+        XCTAssertEqual(manager2.selectedTabId, workspace2.id)
+    }
+
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

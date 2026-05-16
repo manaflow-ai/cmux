@@ -1041,6 +1041,88 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testFocusPaneWindowFlagRejectsPaneFromOtherWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pane-other-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetWindowId = "11111111-1111-1111-1111-111111111111"
+        let targetWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let targetPaneId = "33333333-3333-3333-3333-333333333333"
+        let otherPaneId = "44444444-4444-4444-4444-444444444444"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": targetWorkspaceId,
+                                "ref": "workspace:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "pane.list":
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "panes": [
+                            [
+                                "id": targetPaneId,
+                                "ref": "pane:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["focus-pane", "--window", targetWindowId, "--pane", otherPaneId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Pane not found in window"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.list", "pane.list"]
+        )
+    }
+
     func testVMNewWindowFlagValidatesBeforeCreate() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-window-validate")

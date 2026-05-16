@@ -6004,6 +6004,7 @@ class TerminalController {
         }
         if let paneId = v2UUID(params, "pane_id"),
            let located = v2LocatePane(paneId) {
+            guard located.tabManager === tabManager else { return nil }
             return located.workspace
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
