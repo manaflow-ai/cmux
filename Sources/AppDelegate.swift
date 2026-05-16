@@ -14366,7 +14366,7 @@ private extension AppDelegate {
         if let cell = sender as? NSCell {
             return cell.controlView?.window
         }
-        return nil
+        return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {

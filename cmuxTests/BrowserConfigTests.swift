@@ -2338,6 +2338,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { inspectorWindow.orderOut(nil) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
@@ -2368,6 +2369,62 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             willCloseNotificationCount,
             0,
             "The intercepted close-button action should not fall through to AppKit's window close path"
+        )
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+    }
+
+    func testDetachedInspectorNilTargetCloseActionUsesKeyWindow() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { inspectorWindow.orderOut(nil) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(
+            inspector.closeCount,
+            1,
+            "Menu and keyboard close actions without an explicit target must still route through inspector teardown"
         )
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
