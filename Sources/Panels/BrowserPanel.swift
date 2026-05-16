@@ -1020,6 +1020,14 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+func browserShouldRouteExternalNavigation(_ url: URL, targetFrameIsMainFrame: Bool?) -> Bool {
+    targetFrameIsMainFrame != false && browserShouldOpenURLExternally(url)
+}
+
+func browserIntentFallbackURL(for url: URL) -> URL? {
+    nil
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
