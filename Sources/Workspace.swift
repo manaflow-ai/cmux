@@ -11838,7 +11838,7 @@ final class Workspace: Identifiable, ObservableObject {
                 inPane: targetPaneId,
                 reassertAppKitFocus: !shouldSuppressReentrantRefocus,
                 focusIntent: activationIntent,
-                resumeHibernatedAgent: shouldTreatCurrentEventAsExplicitFocusIntent(),
+                resumeHibernatedAgent: true,
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
@@ -13481,7 +13481,9 @@ extension Workspace: BonsplitDelegate {
         if explicitFocusIntent {
             markExplicitFocusIntent(on: effectiveFocusedPanelId)
         }
-        let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? explicitFocusIntent
+        // Selecting a hibernated tab means the user is visiting it again. Resume by
+        // default so sidebar/tab selection behaves the same as pressing Resume.
+        let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? true
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId

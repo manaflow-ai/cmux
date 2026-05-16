@@ -55,17 +55,16 @@ Agent Hibernation is opt-in. It can free old background terminals only when all 
 - the number of live restorable agent terminals is above the configured limit
 - the panel is not currently visible
 
-cmux double-checks the terminal tail before hibernating. A hibernated terminal stays as a placeholder and resumes only when you focus its tab or press Resume.
+cmux double-checks the terminal tail before hibernating. A hibernated terminal stays as a placeholder while it is in the background and automatically resumes when you visit its tab. The Resume button is a fallback for manual retry.
 
 Enable it from **Settings > Terminal > Agent Hibernation**, or from the CLI:
 
 ```bash
 cmux agent-hibernation on
-cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12
-cmux agent-hibernation status
+cmux agent-hibernation off
 ```
 
-You can also set it in `~/.config/cmux/cmux.json`:
+Configure the idle window and live-terminal limit from Settings, or set them in `~/.config/cmux/cmux.json`:
 
 ```json
 {

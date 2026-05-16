@@ -189,6 +189,30 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(snapshot.resumeCommand, "cd '/tmp/custom-agent' && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
     }
 
+    @MainActor
+    func testFocusingHibernatedTerminalAutomaticallyPreparesResume() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-auto-resume-on-visit",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        panel.enterAgentHibernation(
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            hibernatedAt: Date(timeIntervalSince1970: 10)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        workspace.focusPanel(panelId)
+
+        XCTAssertFalse(panel.isAgentHibernated)
+    }
+
     private func launch(
         _ launcher: String,
         _ executablePath: String,

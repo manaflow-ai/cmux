@@ -66,7 +66,7 @@ Environment:
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
-| `agent-hibernation` | Print, enable, disable, or configure Agent Hibernation. |
+| `agent-hibernation` | Enable or disable Agent Hibernation. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
@@ -389,7 +389,7 @@ the expected text without connecting to a cmux socket.
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
-- `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <status|on|off|set>`
+- `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`

@@ -9473,9 +9473,10 @@ struct CMUXCLI {
             """
         case "agent-hibernation":
             return """
-            Usage: cmux agent-hibernation <status|on|off|set> [--idle-seconds <seconds>] [--max-live-terminals <count>] [--json]
+            Usage: cmux agent-hibernation <on|off> [--json]
 
-            Toggle Agent Hibernation or update its idle and live-terminal limits.
+            Enable or disable Agent Hibernation.
+            Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
         case "restore-session":
             return """
@@ -17257,38 +17258,17 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        let subcommand = commandArgs.first?.lowercased() ?? "status"
-        let rest = Array(commandArgs.dropFirst())
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "Usage: cmux agent-hibernation <on|off>")
+        }
         let response: String
         switch subcommand {
-        case "status":
-            response = try sendV1Command("agent_hibernation status", client: client)
         case "on", "enable":
             response = try sendV1Command("agent_hibernation on", client: client)
         case "off", "disable":
             response = try sendV1Command("agent_hibernation off", client: client)
-        case "set":
-            var command = "agent_hibernation set"
-            let idle = optionValue(rest, name: "--idle-seconds") ?? optionValue(rest, name: "--idleSeconds")
-            let maxLive = optionValue(rest, name: "--max-live-terminals") ?? optionValue(rest, name: "--maxLiveTerminals")
-            if idle == nil && maxLive == nil {
-                throw CLIError(message: "Set agent hibernation parameters by providing at least one of --idle-seconds and/or --max-live-terminals. Example: cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12")
-            }
-            if let idle {
-                guard let parsedIdle = Int(idle), (5...604800).contains(parsedIdle) else {
-                    throw CLIError(message: "--idle-seconds must be an integer from 5 to 604800")
-                }
-                command += " --idle-seconds=\(parsedIdle)"
-            }
-            if let maxLive {
-                guard let parsedMaxLive = Int(maxLive), (1...256).contains(parsedMaxLive) else {
-                    throw CLIError(message: "--max-live-terminals must be an integer from 1 to 256")
-                }
-                command += " --max-live-terminals=\(parsedMaxLive)"
-            }
-            response = try sendV1Command(command, client: client)
         default:
-            throw CLIError(message: "Manage agent hibernation state with one of: status, on, off, or set. Example: cmux agent-hibernation set --idle-seconds 3600 --max-live-terminals 12")
+            throw CLIError(message: "Usage: cmux agent-hibernation <on|off>")
         }
 
         if jsonOutput {
@@ -17297,27 +17277,10 @@ struct CMUXCLI {
             if !ok {
                 fallback["message"] = response
             }
-            print(jsonString(parseAgentHibernationStatus(response: response, fallback: fallback)))
+            print(jsonString(fallback))
         } else {
             print(response)
         }
-    }
-
-    private func parseAgentHibernationStatus(response: String, fallback: [String: Any]) -> [String: Any] {
-        var payload: [String: Any] = [:]
-        for line in response.split(separator: "\n") {
-            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
-            guard parts.count == 2 else { continue }
-            switch parts[0] {
-            case "enabled":
-                payload["enabled"] = parts[1] == "true"
-            case "idle_seconds", "max_live_terminals", "confirmation_seconds":
-                payload[parts[0]] = Int(parts[1]) ?? parts[1]
-            default:
-                payload[parts[0]] = parts[1]
-            }
-        }
-        return payload.isEmpty ? fallback : payload
     }
 
     private func shouldApplyClaudeHookVisibleMutation(
@@ -24324,7 +24287,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
-          agent-hibernation <status|on|off|set>
+          agent-hibernation <on|off>
           restore-session
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear

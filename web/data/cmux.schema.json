@@ -319,7 +319,7 @@
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is focused or the placeholder Resume button is pressed.",
+          "description": "Opt-in Agent Hibernation settings. cmux can suspend old background terminals only when they run a restorable coding agent, the agent lifecycle reports idle, no terminal output has changed for the configured idle window, and the live-terminal limit is exceeded. Hibernated agents resume when their tab is visited; the placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",

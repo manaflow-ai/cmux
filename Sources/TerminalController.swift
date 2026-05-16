@@ -13243,7 +13243,7 @@ class TerminalController {
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
           set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
-          agent_hibernation <status|on|off|set> [--idle-seconds=N] [--max-live-terminals=N] - Configure Agent Hibernation
+          agent_hibernation <on|off> - Enable or disable Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
@@ -16719,52 +16719,15 @@ class TerminalController {
 
     private func agentHibernation(_ args: String) -> String {
         let parsed = parseOptions(args)
-        let subcommand = parsed.positional.first?.lowercased() ?? "status"
-        let usage = "agent_hibernation <status|on|off|set> [--idle-seconds=N] [--max-live-terminals=N]"
+        let subcommand = parsed.positional.first?.lowercased()
+        let usage = "agent_hibernation <on|off>"
 
         switch subcommand {
-        case "status":
-            let values = AgentHibernationSettings.values()
-            return [
-                "enabled=\(values.enabled ? "true" : "false")",
-                "idle_seconds=\(Int(values.idleSeconds))",
-                "max_live_terminals=\(values.maxLiveTerminals)",
-                "confirmation_seconds=\(Int(values.confirmationSeconds))",
-            ].joined(separator: "\n")
-        case "on", "enable", "enabled":
+        case "on", "enable", "enabled", "true":
             AgentHibernationSettings.setValues(enabled: true)
             return "OK"
-        case "off", "disable", "disabled":
+        case "off", "disable", "disabled", "false":
             AgentHibernationSettings.setValues(enabled: false)
-            return "OK"
-        case "set":
-            let idleSeconds: TimeInterval?
-            if let rawIdle = normalizedOptionValue(parsed.options["idle-seconds"] ?? parsed.options["idleSeconds"]) {
-                guard let parsedIdle = Double(rawIdle), parsedIdle.isFinite else {
-                    return "ERROR: Invalid --idle-seconds '\(rawIdle)'"
-                }
-                idleSeconds = parsedIdle
-            } else {
-                idleSeconds = nil
-            }
-
-            let maxLiveTerminals: Int?
-            if let rawMax = normalizedOptionValue(parsed.options["max-live-terminals"] ?? parsed.options["maxLiveTerminals"]) {
-                guard let parsedMax = Int(rawMax) else {
-                    return "ERROR: Invalid --max-live-terminals '\(rawMax)'"
-                }
-                maxLiveTerminals = parsedMax
-            } else {
-                maxLiveTerminals = nil
-            }
-
-            guard idleSeconds != nil || maxLiveTerminals != nil else {
-                return "ERROR: Usage: \(usage)"
-            }
-            AgentHibernationSettings.setValues(
-                idleSeconds: idleSeconds,
-                maxLiveTerminals: maxLiveTerminals
-            )
             return "OK"
         default:
             return "ERROR: Usage: \(usage)"
