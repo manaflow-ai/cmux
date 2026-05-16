@@ -138,8 +138,8 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                // Grok emits user-facing notifications through this hook;
-                // route them through the same completion path as Stop.
+                // Grok uses Notification for user-facing completion notices;
+                // route those through the same completion path as Stop.
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
