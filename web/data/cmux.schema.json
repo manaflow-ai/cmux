@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
   "title": "cmux.json",
-  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, and UI action wiring.",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, notification hooks, and UI action wiring.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -228,6 +228,11 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "workspaceInheritWorkingDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,
@@ -246,12 +251,17 @@
         "preferredEditor": {
           "type": "string",
           "default": "",
-          "description": "Custom editor command used by cmux where applicable. Leave empty to use the default."
+          "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "openSupportedFilesInCmux": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file."
         },
         "openMarkdownInCmuxViewer": {
           "type": "boolean",
           "default": false,
-          "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files in the terminal opens them in the cmux markdown viewer panel (with live reload) instead of the preferred editor."
+          "description": "When enabled together with openSupportedFilesInCmux, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
         "reorderOnNotification": {
           "type": "boolean",
@@ -304,7 +314,7 @@
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit."
+          "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         }
       }
     },
@@ -367,6 +377,46 @@
           "type": "string",
           "default": "",
           "description": "Optional shell command to run alongside notification delivery."
+        },
+        "hooksMode": {
+          "type": "string",
+          "enum": ["append", "replace"],
+          "default": "append",
+          "description": "Controls whether project-local notification hooks append to inherited hooks or replace them."
+        },
+        "hooks": {
+          "type": "array",
+          "default": [],
+          "description": "Composable shell hooks that receive notification policy JSON on stdin and return updated policy JSON on stdout.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "command"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Stable hook identifier used in logs and failure alerts."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Shell command run with notification policy JSON on stdin."
+              },
+              "timeoutSeconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 20,
+                "description": "Maximum time cmux waits for this hook before falling back to default notification behavior."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Disable this hook without removing it."
+              }
+            }
+          }
         }
       }
     },
@@ -380,6 +430,11 @@
           "type": "boolean",
           "default": false,
           "description": "Hide all per-workspace detail rows."
+        },
+        "showWorkspaceDescription": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom workspace descriptions in the sidebar."
         },
         "branchLayout": {
           "type": "string",
@@ -552,7 +607,7 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.03,
-          "description": "Sidebar tint opacity from 0 to 1."
+          "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
         }
       }
     },
@@ -715,6 +770,7 @@
               "openSettings",
               "reloadConfiguration",
               "showHideAllWindows",
+              "globalSearch",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",
@@ -730,6 +786,7 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "markOldestUnreadAndJumpNext",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",

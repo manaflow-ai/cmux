@@ -1429,6 +1429,57 @@ struct BrowserPortalSearchOverlayConfiguration {
     let onFieldDidFocus: () -> Void
 }
 
+struct BrowserPortalOmnibarSuggestionsConfiguration {
+    let panelId: UUID
+    let popupFrame: CGRect
+    let colorScheme: ColorScheme
+    let engineName: String
+    let items: [OmnibarSuggestion]
+    let selectedIndex: Int
+    let isLoadingRemoteSuggestions: Bool
+    let searchSuggestionsEnabled: Bool
+    let onCommit: (OmnibarSuggestion) -> Void
+    let onHighlight: (Int) -> Void
+}
+
+private struct BrowserPortalOmnibarSuggestionsOverlay: View {
+    let configuration: BrowserPortalOmnibarSuggestionsConfiguration
+
+    var body: some View {
+        Color.clear
+            .overlay(alignment: .topLeading) {
+                OmnibarSuggestionsView(
+                    engineName: configuration.engineName,
+                    items: configuration.items,
+                    selectedIndex: configuration.selectedIndex,
+                    isLoadingRemoteSuggestions: configuration.isLoadingRemoteSuggestions,
+                    searchSuggestionsEnabled: configuration.searchSuggestionsEnabled,
+                    onCommit: configuration.onCommit,
+                    onHighlight: configuration.onHighlight
+                )
+                .frame(width: configuration.popupFrame.width)
+                .offset(x: configuration.popupFrame.minX, y: configuration.popupFrame.minY)
+                .environment(\.colorScheme, configuration.colorScheme)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private final class BrowserPortalOmnibarSuggestionsHostingView: NSHostingView<BrowserPortalOmnibarSuggestionsOverlay> {
+    var popupFrameInTopLeftCoordinates: CGRect = .zero
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let topLeftPoint: NSPoint
+        if isFlipped {
+            topLeftPoint = point
+        } else {
+            topLeftPoint = NSPoint(x: point.x, y: bounds.height - point.y)
+        }
+        guard popupFrameInTopLeftCoordinates.contains(topLeftPoint) else { return nil }
+        return super.hitTest(point)
+    }
+}
+
 struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
@@ -1576,6 +1627,7 @@ final class WindowBrowserSlotView: NSView {
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     private var preservesHostedWebViewNativeBounds = false
@@ -1766,6 +1818,7 @@ final class WindowBrowserSlotView: NSView {
                     overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
                 ])
             }
+            bringInteractionLayersToFrontIfNeeded()
             return
         }
 
@@ -1786,6 +1839,64 @@ final class WindowBrowserSlotView: NSView {
         ])
         searchOverlayHostingView = overlay
         logSearchOverlayEvent("create", panelId: configuration.panelId)
+        bringInteractionLayersToFrontIfNeeded()
+    }
+
+    private func logOmnibarSuggestionsEvent(_ action: String, configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.omnibar.portal action=\(action) " +
+            "panel=\(configuration?.panelId.uuidString.prefix(5) ?? "nil") " +
+            "window=\(window?.windowNumber ?? -1) " +
+            "items=\(configuration?.items.count ?? 0) " +
+            "frame=\(browserPortalDebugFrame(configuration?.popupFrame ?? .zero)) " +
+            "hasOverlay=\(omnibarSuggestionsHostingView != nil ? 1 : 0)"
+        )
+#endif
+    }
+
+    func setOmnibarSuggestions(_ configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
+        guard let configuration else {
+            logOmnibarSuggestionsEvent("remove", configuration: nil)
+            omnibarSuggestionsHostingView?.removeFromSuperview()
+            omnibarSuggestionsHostingView = nil
+            return
+        }
+
+        logOmnibarSuggestionsEvent("set", configuration: configuration)
+        let rootView = BrowserPortalOmnibarSuggestionsOverlay(configuration: configuration)
+
+        if let overlay = omnibarSuggestionsHostingView {
+            logOmnibarSuggestionsEvent("updateExisting", configuration: configuration)
+            overlay.rootView = rootView
+            overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
+            if overlay.superview !== self {
+                overlay.removeFromSuperview()
+                addSubview(overlay)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+                ])
+            }
+            bringInteractionLayersToFrontIfNeeded()
+            return
+        }
+
+        let overlay = BrowserPortalOmnibarSuggestionsHostingView(rootView: rootView)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
+        addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        omnibarSuggestionsHostingView = overlay
+        logOmnibarSuggestionsEvent("create", configuration: configuration)
+        bringInteractionLayersToFrontIfNeeded()
     }
 
     private func searchOverlayOwnsFieldEditor(_ fieldEditor: NSTextView, in root: NSView) -> Bool {
@@ -2024,7 +2135,9 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 1 }
+        if view === paneDropTargetView { return 3 }
+        if view === omnibarSuggestionsHostingView { return 2 }
+        if view === searchOverlayHostingView { return 1 }
         return 0
     }
 
@@ -2111,6 +2224,7 @@ final class WindowBrowserPortal: NSObject {
         var dropZone: DropZone?
         var paneDropContext: BrowserPaneDropContext?
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
+        var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
@@ -2435,6 +2549,27 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    private static func omnibarSuggestionsConfigurationsEquivalent(
+        _ lhs: BrowserPortalOmnibarSuggestionsConfiguration?,
+        _ rhs: BrowserPortalOmnibarSuggestionsConfiguration?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.panelId == rhs.panelId &&
+                rectApproximatelyEqual(lhs.popupFrame, rhs.popupFrame, epsilon: 0.5) &&
+                lhs.colorScheme == rhs.colorScheme &&
+                lhs.engineName == rhs.engineName &&
+                lhs.items == rhs.items &&
+                lhs.selectedIndex == rhs.selectedIndex &&
+                lhs.isLoadingRemoteSuggestions == rhs.isLoadingRemoteSuggestions &&
+                lhs.searchSuggestionsEnabled == rhs.searchSuggestionsEnabled
+        default:
+            return false
+        }
+    }
+
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
@@ -2662,12 +2797,14 @@ final class WindowBrowserPortal: NSObject {
         if let existing = entry.containerView {
             existing.setPaneDropContext(entry.paneDropContext)
             existing.setSearchOverlay(entry.searchOverlay)
+            existing.setOmnibarSuggestions(entry.omnibarSuggestions)
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
         }
         let created = WindowBrowserSlotView(frame: .zero)
         created.setPaneDropContext(entry.paneDropContext)
         created.setSearchOverlay(entry.searchOverlay)
+        created.setOmnibarSuggestions(entry.omnibarSuggestions)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
         cmuxDebugLog(
@@ -3072,6 +3209,17 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setSearchOverlay(configuration)
     }
 
+    func updateOmnibarSuggestions(
+        forWebViewId webViewId: ObjectIdentifier,
+        configuration: BrowserPortalOmnibarSuggestionsConfiguration?
+    ) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard !Self.omnibarSuggestionsConfigurationsEquivalent(entry.omnibarSuggestions, configuration) else { return }
+        entry.omnibarSuggestions = configuration
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setOmnibarSuggestions(configuration)
+    }
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         for entry in entriesByWebViewId.values {
             if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
@@ -3142,6 +3290,7 @@ final class WindowBrowserPortal: NSObject {
                 dropZone: nil,
                 paneDropContext: nil,
                 searchOverlay: nil,
+                omnibarSuggestions: nil,
                 paneTopChromeHeight: 0,
                 transientRecoveryReason: nil,
                 transientRecoveryRetriesRemaining: 0
@@ -3178,6 +3327,7 @@ final class WindowBrowserPortal: NSObject {
             dropZone: previousEntry?.dropZone,
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
+            omnibarSuggestions: previousEntry?.omnibarSuggestions,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
@@ -3373,6 +3523,7 @@ final class WindowBrowserPortal: NSObject {
             cancelPendingHostedWebViewRefreshes(for: webViewId)
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
+            containerView.setOmnibarSuggestions(nil)
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
@@ -3834,6 +3985,7 @@ final class WindowBrowserPortal: NSObject {
         }
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
+        containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
@@ -4226,6 +4378,16 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateSearchOverlay(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func updateOmnibarSuggestions(
+        for webView: WKWebView,
+        configuration: BrowserPortalOmnibarSuggestionsConfiguration?
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateOmnibarSuggestions(forWebViewId: webViewId, configuration: configuration)
     }
 
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {

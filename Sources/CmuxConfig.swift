@@ -10,18 +10,20 @@ extension CodingUserInfoKey {
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
+    var notifications: CmuxNotificationConfigDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, newWorkspaceCommand, surfaceTabBarButtons, commands, vault
+        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault
     }
 
     init(
         actions: [String: CmuxConfigActionDefinition] = [:],
         ui: CmuxConfigUIDefinition? = nil,
+        notifications: CmuxNotificationConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
@@ -29,6 +31,7 @@ struct CmuxConfigFile: Codable, Sendable {
     ) {
         self.actions = actions
         self.ui = ui
+        self.notifications = notifications
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
@@ -46,6 +49,7 @@ struct CmuxConfigFile: Codable, Sendable {
             codingPath: decoder.codingPath + [CodingKeys.actions]
         )
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
+        notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
 
         if let rawNewWorkspaceCommand = try container.decodeIfPresent(String.self, forKey: .newWorkspaceCommand) {
             let trimmed = rawNewWorkspaceCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,6 +140,139 @@ struct CmuxConfigFile: Codable, Sendable {
             }
         }
         return buttons
+    }
+}
+
+enum CmuxNotificationHooksMode: String, Codable, Sendable, Hashable {
+    case append
+    case replace
+}
+
+struct CmuxNotificationConfigDefinition: Codable, Sendable, Hashable {
+    var hooks: [CmuxNotificationHookDefinition]?
+    var hooksMode: CmuxNotificationHooksMode?
+
+    private enum CodingKeys: String, CodingKey {
+        case hooks
+        case hooksMode
+    }
+}
+
+struct CmuxNotificationHookDefinition: Codable, Sendable, Hashable {
+    static let defaultTimeoutSeconds: TimeInterval = 20
+
+    var id: String
+    var command: String
+    var timeoutSeconds: TimeInterval?
+    var enabled: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case command
+        case timeoutSeconds
+        case enabled
+    }
+
+    init(
+        id: String,
+        command: String,
+        timeoutSeconds: TimeInterval? = nil,
+        enabled: Bool = true
+    ) {
+        self.id = id
+        self.command = command
+        self.timeoutSeconds = timeoutSeconds
+        self.enabled = enabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedID = try Self.requiredTrimmedString(forKey: .id, in: container)
+        let decodedCommand = try Self.requiredTrimmedString(forKey: .command, in: container)
+        let decodedTimeout = try container.decodeIfPresent(TimeInterval.self, forKey: .timeoutSeconds)
+        if let decodedTimeout, !decodedTimeout.isFinite || decodedTimeout <= 0 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .timeoutSeconds,
+                in: container,
+                debugDescription: "timeoutSeconds must be greater than 0"
+            )
+        }
+
+        id = decodedID
+        command = decodedCommand
+        timeoutSeconds = decodedTimeout
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(command, forKey: .command)
+        try container.encodeIfPresent(timeoutSeconds, forKey: .timeoutSeconds)
+        try container.encode(enabled, forKey: .enabled)
+    }
+
+    var resolvedTimeoutSeconds: TimeInterval {
+        timeoutSeconds ?? Self.defaultTimeoutSeconds
+    }
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return value
+    }
+}
+
+struct CmuxResolvedNotificationHook: Sendable, Hashable {
+    let id: String
+    let command: String
+    let timeoutSeconds: TimeInterval
+    let sourcePath: String?
+    let cwd: String
+    let trustDescriptor: CmuxActionTrustDescriptor?
+
+    init(
+        id: String,
+        command: String,
+        timeoutSeconds: TimeInterval,
+        sourcePath: String?,
+        cwd: String,
+        trustDescriptor: CmuxActionTrustDescriptor? = nil
+    ) {
+        self.id = id
+        self.command = command
+        self.timeoutSeconds = timeoutSeconds
+        self.sourcePath = sourcePath
+        self.cwd = cwd
+        self.trustDescriptor = trustDescriptor
+    }
+
+    static func == (lhs: CmuxResolvedNotificationHook, rhs: CmuxResolvedNotificationHook) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.command == rhs.command &&
+            lhs.timeoutSeconds == rhs.timeoutSeconds &&
+            lhs.sourcePath == rhs.sourcePath &&
+            lhs.cwd == rhs.cwd &&
+            lhs.trustDescriptor?.fingerprint == rhs.trustDescriptor?.fingerprint
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(command)
+        hasher.combine(timeoutSeconds)
+        hasher.combine(sourcePath)
+        hasher.combine(cwd)
+        hasher.combine(trustDescriptor?.fingerprint)
     }
 }
 
@@ -1703,6 +1840,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -1776,6 +1914,8 @@ final class CmuxConfigStore: ObservableObject {
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
     private var localConfigSearchDirectory: String?
+    private var localHookFileWatchSources: [String: DispatchSourceFileSystemObject] = [:]
+    private var localHookFileDescriptors: [String: Int32] = [:]
     private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
     private var localFallbackDirectoryDescriptor: Int32 = -1
     private var globalFileWatchSource: DispatchSourceFileSystemObject?
@@ -1793,6 +1933,10 @@ final class CmuxConfigStore: ObservableObject {
         return configDirectory
     }
 
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
@@ -1806,8 +1950,7 @@ final class CmuxConfigStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.applySurfaceTabBarButtonsToCurrentManager()
-                self.configRevision &+= 1
+                self.loadAll()
             }
             .store(in: &lifetimeCancellables)
         if startFileWatchers {
@@ -1820,6 +1963,9 @@ final class CmuxConfigStore: ObservableObject {
 
     deinit {
         localFileWatchSource?.cancel()
+        for source in localHookFileWatchSources.values {
+            source.cancel()
+        }
         localFallbackDirectoryWatchSource?.cancel()
         globalFileWatchSource?.cancel()
     }
@@ -1854,6 +2000,22 @@ final class CmuxConfigStore: ObservableObject {
             .store(in: &trackingCancellables)
 
         updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+    }
+
+    func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
+        let globalConfig = parseConfig(at: globalConfigPath).config
+        let localConfigs: [(path: String, config: CmuxConfigFile)]
+        if let directory, !directory.isEmpty {
+            localConfigs = findCmuxConfigHierarchy(startingFrom: directory).compactMap { path in
+                parseConfig(at: path).config.map { (path: path, config: $0) }
+            }
+        } else {
+            localConfigs = []
+        }
+        return resolveNotificationHooks(
+            globalConfig: globalConfig,
+            localConfigs: localConfigs
+        )
     }
 
     private func updateLocalConfigPath(_ directory: String?) {
@@ -1904,6 +2066,26 @@ final class CmuxConfigStore: ObservableObject {
         return nil
     }
 
+    private func findCmuxConfigHierarchy(startingFrom directory: String) -> [String] {
+        var current = directory
+        let fs = FileManager.default
+        var paths: [String] = []
+        while true {
+            let candidates = [
+                ((current as NSString).appendingPathComponent(".cmux") as NSString)
+                    .appendingPathComponent("cmux.json"),
+                (current as NSString).appendingPathComponent("cmux.json")
+            ]
+            if let candidate = candidates.first(where: { fs.fileExists(atPath: $0) }) {
+                paths.append(candidate)
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+        return paths.reversed()
+    }
+
     func loadAll() {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
@@ -1921,11 +2103,20 @@ final class CmuxConfigStore: ObservableObject {
         let globalParseResult = parseConfig(at: globalConfigPath)
         let localConfig = localParseResult?.config
         let globalConfig = globalParseResult.config
+        let localHookPaths = resolvedLocalNotificationHookPaths(fallbackLocalPath: localPath)
+        let localHookParseResults = localHookPaths.map { path in
+            (path: path, result: parseConfig(at: path))
+        }
         var issues = [CmuxConfigIssue]()
         if let issue = localParseResult?.issue {
             issues.append(issue)
         }
         if let issue = globalParseResult.issue {
+            issues.append(issue)
+        }
+        for hookParseResult in localHookParseResults {
+            guard hookParseResult.path != localPath,
+                  let issue = hookParseResult.result.issue else { continue }
             issues.append(issue)
         }
         let localActions = localConfig.map { actionEntries(from: $0.actions, sourcePath: localPath) } ?? [:]
@@ -2040,6 +2231,12 @@ final class CmuxConfigStore: ObservableObject {
             settingName: "ui.newWorkspace.contextMenu",
             settingSourcePath: configuredNewWorkspaceContextMenuSourcePath
         )
+        let resolvedNotificationHooks = resolveNotificationHooks(
+            globalConfig: globalConfig,
+            localConfigs: localHookParseResults.compactMap { entry in
+                entry.result.config.map { (path: entry.path, config: $0) }
+            }
+        )
 
         loadedCommands = commands
         loadedActions = resolvedActions
@@ -2053,6 +2250,7 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
+        notificationHooks = resolvedNotificationHooks
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {
@@ -2060,8 +2258,88 @@ final class CmuxConfigStore: ObservableObject {
         }
         issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
+        if fileWatchingEnabled {
+            updateLocalHookFileWatchers(
+                paths: localHookPaths,
+                primaryLocalPath: localPath
+            )
+        }
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
+    }
+
+    private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {
+        if let searchDirectory = localConfigSearchDirectory {
+            var paths = findCmuxConfigHierarchy(startingFrom: searchDirectory)
+            if let fallbackLocalPath, !paths.contains(fallbackLocalPath) {
+                paths.append(fallbackLocalPath)
+            }
+            return paths
+        }
+        return fallbackLocalPath.map { [$0] } ?? []
+    }
+
+    private func resolveNotificationHooks(
+        globalConfig: CmuxConfigFile?,
+        localConfigs: [(path: String, config: CmuxConfigFile)]
+    ) -> [CmuxResolvedNotificationHook] {
+        var hooks: [CmuxResolvedNotificationHook] = []
+        if let globalHooks = globalConfig?.notifications?.hooks {
+            hooks.append(contentsOf: resolvedNotificationHooks(
+                globalHooks,
+                sourcePath: globalConfigPath
+            ))
+        }
+
+        for entry in localConfigs {
+            guard let notifications = entry.config.notifications else { continue }
+            if notifications.hooksMode == .replace {
+                hooks.removeAll()
+            }
+            if let localHooks = notifications.hooks {
+                hooks.append(contentsOf: resolvedNotificationHooks(
+                    localHooks,
+                    sourcePath: entry.path
+                ))
+            }
+        }
+        return hooks
+    }
+
+    private func resolvedNotificationHooks(
+        _ definitions: [CmuxNotificationHookDefinition],
+        sourcePath: String
+    ) -> [CmuxResolvedNotificationHook] {
+        let cwd = CmuxButtonIcon.projectRoot(forConfigPath: sourcePath)
+        let canonicalSourcePath = Self.canonicalPath(sourcePath)
+        let canonicalGlobalConfigPath = Self.canonicalPath(globalConfigPath)
+        let isGlobalHook = canonicalSourcePath == canonicalGlobalConfigPath
+        return definitions.compactMap { definition in
+            guard definition.enabled else { return nil }
+            let trustDescriptor: CmuxActionTrustDescriptor?
+            if isGlobalHook {
+                trustDescriptor = nil
+            } else {
+                trustDescriptor = CmuxActionTrustDescriptor(
+                    actionID: definition.id,
+                    kind: "notificationHook",
+                    command: definition.command,
+                    target: "notificationPolicy",
+                    workspaceCommand: nil,
+                    configPath: canonicalSourcePath,
+                    projectRoot: Self.canonicalPath(cwd),
+                    iconFingerprint: nil
+                )
+            }
+            return CmuxResolvedNotificationHook(
+                id: definition.id,
+                command: definition.command,
+                timeoutSeconds: definition.resolvedTimeoutSeconds,
+                sourcePath: sourcePath,
+                cwd: cwd,
+                trustDescriptor: trustDescriptor
+            )
+        }
     }
 
     private func actionEntries(
@@ -2699,6 +2977,60 @@ final class CmuxConfigStore: ObservableObject {
         localFileWatchSource = source
     }
 
+    private func updateLocalHookFileWatchers(
+        paths: [String],
+        primaryLocalPath: String?
+    ) {
+        let desiredPaths = Set(paths.filter { path in
+            path != primaryLocalPath && FileManager.default.fileExists(atPath: path)
+        })
+        for path in Array(localHookFileWatchSources.keys) where !desiredPaths.contains(path) {
+            stopLocalHookFileWatcher(at: path)
+        }
+        for path in desiredPaths where localHookFileWatchSources[path] == nil {
+            startLocalHookFileWatcher(at: path)
+        }
+    }
+
+    private func startLocalHookFileWatcher(at path: String) {
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename, .extend],
+            queue: watchQueue
+        )
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            let flags = source.data
+            DispatchQueue.main.async {
+                if flags.contains(.delete) || flags.contains(.rename) {
+                    self.stopLocalHookFileWatcher(at: path)
+                }
+                self.loadAll()
+            }
+        }
+        source.setCancelHandler {
+            Darwin.close(fd)
+        }
+        source.resume()
+        localHookFileWatchSources[path] = source
+        localHookFileDescriptors[path] = fd
+    }
+
+    private func stopLocalHookFileWatcher(at path: String) {
+        localHookFileWatchSources.removeValue(forKey: path)?.cancel()
+        localHookFileDescriptors.removeValue(forKey: path)
+    }
+
+    private func stopLocalHookFileWatchers() {
+        for source in localHookFileWatchSources.values {
+            source.cancel()
+        }
+        localHookFileWatchSources.removeAll()
+        localHookFileDescriptors.removeAll()
+    }
+
     private func startLocalDirectoryWatcher() {
         guard let path = localConfigPath else { return }
         let configDirectory = (path as NSString).deletingLastPathComponent
@@ -2790,6 +3122,7 @@ final class CmuxConfigStore: ObservableObject {
             source.cancel()
             localFileWatchSource = nil
         }
+        stopLocalHookFileWatchers()
         if let source = localFallbackDirectoryWatchSource {
             source.cancel()
             localFallbackDirectoryWatchSource = nil

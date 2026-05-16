@@ -105,6 +105,7 @@ final class TerminalPanel: Panel, ObservableObject {
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
@@ -112,7 +113,6 @@ final class TerminalPanel: Panel, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
-        surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
     }
 

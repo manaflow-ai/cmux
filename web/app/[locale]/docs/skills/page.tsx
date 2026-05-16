@@ -4,6 +4,7 @@ import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
+import { DocsHeading } from "../../components/docs-heading";
 
 const skills = [
   {
@@ -13,6 +14,38 @@ const skills = [
     nameKey: "cmuxName",
     descriptionKey: "cmuxDescription",
     useKey: "cmuxUse",
+  },
+  {
+    id: "cmux-workspace",
+    path: "skills/cmux-workspace/SKILL.md",
+    command: "cmux current-workspace --json",
+    nameKey: "workspaceName",
+    descriptionKey: "workspaceDescription",
+    useKey: "workspaceUse",
+  },
+  {
+    id: "cmux-settings",
+    path: "skills/cmux-settings/SKILL.md",
+    command: "skills/cmux-settings/scripts/cmux-settings list-supported",
+    nameKey: "settingsName",
+    descriptionKey: "settingsDescription",
+    useKey: "settingsUse",
+  },
+  {
+    id: "cmux-customization",
+    path: "skills/cmux-customization/SKILL.md",
+    command: "cmux reload-config",
+    nameKey: "customizationName",
+    descriptionKey: "customizationDescription",
+    useKey: "customizationUse",
+  },
+  {
+    id: "cmux-diagnostics",
+    path: "skills/cmux-diagnostics/SKILL.md",
+    command: "skills/cmux-diagnostics/scripts/cmux-diagnostics",
+    nameKey: "diagnosticsName",
+    descriptionKey: "diagnosticsDescription",
+    useKey: "diagnosticsUse",
   },
   {
     id: "cmux-browser",
@@ -30,21 +63,71 @@ const skills = [
     descriptionKey: "markdownDescription",
     useKey: "markdownUse",
   },
+] as const;
+
+const skillCoverage = [
   {
-    id: "cmux-debug-windows",
-    path: "skills/cmux-debug-windows/SKILL.md",
-    command: "skills/cmux-debug-windows/scripts/debug_windows_snapshot.sh",
-    nameKey: "debugWindowsName",
-    descriptionKey: "debugWindowsDescription",
-    useKey: "debugWindowsUse",
+    id: "cmux",
+    nameKey: "cmuxName",
+    scopeKey: "cmuxScope",
+    referencesKey: "cmuxReferences",
   },
   {
-    id: "release",
-    path: "skills/release/SKILL.md",
-    command: "./scripts/bump-version.sh",
-    nameKey: "releaseName",
-    descriptionKey: "releaseDescription",
-    useKey: "releaseUse",
+    id: "cmux-workspace",
+    nameKey: "workspaceName",
+    scopeKey: "workspaceScope",
+    referencesKey: "workspaceReferences",
+  },
+  {
+    id: "cmux-settings",
+    nameKey: "settingsName",
+    scopeKey: "settingsScope",
+    referencesKey: "settingsReferences",
+  },
+  {
+    id: "cmux-customization",
+    nameKey: "customizationName",
+    scopeKey: "customizationScope",
+    referencesKey: "customizationReferences",
+  },
+  {
+    id: "cmux-diagnostics",
+    nameKey: "diagnosticsName",
+    scopeKey: "diagnosticsScope",
+    referencesKey: "diagnosticsReferences",
+  },
+  {
+    id: "cmux-browser",
+    nameKey: "browserName",
+    scopeKey: "browserScope",
+    referencesKey: "browserReferences",
+  },
+  {
+    id: "cmux-markdown",
+    nameKey: "markdownName",
+    scopeKey: "markdownScope",
+    referencesKey: "markdownReferences",
+  },
+] as const;
+
+const suggestedSkills = [
+  {
+    id: "cmux-ssh",
+    nameKey: "suggestSshName",
+    useKey: "suggestSshUse",
+    whyKey: "suggestSshWhy",
+  },
+  {
+    id: "cmux-cloud-vm",
+    nameKey: "suggestCloudVmName",
+    useKey: "suggestCloudVmUse",
+    whyKey: "suggestCloudVmWhy",
+  },
+  {
+    id: "cmux-vault",
+    nameKey: "suggestVaultName",
+    useKey: "suggestVaultUse",
+    whyKey: "suggestVaultWhy",
   },
 ] as const;
 
@@ -67,23 +150,28 @@ export default function SkillsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("installTitle")}</h2>
+      <DocsHeading level={2} id="install-title">{t("installTitle")}</DocsHeading>
       <p>
         {t.rich("installIntro", {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </p>
-      <CodeBlock title={t("installFromGitHub")} lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash`}</CodeBlock>
+      <CodeBlock title={t("installWithVercel")} lang="bash">{`# Install all cmux skills
+npx skills add manaflow-ai/cmux -g -y
+
+# Or install just diagnostics
+npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
+      <CodeBlock title={t("installWithSkillsSh")} lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash`}</CodeBlock>
       <Callout type="info">
         {t.rich("installDestination", {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </Callout>
 
-      <h3>{t("localInstallTitle")}</h3>
+      <DocsHeading level={3} id="local-install-title">{t("localInstallTitle")}</DocsHeading>
       <p>{t("localInstallIntro")}</p>
       <CodeBlock title={t("localInstallCommands")} lang="bash">{`./skills.sh
 ./skills.sh --list
@@ -93,7 +181,7 @@ export default function SkillsPage() {
       <p>{t("pinRefIntro")}</p>
       <CodeBlock lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash -s -- --ref main`}</CodeBlock>
 
-      <h2>{t("includedTitle")}</h2>
+      <DocsHeading level={2} id="included-title">{t("includedTitle")}</DocsHeading>
       <p>{t("includedIntro")}</p>
       <table>
         <thead>
@@ -123,7 +211,32 @@ export default function SkillsPage() {
         </tbody>
       </table>
 
-      <h2>{t("helpMenuTitle")}</h2>
+      <DocsHeading level={2} id="coverage-title">{t("coverageTitle")}</DocsHeading>
+      <p>{t("coverageIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("skillHeader")}</th>
+            <th>{t("scopeHeader")}</th>
+            <th>{t("referencesHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {skillCoverage.map((skill) => (
+            <tr key={skill.id}>
+              <td>
+                <strong>{t(skill.nameKey)}</strong>
+                <br />
+                <code>{skill.id}</code>
+              </td>
+              <td>{t(skill.scopeKey)}</td>
+              <td>{t(skill.referencesKey)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <DocsHeading level={2} id="help-menu-title">{t("helpMenuTitle")}</DocsHeading>
       <p>
         {t.rich("helpMenuIntro", {
           help: (chunks) => <strong>{chunks}</strong>,
@@ -131,7 +244,7 @@ export default function SkillsPage() {
         })}
       </p>
 
-      <h2>{t("authoringTitle")}</h2>
+      <DocsHeading level={2} id="authoring-title">{t("authoringTitle")}</DocsHeading>
       <p>{t("authoringIntro")}</p>
       <CodeBlock lang="text">{`skills/<name>/SKILL.md
 skills/<name>/agents/openai.yaml
@@ -144,7 +257,33 @@ skills/<name>/templates/*`}</CodeBlock>
         })}
       </Callout>
 
-      <h2>{t("relatedTitle")}</h2>
+      <DocsHeading level={2} id="suggestions-title">{t("suggestionsTitle")}</DocsHeading>
+      <p>{t("suggestionsIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("suggestionHeader")}</th>
+            <th>{t("suggestionUseHeader")}</th>
+            <th>{t("suggestionWhyHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {suggestedSkills.map((skill) => (
+            <tr key={skill.id}>
+              <td>
+                <strong>{t(skill.nameKey)}</strong>
+                <br />
+                <code>{skill.id}</code>
+              </td>
+              <td>{t(skill.useKey)}</td>
+              <td>{t(skill.whyKey)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Callout type="info">{t("suggestionsCallout")}</Callout>
+
+      <DocsHeading level={2} id="related-title">{t("relatedTitle")}</DocsHeading>
       <ul>
         <li>
           <Link href="/docs/browser-automation">{t("relatedBrowserAutomation")}</Link>

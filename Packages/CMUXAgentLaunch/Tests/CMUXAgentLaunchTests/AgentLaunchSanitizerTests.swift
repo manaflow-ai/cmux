@@ -3,6 +3,229 @@ import Testing
 
 @Suite("AgentLaunchSanitizer")
 struct AgentLaunchSanitizerTests {
+    @Test("Preserves Codex Teams launcher while dropping prompt")
+    func preservesCodexTeamsLauncher() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "--ask-for-approval",
+                    "never",
+                    "initial prompt should not replay",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+                "--ask-for-approval",
+                "never",
+            ]
+        )
+    }
+
+    @Test("Preserves direct Codex fork launch context")
+    func preservesDirectCodexForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--model",
+                    "gpt-5.4",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Detects Codex fork after variadic options")
+    func detectsCodexForkAfterVariadicOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--image",
+                "/tmp/screenshot.png",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Keeps Codex variadic first value named fork")
+    func keepsCodexVariadicFirstValueNamedFork() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--image",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--image",
+                "fork",
+                "019dad34-d218-7943-b81a-eddac5c87951",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Preserves generated Codex fork launch context")
+    func preservesGeneratedCodexForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "fork",
+                    "--model",
+                    "gpt-5.4",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "--sandbox",
+                    "danger-full-access",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--add-dir",
+                "/tmp/extra repo",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Keeps Codex variadic values named fork")
+    func keepsCodexVariadicValuesNamedFork() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "fork",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "fork",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Preserves Codex Teams fork launch context")
+    func preservesCodexTeamsForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--ask-for-approval",
+                    "never",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+                "--ask-for-approval",
+                "never",
+            ]
+        )
+    }
+
+    @Test("Drops OpenCode fork prefix option while preserving fork context")
+    func dropsOpenCodeForkPrefixOptionWhilePreservingForkContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--session",
+                    "parent-session",
+                    "--fork=parent-session",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/opencode repo",
+            ]
+        )
+    }
+
     @Test("Consumes terminal optional values")
     func consumesTerminalOptionalValues() {
         #expect(
@@ -168,6 +391,48 @@ struct AgentLaunchSanitizerTests {
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
             ) == ["hermes", "--skills", "skill1"]
+        )
+    }
+
+    @Test("Drops Amp --label and its value while preserving later options")
+    func dropsAmpLabelValueAndPreservesLaterOptions() {
+        // --label takes a value. If --label isn't in valueOptions, the
+        // sanitizer drops only `--label` and `foo` slips through as a
+        // positional, breaking the resumed launch.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "--label", "foo", "--mode", "geppetto"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "geppetto"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "-l", "bar", "--effort", "high"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--effort", "high"]
+        )
+    }
+
+    @Test("Rejects non-restorable Amp launches and strips resume preamble")
+    func rejectsNonRestorableAmpLaunchesAndStripsResumePreamble() {
+        // --execute / --print / -x are non-interactive runs; not restorable.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "--execute", "do this", "--mode", "geppetto"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == nil
+        )
+        // A previously-resumed launch should have its `threads continue <id>`
+        // preamble stripped so a re-resume doesn't re-prepend it.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "threads", "continue", "T-old-id", "--mode", "geppetto"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "geppetto"]
         )
     }
 }

@@ -51,6 +51,32 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
+    func testCmdNWorksWhenBrowserAddressBarFocused() {
+        let app = launchWithBrowserSetup()
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar after Cmd+L")
+
+        let marker = "cmdn-\(UUID().uuidString.prefix(8))"
+        app.typeText(marker)
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                ((omnibar.value as? String) ?? "").contains(marker)
+            },
+            "Expected Cmd+L to focus browser omnibar before Cmd+N. value=\(String(describing: omnibar.value))"
+        )
+
+        let baseline = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
+        app.typeKey("n", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baseline + 1, timeout: 5.0),
+            "Expected Cmd+N to reach app menu and create a new tab even when browser omnibar is first responder"
+        )
+    }
+
     func testCmdWWorksWhenWebViewFocusedAfterTabSwitch() {
         let app = launchWithBrowserSetup()
 

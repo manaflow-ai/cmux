@@ -338,6 +338,8 @@ final class PaneDropTargetView: NSView {
             return .editor
         case .markdown:
             return nil
+        case .rightSidebarTool:
+            return nil
         }
     }
 

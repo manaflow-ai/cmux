@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
       "tmuxDesc": "Jeśli używasz tmux wewnątrz cmux, włącz passthrough:",
-      "metaTitle": "Powiadomienia"
+      "metaTitle": "Powiadomienia",
+      "hooksTitle": "Hooki powiadomień",
+      "hooksIntro": "<config>cmux.json</config> może definiować hooki powiadomień, które otrzymują każdą politykę powiadomień jako JSON na stdin. Każdy hook zwraca JSON na stdout. Hooki są domyślnie wyłączone; cmux uruchamia je tylko wtedy, gdy <hooksMode>notifications.hooks</hooksMode> zawiera co najmniej jeden włączony hook. cmux stosuje zwrócony tekst i efekty, więc hooki mogą filtrować banery, zachowywać lub pomijać historię paska bocznego, uruchamiać dźwięki albo zatrzymywać kolejne hooki.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Wejście i wyjście hooka",
+      "hooksDetails": "Hooki są dziedziczone z globalnego pliku <globalConfig>~/.config/cmux/cmux.json</globalConfig> oraz plików projektu <projectConfig>.cmux/cmux.json</projectConfig>, od katalogów nadrzędnych do bieżącego workspace. Hooki projektu przed uruchomieniem używają tego samego monitu zaufania co inne polecenia projektu <config>cmux.json</config>. Banery akceptacji Feed też przechodzą przez te hooki; wyłączenie <desktop>desktop</desktop> ukrywa natywny baner, ale zostawia element Feed dostępny w cmux. Ustaw <hooksMode>notifications.hooksMode</hooksMode> na <replace>replace</replace> w konfiguracji projektu, aby ignorować odziedziczone hooki. Jeśli hook zawiedzie, przekroczy limit czasu albo zwróci nieprawidłowy JSON, cmux użyje domyślnego zachowania powiadomień i pokaże alert błędu hooka."
     },
     "browserAutomation": {
       "title": "Automatyzacja przeglądarki",
