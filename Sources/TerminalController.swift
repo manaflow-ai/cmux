@@ -6836,8 +6836,17 @@ class TerminalController {
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
+            let usePastePath = (params["paste"] as? Bool) == true
             let queued: Bool
-            if let surface = terminalPanel.surface.surface {
+            if usePastePath {
+                terminalPanel.sendText(text)
+                queued = terminalPanel.surface.surface == nil
+                if !queued {
+                    // Match the non-paste path so snapshot tests and socket-driven
+                    // agents see the freshly-pasted text without needing focus.
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.paste")
+                }
+            } else if let surface = terminalPanel.surface.surface {
                 sendSocketText(text, surface: surface)
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
