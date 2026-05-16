@@ -57,6 +57,7 @@ struct SessionIndexView: View {
     /// Section whose "Show more" popover is currently open.
     @State private var openPopoverSection: SectionKey?
     @State private var previewEntry: SessionEntry?
+    @State private var globalSearchQuery: String = ""
     @AppStorage(VaultDisplaySettings.defaultVisibleRowsKey)
     private var collapsedRowLimitSetting = VaultDisplaySettings.defaultVisibleRows
     let onResume: ((SessionEntry) -> Void)?
@@ -82,7 +83,10 @@ struct SessionIndexView: View {
     var body: some View {
         VStack(spacing: 0) {
             controlBar
-            if store.isLoading && store.entries.isEmpty {
+            globalSearchBar
+            if isGlobalSearchActive {
+                globalSearchResults
+            } else if store.isLoading && store.entries.isEmpty {
                 loadingView
             } else if store.entries.isEmpty {
                 emptyView
@@ -98,6 +102,10 @@ struct SessionIndexView: View {
                 store.reload()
             }
         }
+    }
+
+    private var isGlobalSearchActive: Bool {
+        !globalSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var controlBar: some View {
@@ -140,6 +148,41 @@ struct SessionIndexView: View {
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
+    }
+
+    private var globalSearchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+            TextField(
+                String(localized: "sessionIndex.search.placeholder", defaultValue: "Search All Vault"),
+                text: $globalSearchQuery
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .accessibilityIdentifier("SessionIndexGlobalSearchField")
+            if !globalSearchQuery.isEmpty {
+                Button {
+                    globalSearchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "sessionIndex.search.clear", defaultValue: "Clear Vault search"))
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: RightSidebarChromeMetrics.controlHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, 6)
+        .rightSidebarChromeBottomBorder()
     }
 
     private var loadingView: some View {
@@ -260,6 +303,26 @@ struct SessionIndexView: View {
             DragCancelMonitor(dragCoordinator: dragCoordinator)
         )
     }
+
+    private var globalSearchResults: some View {
+        let store = self.store
+        let onResumeClosure = onResume
+        let pinnedEntryIDs = store.pinnedEntryIDs
+        let searchFn: SessionSearchFn = { query, scope, offset, limit in
+            await store.searchSessions(query: query, scope: scope, offset: offset, limit: limit)
+        }
+        let togglePinnedFn: SessionPinToggleFn = { entry in
+            store.togglePinned(entry)
+        }
+        return GlobalVaultSearchResultsView(
+            query: globalSearchQuery,
+            scope: .all(cwd: nil),
+            pinnedEntryIDs: pinnedEntryIDs,
+            search: searchFn,
+            onTogglePinned: togglePinnedFn,
+            onResume: onResumeClosure
+        )
+    }
 }
 
 private struct AgentIconImage: View, Equatable {
@@ -342,6 +405,180 @@ struct SectionGapActions {
     let currentDraggedKey: @MainActor () -> SectionKey?
     let moveSection: @MainActor (SectionKey, SectionKey?) -> Void
     let clearDraggedKey: @MainActor () -> Void
+}
+
+private struct GlobalVaultSearchResultsView: View {
+    let query: String
+    let scope: SessionIndexStore.SearchScope
+    let pinnedEntryIDs: Set<String>
+    let search: SessionSearchFn
+    let onTogglePinned: SessionPinToggleFn
+    let onResume: ((SessionEntry) -> Void)?
+
+    @State private var loaded: [SessionEntry] = []
+    @State private var hasMore: Bool = false
+    @State private var isLoading: Bool = false
+    @State private var activeRequest: SearchRequest?
+    @State private var loadTask: Task<Void, Never>?
+    @State private var errorMessages: [String] = []
+
+    private static let pageSize = 100
+
+    private struct SearchRequest: Hashable {
+        let query: String
+        let scope: SessionIndexStore.SearchScope
+    }
+
+    private var request: SearchRequest {
+        SearchRequest(
+            query: query.trimmingCharacters(in: .whitespacesAndNewlines),
+            scope: scope
+        )
+    }
+
+    private var visibleLoadedEntries: [SessionEntry] {
+        SessionIndexStore.sortedEntriesForDisplay(loaded, pinnedEntryIDs: pinnedEntryIDs)
+    }
+
+    var body: some View {
+        ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.7))
+                    Text(String(localized: "sessionIndex.search.results", defaultValue: "Search Results"))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                if !errorMessages.isEmpty {
+                    errorBanner
+                }
+
+                if isLoading && loaded.isEmpty {
+                    loadingRow
+                } else if loaded.isEmpty {
+                    Text(String(localized: "sessionIndex.search.noMatches", defaultValue: "No matches"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ForEach(visibleLoadedEntries) { entry in
+                        SessionRow(
+                            entry: entry,
+                            isPinned: pinnedEntryIDs.contains(entry.id),
+                            isPreviewPresented: false,
+                            onPreviewPresentationChange: { _ in },
+                            onTogglePinned: onTogglePinned,
+                            onResume: onResume
+                        )
+                        .equatable()
+                        .id(entry.id)
+                    }
+                    if hasMore {
+                        loadingRow
+                            .onAppear { loadMore() }
+                    } else {
+                        Text(String(localized: "sessionIndex.popover.endOfList",
+                                    defaultValue: "You've reached the end"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 8)
+                    }
+                }
+            }
+            .padding(.bottom, 8)
+        }
+        .modifier(ClearScrollBackground())
+        .task(id: request) {
+            loadTask?.cancel()
+            loadTask = nil
+            let request = self.request
+            activeRequest = request
+            errorMessages = []
+            loaded = []
+            hasMore = false
+            guard !request.query.isEmpty else {
+                isLoading = false
+                return
+            }
+
+            isLoading = true
+            let outcome = await search(request.query, request.scope, 0, Self.pageSize)
+            guard !Task.isCancelled, activeRequest == request else { return }
+            applyOutcome(outcome, append: false)
+        }
+        .onDisappear {
+            loadTask?.cancel()
+            loadTask = nil
+            isLoading = false
+        }
+    }
+
+    private var errorBanner: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(errorMessages, id: \.self) { msg in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                    Text(msg)
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary.opacity(0.85))
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10))
+    }
+
+    private var loadingRow: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(String(localized: "sessionIndex.search.loading", defaultValue: "Searching…"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func loadMore() {
+        guard !isLoading, hasMore, let activeRequest else { return }
+        isLoading = true
+        let search = self.search
+        let offset = loaded.count
+        loadTask?.cancel()
+        loadTask = Task { @MainActor in
+            let outcome = await search(activeRequest.query, activeRequest.scope, offset, Self.pageSize)
+            guard !Task.isCancelled, self.activeRequest == activeRequest else { return }
+            applyOutcome(outcome, append: true)
+        }
+    }
+
+    @MainActor
+    private func applyOutcome(_ outcome: SessionIndexStore.SearchOutcome, append: Bool) {
+        if append {
+            loaded.append(contentsOf: outcome.entries)
+        } else {
+            loaded = outcome.entries
+        }
+        hasMore = outcome.entries.count >= Self.pageSize
+        errorMessages = outcome.errors
+        isLoading = false
+    }
 }
 
 private struct IndexSectionView: View, Equatable {

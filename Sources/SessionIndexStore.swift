@@ -1073,7 +1073,9 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Deep search (popover "Show more")
 
-    enum SearchScope {
+    enum SearchScope: Hashable, Sendable {
+        /// Search every agent, optionally narrowed to one cwd.
+        case all(cwd: String?)
         case agent(SessionAgent)
         /// Filter by absolute cwd; nil/"" = unknown-folder bucket.
         case directory(String?)
@@ -1127,6 +1129,24 @@ final class SessionIndexStore: ObservableObject {
         #endif
         let entries: [SessionEntry]
         switch scope {
+        case .all(let cwd):
+            let cwdFilter = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalizedCwdFilter = cwdFilter?.isEmpty == false ? cwdFilter : nil
+            // Multi-agent merge: fetch the union of (offset+limit) per agent so the
+            // merge-sort can produce a stable global ordering, then slice.
+            let target = offset + limit
+            let order = await Self.defaultAgentOrder(workingDirectory: normalizedCwdFilter)
+            let merged = await Self.loadAgents(
+                order.agents,
+                registry: order.registry,
+                needle: needle,
+                cwdFilter: normalizedCwdFilter,
+                offset: 0,
+                limit: target,
+                errorBag: bag
+            )
+            let sorted = merged.sorted { $0.modified > $1.modified }
+            entries = Array(sorted.dropFirst(offset).prefix(limit))
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
             let cwdFilter: String?
