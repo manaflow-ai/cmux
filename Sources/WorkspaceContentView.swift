@@ -2048,6 +2048,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 canvasResizeHitTargets(item: item, scale: dragScale)
             }
         }
+        .overlay {
+            if dragScale != nil {
+                CanvasDragRegistrationLayer(itemID: item.id)
+                    .accessibilityHidden(true)
+            }
+        }
         .overlay(alignment: .topLeading) {
             canvasHeaderDragHitTarget(
                 item: item,

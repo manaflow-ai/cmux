@@ -784,7 +784,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
 
         let frameBeforeMove = terminalCard.frame
-        let dragStart = terminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.04))
+        let dragStart = terminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.50))
         dragStart.press(
             forDuration: 0.12,
             thenDragTo: dragStart.withOffset(CGVector(dx: 90, dy: 65))
