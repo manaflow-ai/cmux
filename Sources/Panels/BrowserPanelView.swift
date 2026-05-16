@@ -7,6 +7,101 @@ import ObjectiveC
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
+private final class WeakOmnibarNativeTextField {
+    weak var field: OmnibarNativeTextField?
+
+    init(_ field: OmnibarNativeTextField) {
+        self.field = field
+    }
+}
+
+@MainActor
+final class BrowserOmnibarNativeFieldRegistry {
+    static let shared = BrowserOmnibarNativeFieldRegistry()
+
+    // Ownership invariant: OmnibarNativeTextField.panelId is the single source
+    // of truth for field-to-panel ownership, and a live omnibar field owns its
+    // current field editor. AppKit's field-editor responder chain is the normal
+    // lookup path, but it can keep a stale nextResponder during browser
+    // focus/layout transitions. This weak registry is only a live-field lookup
+    // cache for those stale-responder windows; it does not create ownership.
+    private var fields: [UUID: [WeakOmnibarNativeTextField]] = [:]
+
+    func register(_ field: OmnibarNativeTextField, panelId: UUID) {
+        var entries = fields[panelId] ?? []
+        entries.removeAll { entry in
+            guard let existing = entry.field else { return true }
+            return existing === field
+        }
+        entries.append(WeakOmnibarNativeTextField(field))
+        fields[panelId] = entries
+    }
+
+    func unregister(_ field: OmnibarNativeTextField, panelId: UUID) {
+        guard var entries = fields[panelId] else { return }
+        entries.removeAll { entry in
+            guard let existing = entry.field else { return true }
+            return existing === field
+        }
+        if entries.isEmpty {
+            fields.removeValue(forKey: panelId)
+        } else {
+            fields[panelId] = entries
+        }
+    }
+
+    func field(for panelId: UUID?, in window: NSWindow? = nil) -> OmnibarNativeTextField? {
+        guard let panelId else { return nil }
+        pruneDeadEntries(for: panelId)
+        guard let entries = fields[panelId] else { return nil }
+        let liveFields = entries.reversed().compactMap(\.field)
+        if let window {
+            return liveFields.first(where: { $0.window === window })
+        }
+        return liveFields.first(where: { $0.window != nil }) ?? liveFields.first
+    }
+
+    func fieldOwningEditor(_ editor: NSTextView, in window: NSWindow? = nil) -> OmnibarNativeTextField? {
+        for panelId in Array(fields.keys) {
+            pruneDeadEntries(for: panelId)
+        }
+
+        let liveFields = fields.values.flatMap { entries in
+            entries.reversed().compactMap(\.field)
+        }
+        if let window,
+           let windowField = liveFields.first(where: { $0.window === window && $0.currentEditor() === editor }) {
+            return windowField
+        }
+        if let registeredField = liveFields.first(where: { $0.currentEditor() === editor }) {
+            return registeredField
+        }
+
+        guard let root = window?.contentView?.superview ?? window?.contentView else {
+            return nil
+        }
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            if let field = view as? OmnibarNativeTextField,
+               field.currentEditor() === editor {
+                return field
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    private func pruneDeadEntries(for panelId: UUID) {
+        guard var entries = fields[panelId] else { return }
+        entries.removeAll { $0.field == nil }
+        if entries.isEmpty {
+            fields.removeValue(forKey: panelId)
+        } else {
+            fields[panelId] = entries
+        }
+    }
+}
+
 private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
     guard let object else { return "nil" }
     return String(describing: Unmanaged.passUnretained(object).toOpaque())
@@ -811,7 +906,7 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
-            guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
+            guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
@@ -1205,7 +1300,7 @@ struct BrowserPanelView: View {
                     setAddressBarFocused(false, reason: "omnibar.fieldLostFocus")
                 },
                 onMoveSelection: { delta in
-                    guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
+                    guard canHandleOmnibarSelectionNavigation(), !omnibarState.suggestions.isEmpty else { return }
                     let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
                     applyOmnibarEffects(effects)
                     refreshInlineCompletion()
@@ -1384,6 +1479,21 @@ struct BrowserPanelView: View {
 #endif
         }
         cmuxWebView.allowsFirstResponderAcquisition = next
+    }
+
+    private func canHandleOmnibarSelectionNavigation() -> Bool {
+        if addressBarFocused {
+            return true
+        }
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == panel.id {
+            return true
+        }
+        let fieldWindow = panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if let field = browserOmnibarField(panelId: panel.id, in: fieldWindow),
+           field.currentEditor() != nil {
+            return true
+        }
+        return false
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
@@ -3967,6 +4077,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
         field.panelId = panelId
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
         field.identifier = browserOmnibarTextFieldIdentifier
         field.font = .systemFont(ofSize: 12)
         field.placeholderString = placeholder
@@ -3990,7 +4101,11 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        if let previousPanelId = nsView.panelId, previousPanelId != panelId {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: previousPanelId)
+        }
         nsView.panelId = panelId
+        BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
         nsView.placeholderString = placeholder
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
@@ -4116,6 +4231,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: OmnibarNativeTextField, coordinator: Coordinator) {
+        if let panelId = nsView.panelId {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(nsView, panelId: panelId)
+        }
         nsView.onPointerDown = nil
         nsView.onHandleKeyEvent = nil
         nsView.delegate = nil
@@ -4124,11 +4242,34 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 }
 
+@MainActor
 func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
     browserOmnibarField(for: responder)?.panelId
 }
 
+@MainActor
+func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
+    if let registeredField = BrowserOmnibarNativeFieldRegistry.shared.field(for: panelId, in: window) {
+        return registeredField
+    }
+    guard let panelId, let root = window?.contentView?.superview ?? window?.contentView else {
+        return nil
+    }
+
+    // Fallback for SwiftUI/AppKit reconnect windows where the live native field
+    // has been attached but registration has not yet observed it.
+    var stack: [NSView] = [root]
+    while let view = stack.popLast() {
+        if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
+            return field
+        }
+        stack.append(contentsOf: view.subviews)
+    }
+    return nil
+}
+
 @discardableResult
+@MainActor
 func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
     guard let field = browserOmnibarField(for: responder),
           field.panelId == panelId else {
@@ -4138,6 +4279,7 @@ func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSRespon
     return true
 }
 
+@MainActor
 private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTextField? {
     guard let responder else { return nil }
 
@@ -4145,11 +4287,16 @@ private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTe
         return field
     }
 
-    if let editor = responder as? NSTextView,
-       editor.isFieldEditor,
-       let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
-       field.currentEditor() === editor {
-        return field
+    if let editor = responder as? NSTextView, editor.isFieldEditor {
+        if let field = BrowserOmnibarNativeFieldRegistry.shared.fieldOwningEditor(editor, in: editor.window) {
+            return field
+        }
+
+        if let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
+           field.currentEditor() === editor {
+            return field
+        }
+
     }
 
     return nil
@@ -6737,7 +6884,16 @@ struct WebViewRepresentable: NSViewRepresentable {
             return
         }
         if isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
-            panel.noteWebViewFocused()
+            if panel.shouldSuppressWebViewFocus() {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=skip_webview_intent reason=suppressed_first_responder_chain"
+                )
+#endif
+            } else {
+                panel.noteWebViewFocused()
+            }
         }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
