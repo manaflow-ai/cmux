@@ -377,6 +377,19 @@ private struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
+private enum AgentHookNotificationStatus {
+    case idle
+    case needsInput
+    case error
+}
+
+private struct AgentHookNotificationSummary {
+    let subtitle: String
+    let body: String
+    let status: AgentHookNotificationStatus
+    let isFallback: Bool
+}
+
 private struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
@@ -17526,10 +17539,10 @@ struct CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "turn_id", "turnId",
+            "tool_name", "toolName", "turn_id", "turnId",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
-            "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "source",
-            "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
+            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source",
+            "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
         ] {
             if let value = compactClaudeHookValue(object[key], key: key) {
@@ -17589,7 +17602,7 @@ struct CMUXCLI {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
-                "type", "kind", "reason", "message", "body", "text", "prompt", "error",
+                "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error",
                 "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
@@ -17606,9 +17619,9 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "turn_id", "turnId", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "turn_id", "turnId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
             return 80
-        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
+        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
             return 240
         default:
             return 160
@@ -18873,6 +18886,124 @@ struct CMUXCLI {
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
+    }
+
+    private func summarizeAgentHookNotification(
+        def: AgentHookDef,
+        parsedInput: ClaudeHookParsedInput
+    ) -> AgentHookNotificationSummary {
+        guard let object = parsedInput.object else {
+            if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
+                return classifyAgentHookNotification(
+                    def: def,
+                    signal: fallback,
+                    message: fallback,
+                    isFallback: false
+                )
+            }
+            let body = String.localizedStringWithFormat(
+                String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
+                def.displayName
+            )
+            return classifyAgentHookNotification(def: def, signal: "", message: body, isFallback: true)
+        }
+
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let signalParts = [
+            firstString(in: object, keys: ["event", "event_name", "hook_event_name", "hookEventName", "type", "kind"]),
+            firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
+            firstString(in: nested, keys: ["type", "kind", "reason"]),
+        ]
+        let messageCandidates = [
+            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+        ]
+        let fallbackBody = String.localizedStringWithFormat(
+            String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
+            def.displayName
+        )
+        let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
+        let signal = signalParts.compactMap { $0 }.joined(separator: " ")
+        return classifyAgentHookNotification(
+            def: def,
+            signal: signal,
+            message: normalizedSingleLine(message),
+            isFallback: message == fallbackBody
+        )
+    }
+
+    private func classifyAgentHookNotification(
+        def: AgentHookDef,
+        signal: String,
+        message: String,
+        isFallback: Bool
+    ) -> AgentHookNotificationSummary {
+        let lower = "\(signal) \(message)".lowercased()
+        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
+            let body = message.isEmpty
+                ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
+                : message
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+                body: truncate(body, maxLength: 180),
+                status: .needsInput,
+                isFallback: isFallback
+            )
+        }
+        if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
+            let body = message.isEmpty
+                ? String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
+                    def.displayName
+                )
+                : message
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                body: truncate(body, maxLength: 180),
+                status: .error,
+                isFallback: isFallback
+            )
+        }
+        if lower.contains("complet") || lower.contains("finish") || lower.contains("done") || lower.contains("success") {
+            let body = message.isEmpty
+                ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
+                : message
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+                body: truncate(body, maxLength: 180),
+                status: .idle,
+                isFallback: isFallback
+            )
+        }
+        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("question") || lower.contains("idle_prompt") {
+            let body = message.isEmpty
+                ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
+                : message
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
+                body: truncate(body, maxLength: 180),
+                status: .needsInput,
+                isFallback: isFallback
+            )
+        }
+        if !message.isEmpty {
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
+                body: truncate(message, maxLength: 180),
+                status: .idle,
+                isFallback: isFallback
+            )
+        }
+        let body = String.localizedStringWithFormat(
+            String(localized: "agent.generic.notification.body.needsAttention", defaultValue: "%@ needs your attention"),
+            def.displayName
+        )
+        return AgentHookNotificationSummary(
+            subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
+            body: body,
+            status: .needsInput,
+            isFallback: true
+        )
     }
 
     private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
@@ -20973,8 +21104,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
 
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
-                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                if def.publishesStopNotification {
+                    let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                }
                 if let codexFailure {
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -20990,6 +21123,80 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("\(def.name)-hook.stop.ignored", data: ["error": String(describing: error)])
+                } else {
+                    throw error
+                }
+            }
+
+        case .notification:
+            do {
+                let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+
+                var summary = summarizeAgentHookNotification(def: def, parsedInput: input)
+                if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
+                    summary = AgentHookNotificationSummary(
+                        subtitle: mapped?.lastSubtitle ?? summary.subtitle,
+                        body: savedBody,
+                        status: summary.status,
+                        isFallback: false
+                    )
+                }
+
+                if !sessionId.isEmpty {
+                    let pid = mapped?.pid ?? inferredCodexAgentPID()
+                    let launchCommand = agentLaunchCommandFromEnvironment(
+                        env,
+                        fallbackPID: pid,
+                        fallbackKind: def.name,
+                        cwd: hookCwd ?? mapped?.cwd
+                    )
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: hookCwd ?? mapped?.cwd,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body
+                    )
+                }
+
+                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+
+                switch summary.status {
+                case .needsInput:
+                    let statusValue = String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                        def.displayName
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                case .error:
+                    let statusValue = String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                        def.displayName
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                case .idle:
+                    let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                }
+            } catch {
+                if shouldIgnoreClaudeHookTeardownError(error) {
+                    telemetry.breadcrumb("\(def.name)-hook.notification.ignored", data: ["error": String(describing: error)])
                 } else {
                     throw error
                 }
@@ -21495,7 +21702,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "post-tool-use": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
-        case "notification": return "Notification"
+        case "notification", "notify": return "Notification"
         default: return ""
         }
     }

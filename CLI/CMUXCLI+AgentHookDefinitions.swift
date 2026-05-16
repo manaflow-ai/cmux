@@ -20,6 +20,7 @@ extension CMUXCLI {
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
+        let publishesStopNotification: Bool
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
         /// with a 120s timeout so the socket reply wait doesn't trip the
@@ -78,6 +79,7 @@ extension CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
+             publishesStopNotification: Bool = true,
              feedHookEvents: [String] = [],
              postInstallAction: PostInstallAction? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
@@ -88,6 +90,7 @@ extension CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
+            self.publishesStopNotification = publishesStopNotification
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
@@ -98,13 +101,15 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, sessionEnd, noop
+        case sessionStart, promptSubmit, stop, notification, sessionEnd, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
         "session-start": .sessionStart,
         "prompt-submit": .promptSubmit,
         "stop": .stop,
+        "notification": .notification,
+        "notify": .notification,
         "agent-response": .stop,
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
@@ -138,11 +143,10 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                // Grok uses Notification for user-facing completion notices;
-                // route those through the same completion path as Stop.
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            publishesStopNotification: false,
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
