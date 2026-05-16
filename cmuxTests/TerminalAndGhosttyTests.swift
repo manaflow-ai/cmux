@@ -952,6 +952,41 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+        XCTAssertEqual(panel.hostedView.debugSurfaceId, panel.surface.id)
+        XCTAssertNil(panel.surface.surface)
+        XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            panel.hostedView.removeFromSuperview()
+            panel.surface.teardownSurface()
+            window.orderOut(nil)
+        }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.hostedView.frame = contentView.bounds
+        panel.hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            panel.surface.surface,
+            "A direct AppKit-hosted terminal view must create its runtime surface once it enters a real window."
+        )
+        XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
+    }
+
     func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
