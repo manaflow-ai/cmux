@@ -56,6 +56,7 @@ struct SessionIndexView: View {
     @State private var collapsedSections: Set<SectionKey> = []
     /// Section whose "Show more" popover is currently open.
     @State private var openPopoverSection: SectionKey?
+    @State private var isGlobalSearchPresented = false
     @State private var previewEntry: SessionEntry?
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
@@ -96,7 +97,14 @@ struct SessionIndexView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 6) {
+        let searchFn: SessionSearchFn = { query, scope, offset, limit in
+            await store.searchSessions(query: query, scope: scope, offset: offset, limit: limit)
+        }
+        let loadSnapshotFn: DirectorySnapshotFn = { cwd in
+            await store.loadDirectorySnapshot(cwd: cwd)
+        }
+
+        return HStack(spacing: 6) {
             ForEach(SessionGrouping.allCases) { mode in
                 GroupingButton(
                     mode: mode,
@@ -109,6 +117,25 @@ struct SessionIndexView: View {
             }
 
             Spacer(minLength: 4)
+
+            Button {
+                isGlobalSearchPresented = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .buttonStyle(.borderless)
+            .help(String(localized: "sessionIndex.globalSearch.tooltip", defaultValue: "Search all trajectories"))
+            .accessibilityIdentifier("SessionGlobalSearchButton")
+            .background(
+                SectionPopoverHost(
+                    isPresented: $isGlobalSearchPresented,
+                    section: globalSearchSection,
+                    search: searchFn,
+                    loadSnapshot: loadSnapshotFn,
+                    onResume: onResume
+                )
+            )
 
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
@@ -135,6 +162,21 @@ struct SessionIndexView: View {
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
+    }
+
+    private var globalSearchSection: IndexSection {
+        IndexSection(
+            key: .all(cwd: globalSearchCwdFilter),
+            title: String(localized: "sessionIndex.globalSearch.title", defaultValue: "All trajectories"),
+            icon: .all,
+            entries: store.globalSearchPreviewEntries(limit: 100)
+        )
+    }
+
+    private var globalSearchCwdFilter: String? {
+        guard store.scopeToCurrentDirectory else { return nil }
+        let trimmed = store.currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private var loadingView: some View {
@@ -455,6 +497,11 @@ private struct IndexSectionView: View, Equatable {
     @ViewBuilder
     private var sectionIconView: some View {
         switch section.icon {
+        case .all:
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
         case .agent(let agent):
             AgentIconImage(agent: agent, size: 14)
         case .folder:
@@ -2102,6 +2149,17 @@ private struct SectionPopoverView: View {
             errorMessages = []
 
             if trimmed.isEmpty {
+                if case .all = sectionSearchScope {
+                    fullSnapshot = nil
+                    loaded = Array(section.entries.prefix(Self.pageSize))
+                    hasMore = !section.entries.isEmpty
+                    isLoading = true
+                    let outcome = await search("", sectionSearchScope, 0, Self.pageSize)
+                    guard !Task.isCancelled else { return }
+                    applyOutcome(outcome, append: false)
+                    return
+                }
+
                 // Fast first frame: render the scan-time top-N we already
                 // have while the full snapshot builds in parallel. On
                 // warm cache the snapshot returns immediately and the
@@ -2242,6 +2300,10 @@ private struct SectionPopoverView: View {
 
     private var sectionSearchScope: SessionIndexStore.SearchScope {
         let raw = section.key.raw
+        if raw.hasPrefix("all:") {
+            let cwd = String(raw.dropFirst("all:".count))
+            return .all(cwdFilter: cwd.isEmpty ? nil : cwd)
+        }
         if raw.hasPrefix("agent:"),
            let agent = SessionAgent(rawValue: String(raw.dropFirst("agent:".count))) {
             return .agent(agent)
@@ -2256,6 +2318,11 @@ private struct SectionPopoverView: View {
     @ViewBuilder
     private var sectionIconView: some View {
         switch section.icon {
+        case .all:
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(.secondary)
+                .frame(width: 14, height: 14)
         case .agent(let agent):
             AgentIconImage(agent: agent, size: 14)
         case .folder:

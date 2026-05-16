@@ -223,6 +223,41 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(subagent.parentFileURL, parentURL)
     }
 
+    func testVaultMetadataSearchFindsSubagentAcrossAgents() async throws {
+        let codexSubagent = makeEntry(
+            id: "codex-subagent",
+            agent: .codex,
+            sessionId: "codex-child",
+            title: "Investigate parser",
+            cwd: "/tmp/codex-project",
+            subagent: SessionSubagentMetadata(
+                provider: .codex,
+                parentSessionId: "codex-parent",
+                subagentId: "codex-child",
+                depth: 1,
+                status: "closed",
+                name: "Turing",
+                role: "explorer",
+                parentFileURL: nil
+            )
+        )
+        let claudeParent = makeEntry(
+            id: "claude-parent",
+            agent: .claude,
+            sessionId: "claude-parent",
+            title: "Unrelated parent",
+            cwd: "/tmp/claude-project"
+        )
+
+        let results = await SessionIndexStore.searchSessionMetadataForTesting(
+            entries: [claudeParent, codexSubagent],
+            query: "turing",
+            limit: 10
+        )
+
+        XCTAssertEqual(results.map(\.id), ["codex-subagent"])
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -320,22 +355,27 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     private func makeEntry(
+        id: String = UUID().uuidString,
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        cwd: String? = nil,
+        gitBranch: String? = nil,
+        fileURL: URL? = nil,
+        subagent: SessionSubagentMetadata? = nil
     ) -> SessionEntry {
         SessionEntry(
-            id: UUID().uuidString,
+            id: id,
             agent: agent,
             sessionId: sessionId,
             title: title,
-            cwd: nil,
-            gitBranch: nil,
+            cwd: cwd,
+            gitBranch: gitBranch,
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: agent.defaultSpecificsForTesting
+            specifics: agent.defaultSpecificsForTesting,
+            subagent: subagent
         )
     }
 

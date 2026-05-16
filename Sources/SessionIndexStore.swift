@@ -96,6 +96,7 @@ enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
 struct SectionKey: Hashable {
     let raw: String
 
+    static func all(cwd: String?) -> SectionKey { SectionKey(raw: "all:" + (cwd ?? "")) }
     static func agent(_ a: SessionAgent) -> SectionKey { SectionKey(raw: "agent:" + a.rawValue) }
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
 }
@@ -110,6 +111,7 @@ struct IndexSection: Identifiable, Equatable {
 }
 
 enum SectionIcon: Equatable {
+    case all
     case agent(SessionAgent)
     case folder
 }
@@ -131,6 +133,15 @@ struct DirectorySnapshot: Sendable {
     let cwd: String  // "" represents the unknown-folder bucket
     let entries: [SessionEntry]
     let errors: [String]
+}
+
+private struct SessionSearchSnapshot: Sendable {
+    let key: String
+    let entries: [SessionEntry]
+    let errors: [String]
+    let corpus: [CommandPaletteSearchCorpusEntry<SessionEntry.ID>]
+    let nucleoIndex: CommandPaletteNucleoSearchIndex<SessionEntry.ID>?
+    let entriesByID: [SessionEntry.ID: SessionEntry]
 }
 
 @MainActor
@@ -259,6 +270,10 @@ final class SessionIndexStore: ObservableObject {
         cachedSections = sections
         cachedSectionsRevision = sectionsCacheRevision
         return sections
+    }
+
+    func globalSearchPreviewEntries(limit: Int) -> [SessionEntry] {
+        Array(filteredEntriesForCurrentScope().sorted { $0.modified > $1.modified }.prefix(limit))
     }
 
     /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
@@ -452,9 +467,11 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private var loadTask: Task<Void, Never>?
+    private var searchSnapshotPrewarmTask: Task<Void, Never>?
 
     func reload() {
         loadTask?.cancel()
+        searchSnapshotPrewarmTask?.cancel()
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
@@ -467,6 +484,7 @@ final class SessionIndexStore: ObservableObject {
                 self.isLoading = false
                 self.backfillAgentOrderFromEntries()
                 self.backfillDirectoryOrderFromEntries()
+                self.prewarmSessionSearchSnapshot(cwdFilter: nil)
             }
         }
     }
@@ -475,6 +493,8 @@ final class SessionIndexStore: ObservableObject {
 
     private var directorySnapshotCache: [String: DirectorySnapshot] = [:]
     private var directorySnapshotLRU: [String] = []
+    private var sessionSearchSnapshotCache: [String: SessionSearchSnapshot] = [:]
+    private var sessionSearchSnapshotLRU: [String] = []
     /// Bumped on every `reload()`. Snapshot builds capture this at start;
     /// if it changes before the build completes (reload raced with an
     /// in-flight build), the build's result is discarded instead of
@@ -483,6 +503,8 @@ final class SessionIndexStore: ObservableObject {
     /// and be reused on the next popover open.
     private var directorySnapshotGeneration: Int = 0
     private static let directorySnapshotCacheCapacity = 16
+    private static let sessionSearchSnapshotCacheCapacity = 4
+    private static let allAgentsSnapshotLimit = 10_000
 
     /// Return a cached or freshly-built merged snapshot for a cwd-scoped
     /// directory. Used by the Show-more popover's empty-query scroll
@@ -506,7 +528,6 @@ final class SessionIndexStore: ObservableObject {
         // Large limit so every per-agent loader returns all matching rows.
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
-        let bigLimit = 10_000
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
         var merged = await Self.loadAgents(
             order.agents,
@@ -514,7 +535,7 @@ final class SessionIndexStore: ObservableObject {
             needle: "",
             cwdFilter: cwdFilter,
             offset: 0,
-            limit: bigLimit,
+            limit: Self.allAgentsSnapshotLimit,
             errorBag: bag
         )
         if Task.isCancelled {
@@ -532,6 +553,73 @@ final class SessionIndexStore: ObservableObject {
             storeDirectorySnapshot(key: key, snapshot: snapshot)
         }
         return snapshot
+    }
+
+    private func loadSessionSearchSnapshot(cwdFilter: String?) async -> SessionSearchSnapshot {
+        let key = Self.sessionSearchSnapshotKey(cwdFilter: cwdFilter)
+        if let cached = touchSessionSearchSnapshotLRU(key) {
+            return cached
+        }
+
+        let generation = directorySnapshotGeneration
+        let bag = ErrorBag()
+        let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        let merged = await Self.loadAgents(
+            order.agents,
+            registry: order.registry,
+            needle: "",
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: Self.allAgentsSnapshotLimit,
+            errorBag: bag
+        )
+        let sorted = merged.sorted { $0.modified > $1.modified }
+        let snapshot = await Self.makeSessionSearchSnapshot(
+            key: key,
+            entries: sorted,
+            errors: bag.snapshot()
+        )
+        if generation == directorySnapshotGeneration {
+            storeSessionSearchSnapshot(key: key, snapshot: snapshot)
+        }
+        return snapshot
+    }
+
+    private func touchSessionSearchSnapshotLRU(_ key: String) -> SessionSearchSnapshot? {
+        guard let cached = sessionSearchSnapshotCache[key] else { return nil }
+        if let idx = sessionSearchSnapshotLRU.firstIndex(of: key) {
+            sessionSearchSnapshotLRU.remove(at: idx)
+        }
+        sessionSearchSnapshotLRU.append(key)
+        return cached
+    }
+
+    private func storeSessionSearchSnapshot(key: String, snapshot: SessionSearchSnapshot) {
+        if sessionSearchSnapshotCache[key] == nil,
+           sessionSearchSnapshotCache.count >= Self.sessionSearchSnapshotCacheCapacity,
+           let oldestKey = sessionSearchSnapshotLRU.first {
+            sessionSearchSnapshotCache.removeValue(forKey: oldestKey)
+            sessionSearchSnapshotLRU.removeFirst()
+        }
+        sessionSearchSnapshotCache[key] = snapshot
+        if let idx = sessionSearchSnapshotLRU.firstIndex(of: key) {
+            sessionSearchSnapshotLRU.remove(at: idx)
+        }
+        sessionSearchSnapshotLRU.append(key)
+    }
+
+    private func prewarmSessionSearchSnapshot(cwdFilter: String?) {
+        searchSnapshotPrewarmTask?.cancel()
+        searchSnapshotPrewarmTask = Task { [weak self] in
+            guard let self else { return }
+            _ = await self.loadSessionSearchSnapshot(cwdFilter: cwdFilter)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                if self.searchSnapshotPrewarmTask?.isCancelled == false {
+                    self.searchSnapshotPrewarmTask = nil
+                }
+            }
+        }
     }
 
     private func touchDirectorySnapshotLRU(_ key: String) -> DirectorySnapshot? {
@@ -560,6 +648,79 @@ final class SessionIndexStore: ObservableObject {
     private func invalidateDirectorySnapshots() {
         directorySnapshotCache.removeAll()
         directorySnapshotLRU.removeAll()
+        sessionSearchSnapshotCache.removeAll()
+        sessionSearchSnapshotLRU.removeAll()
+    }
+
+    private static func sessionSearchSnapshotKey(cwdFilter: String?) -> String {
+        guard let cwdFilter, !cwdFilter.isEmpty else { return "all" }
+        return "cwd:" + (cwdFilter as NSString).standardizingPath
+    }
+
+    nonisolated private static func makeSessionSearchSnapshot(
+        key: String,
+        entries: [SessionEntry],
+        errors: [String]
+    ) async -> SessionSearchSnapshot {
+        await Task.detached(priority: .utility) {
+            let corpus = sessionSearchCorpus(entries: entries)
+            let index = CommandPaletteNucleoSearchIndex(entries: corpus)
+            let entriesByID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            return SessionSearchSnapshot(
+                key: key,
+                entries: entries,
+                errors: errors,
+                corpus: corpus,
+                nucleoIndex: index,
+                entriesByID: entriesByID
+            )
+        }.value
+    }
+
+    nonisolated static func sessionSearchCorpus(
+        entries: [SessionEntry]
+    ) -> [CommandPaletteSearchCorpusEntry<SessionEntry.ID>] {
+        entries.enumerated().map { index, entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: index,
+                title: entry.displayTitle,
+                searchableTexts: sessionSearchableTexts(for: entry)
+            )
+        }
+    }
+
+    nonisolated private static func sessionSearchableTexts(for entry: SessionEntry) -> [String] {
+        var texts: [String] = [
+            entry.displayTitle,
+            entry.title,
+            entry.sessionId,
+            entry.agent.rawValue,
+            entry.agent.displayName,
+        ]
+        if let cwd = entry.cwd {
+            texts.append(cwd)
+            texts.append((cwd as NSString).lastPathComponent)
+        }
+        if let gitBranch = entry.gitBranch {
+            texts.append(gitBranch)
+        }
+        if let fileURL = entry.fileURL {
+            texts.append(fileURL.path)
+            texts.append(fileURL.lastPathComponent)
+        }
+        if let pullRequest = entry.pullRequest {
+            texts.append(String(pullRequest.number))
+            texts.append(pullRequest.url)
+            if let repository = pullRequest.repository {
+                texts.append(repository)
+            }
+        }
+        if let subagent = entry.subagent {
+            texts.append(contentsOf: subagent.searchableTerms)
+            texts.append("subagent")
+        }
+        return texts
     }
 
     private func normalizedDirectory(_ value: String?) -> String? {
@@ -1143,6 +1304,9 @@ final class SessionIndexStore: ObservableObject {
     // MARK: - Deep search (popover "Show more")
 
     enum SearchScope {
+        /// Search every known agent trajectory. `cwdFilter` is optional and
+        /// applies when the Vault UI is scoped to the current folder.
+        case all(cwdFilter: String?)
         case agent(SessionAgent)
         /// Filter by absolute cwd; nil/"" = unknown-folder bucket.
         case directory(String?)
@@ -1166,6 +1330,10 @@ final class SessionIndexStore: ObservableObject {
         func add(_ msg: String) {
             lock.lock(); defer { lock.unlock() }
             messages.append(msg)
+        }
+        func add(contentsOf newMessages: [String]) {
+            lock.lock(); defer { lock.unlock() }
+            messages.append(contentsOf: newMessages)
         }
         func snapshot() -> [String] {
             lock.lock(); defer { lock.unlock() }
@@ -1196,6 +1364,14 @@ final class SessionIndexStore: ObservableObject {
         #endif
         let entries: [SessionEntry]
         switch scope {
+        case .all(let cwdFilter):
+            entries = await searchAllAgents(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: bag
+            )
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
             let cwdFilter: String?
@@ -1234,6 +1410,90 @@ final class SessionIndexStore: ObservableObject {
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
         return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+
+    private func searchAllAgents(
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag
+    ) async -> [SessionEntry] {
+        if needle.isEmpty {
+            let snapshot = await loadSessionSearchSnapshot(cwdFilter: cwdFilter)
+            errorBag.add(contentsOf: snapshot.errors)
+            return Array(snapshot.entries.dropFirst(offset).prefix(limit))
+        }
+
+        let target = offset + limit
+        async let snapshot = loadSessionSearchSnapshot(cwdFilter: cwdFilter)
+        let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        let exactMatches = await Self.loadAgents(
+            order.agents,
+            registry: order.registry,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: target,
+            errorBag: errorBag
+        )
+        let metadataSnapshot = await snapshot
+        errorBag.add(contentsOf: metadataSnapshot.errors)
+        let metadataMatches = Self.searchSessionMetadata(
+            snapshot: metadataSnapshot,
+            needle: needle,
+            limit: target
+        )
+        return Self.mergedSearchResults(
+            primary: metadataMatches,
+            secondary: exactMatches.sorted { $0.modified > $1.modified },
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    nonisolated static func searchSessionMetadataForTesting(
+        entries: [SessionEntry],
+        query: String,
+        limit: Int
+    ) async -> [SessionEntry] {
+        let snapshot = await makeSessionSearchSnapshot(key: "test", entries: entries, errors: [])
+        return searchSessionMetadata(snapshot: snapshot, needle: query.lowercased(), limit: limit)
+    }
+
+    nonisolated private static func searchSessionMetadata(
+        snapshot: SessionSearchSnapshot,
+        needle: String,
+        limit: Int
+    ) -> [SessionEntry] {
+        guard limit > 0 else { return [] }
+        let resultIDs: [SessionEntry.ID]
+        if let nucleoResults = snapshot.nucleoIndex?.search(query: needle, resultLimit: limit) {
+            resultIDs = nucleoResults.map(\.payload)
+        } else {
+            resultIDs = CommandPaletteSearchEngine.search(
+                entries: snapshot.corpus,
+                query: needle,
+                resultLimit: limit,
+                historyBoost: { _, _ in 0 }
+            ).map(\.payload)
+        }
+        return resultIDs.compactMap { snapshot.entriesByID[$0] }
+    }
+
+    nonisolated private static func mergedSearchResults(
+        primary: [SessionEntry],
+        secondary: [SessionEntry],
+        offset: Int,
+        limit: Int
+    ) -> [SessionEntry] {
+        var seen: Set<SessionEntry.ID> = []
+        var merged: [SessionEntry] = []
+        merged.reserveCapacity(primary.count + secondary.count)
+        for entry in primary + secondary where seen.insert(entry.id).inserted {
+            merged.append(entry)
+        }
+        return Array(merged.dropFirst(offset).prefix(limit))
     }
 
     nonisolated private static func loadAgents(

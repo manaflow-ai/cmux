@@ -106827,6 +106827,40 @@
         }
       }
     },
+    "sessionIndex.globalSearch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All trajectories"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての軌跡"
+          }
+        }
+      }
+    },
+    "sessionIndex.globalSearch.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search all trajectories"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての軌跡を検索"
+          }
+        }
+      }
+    },
     "sessionIndex.reload.tooltip": {
       "extractionState": "manual",
       "localizations": {
