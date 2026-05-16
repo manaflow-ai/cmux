@@ -39,11 +39,6 @@ class FakeCmuxState:
                     },
                 ],
             }
-        if method == "window.focus":
-            return {
-                "window_id": params.get("window_id", WINDOW_ID),
-                "window_ref": WINDOW_REF,
-            }
         if method == "workspace.create":
             return {
                 "workspace_id": WORKSPACE_ID,
