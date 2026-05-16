@@ -157,6 +157,45 @@ def main() -> int:
         c.send_surface(s1, f"echo {capture_token}\n")
         _wait_for(lambda: _surface_has(c, ws, s1, capture_token))
 
+        show_extended_keys = _run_cli(cli, ["show-options", "-sv", "extended-keys"])
+        _must(show_extended_keys.stdout.strip() == "off", f"show-options should default extended-keys to off, got {show_extended_keys.stdout!r}")
+        _run_cli(cli, ["set-option", "-sq", "extended-keys", "always"])
+        show_extended_keys = _run_cli(cli, ["show-options", "-sv", "extended-keys"])
+        _must(show_extended_keys.stdout.strip() == "always", f"set-option should persist extended-keys, got {show_extended_keys.stdout!r}")
+        _run_cli(cli, ["set-option", "-sq", "extended-keys", "off"])
+        show_all_options = _run_cli(cli, ["show-options"])
+        _must("extended-keys off" in show_all_options.stdout, f"show-options should list default options, got {show_all_options.stdout!r}")
+
+        custom_option = f"@compat_probe_{stamp}"
+        _run_cli(cli, ["set-option", custom_option, "alpha"])
+        _run_cli(cli, ["set-option", "-o", custom_option, "beta"])
+        custom_value = _run_cli(cli, ["show-options", "-v", custom_option])
+        _must(custom_value.stdout.strip() == "alpha", f"set-option -o should keep the existing value, got {custom_value.stdout!r}")
+        _run_cli(cli, ["set-option", "-a", custom_option, "gamma"])
+        custom_value = _run_cli(cli, ["show-options", "-v", custom_option])
+        _must(custom_value.stdout.strip() == "alphagamma", f"set-option -a should append to the existing value, got {custom_value.stdout!r}")
+        show_all_options = _run_cli(cli, ["show-options"])
+        _must(f"{custom_option} alphagamma" in show_all_options.stdout, f"show-options should list custom options, got {show_all_options.stdout!r}")
+        _run_cli(cli, ["set-option", "-u", custom_option])
+
+        show_help = _run_cli(cli, ["show-options", "--help"])
+        _must("Usage: cmux show-options" in show_help.stdout, f"show-options --help should print usage, got {show_help.stdout!r}")
+        set_help = _run_cli(cli, ["set-option", "--help"])
+        _must("Usage: cmux set-option" in set_help.stdout, f"set-option --help should print usage, got {set_help.stdout!r}")
+
+        empty_option = f"@empty_probe_{stamp}"
+        _run_cli(cli, ["set-option", empty_option, ""])
+        empty_value = _run_cli(cli, ["show-options", "-v", empty_option])
+        _must(empty_value.stdout == "\n", f"set-option should preserve explicit empty values, got {empty_value.stdout!r}")
+        _run_cli(cli, ["set-option", "-u", empty_option])
+
+        spaced_option = f"@space_probe_{stamp}"
+        spaced_value = "  padded value  "
+        _run_cli(cli, ["set-option", spaced_option, spaced_value])
+        shown_spaced_value = _run_cli(cli, ["show-options", "-v", spaced_option])
+        _must(shown_spaced_value.stdout == spaced_value + "\n", f"set-option should preserve leading/trailing whitespace, got {shown_spaced_value.stdout!r}")
+        _run_cli(cli, ["set-option", "-u", spaced_option])
+
         cap = _run_cli(cli, ["capture-pane", "--workspace", ws, "--surface", s1, "--scrollback"])
         _must(capture_token in cap.stdout, f"capture-pane missing token: {cap.stdout!r}")
 

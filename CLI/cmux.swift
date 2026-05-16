@@ -3925,7 +3925,13 @@ struct CMUXCLI {
              "bind-key",
              "unbind-key",
              "copy-mode",
+             "show-option",
+             "show-options",
+             "set",
+             "set-option",
+             "set-window-option",
              "set-buffer",
+             "setw",
              "paste-buffer",
              "list-buffers",
              "respawn-pane",
@@ -9642,6 +9648,37 @@ struct CMUXCLI {
               cmux omc team 3:claude "implement feature"
               cmux omc --watch
             """)
+        case "show-option", "show-options":
+            return """
+            Usage: cmux show-options [-svq] [name]
+
+            Show tmux-compat option values. Without a name, list all known values.
+
+            Flags:
+              -s   Server option scope compatibility flag
+              -v   Print only the option value
+              -q   Suppress errors for missing or unsupported options
+
+            Examples:
+              cmux show-options
+              cmux show-options -sv extended-keys
+            """
+        case "set", "set-option", "set-window-option", "setw":
+            return """
+            Usage: cmux set-option [-aouq] <name> <value>
+
+            Persist a tmux-compat option value.
+
+            Flags:
+              -a   Append to the existing value
+              -o   Only set if the option is not already set
+              -u   Unset the option
+              -q   Suppress errors for unknown options
+
+            Examples:
+              cmux set-option extended-keys always
+              cmux set-option -u extended-keys
+            """
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -15934,7 +15971,7 @@ struct CMUXCLI {
                 print(buffer)
             }
 
-        case "last-window", "next-window", "previous-window", "set-hook", "set-buffer", "list-buffers":
+        case "last-window", "next-window", "previous-window", "set-hook", "show-option", "show-options", "set", "set-option", "set-window-option", "set-buffer", "list-buffers", "setw":
             try runTmuxCompatCommand(
                 command: command,
                 commandArgs: rawArgs,
@@ -15997,7 +16034,7 @@ struct CMUXCLI {
                 try tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
             }
 
-        case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
+        case "source-file", "refresh-client", "attach-session", "detach-client":
             return
 
         case "-V", "-v":
@@ -16020,6 +16057,7 @@ struct CMUXCLI {
     private struct TmuxCompatStore: Codable {
         var buffers: [String: String] = [:]
         var hooks: [String: String] = [:]
+        var options: [String: String] = [:]
         /// Tracks main-vertical layout state per workspace, keyed by workspace ID.
         var mainVerticalLayouts: [String: MainVerticalState] = [:]
         /// Tracks the last surface created by split-window per workspace.
@@ -16028,17 +16066,39 @@ struct CMUXCLI {
         var lastSplitSurface: [String: String] = [:]
 
         /// Custom decoder so older store files missing newer keys
-        /// (mainVerticalLayouts, lastSplitSurface) decode gracefully
+        /// (options, mainVerticalLayouts, lastSplitSurface) decode gracefully
         /// instead of throwing and resetting the entire store.
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             buffers = try container.decodeIfPresent([String: String].self, forKey: .buffers) ?? [:]
             hooks = try container.decodeIfPresent([String: String].self, forKey: .hooks) ?? [:]
+            options = try container.decodeIfPresent([String: String].self, forKey: .options) ?? [:]
             mainVerticalLayouts = try container.decodeIfPresent([String: MainVerticalState].self, forKey: .mainVerticalLayouts) ?? [:]
             lastSplitSurface = try container.decodeIfPresent([String: String].self, forKey: .lastSplitSurface) ?? [:]
         }
 
         init() {}
+    }
+
+    private func tmuxCompatDefaultOptions() -> [String: String] {
+        [
+            // cmux is not a tmux server, but OMX expects the tmux compatibility
+            // shim to answer lease-management probes for extended-keys.
+            "extended-keys": "off"
+        ]
+    }
+
+    private func tmuxCompatDefaultOptionValue(_ name: String) -> String? {
+        tmuxCompatDefaultOptions()[name.lowercased()]
+    }
+
+    private func tmuxCompatMergedOptions(store: TmuxCompatStore) -> [String: String] {
+        tmuxCompatDefaultOptions().merging(store.options) { _, stored in stored }
+    }
+
+    private func tmuxCompatOptionValue(_ name: String, store: TmuxCompatStore) -> String? {
+        let normalizedName = name.lowercased()
+        return tmuxCompatMergedOptions(store: store)[normalizedName]
     }
 
     private func tmuxCompatStoreURL() -> URL {
@@ -16525,6 +16585,85 @@ struct CMUXCLI {
             store.hooks[event] = commandText
             try saveTmuxCompatStore(store)
             print("OK")
+
+        case "show-option", "show-options":
+            let parsed = try parseTmuxArguments(
+                commandArgs,
+                valueFlags: [],
+                boolFlags: ["-g", "-p", "-q", "-s", "-v", "-w"]
+            )
+            let store = loadTmuxCompatStore()
+            let optionName = parsed.positional.first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let optionName, !optionName.isEmpty {
+                guard let value = tmuxCompatOptionValue(optionName, store: store) else {
+                    if parsed.hasFlag("-q") {
+                        return
+                    }
+                    throw CLIError(message: "Unsupported tmux compatibility option: \(optionName)")
+                }
+
+                if parsed.hasFlag("-v") {
+                    print(value)
+                } else {
+                    print("\(optionName) \(value)")
+                }
+                return
+            }
+
+            let allOptions = tmuxCompatMergedOptions(store: store)
+            if allOptions.isEmpty {
+                if parsed.hasFlag("-q") {
+                    return
+                }
+                throw CLIError(message: "No tmux compatibility options are set")
+            }
+            for (name, value) in allOptions.sorted(by: { $0.key < $1.key }) {
+                if parsed.hasFlag("-v") {
+                    print(value)
+                } else {
+                    print("\(name) \(value)")
+                }
+            }
+
+        case "set-option", "set", "set-window-option", "setw":
+            let parsed = try parseTmuxArguments(
+                commandArgs,
+                valueFlags: [],
+                boolFlags: ["-F", "-a", "-g", "-o", "-p", "-q", "-s", "-u", "-w"]
+            )
+            guard let optionName = parsed.positional.first?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !optionName.isEmpty else {
+                throw CLIError(message: "\(command) requires an option name")
+            }
+
+            var store = loadTmuxCompatStore()
+            let normalizedName = optionName.lowercased()
+            if parsed.hasFlag("-u") {
+                store.options.removeValue(forKey: normalizedName)
+                try saveTmuxCompatStore(store)
+                return
+            }
+
+            let valueParts = Array(parsed.positional.dropFirst())
+            guard !valueParts.isEmpty else {
+                throw CLIError(message: "\(command) requires an option value")
+            }
+            let value = valueParts.joined(separator: " ")
+
+            if parsed.hasFlag("-o"), tmuxCompatOptionValue(normalizedName, store: store) != nil {
+                return
+            }
+
+            if parsed.hasFlag("-a") {
+                let existing = tmuxCompatOptionValue(normalizedName, store: store) ?? ""
+                store.options[normalizedName] = existing + value
+            } else {
+                store.options[normalizedName] = value
+            }
+            try saveTmuxCompatStore(store)
 
         case "popup":
             throw CLIError(message: "popup is not supported yet in cmux CLI parity mode")
@@ -24223,6 +24362,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           last-pane [--workspace <id|ref>]
           find-window [--content] [--select] <query>
           clear-history [--workspace <id|ref>] [--surface <id|ref>]
+          show-options [-sv] [name]
+          set-option [-asq] <name> <value>
           set-hook [--list] [--unset <event>] | <event> <command>
           popup
           bind-key | unbind-key | copy-mode
