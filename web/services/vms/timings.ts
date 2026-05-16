@@ -69,13 +69,15 @@ export function measureVmEffect<A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> {
   if (!timing) return effect;
-  return Effect.gen(function* () {
+  return Effect.suspend(() => {
     const start = performance.now();
-    try {
-      return yield* effect;
-    } finally {
-      timing.record(stage, performance.now() - start);
-    }
+    return effect.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          timing.record(stage, performance.now() - start);
+        }),
+      ),
+    );
   });
 }
 
