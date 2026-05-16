@@ -2846,17 +2846,19 @@ final class BrowserPanel: Panel, ObservableObject {
         return max(0, Int((now.timeIntervalSince(hiddenAt) * 1000.0).rounded()))
     }
 
-    private func resetWebViewLifecycleMetadata() {
+    private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         cancelHiddenWebViewDiscard()
         webViewLifecycleState = .newTab
-        webViewLastVisibleAt = nil
-        webViewLastHiddenAt = nil
-        webViewLastVisibilityChangeAt = nil
-        webViewLastVisibilityChangeReason = nil
+        if resetVisibility {
+            webViewLastVisibleAt = nil
+            webViewLastHiddenAt = nil
+            webViewLastVisibilityChangeAt = nil
+            webViewLastVisibilityChangeReason = nil
+            isWebViewVisibleInUI = false
+        }
         webViewDiscardedAt = nil
         webViewLastDiscardReason = nil
         webViewLastRestoreReason = nil
-        isWebViewVisibleInUI = false
         isWebViewDiscardedForMemory = false
         isClosingWebViewLifecycle = false
     }
@@ -3653,7 +3655,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        resetWebViewLifecycleMetadata()
+        resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
@@ -4009,7 +4011,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        resetWebViewLifecycleMetadata()
+        resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -4569,18 +4571,22 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func resumePendingRemoteNavigationIfNeeded() {
         guard remoteProxyEndpoint != nil,
-              let pendingRemoteNavigation else {
+              let navigation = pendingRemoteNavigation else {
             return
         }
-        self.pendingRemoteNavigation = nil
-        reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
-        guard let originalURL = pendingRemoteNavigation.request.url else { return }
+        guard let originalURL = navigation.request.url else {
+            pendingRemoteNavigation = nil
+            reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
+            return
+        }
         performNavigation(
-            request: pendingRemoteNavigation.request,
+            request: navigation.request,
             originalURL: originalURL,
-            recordTypedNavigation: pendingRemoteNavigation.recordTypedNavigation,
-            preserveRestoredSessionHistory: pendingRemoteNavigation.preserveRestoredSessionHistory
+            recordTypedNavigation: navigation.recordTypedNavigation,
+            preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
         )
+        pendingRemoteNavigation = nil
+        reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
     }
 
     private func performNavigation(
