@@ -18,7 +18,7 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
         popover.contentSize = NSSize(width: 720, height: 460)
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: GlobalSearchPaletteView(coordinator: coordinator)
+            rootView: GlobalSearchSurfaceView(coordinator: coordinator, placement: .popover)
         )
     }
 
@@ -51,8 +51,79 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 }
 
-private struct GlobalSearchPaletteView: View {
+enum GlobalSearchSurfacePlacement {
+    case popover
+    case rightSidebar
+    case pane
+
+    var fixedSize: CGSize? {
+        switch self {
+        case .popover:
+            return CGSize(width: 720, height: 460)
+        case .rightSidebar, .pane:
+            return nil
+        }
+    }
+
+    var headerHeight: CGFloat {
+        switch self {
+        case .popover:
+            return 56
+        case .rightSidebar, .pane:
+            return 44
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .popover:
+            return 18
+        case .rightSidebar, .pane:
+            return 12
+        }
+    }
+
+    var searchFontSize: CGFloat {
+        switch self {
+        case .popover:
+            return 18
+        case .rightSidebar, .pane:
+            return 14
+        }
+    }
+
+    var rowHorizontalPadding: CGFloat {
+        switch self {
+        case .popover:
+            return 14
+        case .rightSidebar, .pane:
+            return 10
+        }
+    }
+
+    var rowVerticalPadding: CGFloat {
+        switch self {
+        case .popover:
+            return 8
+        case .rightSidebar, .pane:
+            return 7
+        }
+    }
+
+    var focusesSearchFieldOnAppear: Bool {
+        switch self {
+        case .popover, .pane:
+            return true
+        case .rightSidebar:
+            return false
+        }
+    }
+}
+
+struct GlobalSearchSurfaceView: View {
     let coordinator: GlobalSearchCoordinator
+    let placement: GlobalSearchSurfacePlacement
+    var onFocusAnchorChange: (GlobalSearchKeyboardFocusView?) -> Void = { _ in }
 
     @State private var query = ""
     @State private var results: [GlobalSearchResultRow] = []
@@ -63,6 +134,7 @@ private struct GlobalSearchPaletteView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var refreshTask: Task<Void, Never>?
     @State private var keyMonitor: Any?
+    @State private var focusAnchorBox = GlobalSearchFocusAnchorBox()
     @FocusState private var searchFieldFocused: Bool
 
     private let searchDebounceMilliseconds = 80
@@ -77,22 +149,25 @@ private struct GlobalSearchPaletteView: View {
                 TextField(
                     String(
                         localized: "globalSearch.palette.placeholder",
-                        defaultValue: "Search all windows, panels, browser tabs..."
+                        defaultValue: "Search all terminals, panels, browser tabs..."
                     ),
                     text: $query
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: 18, weight: .regular))
+                .font(.system(size: placement.searchFontSize, weight: .regular))
                 .focused($searchFieldFocused)
+                .accessibilityIdentifier("GlobalSearch.searchField")
             }
-            .padding(.horizontal, 18)
-            .frame(height: 56)
+            .padding(.horizontal, placement.horizontalPadding)
+            .frame(height: placement.headerHeight)
 
             Divider()
 
             if results.isEmpty {
                 GlobalSearchEmptyStateView(
-                    title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    title: isSearching
+                        ? String(localized: "globalSearch.empty.searching", defaultValue: "Searching...")
+                        : query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? String(localized: "globalSearch.empty.noOpenPanels", defaultValue: "No open panels")
                         : String(localized: "globalSearch.empty.noResults", defaultValue: "No results")
                 )
@@ -104,6 +179,7 @@ private struct GlobalSearchPaletteView: View {
                             GlobalSearchResultRowView(
                                 row: row,
                                 isSelected: selectedIndex == row.index,
+                                placement: placement,
                                 action: {
                                     selectedIndex = row.index
                                     openSelectedResult()
@@ -120,10 +196,20 @@ private struct GlobalSearchPaletteView: View {
                 }
             }
         }
-        .frame(width: 720, height: 460)
-        .background(.regularMaterial)
+        .modifier(GlobalSearchSurfaceFrameModifier(placement: placement))
+        .background(surfaceBackground)
+        .background(
+            GlobalSearchKeyboardFocusAnchor(
+                placement: placement,
+                onViewChange: attachFocusAnchor,
+                onFocusSearchField: focusSearchFieldFromCoordinator
+            )
+            .frame(width: 0, height: 0)
+        )
         .onAppear {
-            searchFieldFocused = true
+            if placement.focusesSearchFieldOnAppear {
+                searchFieldFocused = true
+            }
             installKeyMonitorIfNeeded()
             resetResultsForPopoverOpen()
             refreshTask?.cancel()
@@ -135,6 +221,7 @@ private struct GlobalSearchPaletteView: View {
         }
         .onDisappear {
             removeKeyMonitor()
+            attachFocusAnchor(nil)
             refreshTask?.cancel()
             refreshTask = nil
             cancelSearchWork()
@@ -142,6 +229,27 @@ private struct GlobalSearchPaletteView: View {
         .onChange(of: query) { _, newValue in
             scheduleSearch(newValue)
         }
+    }
+
+    @ViewBuilder
+    private var surfaceBackground: some View {
+        switch placement {
+        case .popover:
+            Rectangle()
+                .fill(.regularMaterial)
+        case .rightSidebar, .pane:
+            Color(nsColor: .controlBackgroundColor)
+        }
+    }
+
+    private func attachFocusAnchor(_ anchor: GlobalSearchKeyboardFocusView?) {
+        focusAnchorBox.view = anchor
+        onFocusAnchorChange(anchor)
+    }
+
+    private func focusSearchFieldFromCoordinator() -> Bool {
+        searchFieldFocused = true
+        return true
     }
 
     private func scheduleSearch(_ nextQuery: String) {
@@ -233,7 +341,7 @@ private struct GlobalSearchPaletteView: View {
     }
 
     private func handleKeyEvent(_ event: GlobalSearchKeyEvent) -> Bool {
-        guard coordinator.isPaletteVisible() else { return false }
+        guard keyHandlingIsActive(for: event) else { return false }
 
         let flags = event.modifierFlags
         if flags.contains(.command),
@@ -248,6 +356,7 @@ private struct GlobalSearchPaletteView: View {
 
         switch event.keyCode {
         case 53:
+            guard placement == .popover else { return false }
             coordinator.dismissPalette()
             return true
         case 126:
@@ -266,6 +375,21 @@ private struct GlobalSearchPaletteView: View {
                 return !isTextEditingCommand(event) && !isSystemCommand(event)
             }
             return false
+        }
+    }
+
+    private func keyHandlingIsActive(for event: GlobalSearchKeyEvent) -> Bool {
+        switch placement {
+        case .popover:
+            return coordinator.isPaletteVisible()
+        case .rightSidebar, .pane:
+            guard let focusAnchorView = focusAnchorBox.view,
+                  let window = focusAnchorView.window,
+                  event.windowNumber == 0 || event.windowNumber == window.windowNumber,
+                  let responder = window.firstResponder else {
+                return false
+            }
+            return focusAnchorView.ownsKeyboardFocus(responder)
         }
     }
 
@@ -299,14 +423,32 @@ private struct GlobalSearchPaletteView: View {
     }
 }
 
+private final class GlobalSearchFocusAnchorBox {
+    weak var view: GlobalSearchKeyboardFocusView?
+}
+
+private struct GlobalSearchSurfaceFrameModifier: ViewModifier {
+    let placement: GlobalSearchSurfacePlacement
+
+    func body(content: Content) -> some View {
+        if let fixedSize = placement.fixedSize {
+            content.frame(width: fixedSize.width, height: fixedSize.height)
+        } else {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
 private struct GlobalSearchKeyEvent: Sendable {
     let keyCode: UInt16
     let charactersIgnoringModifiers: String?
+    let windowNumber: Int
     private let modifierFlagsRawValue: UInt
 
     init(_ event: NSEvent) {
         keyCode = event.keyCode
         charactersIgnoringModifiers = event.charactersIgnoringModifiers
+        windowNumber = event.windowNumber
         modifierFlagsRawValue = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .rawValue
@@ -314,6 +456,131 @@ private struct GlobalSearchKeyEvent: Sendable {
 
     var modifierFlags: NSEvent.ModifierFlags {
         NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
+    }
+}
+
+private struct GlobalSearchKeyboardFocusAnchor: NSViewRepresentable {
+    final class Coordinator {
+        var placement: GlobalSearchSurfacePlacement
+        var onViewChange: (GlobalSearchKeyboardFocusView?) -> Void
+        var onFocusSearchField: () -> Bool
+        weak var attachedView: GlobalSearchKeyboardFocusView?
+
+        init(
+            placement: GlobalSearchSurfacePlacement,
+            onViewChange: @escaping (GlobalSearchKeyboardFocusView?) -> Void,
+            onFocusSearchField: @escaping () -> Bool
+        ) {
+            self.placement = placement
+            self.onViewChange = onViewChange
+            self.onFocusSearchField = onFocusSearchField
+        }
+
+        func attach(_ view: GlobalSearchKeyboardFocusView) {
+            view.placement = placement
+            view.onFocusSearchField = onFocusSearchField
+            guard attachedView !== view else { return }
+            attachedView = view
+            onViewChange(view)
+        }
+
+        func detach(_ view: GlobalSearchKeyboardFocusView) {
+            guard attachedView === view else { return }
+            attachedView = nil
+            onViewChange(nil)
+        }
+    }
+
+    let placement: GlobalSearchSurfacePlacement
+    var onViewChange: (GlobalSearchKeyboardFocusView?) -> Void
+    var onFocusSearchField: () -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            placement: placement,
+            onViewChange: onViewChange,
+            onFocusSearchField: onFocusSearchField
+        )
+    }
+
+    func makeNSView(context: Context) -> GlobalSearchKeyboardFocusView {
+        let view = GlobalSearchKeyboardFocusView()
+        context.coordinator.attach(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: GlobalSearchKeyboardFocusView, context: Context) {
+        context.coordinator.placement = placement
+        context.coordinator.onViewChange = onViewChange
+        context.coordinator.onFocusSearchField = onFocusSearchField
+        context.coordinator.attach(nsView)
+        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: GlobalSearchKeyboardFocusView, coordinator: Coordinator) {
+        coordinator.detach(nsView)
+    }
+}
+
+final class GlobalSearchKeyboardFocusView: NSView {
+    var placement: GlobalSearchSurfacePlacement = .popover
+    var onFocusSearchField: (() -> Bool)?
+
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    func registerWithKeyboardFocusCoordinatorIfNeeded() {
+        guard placement == .rightSidebar, let window else { return }
+        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerGlobalSearchHost(self)
+    }
+
+    func focusSearchFieldFromCoordinator() -> Bool {
+        if onFocusSearchField?() == true {
+            return true
+        }
+        guard let window else { return false }
+        return window.makeFirstResponder(self)
+    }
+
+    func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
+        if responder === self { return true }
+        guard let responderView = Self.view(for: responder) else { return false }
+        guard let root = focusRootView else { return false }
+        return responderView === root || responderView.isDescendant(of: root)
+    }
+
+    private static func view(for responder: NSResponder) -> NSView? {
+        if let view = responder as? NSView {
+            return view
+        }
+        if let textView = responder as? NSTextView,
+           let delegateView = textView.delegate as? NSView {
+            return delegateView
+        }
+        return nil
+    }
+
+    private var focusRootView: NSView? {
+        guard let superview else { return nil }
+        var current: NSView? = superview
+        while let view = current {
+            let typeName = String(describing: type(of: view))
+            if typeName.contains("NSHosting") || typeName.contains("ViewHost") {
+                return view
+            }
+            current = view.superview
+        }
+        return superview
     }
 }
 
@@ -360,6 +627,8 @@ private struct GlobalSearchResultRow: Identifiable, Equatable {
             return "globe"
         case .markdown:
             return "doc.richtext"
+        case .terminal:
+            return "terminal"
         case .title:
             return "rectangle.stack"
         }
@@ -369,6 +638,7 @@ private struct GlobalSearchResultRow: Identifiable, Equatable {
 private struct GlobalSearchResultRowView: View {
     let row: GlobalSearchResultRow
     let isSelected: Bool
+    let placement: GlobalSearchSurfacePlacement
     let action: () -> Void
 
     var body: some View {
@@ -410,12 +680,13 @@ private struct GlobalSearchResultRowView: View {
                         .frame(minWidth: 30, alignment: .trailing)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, placement.rowHorizontalPadding)
+            .padding(.vertical, placement.rowVerticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("GlobalSearch.resultRow.\(row.index)")
     }
 }

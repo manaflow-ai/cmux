@@ -790,6 +790,7 @@
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",
+              "switchRightSidebarToSearch",
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",

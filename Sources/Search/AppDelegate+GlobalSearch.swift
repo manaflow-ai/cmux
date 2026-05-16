@@ -187,6 +187,8 @@ extension AppDelegate {
                 applyBrowserInlineSearch(query: query, hit: hit, to: browserPanel)
             } else if let markdownPanel = workspace.markdownPanel(for: panelID) {
                 applyMarkdownInlineSearch(query: query, hit: hit, to: markdownPanel)
+            } else if let terminalPanel = workspace.terminalPanel(for: panelID) {
+                applyTerminalInlineSearch(query: query, hit: hit, to: terminalPanel)
             }
         }
     }
@@ -204,6 +206,19 @@ extension AppDelegate {
         guard let needle = GlobalSearchInlineSearch.needle(for: query, hit: hit) else { return }
         panel.applySearchNeedle(needle)
     }
+
+    private func applyTerminalInlineSearch(query: String, hit: SearchIndexHit, to panel: TerminalPanel) {
+        guard hit.kind == .terminal,
+              let needle = GlobalSearchInlineSearch.needle(for: query, hit: hit) else {
+            return
+        }
+        if let searchState = panel.searchState {
+            searchState.needle = needle
+        } else {
+            panel.searchState = TerminalSurface.SearchState(needle: needle)
+        }
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+    }
 }
 
 enum GlobalSearchInlineSearch {
@@ -215,13 +230,30 @@ enum GlobalSearchInlineSearch {
         let tokens = SearchIndex.queryTokens(for: query)
         guard !tokens.isEmpty else { return nil }
 
-        let hitText = [
+        let hitParts = [
             hit.snippet,
             hit.title,
             hit.location,
             hit.anchor
-        ].joined(separator: "\n").lowercased()
+        ]
+        let hitText = hitParts.joined(separator: "\n").lowercased()
 
-        return tokens.first { hitText.contains($0) } ?? tokens[0]
+        if let exactToken = tokens.first(where: { hitText.contains($0) }) {
+            return exactToken
+        }
+
+        return hitParts
+            .compactMap { fuzzyMatchedNeedle(for: query, in: $0) }
+            .first
+            ?? tokens[0]
+    }
+
+    private static func fuzzyMatchedNeedle(for query: String, in candidate: String) -> String? {
+        let source = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let range = SearchIndex.fuzzyMatchedRange(query: query, in: source) else { return nil }
+        let matched = String(source[range])
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
+        guard !matched.isEmpty else { return nil }
+        return matched
     }
 }

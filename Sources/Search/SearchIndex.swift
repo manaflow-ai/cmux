@@ -4,6 +4,7 @@ import SQLite3
 enum GlobalSearchKind: String, Codable, Sendable {
     case browser
     case markdown
+    case terminal
     case title
 
     var localizedLabel: String {
@@ -12,6 +13,8 @@ enum GlobalSearchKind: String, Codable, Sendable {
             return String(localized: "globalSearch.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "globalSearch.kind.markdown", defaultValue: "Markdown")
+        case .terminal:
+            return String(localized: "globalSearch.kind.terminal", defaultValue: "Terminal")
         case .title:
             return String(localized: "globalSearch.kind.title", defaultValue: "Title")
         }
@@ -64,6 +67,10 @@ struct SearchIndexDocument: Sendable, Equatable {
             kind.rawValue,
             subtype
         ].joined(separator: ":")
+    }
+
+    static func terminalLineChunkStableID(panelID: UUID, startLineNumber: Int) -> String {
+        panelStableID(panelID: panelID, kind: .terminal, subtype: "line:\(startLineNumber)")
     }
 }
 
@@ -188,6 +195,32 @@ actor SearchIndex {
         }
     }
 
+    func deletePanelDocuments(panelID: UUID, kind: GlobalSearchKind) throws {
+        try withStatement("DELETE FROM chunks WHERE panel_id = ?1 AND kind = ?2") { statement in
+            try bind(panelID.uuidString, at: 1, in: statement)
+            try bind(kind.rawValue, at: 2, in: statement)
+            try stepDone(statement)
+        }
+    }
+
+    func replacePanelDocuments(
+        panelID: UUID,
+        kind: GlobalSearchKind,
+        with documents: [SearchIndexDocument]
+    ) throws {
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            try deletePanelDocuments(panelID: panelID, kind: kind)
+            for document in documents {
+                try upsert(document)
+            }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     func deleteDocument(id: String) throws {
         try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
             try bind(id, at: 1, in: statement)
@@ -202,7 +235,6 @@ actor SearchIndex {
     func search(_ rawQuery: String, limit: Int = 20) throws -> [SearchIndexHit] {
         let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, limit > 0 else { return [] }
-        guard let matchQuery = Self.matchQuery(for: trimmed) else { return [] }
 
         let sql = """
             SELECT
@@ -224,29 +256,43 @@ actor SearchIndex {
             LIMIT ?2
             """
 
-        return try withStatement(sql) { statement in
-            try bind(matchQuery, at: 1, in: statement)
-            let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
-            guard limitBindResult == SQLITE_OK else {
-                throw SearchIndexError.bindFailed(
-                    Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
-                )
-            }
+        let ftsHits: [SearchIndexHit]
+        if let matchQuery = Self.matchQuery(for: trimmed) {
+            ftsHits = try withStatement(sql) { statement in
+                try bind(matchQuery, at: 1, in: statement)
+                let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
+                guard limitBindResult == SQLITE_OK else {
+                    throw SearchIndexError.bindFailed(
+                        Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
+                    )
+                }
 
-            var hits: [SearchIndexHit] = []
-            while true {
-                let stepResult = sqlite3_step(statement)
-                switch stepResult {
-                case SQLITE_ROW:
-                    guard let hit = Self.hit(from: statement) else { continue }
-                    hits.append(hit)
-                case SQLITE_DONE:
-                    return hits
-                default:
-                    throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(stepResult)")
+                var hits: [SearchIndexHit] = []
+                while true {
+                    let stepResult = sqlite3_step(statement)
+                    switch stepResult {
+                    case SQLITE_ROW:
+                        guard let hit = Self.hit(from: statement) else { continue }
+                        hits.append(hit)
+                    case SQLITE_DONE:
+                        return hits
+                    default:
+                        throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(stepResult)")
+                    }
                 }
             }
+        } else {
+            ftsHits = []
         }
+
+        guard ftsHits.count < limit else { return ftsHits }
+        let excludedIDs = Set(ftsHits.map(\.id))
+        let fuzzyHits = try fuzzySearch(
+            trimmed,
+            excludingIDs: excludedIDs,
+            limit: limit - ftsHits.count
+        )
+        return Array((ftsHits + fuzzyHits).prefix(limit))
     }
 
     #if DEBUG
@@ -438,6 +484,119 @@ actor SearchIndex {
         )
     }
 
+    private struct StoredSearchDocument {
+        let id: String
+        let windowID: UUID
+        let workspaceID: UUID
+        let panelID: UUID?
+        let kind: GlobalSearchKind
+        let title: String
+        let location: String
+        let anchor: String
+        let timestamp: Date
+        let text: String
+    }
+
+    private func fuzzySearch(
+        _ rawQuery: String,
+        excludingIDs excludedIDs: Set<String>,
+        limit: Int
+    ) throws -> [SearchIndexHit] {
+        guard limit > 0 else { return [] }
+        let fuzzyQuery = Self.normalizedFuzzyQuery(rawQuery)
+        guard !fuzzyQuery.isEmpty else { return [] }
+
+        let sql = """
+            SELECT
+                id,
+                window_id,
+                workspace_id,
+                panel_id,
+                kind,
+                title,
+                location,
+                anchor,
+                ts,
+                text
+            FROM chunks
+            ORDER BY ts DESC
+            """
+
+        let matches: [SearchIndexHit] = try withStatement(sql) { statement in
+            var hits: [SearchIndexHit] = []
+            while true {
+                let stepResult = sqlite3_step(statement)
+                switch stepResult {
+                case SQLITE_ROW:
+                    guard let document = Self.storedDocument(from: statement),
+                          !excludedIDs.contains(document.id) else {
+                        continue
+                    }
+                    let searchable = [
+                        document.title,
+                        document.location,
+                        document.text
+                    ].joined(separator: "\n")
+                    guard let score = Self.fuzzyScore(query: fuzzyQuery, candidate: searchable) else {
+                        continue
+                    }
+                    hits.append(
+                        SearchIndexHit(
+                            id: document.id,
+                            windowID: document.windowID,
+                            workspaceID: document.workspaceID,
+                            panelID: document.panelID,
+                            kind: document.kind,
+                            title: document.title,
+                            location: document.location,
+                            anchor: document.anchor,
+                            snippet: Self.fuzzySnippet(query: rawQuery, text: document.text, fallback: document.title),
+                            rank: 10_000 + score,
+                            timestamp: document.timestamp
+                        )
+                    )
+                case SQLITE_DONE:
+                    return hits
+                default:
+                    throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(stepResult)")
+                }
+            }
+        }
+
+        return matches
+            .sorted {
+                if $0.rank != $1.rank { return $0.rank < $1.rank }
+                return $0.timestamp > $1.timestamp
+            }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private static func storedDocument(from statement: OpaquePointer) -> StoredSearchDocument? {
+        guard let id = sqliteText(statement, 0),
+              let windowIDString = sqliteText(statement, 1),
+              let workspaceIDString = sqliteText(statement, 2),
+              let kindRawValue = sqliteText(statement, 4),
+              let windowID = UUID(uuidString: windowIDString),
+              let workspaceID = UUID(uuidString: workspaceIDString),
+              let kind = GlobalSearchKind(rawValue: kindRawValue) else {
+            return nil
+        }
+
+        return StoredSearchDocument(
+            id: id,
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: sqliteText(statement, 3).flatMap(UUID.init(uuidString:)),
+            kind: kind,
+            title: sqliteText(statement, 5) ?? "",
+            location: sqliteText(statement, 6) ?? "",
+            anchor: sqliteText(statement, 7) ?? "",
+            timestamp: Date(timeIntervalSince1970: sqlite3_column_double(statement, 8)),
+            text: sqliteText(statement, 9) ?? ""
+        )
+    }
+
     static func queryTokens(for rawQuery: String) -> [String] {
         let tokens = rawQuery
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -446,6 +605,142 @@ actor SearchIndex {
             .map { $0.lowercased() }
 
         return tokens
+    }
+
+    static func normalizedFuzzyQuery(_ rawQuery: String) -> String {
+        rawQuery
+            .lowercased()
+            .unicodeScalars
+            .filter { !CharacterSet.whitespacesAndNewlines.contains($0) }
+            .map(String.init)
+            .joined()
+    }
+
+    static func fuzzyScore(query: String, candidate: String) -> Double? {
+        fuzzyMatch(query: query, candidate: candidate)?.score
+    }
+
+    static func fuzzyMatchedRange(query: String, in candidate: String) -> Range<String.Index>? {
+        let fuzzyQuery = normalizedFuzzyQuery(query)
+        guard let match = fuzzyMatch(query: fuzzyQuery, candidate: candidate),
+              let first = match.positions.first,
+              let last = match.positions.last else {
+            return nil
+        }
+
+        let scalars = candidate.unicodeScalars
+        guard let startScalar = scalars.index(scalars.startIndex, offsetBy: first, limitedBy: scalars.endIndex),
+              let lastScalar = scalars.index(scalars.startIndex, offsetBy: last, limitedBy: scalars.endIndex) else {
+            return nil
+        }
+        let endScalar = scalars.index(after: lastScalar)
+        let start = String.Index(startScalar, within: candidate) ?? candidate.startIndex
+        let end = String.Index(endScalar, within: candidate) ?? candidate.endIndex
+        return start..<end
+    }
+
+    private struct FuzzyMatch {
+        let score: Double
+        let positions: [Int]
+    }
+
+    private static func fuzzyMatch(query: String, candidate: String) -> FuzzyMatch? {
+        let queryScalars = Array(query.lowercased().unicodeScalars)
+        let candidateScalars = Array(candidate.lowercased().unicodeScalars)
+        guard !queryScalars.isEmpty, !candidateScalars.isEmpty else { return nil }
+
+        var bestPositions = Array<[Int]?>(repeating: nil, count: queryScalars.count)
+
+        for (candidateIndex, candidateScalar) in candidateScalars.enumerated() {
+            for queryIndex in stride(from: queryScalars.count - 1, through: 0, by: -1) {
+                guard queryScalars[queryIndex] == candidateScalar else { continue }
+
+                let positions: [Int]
+                if queryIndex == 0 {
+                    positions = [candidateIndex]
+                } else {
+                    guard let previousPositions = bestPositions[queryIndex - 1] else {
+                        continue
+                    }
+                    positions = previousPositions + [candidateIndex]
+                }
+
+                if isBetterFuzzyPrefix(positions, than: bestPositions[queryIndex]) {
+                    bestPositions[queryIndex] = positions
+                }
+            }
+        }
+
+        let lastQueryIndex = queryScalars.count - 1
+        guard let positions = bestPositions[lastQueryIndex] else {
+            return nil
+        }
+
+        var score = Double(positions.last ?? 0) * 0.001
+        score += Double((positions.last ?? 0) - (positions.first ?? 0)) * 2
+        for index in positions.indices.dropFirst() {
+            let gap = positions[index] - positions[index - 1] - 1
+            if gap == 0 {
+                score -= 1
+            }
+        }
+        return FuzzyMatch(
+            score: score,
+            positions: positions
+        )
+    }
+
+    private static func isBetterFuzzyPrefix(_ candidate: [Int], than current: [Int]?) -> Bool {
+        guard let current,
+              let candidateFirst = candidate.first,
+              let candidateLast = candidate.last,
+              let currentFirst = current.first,
+              let currentLast = current.last else {
+            return true
+        }
+
+        let candidateSpan = candidateLast - candidateFirst
+        let currentSpan = currentLast - currentFirst
+        if candidateSpan != currentSpan {
+            return candidateSpan < currentSpan
+        }
+        return candidateFirst > currentFirst
+    }
+
+    private static func fuzzySnippet(query: String, text: String, fallback: String) -> String {
+        let source = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackSource = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return fallbackSource }
+
+        let lowercasedSource = source.lowercased()
+        if let token = queryTokens(for: query).first(where: { lowercasedSource.contains($0) }),
+           let range = lowercasedSource.range(of: token) {
+            return snippet(from: source, around: range.lowerBound)
+        }
+
+        let fuzzyQuery = normalizedFuzzyQuery(query)
+        if !fuzzyQuery.isEmpty,
+           let range = fuzzyMatchedRange(query: fuzzyQuery, in: source) {
+            return snippet(from: source, around: range.lowerBound)
+        }
+
+        return snippet(from: source, around: source.startIndex)
+    }
+
+    private static func snippet(from text: String, around index: String.Index, radius: Int = 90) -> String {
+        let lineStart = text[..<index].lastIndex(of: "\n").map { text.index(after: $0) } ?? text.startIndex
+        let start = text.distance(from: lineStart, to: index) <= radius
+            ? lineStart
+            : (text.index(index, offsetBy: -radius, limitedBy: text.startIndex) ?? text.startIndex)
+        let end = text.index(index, offsetBy: radius, limitedBy: text.endIndex) ?? text.endIndex
+        var snippet = String(text[start..<end])
+        if start > text.startIndex {
+            snippet = "..." + snippet
+        }
+        if end < text.endIndex {
+            snippet += "..."
+        }
+        return snippet
     }
 
     private static func matchQuery(for rawQuery: String) -> String? {

@@ -38,6 +38,8 @@ final class GlobalSearchPanelCaptureManager {
             }
         } else if let browserPanel = context.panel as? BrowserPanel {
             captureBrowserPanel(browserPanel)
+        } else if let terminalPanel = context.panel as? TerminalPanel {
+            await indexTerminalPanel(terminalPanel, context: context, index: index)
         }
     }
 
@@ -279,6 +281,51 @@ final class GlobalSearchPanelCaptureManager {
             return try JSONDecoder().decode(BrowserPagePayload.self, from: data)
         } catch {
             return nil
+        }
+    }
+
+    private func indexTerminalPanel(
+        _ panel: TerminalPanel,
+        context: GlobalSearchPanelContext,
+        index: SearchIndex
+    ) async {
+        guard !Task.isCancelled else { return }
+        guard let scrollback = TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: panel,
+            includeScrollback: true,
+            lineLimit: GlobalSearchIndexingLimits.maxIndexedTerminalScrollbackLines
+        ) else {
+            await purgeTerminalDocuments(forPanelID: context.panelID, index: index)
+            return
+        }
+
+        let documents = GlobalSearchDocuments.terminalDocuments(
+            scrollback: scrollback,
+            context: context
+        )
+
+        do {
+            guard !Task.isCancelled else { return }
+            try await index.replacePanelDocuments(
+                panelID: context.panelID,
+                kind: .terminal,
+                with: documents
+            )
+        } catch {
+            guard !Task.isCancelled else { return }
+#if DEBUG
+            cmuxDebugLog("globalSearch.terminal.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+        }
+    }
+
+    private func purgeTerminalDocuments(forPanelID panelID: UUID, index: SearchIndex) async {
+        do {
+            try await index.deletePanelDocuments(panelID: panelID, kind: .terminal)
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.terminal.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
         }
     }
 }

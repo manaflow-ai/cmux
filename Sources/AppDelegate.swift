@@ -6070,6 +6070,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func focusGlobalSearchInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
+
+        guard let context else {
+#if DEBUG
+            dlog(
+                "global.search.focus.app.abort reason=noContext preferred={\(debugWindowToken(preferredWindow))} " +
+                "\(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return false
+        }
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+#if DEBUG
+        let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "global.search.focus.app.begin preferred={\(debugWindowToken(preferredWindow))} " +
+            "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
+            "fr=\(beforeResponder)"
+        )
+#endif
+        if let window {
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .globalSearchFocus)
+        }
+        let result = context.keyboardFocusCoordinator.focusRightSidebar(
+            mode: .search,
+            focusFirstItem: true
+        )
+#if DEBUG
+        let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "global.search.focus.app.end result=\(result ? 1 : 0) " +
+            "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
+        )
+#endif
+        return result
+    }
+
+    @discardableResult
     func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
@@ -7449,6 +7488,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleGlobalSearchPaletteFromGlobalHotkey() {
+        if focusGlobalSearchInActiveMainWindow(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow) {
+            return
+        }
+
         if menuBarExtraController == nil,
            MenuBarExtraSettings.shouldInstallMenuBarExtra() {
             setupMenuBarExtra()

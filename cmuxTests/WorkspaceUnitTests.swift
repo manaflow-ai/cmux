@@ -366,6 +366,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
+            (.switchRightSidebarToSearch, "6"),
             (.switchRightSidebarToSessions, "3"),
             (.switchRightSidebarToFeed, "4"),
             (.switchRightSidebarToDock, "5"),
@@ -775,6 +776,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "focusRightSidebar": "cmd+opt+shift+e",
                 "switchRightSidebarToFiles": "ctrl+4",
                 "switchRightSidebarToFind": "ctrl+5",
+                "switchRightSidebarToSearch": "ctrl+9",
                 "switchRightSidebarToSessions": "ctrl+6",
                 "switchRightSidebarToFeed": "ctrl+7",
                 "switchRightSidebarToDock": "ctrl+8"
@@ -801,6 +803,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToFind),
             StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+        )
+        XCTAssertEqual(
+            store.override(for: .switchRightSidebarToSearch),
+            StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
         )
         XCTAssertEqual(
             store.override(for: .switchRightSidebarToSessions),

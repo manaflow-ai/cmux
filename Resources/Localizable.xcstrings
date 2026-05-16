@@ -9931,6 +9931,23 @@
         }
       }
     },
+    "command.openSearchPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Search as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をペインで開く"
+          }
+        }
+      }
+    },
     "command.openVaultPane.title": {
       "extractionState": "manual",
       "localizations": {
@@ -105939,6 +105956,23 @@
         }
       }
     },
+    "shortcut.switchRightSidebarToSearch.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのグローバル検索を表示"
+          }
+        }
+      }
+    },
     "shortcut.switchRightSidebarToSessions.label": {
       "extractionState": "manual",
       "localizations": {
@@ -106629,6 +106663,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "検索"
+          }
+        }
+      }
+    },
+    "rightSidebar.mode.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバル検索"
           }
         }
       }
@@ -112290,8 +112341,8 @@
     "globalSearch.palette.placeholder": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Search all windows, panels, browser tabs..." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "すべてのウィンドウ、パネル、ブラウザタブを検索..." } }
+        "en": { "stringUnit": { "state": "translated", "value": "Search all terminals, panels, browser tabs..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのターミナル、パネル、ブラウザタブを検索..." } }
       }
     },
     "globalSearch.empty.prompt": {
@@ -112306,6 +112357,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "No results" } },
         "ja": { "stringUnit": { "state": "translated", "value": "結果がありません" } }
+      }
+    },
+    "globalSearch.empty.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Searching..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索中..." } }
       }
     },
     "globalSearch.empty.noOpenPanels": {
@@ -112329,11 +112387,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Markdown" } }
       }
     },
+    "globalSearch.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナル" } }
+      }
+    },
     "globalSearch.kind.title": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Title" } },
         "ja": { "stringUnit": { "state": "translated", "value": "タイトル" } }
+      }
+    },
+    "globalSearch.terminal.lineLocation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Line %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 行目" } }
+      }
+    },
+    "globalSearch.terminal.lineRangeLocation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lines %lld-%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld-%lld 行目" } }
       }
     },
     "globalSearch.untitled": {
@@ -112371,7 +112450,7 @@
     "rightSidebar.remote.error.usage.hide": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar hide [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar hide [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
     "rightSidebar.remote.error.usage.focus": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar focus [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar focus [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
     "rightSidebar.remote.error.usage.mode": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
-    "rightSidebar.remote.error.usage.set": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar set <files|find|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
+    "rightSidebar.remote.error.usage.set": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: right_sidebar set <files|find|search|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 使用法: right_sidebar set <files|find|search|vault|sessions|feed|dock> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]" } } } },
     "rightSidebar.remote.error.unknownMode": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Unknown right sidebar mode '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 不明な右サイドバーモード '%@'" } } } },
     "rightSidebar.remote.error.noFocusOnlySet": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: --no-focus is only valid with right_sidebar set" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: --no-focus は right_sidebar set でのみ使えます" } } } },
     "rightSidebar.remote.error.unknownCommand": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Unknown right sidebar command '%@'" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 不明な右サイドバーコマンド '%@'" } } } },
