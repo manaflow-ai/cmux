@@ -4640,7 +4640,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Ghostty's embedded surface creation still expects a view with a window, so use
         // a hidden bootstrap window until the real portal host is ready.
         if hasStartupWork {
-            startRuntimeUsingHeadlessWindowIfNeeded(reason: "startup")
+            scheduleHeadlessRuntimeStartIfNeeded(reason: "startup")
         }
     }
 
@@ -4650,20 +4650,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceView.tabId = newTabId
     }
 
-    private func startRuntimeUsingHeadlessWindowIfNeeded(reason: String) {
+    private func scheduleHeadlessRuntimeStartIfNeeded(reason: String) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+                self?.scheduleHeadlessRuntimeStartIfNeeded(reason: reason)
             }
             return
         }
 
+        MainActor.assumeIsolated {
+            startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
+        }
+    }
+
+    @MainActor
+    private func startRuntimeUsingHeadlessWindowIfNeeded(reason: String) {
         guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil else { return }
         ensureHeadlessStartupWindowIfNeeded(reason: reason)
         hostedView.attachSurface(self)
     }
 
+    @MainActor
     private func ensureHeadlessStartupWindowIfNeeded(reason: String) {
         guard headlessStartupWindow == nil else { return }
         guard hostedView.window == nil else { return }
@@ -5979,7 +5987,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let view = self.attachedView, view.window != nil {
                 self.createSurface(for: view)
             } else {
-                self.startRuntimeUsingHeadlessWindowIfNeeded(reason: "background-input")
+                self.scheduleHeadlessRuntimeStartIfNeeded(reason: "background-input")
             }
             #if DEBUG
             let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
