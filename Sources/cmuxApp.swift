@@ -6252,13 +6252,16 @@ struct SettingsView: View {
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
                         }
+                    }
 
-                        SettingsCardDivider()
+                    SettingsSectionHeader(title: String(localized: "settings.section.vault", defaultValue: "Vault"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .vault))
+                    SettingsCard {
 
                         SettingsCardRow(
                             configurationReview: .json("vault.defaultVisibleRows"),
-                            String(localized: "settings.terminal.vaultDefaultVisibleRows", defaultValue: "Vault Rows Before Show More"),
-                            subtitle: String(localized: "settings.terminal.vaultDefaultVisibleRows.subtitle", defaultValue: "Number of sessions shown in each Vault section before Show more appears."),
+                            String(localized: "settings.vault.defaultVisibleRows", defaultValue: "Rows Before Show More"),
+                            subtitle: String(localized: "settings.vault.defaultVisibleRows.subtitle", defaultValue: "Number of sessions shown in each Vault section before Show more appears."),
                             controlWidth: 128
                         ) {
                             Stepper(
@@ -6272,7 +6275,7 @@ struct SettingsView: View {
                             .controlSize(.small)
                             .accessibilityIdentifier("SettingsVaultDefaultVisibleRowsStepper")
                             .accessibilityLabel(
-                                String(localized: "settings.terminal.vaultDefaultVisibleRows", defaultValue: "Vault Rows Before Show More")
+                                String(localized: "settings.vault.defaultVisibleRows", defaultValue: "Rows Before Show More")
                             )
                         }
                     }

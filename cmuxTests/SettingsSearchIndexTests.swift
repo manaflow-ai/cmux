@@ -20,7 +20,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
-        assertSearch("vault show more", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-visible-rows"))
+        assertSearch("vault show more", contains: SettingsSearchIndex.settingID(for: .vault, idSuffix: "visible-rows"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
@@ -48,7 +48,7 @@ final class SettingsSearchIndexTests: XCTestCase {
     func testSettingsPathAnchorIncludesVaultVisibleRows() {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "vault.defaultVisibleRows"),
-            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "vault-visible-rows")
+            SettingsSearchIndex.settingID(for: .vault, idSuffix: "visible-rows")
         )
     }
 

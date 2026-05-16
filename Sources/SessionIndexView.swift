@@ -578,6 +578,13 @@ private struct SessionRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .frame(width: 10, height: 12)
+                    .accessibilityLabel(String(localized: "sessionIndex.row.pinned", defaultValue: "Pinned in Vault"))
+            }
             AgentIconImage(agent: entry.agent, size: 12)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
@@ -585,12 +592,6 @@ private struct SessionRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            if isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .accessibilityLabel(String(localized: "sessionIndex.row.pinned", defaultValue: "Pinned in Vault"))
-            }
             Text(relativeTime(entry.modified))
                 .font(.system(size: 12).monospacedDigit())
                 .foregroundColor(.secondary.opacity(0.65))
@@ -612,6 +613,12 @@ private struct SessionRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
+                if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .frame(width: 10, height: 12)
+                }
                 AgentIconImage(agent: entry.agent, size: 12)
                 Text(entry.displayTitle)
                     .font(.system(size: 12, weight: .medium))
@@ -2312,6 +2319,13 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .frame(width: 10, height: 12)
+                    .accessibilityLabel(String(localized: "sessionIndex.row.pinned", defaultValue: "Pinned in Vault"))
+            }
             AgentIconImage(agent: entry.agent, size: 12)
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
@@ -2323,12 +2337,6 @@ private struct PopoverRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            if isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .accessibilityLabel(String(localized: "sessionIndex.row.pinned", defaultValue: "Pinned in Vault"))
-            }
             modifiedText
         }
         .padding(.horizontal, 12)

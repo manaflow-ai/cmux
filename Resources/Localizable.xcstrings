@@ -71050,6 +71050,23 @@
             }
         }
     },
+    "settings.search.alias.section.vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault sessions agents resume restore show more pinned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault sessions agents resume restore show more pinned セッション エージェント 再開 復元 もっと表示 ピン留め"
+          }
+        }
+      }
+    },
     "settings.search.alias.section.sidebarAppearance": {
         "extractionState": "manual",
         "localizations": {
@@ -76591,6 +76608,23 @@
                 }
             }
         }
+    },
+    "settings.search.alias.setting.vault.visible-rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault.defaultVisibleRows show more rows sessions visible count limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault.defaultVisibleRows show more rows sessions visible count limit もっと表示 行数 セッション 表示 件数 上限"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
         "extractionState": "manual",
@@ -106226,6 +106260,23 @@
         }
       }
     },
+    "settings.section.vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault"
+          }
+        }
+      }
+    },
     "settings.terminal.scrollBar": {
       "extractionState": "manual",
       "localizations": {
@@ -107027,13 +107078,13 @@
         }
       }
     },
-    "settings.terminal.vaultDefaultVisibleRows": {
+    "settings.vault.defaultVisibleRows": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vault Rows Before Show More"
+            "value": "Rows Before Show More"
           }
         },
         "ja": {
@@ -107044,7 +107095,7 @@
         }
       }
     },
-    "settings.terminal.vaultDefaultVisibleRows.subtitle": {
+    "settings.vault.defaultVisibleRows.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {

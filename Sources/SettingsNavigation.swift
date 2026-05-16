@@ -4,6 +4,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
     case terminal
+    case vault
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -25,6 +26,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .vault:
+            return String(localized: "settings.section.vault", defaultValue: "Vault")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -56,6 +59,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "gearshape"
         case .terminal:
             return "terminal"
+        case .vault:
+            return "archivebox"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -87,6 +92,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev toggle"
+        case .vault:
+            return "\(title) sessions agents show more rows pinned resume restore"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -319,7 +326,7 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
-        setting(.terminal, "vault-visible-rows", String(localized: "settings.terminal.vaultDefaultVisibleRows", defaultValue: "Vault Rows Before Show More"), "vault show more rows count sessions default visible"),
+        setting(.vault, "visible-rows", String(localized: "settings.vault.defaultVisibleRows", defaultValue: "Rows Before Show More"), "vault show more rows count sessions default visible pinned agents"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -423,7 +430,7 @@ enum SettingsSearchIndex {
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
-        "vault.defaultVisibleRows": settingID(for: .terminal, idSuffix: "vault-visible-rows"),
+        "vault.defaultVisibleRows": settingID(for: .vault, idSuffix: "visible-rows"),
         "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
