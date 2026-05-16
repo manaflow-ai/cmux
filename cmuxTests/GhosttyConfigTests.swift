@@ -3190,6 +3190,240 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
     }
 
+    func testShellIntegrationDoesNotBlockPromptOnTmuxEnvironmentPublish() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-tmux-async-publish-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        let blockPath = root.appendingPathComponent("tmux-block", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try Data().write(to: blockPath)
+        defer { try? fileManager.removeItem(at: blockPath) }
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            if [ "$1" = "set-environment" ]; then
+              while [ -e "\(blockPath.path)" ]; do
+                /bin/sleep 0.05
+              done
+            fi
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: "_cmux_precmd; print -r -- READY",
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_TAG": "feat-tmux-notification-attention-state",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertEqual(output, "READY", output)
+
+        let deadline = Date().addingTimeInterval(5)
+        var log = ""
+        while Date() < deadline {
+            log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+            if log.contains("set-environment") {
+                break
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        try? fileManager.removeItem(at: blockPath)
+        XCTAssertTrue(log.contains("set-environment"), log)
+    }
+
+    func testShellIntegrationDoesNotFailWhenTmuxIsNotInstalled() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-no-tmux-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            command -v tmux >/dev/null && print -r -- HAS_TMUX || print -r -- NO_TMUX
+            _cmux_tmux_publish_cmux_environment async
+            print -r -- READY
+            """,
+            extraEnvironment: [
+                "PATH": binDir.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_TAG": "feat-tmux-notification-attention-state",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            [
+                "NO_TMUX",
+                "READY",
+            ].joined(separator: "\n"),
+            output
+        )
+    }
+
+    func testShellIntegrationRetriesAsyncTmuxEnvironmentPublishAfterFailure() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-tmux-async-retry-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+        let failPath = root.appendingPathComponent("tmux-fail", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try Data().write(to: failPath)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            if [ -e "\(failPath.path)" ] && [ "$1" = "set-environment" ]; then
+              exit 1
+            fi
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_precmd
+            while _cmux_tmux_publish_job_is_running; do
+              /bin/sleep 0.02
+            done
+            /bin/rm -f "\(failPath.path)"
+            _cmux_precmd
+            while _cmux_tmux_publish_job_is_running; do
+              /bin/sleep 0.02
+            done
+            print -r -- READY
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_TAG": "feat-tmux-notification-attention-state",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertEqual(output, "READY", output)
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        let setEnvironmentCount = log
+            .split(separator: "\n")
+            .filter { $0.contains("set-environment") }
+            .count
+        XCTAssertGreaterThanOrEqual(setEnvironmentCount, 2, log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_TAG feat-tmux-notification-attention-state"), log)
+    }
+
+    func testShellIntegrationDetectsTmuxInCompoundPreexecCommand() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_command_starts_tmux 'git status && tmux attach' && print -r -- compound-tmux=yes || print -r -- compound-tmux=no
+            _cmux_command_starts_tmux 'env FOO=bar command tmux new' && print -r -- wrapped-tmux=yes || print -r -- wrapped-tmux=no
+            _cmux_command_starts_nested_shell 'echo ok || nix develop' && print -r -- compound-nested=yes || print -r -- compound-nested=no
+            _cmux_command_starts_tmux 'echo tmux' && print -r -- echo-tmux=yes || print -r -- echo-tmux=no
+            """
+        )
+
+        XCTAssertEqual(
+            output,
+            [
+                "compound-tmux=yes",
+                "wrapped-tmux=yes",
+                "compound-nested=yes",
+                "echo-tmux=no",
+            ].joined(separator: "\n"),
+            output
+        )
+    }
+
+    func testShellIntegrationSyncTmuxPublishReappliesWhenAsyncPublishIsInFlight() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-tmux-sync-reapply-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("tmux.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("tmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              exit 0
+            fi
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _CMUX_TMUX_PUSH_SIGNATURE="$(_cmux_tmux_shell_env_signature)"
+            _CMUX_TMUX_PUSH_PENDING_SIGNATURE=stale-signature
+            /bin/sleep 5 >/dev/null 2>&1 &!
+            _CMUX_TMUX_PUSH_JOB_PID=$!
+            _cmux_tmux_publish_cmux_environment sync
+            print -r -- READY
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_TAG": "feat-tmux-notification-attention-state",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertEqual(output, "READY", output)
+
+        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
+        XCTAssertTrue(log.contains("set-environment -g CMUX_TAG feat-tmux-notification-attention-state"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_SOCKET_PATH /tmp/cmux-current.sock"), log)
+        XCTAssertTrue(log.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"), log)
+    }
+
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
