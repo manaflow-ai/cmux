@@ -16,6 +16,7 @@ import Security
 #endif
 
 private let browserEngineLogger = Logger(subsystem: "com.cmuxterm.app", category: "browser-engine")
+private let chromiumDevToolsProxyLogger = Logger(subsystem: "com.cmuxterm.app", category: "chromium-devtools-proxy")
 
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
@@ -62,6 +63,7 @@ struct BrowserChromiumArtifactManifest: Codable, Equatable, Sendable {
     var hostClassName: String?
     var hostFactoryClassName: String?
     var hostAPIVersion: Int?
+    var forbiddenCEFMarkersVerifiedAbsent: [String]? = nil
     var launchPolicy: BrowserChromiumLaunchPolicy? = nil
     var renderingAPI: BrowserChromiumRenderingAPI? = nil
 
@@ -75,6 +77,7 @@ struct BrowserChromiumArtifactManifest: Codable, Equatable, Sendable {
             hostClassName: hostClassName,
             hostFactoryClassName: hostFactoryClassName,
             hostAPIVersion: hostAPIVersion,
+            forbiddenCEFMarkersVerifiedAbsent: nil,
             launchPolicy: nil,
             renderingAPI: nil
         )
@@ -113,6 +116,9 @@ struct BrowserEngineRuntimeStatus: Equatable {
             payload["host_class_name"] = manifest.hostClassName ?? NSNull()
             payload["host_factory_class_name"] = manifest.hostFactoryClassName ?? NSNull()
             payload["host_api_version"] = manifest.hostAPIVersion ?? NSNull()
+            if let forbiddenCEFMarkersVerifiedAbsent = manifest.forbiddenCEFMarkersVerifiedAbsent {
+                payload["chromium_forbidden_cef_markers_verified_absent"] = forbiddenCEFMarkersVerifiedAbsent
+            }
             if let launchPolicy = manifest.launchPolicy {
                 payload["chromium_sandbox_disabled"] = launchPolicy.sandboxDisabled
                 payload["chromium_uses_in_process_gpu_by_default"] = launchPolicy.usesInProcessGPUByDefault
@@ -198,15 +204,16 @@ enum BrowserChromiumArtifactVerifier {
         try rejectCEFMarkers(in: executableURL)
 
         let resourceURL = resourcesURL(for: frameworkURL, fileManager: fileManager)
-        try rejectCEFMarkersInBundledChromium(at: resourceURL, fileManager: fileManager)
         let resourceNames = try verifyRequiredResources(in: resourceURL, fileManager: fileManager)
 
         if let manifest = try loadManifest(from: resourceURL, fileManager: fileManager) {
             try verifyLaunchPolicy(for: manifest)
+            try verifyCEFPolicy(for: manifest, resourceURL: resourceURL, fileManager: fileManager)
             return manifest
         }
 
         let inferredManifest = BrowserChromiumArtifactManifest.inferred(resourceNames: resourceNames)
+        try rejectCEFMarkersInBundledChromium(at: resourceURL, fileManager: fileManager)
         try verifyLaunchPolicy(for: inferredManifest)
         return inferredManifest
     }
@@ -320,6 +327,18 @@ enum BrowserChromiumArtifactVerifier {
         if !launchPolicy.forbiddenSwitchesVerifiedAbsent.contains("in-process-gpu") {
             throw BrowserChromiumArtifactVerificationError.insecureLaunchPolicy("in-process-gpu absence was not verified")
         }
+    }
+
+    private static func verifyCEFPolicy(
+        for manifest: BrowserChromiumArtifactManifest,
+        resourceURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let proof = Set(manifest.forbiddenCEFMarkersVerifiedAbsent ?? [])
+        if Set(disallowedCEFMarkers).isSubset(of: proof) {
+            return
+        }
+        try rejectCEFMarkersInBundledChromium(at: resourceURL, fileManager: fileManager)
     }
 }
 
@@ -437,9 +456,29 @@ protocol BrowserChromiumHostExporting: NSObjectProtocol {
     @objc optional func cmuxSetPageZoomFactor(_ pageZoomFactor: NSNumber)
     @objc optional func cmuxAddUserScript(_ source: NSString)
     @objc optional func cmuxAddUserStyle(_ source: NSString)
+    @objc(cmuxSetDevToolsVisible:mode:preferredPanel:completionHandler:)
+    optional func cmuxSetDevToolsVisible(
+        _ visible: NSNumber,
+        mode: NSNumber,
+        preferredPanel: NSString?,
+        completionHandler: @escaping (NSNumber, NSString?) -> Void
+    )
+    @objc(cmuxToggleDevToolsWithMode:preferredPanel:completionHandler:)
+    optional func cmuxToggleDevTools(
+        mode: NSNumber,
+        preferredPanel: NSString?,
+        completionHandler: @escaping (NSNumber, NSString?) -> Void
+    )
+    @objc(cmuxDevToolsFrontendURLWithPanel:completionHandler:)
+    optional func cmuxDevToolsFrontendURL(
+        panel: NSString?,
+        completionHandler: @escaping (NSURL?, String?) -> Void
+    )
 }
 
 final class BrowserChromiumHostBridge {
+    private typealias DevToolsCompletionBlock = @convention(block) (NSNumber, NSString?) -> Void
+
     let exportedHost: NSObjectProtocol
     private let hostObject: NSObject
     let nativeView: NSView
@@ -631,6 +670,101 @@ final class BrowserChromiumHostBridge {
         function(hostObject, BrowserChromiumHostSelectors.addUserStyle, source as NSString)
     }
 
+    func devToolsFrontendURL(preferredPanel: String?, completion: @escaping (Result<URL, Error>) -> Void) throws {
+        typealias CompletionBlock = @convention(block) (NSURL?, String?) -> Void
+        typealias DevToolsIMP = @convention(c) (AnyObject, Selector, NSString?, CompletionBlock) -> Void
+        let function: DevToolsIMP = try implementation(
+            for: BrowserChromiumHostSelectors.devToolsFrontendURL,
+            operation: "devToolsFrontendURL"
+        )
+        let block: CompletionBlock = { url, errorMessage in
+            if let errorMessage, !errorMessage.isEmpty {
+                completion(.failure(BrowserChromiumHostBridgeError.operationFailed(errorMessage)))
+            } else if let url {
+                completion(.success(url as URL))
+            } else {
+                completion(.failure(BrowserChromiumHostBridgeError.operationFailed("Missing DevTools URL")))
+            }
+        }
+        function(
+            hostObject,
+            BrowserChromiumHostSelectors.devToolsFrontendURL,
+            preferredPanel as NSString?,
+            block
+        )
+    }
+
+    func setDevToolsVisible(
+        _ visible: Bool,
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        try invokeDevToolsVisibility(
+            selector: BrowserChromiumHostSelectors.setDevToolsVisible,
+            operation: "setDevToolsVisible",
+            visible: visible,
+            mode: mode,
+            preferredPanel: preferredPanel,
+            completion: completion
+        )
+    }
+
+    func toggleDevTools(
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        typealias DevToolsIMP = @convention(c) (AnyObject, Selector, NSNumber, NSString?, DevToolsCompletionBlock) -> Void
+        let function: DevToolsIMP = try implementation(
+            for: BrowserChromiumHostSelectors.toggleDevTools,
+            operation: "toggleDevTools"
+        )
+        let block = devToolsCompletionBlock(completion: completion)
+        function(
+            hostObject,
+            BrowserChromiumHostSelectors.toggleDevTools,
+            NSNumber(value: mode.rawValue),
+            preferredPanel as NSString?,
+            block
+        )
+    }
+
+    private func invokeDevToolsVisibility(
+        selector: Selector,
+        operation: String,
+        visible: Bool,
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        typealias DevToolsIMP = @convention(c) (AnyObject, Selector, NSNumber, NSNumber, NSString?, DevToolsCompletionBlock) -> Void
+        let function: DevToolsIMP = try implementation(for: selector, operation: operation)
+        let block = devToolsCompletionBlock(completion: completion)
+        function(
+            hostObject,
+            selector,
+            NSNumber(value: visible),
+            NSNumber(value: mode.rawValue),
+            preferredPanel as NSString?,
+            block
+        )
+    }
+
+    private func devToolsCompletionBlock(
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) -> DevToolsCompletionBlock {
+        { ok, errorMessage in
+            if let errorMessage, errorMessage.length > 0 {
+                completion(.failure(BrowserChromiumHostBridgeError.operationFailed(errorMessage as String)))
+            } else if ok.boolValue {
+                completion(.success(()))
+            } else {
+                completion(.failure(BrowserChromiumHostBridgeError.operationFailed("DevTools command failed")))
+            }
+        }
+    }
+
     private func invokeVoid(selector: Selector, operation: String) throws {
         typealias VoidIMP = @convention(c) (AnyObject, Selector) -> Void
         let function: VoidIMP = try implementation(for: selector, operation: operation)
@@ -668,6 +802,464 @@ private enum BrowserChromiumHostSelectors {
     static let setPageZoomFactor = NSSelectorFromString("cmuxSetPageZoomFactor:")
     static let addUserScript = NSSelectorFromString("cmuxAddUserScript:")
     static let addUserStyle = NSSelectorFromString("cmuxAddUserStyle:")
+    static let setDevToolsVisible = NSSelectorFromString("cmuxSetDevToolsVisible:mode:preferredPanel:completionHandler:")
+    static let toggleDevTools = NSSelectorFromString("cmuxToggleDevToolsWithMode:preferredPanel:completionHandler:")
+    static let devToolsFrontendURL = NSSelectorFromString("cmuxDevToolsFrontendURLWithPanel:completionHandler:")
+}
+
+enum BrowserChromiumDevToolsMode: UInt32 {
+    case bottom = 0
+    case right = 1
+    case left = 2
+    case window = 3
+}
+
+struct ChromiumDevToolsWebSocketFrame: Equatable {
+    var opcode: UInt8
+    var payload: Data
+    var isFinal: Bool
+}
+
+enum ChromiumDevToolsWebSocketFrameCodec {
+    enum CodecError: Error {
+        case invalidLength
+    }
+
+    static func acceptKey(for key: String) -> String {
+        let magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+        let digest = Insecure.SHA1.hash(data: Data((key + magic).utf8))
+        return Data(digest).base64EncodedString()
+    }
+
+    static func decodeClientFrames(from buffer: inout Data) throws -> [ChromiumDevToolsWebSocketFrame] {
+        var frames: [ChromiumDevToolsWebSocketFrame] = []
+        while true {
+            let bytes = [UInt8](buffer)
+            guard bytes.count >= 2 else { break }
+
+            let first = bytes[0]
+            let second = bytes[1]
+            let isFinal = (first & 0x80) != 0
+            let opcode = first & 0x0f
+            let isMasked = (second & 0x80) != 0
+            var length = UInt64(second & 0x7f)
+            var offset = 2
+
+            if length == 126 {
+                guard bytes.count >= offset + 2 else { break }
+                length = (UInt64(bytes[offset]) << 8) | UInt64(bytes[offset + 1])
+                offset += 2
+            } else if length == 127 {
+                guard bytes.count >= offset + 8 else { break }
+                length = 0
+                for byte in bytes[offset..<(offset + 8)] {
+                    length = (length << 8) | UInt64(byte)
+                }
+                offset += 8
+            }
+
+            let maskLength = isMasked ? 4 : 0
+            guard length <= UInt64(Int.max) else { throw CodecError.invalidLength }
+            let payloadLength = Int(length)
+            guard bytes.count >= offset + maskLength + payloadLength else { break }
+
+            var maskKey: [UInt8] = []
+            if isMasked {
+                maskKey = Array(bytes[offset..<(offset + 4)])
+                offset += 4
+            }
+
+            var payload = Array(bytes[offset..<(offset + payloadLength)])
+            if isMasked {
+                for index in payload.indices {
+                    payload[index] ^= maskKey[index % 4]
+                }
+            }
+
+            buffer.removeFirst(offset + payloadLength)
+            frames.append(ChromiumDevToolsWebSocketFrame(
+                opcode: opcode,
+                payload: Data(payload),
+                isFinal: isFinal
+            ))
+        }
+        return frames
+    }
+
+    static func encodeServerFrame(opcode: UInt8, payload: Data, isFinal: Bool = true) -> Data {
+        var frame = Data()
+        frame.append((isFinal ? 0x80 : 0x00) | (opcode & 0x0f))
+        let count = payload.count
+        if count < 126 {
+            frame.append(UInt8(count))
+        } else if count <= Int(UInt16.max) {
+            frame.append(126)
+            frame.append(UInt8((count >> 8) & 0xff))
+            frame.append(UInt8(count & 0xff))
+        } else {
+            frame.append(127)
+            let length = UInt64(count)
+            for shift in stride(from: 56, through: 0, by: -8) {
+                frame.append(UInt8((length >> UInt64(shift)) & 0xff))
+            }
+        }
+        frame.append(payload)
+        return frame
+    }
+}
+
+enum ChromiumDevToolsFrontendProxyURLRewriter {
+    static func rewrite(
+        _ frontendURL: URL,
+        websocketEndpointProvider: (URL) -> String?
+    ) -> URL {
+        guard var components = URLComponents(url: frontendURL, resolvingAgainstBaseURL: false),
+              var queryItems = components.queryItems,
+              let wsIndex = queryItems.firstIndex(where: { $0.name == "ws" }),
+              let rawWebSocket = queryItems[wsIndex].value,
+              let upstreamURL = upstreamWebSocketURL(from: rawWebSocket),
+              let proxiedEndpoint = websocketEndpointProvider(upstreamURL) else {
+            return frontendURL
+        }
+
+        queryItems[wsIndex] = URLQueryItem(name: "ws", value: proxiedEndpoint)
+        components.queryItems = queryItems
+        return components.url ?? frontendURL
+    }
+
+    private static func upstreamWebSocketURL(from rawValue: String) -> URL? {
+        if rawValue.hasPrefix("ws://") || rawValue.hasPrefix("wss://") {
+            return URL(string: rawValue)
+        }
+        return URL(string: "ws://\(rawValue)")
+    }
+}
+
+final class ChromiumDevToolsWebSocketProxy {
+    static let shared = ChromiumDevToolsWebSocketProxy()
+
+    private static let ephemeralPortRange: ClosedRange<UInt16> = 49152...65535
+    private let queue = DispatchQueue(label: "cmux.chromium.devtools.websocket-proxy")
+    private var listener: NWListener?
+    private var listenerPort: UInt16?
+    private var routes: [String: URL] = [:]
+    private var connections: [ObjectIdentifier: ChromiumDevToolsProxyConnection] = [:]
+
+    func proxiedFrontendURL(_ frontendURL: URL) -> URL {
+        ChromiumDevToolsFrontendProxyURLRewriter.rewrite(frontendURL) { [weak self] upstreamURL in
+            self?.register(upstreamURL: upstreamURL)
+        }
+    }
+
+    private func register(upstreamURL: URL) -> String? {
+        queue.sync {
+            guard let port = ensureStartedOnQueue() else { return nil }
+            let requestTarget = Self.requestTarget(for: upstreamURL)
+            routes[requestTarget] = upstreamURL
+            return "127.0.0.1:\(port)\(requestTarget)"
+        }
+    }
+
+    private func ensureStartedOnQueue() -> UInt16? {
+        if let listenerPort { return listenerPort }
+
+        for _ in 0..<30 {
+            let candidate = UInt16.random(in: Self.ephemeralPortRange)
+            guard let port = NWEndpoint.Port(rawValue: candidate) else { continue }
+            do {
+                let listener = try NWListener(using: .tcp, on: port)
+                listenerPort = candidate
+                listener.stateUpdateHandler = { [weak self] state in
+                    if case .failed(let error) = state {
+                        self?.handleListenerFailure(error, port: candidate)
+                    }
+                }
+                listener.newConnectionHandler = { [weak self] connection in
+                    self?.accept(connection)
+                }
+                listener.start(queue: queue)
+                self.listener = listener
+                return candidate
+            } catch {
+                continue
+            }
+        }
+
+        chromiumDevToolsProxyLogger.error("DevTools proxy listener could not find an available port")
+        return nil
+    }
+
+    private func handleListenerFailure(_ error: NWError, port: UInt16) {
+        chromiumDevToolsProxyLogger.error("DevTools proxy listener failed on \(port): \(error.localizedDescription, privacy: .public)")
+        if listenerPort == port {
+            listenerPort = nil
+            listener = nil
+            routes.removeAll()
+        }
+    }
+
+    private func accept(_ connection: NWConnection) {
+        guard Self.isLoopback(connection.endpoint) else {
+            connection.cancel()
+            return
+        }
+
+        let bridge = ChromiumDevToolsProxyConnection(
+            connection: connection,
+            queue: queue,
+            routeResolver: { [weak self] requestTarget in
+                self?.routes[requestTarget]
+            },
+            onClose: { [weak self] identifier in
+                self?.connections.removeValue(forKey: identifier)
+            }
+        )
+        connections[ObjectIdentifier(bridge)] = bridge
+        bridge.start()
+    }
+
+    private static func requestTarget(for upstreamURL: URL) -> String {
+        var target = upstreamURL.path
+        if let query = upstreamURL.query, !query.isEmpty {
+            target += "?\(query)"
+        }
+        return target.isEmpty ? "/" : target
+    }
+
+    private static func isLoopback(_ endpoint: NWEndpoint) -> Bool {
+        guard case .hostPort(let host, _) = endpoint else { return false }
+        let value = String(describing: host).lowercased()
+        return value == "127.0.0.1" || value == "::1" || value == "localhost"
+    }
+}
+
+private final class ChromiumDevToolsProxyConnection {
+    private let connection: NWConnection
+    private let queue: DispatchQueue
+    private let routeResolver: (String) -> URL?
+    private let onClose: (ObjectIdentifier) -> Void
+    private let urlSession: URLSession
+    private var upstreamTask: URLSessionWebSocketTask?
+    private var headerBuffer = Data()
+    private var frameBuffer = Data()
+    private var fragmentedOpcode: UInt8?
+    private var fragmentedPayload = Data()
+    private var isClosed = false
+
+    init(
+        connection: NWConnection,
+        queue: DispatchQueue,
+        routeResolver: @escaping (String) -> URL?,
+        onClose: @escaping (ObjectIdentifier) -> Void
+    ) {
+        self.connection = connection
+        self.queue = queue
+        self.routeResolver = routeResolver
+        self.onClose = onClose
+        self.urlSession = URLSession(configuration: .ephemeral)
+    }
+
+    func start() {
+        connection.stateUpdateHandler = { [weak self] state in
+            if case .failed = state {
+                self?.close()
+            } else if case .cancelled = state {
+                self?.close()
+            }
+        }
+        connection.start(queue: queue)
+        receiveHTTPHeader()
+    }
+
+    private func receiveHTTPHeader() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if error != nil || isComplete {
+                self.close()
+                return
+            }
+            if let data {
+                self.headerBuffer.append(data)
+            }
+            guard let headerRange = self.headerBuffer.range(of: Data("\r\n\r\n".utf8)) else {
+                self.receiveHTTPHeader()
+                return
+            }
+
+            let headerEnd = headerRange.upperBound
+            let headerData = self.headerBuffer.prefix(headerEnd)
+            let remaining = self.headerBuffer.dropFirst(headerEnd)
+            self.headerBuffer.removeAll()
+
+            guard let request = Self.parseRequest(Data(headerData)),
+                  let key = request.headers["sec-websocket-key"],
+                  let upstreamURL = self.routeResolver(request.target) else {
+                self.sendHTTPFailure()
+                return
+            }
+
+            self.frameBuffer.append(remaining)
+            self.open(upstreamURL: upstreamURL, clientKey: key)
+        }
+    }
+
+    private func open(upstreamURL: URL, clientKey: String) {
+        let accept = ChromiumDevToolsWebSocketFrameCodec.acceptKey(for: clientKey)
+        let response = """
+        HTTP/1.1 101 Switching Protocols\r
+        Upgrade: websocket\r
+        Connection: Upgrade\r
+        Sec-WebSocket-Accept: \(accept)\r
+        \r
+        """
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { [weak self] error in
+            guard let self else { return }
+            if error != nil {
+                self.close()
+                return
+            }
+            let task = self.urlSession.webSocketTask(with: upstreamURL)
+            self.upstreamTask = task
+            task.resume()
+            self.receiveUpstream()
+            self.processBufferedClientFrames()
+            self.receiveClientFrames()
+        })
+    }
+
+    private func receiveClientFrames() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if error != nil || isComplete {
+                self.close()
+                return
+            }
+            if let data {
+                self.frameBuffer.append(data)
+                self.processBufferedClientFrames()
+            }
+            self.receiveClientFrames()
+        }
+    }
+
+    private func processBufferedClientFrames() {
+        do {
+            let frames = try ChromiumDevToolsWebSocketFrameCodec.decodeClientFrames(from: &frameBuffer)
+            for frame in frames {
+                handleClientFrame(frame)
+            }
+        } catch {
+            close()
+        }
+    }
+
+    private func handleClientFrame(_ frame: ChromiumDevToolsWebSocketFrame) {
+        switch frame.opcode {
+        case 0x0:
+            guard let opcode = fragmentedOpcode else {
+                close()
+                return
+            }
+            fragmentedPayload.append(frame.payload)
+            if frame.isFinal {
+                sendToUpstream(opcode: opcode, payload: fragmentedPayload)
+                fragmentedOpcode = nil
+                fragmentedPayload.removeAll()
+            }
+        case 0x1, 0x2:
+            if frame.isFinal {
+                sendToUpstream(opcode: frame.opcode, payload: frame.payload)
+            } else {
+                fragmentedOpcode = frame.opcode
+                fragmentedPayload = frame.payload
+            }
+        case 0x8:
+            sendServerFrame(opcode: 0x8, payload: frame.payload)
+            close()
+        case 0x9:
+            sendServerFrame(opcode: 0xA, payload: frame.payload)
+        case 0xA:
+            break
+        default:
+            close()
+        }
+    }
+
+    private func sendToUpstream(opcode: UInt8, payload: Data) {
+        guard let upstreamTask else { return }
+        let message: URLSessionWebSocketTask.Message
+        if opcode == 0x1, let text = String(data: payload, encoding: .utf8) {
+            message = .string(text)
+        } else {
+            message = .data(payload)
+        }
+        upstreamTask.send(message) { [weak self] error in
+            if error != nil {
+                self?.close()
+            }
+        }
+    }
+
+    private func receiveUpstream() {
+        upstreamTask?.receive { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure:
+                self.close()
+            case .success(.string(let text)):
+                self.sendServerFrame(opcode: 0x1, payload: Data(text.utf8))
+                self.receiveUpstream()
+            case .success(.data(let data)):
+                self.sendServerFrame(opcode: 0x2, payload: data)
+                self.receiveUpstream()
+            @unknown default:
+                self.close()
+            }
+        }
+    }
+
+    private func sendServerFrame(opcode: UInt8, payload: Data) {
+        let frame = ChromiumDevToolsWebSocketFrameCodec.encodeServerFrame(opcode: opcode, payload: payload)
+        connection.send(content: frame, completion: .contentProcessed { [weak self] error in
+            if error != nil {
+                self?.close()
+            }
+        })
+    }
+
+    private func sendHTTPFailure() {
+        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { [weak self] _ in
+            self?.close()
+        })
+    }
+
+    private func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        upstreamTask?.cancel(with: .goingAway, reason: nil)
+        upstreamTask = nil
+        connection.cancel()
+        urlSession.invalidateAndCancel()
+        onClose(ObjectIdentifier(self))
+    }
+
+    private static func parseRequest(_ data: Data) -> (target: String, headers: [String: String])? {
+        guard let raw = String(data: data, encoding: .utf8) else { return nil }
+        let lines = raw.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else { return nil }
+        let parts = requestLine.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count >= 2, parts[0].uppercased() == "GET" else { return nil }
+
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            guard let separator = line.firstIndex(of: ":") else { continue }
+            let key = line[..<separator].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = line[line.index(after: separator)...].trimmingCharacters(in: .whitespacesAndNewlines)
+            headers[key] = value
+        }
+        return (parts[1], headers)
+    }
 }
 
 protocol BrowserEngineHost: AnyObject {
@@ -693,6 +1285,21 @@ protocol BrowserEngineHost: AnyObject {
     func setPageZoomFactor(_ pageZoomFactor: CGFloat) throws
     func addUserScript(_ source: String) throws
     func addUserStyle(_ source: String) throws
+    func devToolsFrontendURL(
+        preferredPanel: String?,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) throws
+    func setDevToolsVisible(
+        _ visible: Bool,
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws
+    func toggleDevTools(
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws
 }
 
 final class BrowserWebKitEngineHost: BrowserEngineHost {
@@ -776,6 +1383,30 @@ final class BrowserWebKitEngineHost: BrowserEngineHost {
         let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
         webView.configuration.userContentController.addUserScript(userScript)
     }
+
+    func devToolsFrontendURL(
+        preferredPanel: String?,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) throws {
+        throw BrowserChromiumHostBridgeError.unsupportedOperation("devToolsFrontendURL")
+    }
+
+    func setDevToolsVisible(
+        _ visible: Bool,
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        throw BrowserChromiumHostBridgeError.unsupportedOperation("setDevToolsVisible")
+    }
+
+    func toggleDevTools(
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        throw BrowserChromiumHostBridgeError.unsupportedOperation("toggleDevTools")
+    }
 }
 
 final class BrowserChromiumEngineHost: BrowserEngineHost {
@@ -844,6 +1475,35 @@ final class BrowserChromiumEngineHost: BrowserEngineHost {
 
     func addUserStyle(_ source: String) throws {
         try bridge.addUserStyle(source)
+    }
+
+    func devToolsFrontendURL(
+        preferredPanel: String?,
+        completion: @escaping (Result<URL, Error>) -> Void
+    ) throws {
+        try bridge.devToolsFrontendURL(preferredPanel: preferredPanel, completion: completion)
+    }
+
+    func setDevToolsVisible(
+        _ visible: Bool,
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        try bridge.setDevToolsVisible(
+            visible,
+            mode: mode,
+            preferredPanel: preferredPanel,
+            completion: completion
+        )
+    }
+
+    func toggleDevTools(
+        mode: BrowserChromiumDevToolsMode,
+        preferredPanel: String?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        try bridge.toggleDevTools(mode: mode, preferredPanel: preferredPanel, completion: completion)
     }
 }
 
@@ -3340,6 +4000,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
+    private var chromiumDeveloperToolsPanelID: UUID?
+    private(set) var chromiumDeveloperToolsOwnerPanelID: UUID?
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
@@ -5656,6 +6318,185 @@ extension BrowserPanel {
         }
     }
 
+    @discardableResult
+    private func changeChromiumDeveloperTools(
+        visible: Bool?,
+        preferredPanel: String?,
+        source: String
+    ) -> Bool {
+        if visible == false {
+            _ = closeTrackedChromiumDeveloperToolsIfNeeded(source: source)
+            setPreferredDeveloperToolsVisible(false)
+            return true
+        }
+
+        if visible == nil, closeTrackedChromiumDeveloperToolsIfNeeded(source: source) {
+            setPreferredDeveloperToolsVisible(false)
+            return true
+        }
+
+        let completion: (Result<URL, Error>) -> Void = { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .failure(let error):
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.devtools.chromium.frontend.failed panel=\(self.id.uuidString.prefix(5)) " +
+                        "source=\(source) visible=\(visible.map { $0 ? 1 : 0 } ?? -1) error=\(error.localizedDescription)"
+                    )
+#endif
+                    NSSound.beep()
+                case .success(let url):
+                    self.presentChromiumDeveloperToolsFrontend(
+                        url,
+                        preferredPanel: preferredPanel,
+                        source: source
+                    )
+                }
+            }
+        }
+
+        do {
+            try browserEngineHost.devToolsFrontendURL(
+                preferredPanel: preferredPanel,
+                completion: completion
+            )
+            return true
+        } catch {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools.chromium.frontend.unsupported panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) error=\(error.localizedDescription)"
+            )
+#endif
+            return false
+        }
+    }
+
+    private func currentWorkspaceForPanel() -> Workspace? {
+        AppDelegate.shared?.workspaceContainingPanel(
+            panelId: id,
+            preferredWorkspaceId: workspaceId
+        )?.workspace
+    }
+
+    func markAsChromiumDeveloperToolsFrontend(ownerPanelID: UUID) {
+        chromiumDeveloperToolsOwnerPanelID = ownerPanelID
+    }
+
+    @discardableResult
+    private func closeTrackedChromiumDeveloperToolsIfNeeded(source: String) -> Bool {
+        guard let panelID = chromiumDeveloperToolsPanelID else { return false }
+        chromiumDeveloperToolsPanelID = nil
+
+        guard let workspace = currentWorkspaceForPanel(),
+              workspace.browserPanel(for: panelID) != nil else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools.chromium.frontend.close.stale panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) devtoolsPanel=\(panelID.uuidString.prefix(5))"
+            )
+#endif
+            return false
+        }
+
+        let closed = workspace.closePanel(panelID, force: true)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools.chromium.frontend.close panel=\(id.uuidString.prefix(5)) " +
+            "source=\(source) devtoolsPanel=\(panelID.uuidString.prefix(5)) closed=\(closed ? 1 : 0)"
+        )
+#endif
+        return closed
+    }
+
+    private func presentChromiumDeveloperToolsFrontend(
+        _ url: URL,
+        preferredPanel: String?,
+        source: String
+    ) {
+        let frontendURL = ChromiumDevToolsWebSocketProxy.shared.proxiedFrontendURL(url)
+        guard let workspace = currentWorkspaceForPanel() else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools.chromium.frontend.open.failed panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) reason=workspaceMissing"
+            )
+#endif
+            NSSound.beep()
+            return
+        }
+
+        if let panelID = chromiumDeveloperToolsPanelID,
+           let existingPanel = workspace.browserPanel(for: panelID) {
+            existingPanel.navigate(to: frontendURL, recordTypedNavigation: false)
+            workspace.focusPanel(existingPanel.id)
+            setPreferredDeveloperToolsVisible(true)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools.chromium.frontend.focus panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) devtoolsPanel=\(existingPanel.id.uuidString.prefix(5)) " +
+                "panelName=\(preferredPanel ?? "default")"
+            )
+#endif
+            return
+        }
+        chromiumDeveloperToolsPanelID = nil
+
+        if let devToolsPanel = workspace.newBrowserSplit(
+            from: id,
+            orientation: .horizontal,
+            insertFirst: false,
+            url: frontendURL,
+            preferredProfileID: profileID,
+            focus: true,
+            creationPolicy: .internalTool,
+            initialDividerPosition: 0.58
+        ) {
+            devToolsPanel.markAsChromiumDeveloperToolsFrontend(ownerPanelID: id)
+            chromiumDeveloperToolsPanelID = devToolsPanel.id
+            setPreferredDeveloperToolsVisible(true)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools.chromium.frontend.open panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) devtoolsPanel=\(devToolsPanel.id.uuidString.prefix(5)) " +
+                "panelName=\(preferredPanel ?? "default")"
+            )
+#endif
+            return
+        }
+
+        if let paneID = workspace.paneId(forPanelId: id),
+               let devToolsPanel = workspace.newBrowserSurface(
+                   inPane: paneID,
+                   url: frontendURL,
+                   focus: true,
+                   preferredProfileID: profileID,
+                   creationPolicy: .internalTool
+               ) {
+            devToolsPanel.markAsChromiumDeveloperToolsFrontend(ownerPanelID: id)
+            chromiumDeveloperToolsPanelID = devToolsPanel.id
+            setPreferredDeveloperToolsVisible(true)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools.chromium.frontend.openSamePane panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) devtoolsPanel=\(devToolsPanel.id.uuidString.prefix(5)) " +
+                "panelName=\(preferredPanel ?? "default")"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools.chromium.frontend.open.failed panel=\(id.uuidString.prefix(5)) " +
+            "source=\(source) reason=createBrowserPanelFailed"
+        )
+#endif
+        NSSound.beep()
+    }
+
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         return Self.visibleDescendants(in: container)
@@ -5912,6 +6753,9 @@ extension BrowserPanel {
 
     @discardableResult
     func toggleDeveloperTools() -> Bool {
+        if usesChromiumBrowserEngine {
+            return changeChromiumDeveloperTools(visible: nil, preferredPanel: nil, source: "toggle")
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.begin panel=\(id.uuidString.prefix(5)) " +
@@ -5938,11 +6782,17 @@ extension BrowserPanel {
 
     @discardableResult
     func showDeveloperTools() -> Bool {
+        if usesChromiumBrowserEngine {
+            return changeChromiumDeveloperTools(visible: true, preferredPanel: nil, source: "show")
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
     }
 
     @discardableResult
     func showDeveloperToolsConsole() -> Bool {
+        if usesChromiumBrowserEngine {
+            return changeChromiumDeveloperTools(visible: true, preferredPanel: "console", source: "console")
+        }
         guard showDeveloperTools() else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return true }
         guard let inspector = webView.cmuxInspectorObject() else { return true }
@@ -5964,6 +6814,12 @@ extension BrowserPanel {
 
     @discardableResult
     func closeDeveloperToolsForTeardown() -> Bool {
+        if usesChromiumBrowserEngine {
+            let closed = closeTrackedChromiumDeveloperToolsIfNeeded(source: "teardown")
+            setPreferredDeveloperToolsVisible(false)
+            return closed
+        }
+
         developerToolsTransitionSettleWorkItem?.cancel()
         developerToolsTransitionSettleWorkItem = nil
         pendingDeveloperToolsTransitionTargetVisible = nil
@@ -6149,12 +7005,27 @@ extension BrowserPanel {
 
     @discardableResult
     func isDeveloperToolsVisible() -> Bool {
+        if usesChromiumBrowserEngine {
+            guard let panelID = chromiumDeveloperToolsPanelID,
+                  let workspace = currentWorkspaceForPanel() else {
+                return false
+            }
+            if workspace.browserPanel(for: panelID) != nil {
+                return true
+            }
+            chromiumDeveloperToolsPanelID = nil
+            return false
+        }
+
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
     }
 
     @discardableResult
     func hideDeveloperTools() -> Bool {
+        if usesChromiumBrowserEngine {
+            return changeChromiumDeveloperTools(visible: false, preferredPanel: nil, source: "hide")
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: false, source: "hide")
     }
 
@@ -6188,6 +7059,9 @@ extension BrowserPanel {
     }
 
     func shouldUseLocalInlineDeveloperToolsHosting() -> Bool {
+        if usesChromiumBrowserEngine {
+            return false
+        }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
         if preferredDeveloperToolsPresentation == .detached {
             return false
@@ -6918,6 +7792,34 @@ extension BrowserPanel {
         let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value != "about:blank" else { return nil }
         return value
+    }
+
+    nonisolated static func isChromiumDevToolsFrontendURLString(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return isChromiumDevToolsFrontendURL(URL(string: trimmed))
+    }
+
+    nonisolated static func isChromiumDevToolsFrontendURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        let scheme = url.scheme?.lowercased()
+        if scheme == "devtools" || scheme == "chrome-devtools" {
+            return true
+        }
+        if url.path.lowercased().contains("/devtools/") {
+            return true
+        }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return false
+        }
+        return components.queryItems?.contains { item in
+            guard item.name == "ws",
+                  let value = item.value?.lowercased() else {
+                return false
+            }
+            return value.contains("/devtools/page/") || value.contains("/devtools/browser/")
+        } ?? false
     }
 
     private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {

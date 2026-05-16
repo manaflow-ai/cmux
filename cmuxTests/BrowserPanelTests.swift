@@ -94,6 +94,7 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
                 hostClassName: BrowserChromiumArtifactManifest.hostClassName,
                 hostFactoryClassName: BrowserChromiumArtifactManifest.hostFactoryClassName,
                 hostAPIVersion: BrowserChromiumArtifactManifest.hostAPIVersion,
+                forbiddenCEFMarkersVerifiedAbsent: Self.productionCEFMarkerProof(),
                 launchPolicy: Self.productionOwlLaunchPolicy(),
                 renderingAPI: Self.productionOwlRenderingAPI()
             )
@@ -102,6 +103,7 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
         let manifest = try BrowserChromiumArtifactVerifier.verifyFramework(at: frameworkURL)
         XCTAssertEqual(manifest.launchPolicy?.sandboxDisabled, false)
         XCTAssertEqual(manifest.launchPolicy?.usesInProcessGPUByDefault, false)
+        XCTAssertEqual(manifest.forbiddenCEFMarkersVerifiedAbsent, Self.productionCEFMarkerProof())
         XCTAssertEqual(manifest.renderingAPI?.compositorLayer, "CALayerHost")
         XCTAssertEqual(manifest.renderingAPI?.surfaceTransport, "IOSurface/Metal")
 
@@ -109,6 +111,10 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
         XCTAssertEqual(status.kind, .chromium)
         XCTAssertEqual(status.socketPayload["chromium_sandbox_disabled"] as? Bool, false)
         XCTAssertEqual(status.socketPayload["chromium_uses_in_process_gpu_by_default"] as? Bool, false)
+        XCTAssertEqual(
+            status.socketPayload["chromium_forbidden_cef_markers_verified_absent"] as? [String],
+            Self.productionCEFMarkerProof()
+        )
         XCTAssertEqual(status.socketPayload["chromium_compositor_layer"] as? String, "CALayerHost")
     }
 
@@ -589,6 +595,16 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
         )
     }
 
+    private static func productionCEFMarkerProof() -> [String] {
+        [
+            "Chromium Embedded Framework",
+            "libcef",
+            "CefInitialize",
+            "CefBrowser",
+            "CEF.framework",
+        ]
+    }
+
     private static func productionOwlRenderingAPI() -> BrowserChromiumRenderingAPI {
         BrowserChromiumRenderingAPI(
             nativeViewHost: "Chromium remote_cocoa WebContents NSView",
@@ -687,6 +703,52 @@ final class BrowserChromiumArtifactVerifierTests: XCTestCase {
 
 @MainActor
 final class BrowserNativeEngineHostContainerViewTests: XCTestCase {
+    private final class RecordingNativeView: NSView {
+        var events: [String] = []
+
+        override func mouseDown(with event: NSEvent) {
+            events.append("mouseDown")
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            events.append("rightMouseDown")
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            events.append("rightMouseUp")
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            events.append("scrollWheel")
+        }
+    }
+
+    private func makeMouseEvent(_ type: NSEvent.EventType) -> NSEvent {
+        NSEvent.mouseEvent(
+            with: type,
+            location: NSPoint(x: 20, y: 20),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )!
+    }
+
+    private func makeScrollEvent() -> NSEvent {
+        let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -8,
+            wheel3: 0
+        )!
+        return NSEvent(cgEvent: cgEvent)!
+    }
+
     func testHostsAndReplacesNativeEngineView() {
         let host = BrowserNativeEngineHostContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let firstNativeView = NSView(frame: .zero)
@@ -722,6 +784,46 @@ final class BrowserNativeEngineHostContainerViewTests: XCTestCase {
 
         XCTAssertTrue(nativeView.superview === secondHost)
         XCTAssertNil(firstHost.currentHostedNativeView)
+    }
+
+    func testHitTestReturnsContainerForHostedNativeEngineView() {
+        let host = BrowserNativeEngineHostContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        host.hostNativeView(NSView(frame: .zero))
+
+        XCTAssertTrue(host.hitTest(NSPoint(x: 20, y: 20)) === host)
+    }
+
+    func testPointerDownFocusesBeforeForwardingToNativeEngineView() {
+        let host = BrowserNativeEngineHostContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let nativeView = RecordingNativeView(frame: .zero)
+        var events: [String] = []
+        host.onPointerDown = {
+            events.append("focus")
+        }
+        host.hostNativeView(nativeView)
+
+        host.mouseDown(with: makeMouseEvent(.leftMouseDown))
+        host.rightMouseDown(with: makeMouseEvent(.rightMouseDown))
+
+        XCTAssertEqual(events, ["focus", "focus"])
+        XCTAssertEqual(nativeView.events, ["mouseDown", "rightMouseDown"])
+    }
+
+    func testRightClickAndScrollForwardToNativeEngineView() {
+        let host = BrowserNativeEngineHostContainerView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let nativeView = RecordingNativeView(frame: .zero)
+        var focusCount = 0
+        host.onPointerDown = {
+            focusCount += 1
+        }
+        host.hostNativeView(nativeView)
+
+        host.rightMouseDown(with: makeMouseEvent(.rightMouseDown))
+        host.rightMouseUp(with: makeMouseEvent(.rightMouseUp))
+        host.scrollWheel(with: makeScrollEvent())
+
+        XCTAssertEqual(focusCount, 1)
+        XCTAssertEqual(nativeView.events, ["rightMouseDown", "rightMouseUp", "scrollWheel"])
     }
 }
 
@@ -3853,5 +3955,76 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             displayCountBeforeRebind,
             "Workspace rebind should refresh the preserved browser without recreating its portal slot"
         )
+    }
+}
+
+final class ChromiumDevToolsWebSocketProxyTests: XCTestCase {
+    func testDetectsChromiumDevToolsFrontendURLs() {
+        XCTAssertTrue(BrowserPanel.isChromiumDevToolsFrontendURLString(
+            "http://127.0.0.1:9222/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/ABC"
+        ))
+        XCTAssertTrue(BrowserPanel.isChromiumDevToolsFrontendURLString(
+            "chrome-devtools://devtools/bundled/inspector.html?ws=127.0.0.1:9222/devtools/page/ABC"
+        ))
+        XCTAssertFalse(BrowserPanel.isChromiumDevToolsFrontendURLString("https://example.com/devtools-guide"))
+    }
+
+    func testAcceptKeyMatchesWebSocketProtocolExample() {
+        XCTAssertEqual(
+            ChromiumDevToolsWebSocketFrameCodec.acceptKey(for: "dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        )
+    }
+
+    func testDecodesMaskedClientTextFrame() throws {
+        let payload = Array("hello".utf8)
+        let mask: [UInt8] = [1, 2, 3, 4]
+        var bytes: [UInt8] = [0x81, 0x80 | UInt8(payload.count)]
+        bytes.append(contentsOf: mask)
+        bytes.append(contentsOf: payload.enumerated().map { index, byte in
+            byte ^ mask[index % mask.count]
+        })
+        var buffer = Data(bytes)
+
+        let frames = try ChromiumDevToolsWebSocketFrameCodec.decodeClientFrames(from: &buffer)
+
+        XCTAssertTrue(buffer.isEmpty)
+        XCTAssertEqual(frames, [
+            ChromiumDevToolsWebSocketFrame(opcode: 0x1, payload: Data("hello".utf8), isFinal: true)
+        ])
+    }
+
+    func testEncodesUnmaskedServerTextFrame() {
+        let frame = ChromiumDevToolsWebSocketFrameCodec.encodeServerFrame(
+            opcode: 0x1,
+            payload: Data("ok".utf8)
+        )
+
+        XCTAssertEqual(Array(frame), [0x81, 0x02, 0x6f, 0x6b])
+    }
+
+    func testRewritesDevToolsFrontendWebSocketEndpoint() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:60149/devtools/inspector.html?ws=127.0.0.1:60149/devtools/page/ABC&panel=console"))
+        var observedUpstream: URL?
+
+        let rewritten = ChromiumDevToolsFrontendProxyURLRewriter.rewrite(url) { upstream in
+            observedUpstream = upstream
+            return "127.0.0.1:61234/devtools/page/ABC"
+        }
+
+        XCTAssertEqual(observedUpstream?.absoluteString, "ws://127.0.0.1:60149/devtools/page/ABC")
+        XCTAssertEqual(
+            rewritten.absoluteString,
+            "http://127.0.0.1:60149/devtools/inspector.html?ws=127.0.0.1:61234/devtools/page/ABC&panel=console"
+        )
+    }
+
+    func testProxyDoesNotRewriteToZeroPort() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:60149/devtools/inspector.html?ws=127.0.0.1:60149/devtools/page/ABC"))
+
+        let rewritten = ChromiumDevToolsWebSocketProxy.shared.proxiedFrontendURL(url)
+
+        XCTAssertNotEqual(rewritten.absoluteString, url.absoluteString)
+        XCTAssertFalse(rewritten.absoluteString.contains("ws=127.0.0.1:0/"))
     }
 }

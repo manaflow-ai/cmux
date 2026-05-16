@@ -12,6 +12,15 @@ final class SessionPersistenceTests: XCTestCase {
         let display: SessionDisplaySnapshot?
     }
 
+    private func sessionLayoutPanelIds(_ layout: SessionWorkspaceLayoutSnapshot) -> Set<UUID> {
+        switch layout {
+        case .pane(let pane):
+            return Set(pane.panelIds)
+        case .split(let split):
+            return sessionLayoutPanelIds(split.first).union(sessionLayoutPanelIds(split.second))
+        }
+    }
+
     @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
@@ -70,6 +79,133 @@ final class SessionPersistenceTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
 
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    func testSessionSnapshotSkipsChromiumDevToolsFrontendPanels() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: URL(string: "https://example.com"),
+                focus: true
+            )
+        )
+        let devToolsURL = try XCTUnwrap(URL(
+            string: "http://127.0.0.1:9222/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/ABC"
+        ))
+        let devToolsPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanel.id,
+                orientation: .horizontal,
+                url: devToolsURL,
+                focus: true,
+                creationPolicy: .internalTool
+            )
+        )
+        devToolsPanel.markAsChromiumDeveloperToolsFrontend(ownerPanelID: sourcePanel.id)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertTrue(snapshot.panels.contains { $0.id == sourcePanel.id })
+        XCTAssertFalse(snapshot.panels.contains { $0.id == devToolsPanel.id })
+        XCTAssertTrue(sessionLayoutPanelIds(snapshot.layout).contains(sourcePanel.id))
+        XCTAssertFalse(sessionLayoutPanelIds(snapshot.layout).contains(devToolsPanel.id))
+    }
+
+    @MainActor
+    func testRestoringSessionSnapshotSkipsPersistedChromiumDevToolsFrontendPanels() throws {
+        let sourcePanelID = try XCTUnwrap(UUID(uuidString: "11111111-1111-4111-8111-111111111111"))
+        let devToolsPanelID = try XCTUnwrap(UUID(uuidString: "22222222-2222-4222-8222-222222222222"))
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            isManuallyUnread: nil,
+            hasUnreadIndicator: nil,
+            terminalScrollBarHidden: nil,
+            currentDirectory: "/tmp",
+            focusedPanelId: devToolsPanelID,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [sourcePanelID],
+                    selectedPanelId: sourcePanelID
+                )),
+                second: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [devToolsPanelID],
+                    selectedPanelId: devToolsPanelID
+                ))
+            )),
+            panels: [
+                SessionPanelSnapshot(
+                    id: sourcePanelID,
+                    type: .browser,
+                    title: nil,
+                    customTitle: nil,
+                    directory: nil,
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: nil,
+                    browser: SessionBrowserPanelSnapshot(
+                        urlString: "https://example.com",
+                        profileID: nil,
+                        shouldRenderWebView: true,
+                        pageZoom: 1.0,
+                        developerToolsVisible: false,
+                        backHistoryURLStrings: nil,
+                        forwardHistoryURLStrings: nil
+                    ),
+                    markdown: nil,
+                    filePreview: nil,
+                    rightSidebarTool: nil
+                ),
+                SessionPanelSnapshot(
+                    id: devToolsPanelID,
+                    type: .browser,
+                    title: nil,
+                    customTitle: nil,
+                    directory: nil,
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: nil,
+                    browser: SessionBrowserPanelSnapshot(
+                        urlString: "http://127.0.0.1:9222/devtools/inspector.html?ws=127.0.0.1:9222/devtools/page/ABC",
+                        profileID: nil,
+                        shouldRenderWebView: true,
+                        pageZoom: 1.0,
+                        developerToolsVisible: false,
+                        backHistoryURLStrings: nil,
+                        forwardHistoryURLStrings: nil
+                    ),
+                    markdown: nil,
+                    filePreview: nil,
+                    rightSidebarTool: nil
+                )
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(restoredSnapshot.panels.filter { $0.type == .browser }.count, 1)
+        XCTAssertFalse(restoredSnapshot.panels.contains {
+            BrowserPanel.isChromiumDevToolsFrontendURLString($0.browser?.urlString)
+        })
     }
 
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {

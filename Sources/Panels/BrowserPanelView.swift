@@ -1270,7 +1270,18 @@ struct BrowserPanelView: View {
                         paneId: paneId,
                         shouldAttachNativeView: isVisibleInUI && isCurrentPaneOwner,
                         shouldFocusNativeView: isFocused && !addressBarFocused,
-                        isPanelFocused: isFocused
+                        isPanelFocused: isFocused,
+                        onPointerDown: {
+                            if addressBarFocused {
+#if DEBUG
+                                logBrowserFocusState(event: "chromiumContent.pointerBlur")
+#endif
+                                setAddressBarFocused(false, reason: "chromiumContent.pointerBlur")
+                            }
+                            if !isFocused {
+                                onRequestPanelFocus()
+                            }
+                        }
                     )
                     .id("\(panel.browserEngineHostInstanceID.uuidString)-\(paneId.id.uuidString)")
                     .contentShape(Rectangle())
@@ -4505,8 +4516,24 @@ final class BrowserNativeEngineHostContainerView: NSView {
     private weak var hostedNativeView: NSView?
     private var hostedNativeViewConstraints: [NSLayoutConstraint] = []
 
+    var onPointerDown: (() -> Void)?
+
     var currentHostedNativeView: NSView? {
         hostedNativeView
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden,
+              alphaValue > 0,
+              bounds.contains(point),
+              hostedNativeView != nil else {
+            return super.hitTest(point)
+        }
+        return self
     }
 
     func hostNativeView(_ nativeView: NSView) {
@@ -4538,6 +4565,77 @@ final class BrowserNativeEngineHostContainerView: NSView {
         }
         hostedNativeView = nil
     }
+
+    override func mouseDown(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.mouseDown(with: forwarded)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.mouseUp(with: forwarded)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.mouseDragged(with: forwarded)
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.rightMouseDown(with: forwarded)
+        }
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.rightMouseUp(with: forwarded)
+        }
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.rightMouseDragged(with: forwarded)
+        }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.otherMouseDown(with: forwarded)
+        }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.otherMouseUp(with: forwarded)
+        }
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.otherMouseDragged(with: forwarded)
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        forwardMouseEvent(event) { view, forwarded in
+            view.scrollWheel(with: forwarded)
+        }
+    }
+
+    private func forwardMouseEvent(_ event: NSEvent, dispatch: (NSView, NSEvent) -> Void) {
+        guard let hostedNativeView else { return }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            onPointerDown?()
+        default:
+            break
+        }
+        dispatch(hostedNativeView, event)
+    }
 }
 
 struct BrowserNativeEngineRepresentable: NSViewRepresentable {
@@ -4546,6 +4644,7 @@ struct BrowserNativeEngineRepresentable: NSViewRepresentable {
     let shouldAttachNativeView: Bool
     let shouldFocusNativeView: Bool
     let isPanelFocused: Bool
+    let onPointerDown: () -> Void
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -4569,24 +4668,26 @@ struct BrowserNativeEngineRepresentable: NSViewRepresentable {
         let nativeView = panel.browserEngineNativeView
         context.coordinator.panel = panel
         context.coordinator.nativeView = nativeView
-        let canAttachNativeView = shouldAttachNativeView && host.window != nil
-        if canAttachNativeView {
+        host.onPointerDown = onPointerDown
+        if shouldAttachNativeView {
             host.hostNativeView(nativeView)
         } else {
             host.detachHostedNativeView()
         }
+        let canFocusNativeView = shouldAttachNativeView && host.window != nil
 
         Self.applyFocus(
             panel: panel,
             nativeView: nativeView,
             host: host,
-            shouldFocusNativeView: shouldFocusNativeView && canAttachNativeView,
-            isPanelFocused: isPanelFocused && canAttachNativeView
+            shouldFocusNativeView: shouldFocusNativeView && canFocusNativeView,
+            isPanelFocused: isPanelFocused && canFocusNativeView
         )
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         if let host = nsView as? BrowserNativeEngineHostContainerView {
+            host.onPointerDown = nil
             host.detachHostedNativeView()
         }
         coordinator.nativeView = nil

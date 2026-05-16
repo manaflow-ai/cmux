@@ -165,7 +165,6 @@ extension Workspace {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
-        let layout = sessionLayoutSnapshot(from: tree)
 
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -186,6 +185,12 @@ extension Workspace {
                     restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
                 )
             }
+
+        let restorablePanelIds = Set(panelSnapshots.map(\.id))
+        let layout = sessionLayoutSnapshot(
+            from: tree,
+            restorablePanelIds: restorablePanelIds
+        ) ?? .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
 
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -265,8 +270,13 @@ extension Workspace {
             currentDirectory = normalizedCurrentDirectory
         }
 
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
-        let leafEntries = restoreSessionLayout(snapshot.layout)
+        let restorablePanelSnapshots = snapshot.panels.filter(Self.shouldRestoreSessionPanelSnapshot)
+        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: restorablePanelSnapshots.map { ($0.id, $0) })
+        let restorableLayout = Self.prunedSessionLayoutSnapshot(
+            snapshot.layout,
+            keepingPanelIds: Set(panelSnapshotsById.keys)
+        ) ?? .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil))
+        let leafEntries = restoreSessionLayout(restorableLayout)
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
         for entry in leafEntries {
@@ -279,7 +289,7 @@ extension Workspace {
         }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
-        applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
+        applySessionDividerPositions(snapshotNode: restorableLayout, liveNode: bonsplitController.treeSnapshot())
 
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
@@ -327,11 +337,18 @@ extension Workspace {
         }
     }
 
-    private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
+    private func sessionLayoutSnapshot(
+        from node: ExternalTreeNode,
+        restorablePanelIds: Set<UUID>
+    ) -> SessionWorkspaceLayoutSnapshot? {
         switch node {
         case .pane(let pane):
-            let panelIds = sessionPanelIDs(for: pane)
-            let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
+            let panelIds = sessionPanelIDs(for: pane, restorablePanelIds: restorablePanelIds)
+            guard !panelIds.isEmpty else { return nil }
+            let selectedPanelId = pane.selectedTabId
+                .flatMap(sessionPanelID(forExternalTabIDString:))
+                .flatMap { panelIds.contains($0) ? $0 : nil }
+                ?? panelIds.first
             return .pane(
                 SessionPaneLayoutSnapshot(
                     panelIds: panelIds,
@@ -339,22 +356,94 @@ extension Workspace {
                 )
             )
         case .split(let split):
-            return .split(
-                SessionSplitLayoutSnapshot(
-                    orientation: split.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
-                    dividerPosition: split.dividerPosition,
-                    first: sessionLayoutSnapshot(from: split.first),
-                    second: sessionLayoutSnapshot(from: split.second)
-                )
+            let first = sessionLayoutSnapshot(
+                from: split.first,
+                restorablePanelIds: restorablePanelIds
             )
+            let second = sessionLayoutSnapshot(
+                from: split.second,
+                restorablePanelIds: restorablePanelIds
+            )
+            switch (first, second) {
+            case (.some(let first), .some(let second)):
+                return .split(
+                    SessionSplitLayoutSnapshot(
+                        orientation: split.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
+                        dividerPosition: split.dividerPosition,
+                        first: first,
+                        second: second
+                    )
+                )
+            case (.some(let first), .none):
+                return first
+            case (.none, .some(let second)):
+                return second
+            case (.none, .none):
+                return nil
+            }
         }
     }
 
-    private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
+    private static func prunedSessionLayoutSnapshot(
+        _ node: SessionWorkspaceLayoutSnapshot,
+        keepingPanelIds restorablePanelIds: Set<UUID>
+    ) -> SessionWorkspaceLayoutSnapshot? {
+        switch node {
+        case .pane(let pane):
+            let panelIds = pane.panelIds.filter { restorablePanelIds.contains($0) }
+            guard !panelIds.isEmpty else { return nil }
+            let selectedPanelId = pane.selectedPanelId
+                .flatMap { panelIds.contains($0) ? $0 : nil }
+                ?? panelIds.first
+            return .pane(
+                SessionPaneLayoutSnapshot(
+                    panelIds: panelIds,
+                    selectedPanelId: selectedPanelId
+                )
+            )
+        case .split(let split):
+            let first = prunedSessionLayoutSnapshot(
+                split.first,
+                keepingPanelIds: restorablePanelIds
+            )
+            let second = prunedSessionLayoutSnapshot(
+                split.second,
+                keepingPanelIds: restorablePanelIds
+            )
+            switch (first, second) {
+            case (.some(let first), .some(let second)):
+                return .split(
+                    SessionSplitLayoutSnapshot(
+                        orientation: split.orientation,
+                        dividerPosition: split.dividerPosition,
+                        first: first,
+                        second: second
+                    )
+                )
+            case (.some(let first), .none):
+                return first
+            case (.none, .some(let second)):
+                return second
+            case (.none, .none):
+                return nil
+            }
+        }
+    }
+
+    private static func shouldRestoreSessionPanelSnapshot(_ snapshot: SessionPanelSnapshot) -> Bool {
+        guard snapshot.type == .browser else { return true }
+        return !BrowserPanel.isChromiumDevToolsFrontendURLString(snapshot.browser?.urlString)
+    }
+
+    private func sessionPanelIDs(
+        for pane: ExternalPaneNode,
+        restorablePanelIds: Set<UUID>
+    ) -> [UUID] {
         var panelIds: [UUID] = []
         var seen = Set<UUID>()
         for tab in pane.tabs {
-            guard let panelId = sessionPanelID(forExternalTabIDString: tab.id) else { continue }
+            guard let panelId = sessionPanelID(forExternalTabIDString: tab.id),
+                  restorablePanelIds.contains(panelId) else { continue }
             if seen.insert(panelId).inserted {
                 panelIds.append(panelId)
             }
@@ -490,10 +579,15 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
+            let urlString = browserPanel.preferredURLStringForOmnibar()
+            guard browserPanel.chromiumDeveloperToolsOwnerPanelID == nil,
+                  !BrowserPanel.isChromiumDevToolsFrontendURLString(urlString) else {
+                return nil
+            }
             terminalSnapshot = nil
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
             browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browserPanel.preferredURLStringForOmnibar(),
+                urlString: urlString,
                 profileID: browserPanel.profileID,
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
@@ -7153,9 +7247,14 @@ final class Workspace: Identifiable, ObservableObject {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case restoration
+        case internalTool
 
         var permitsCreationWhenBrowserDisabled: Bool {
             self == .restoration
+        }
+
+        var opensExternallyWhenBrowserDisabled: Bool {
+            self == .userInitiated
         }
     }
 
@@ -10346,7 +10445,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let url {
+            if creationPolicy.opensExternallyWhenBrowserDisabled, let url {
                 _ = NSWorkspace.shared.open(url)
             }
             return nil
@@ -10447,7 +10546,8 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
-            if let externalURL = url ?? initialRequest?.url {
+            if creationPolicy.opensExternallyWhenBrowserDisabled,
+               let externalURL = url ?? initialRequest?.url {
                 _ = NSWorkspace.shared.open(externalURL)
             }
             return nil

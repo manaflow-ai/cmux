@@ -112,6 +112,41 @@ public final class CmuxChromiumBrowserHost: NSObject {
     public func cmuxAddUserStyle(_ source: NSString) {
         view.addUserStyle(source as String)
     }
+
+    @objc(cmuxSetDevToolsVisible:mode:preferredPanel:completionHandler:)
+    public func cmuxSetDevToolsVisible(
+        _ visible: NSNumber,
+        mode: NSNumber,
+        preferredPanel: NSString?,
+        completionHandler: @escaping (NSNumber, NSString?) -> Void
+    ) {
+        view.setDevToolsVisible(
+            visible.boolValue,
+            mode: mode.uint32Value,
+            preferredPanel: preferredPanel as String?
+        ) { ok, error in
+            completionHandler(NSNumber(value: ok), error as NSString?)
+        }
+    }
+
+    @objc(cmuxToggleDevToolsWithMode:preferredPanel:completionHandler:)
+    public func cmuxToggleDevTools(
+        mode: NSNumber,
+        preferredPanel: NSString?,
+        completionHandler: @escaping (NSNumber, NSString?) -> Void
+    ) {
+        view.toggleDevTools(mode: mode.uint32Value, preferredPanel: preferredPanel as String?) { ok, error in
+            completionHandler(NSNumber(value: ok), error as NSString?)
+        }
+    }
+
+    @objc(cmuxDevToolsFrontendURLWithPanel:completionHandler:)
+    public func cmuxDevToolsFrontendURL(
+        panel: NSString?,
+        completionHandler: @escaping (NSURL?, String?) -> Void
+    ) {
+        view.devToolsFrontendURL(preferredPanel: panel as String?, completion: completionHandler)
+    }
 }
 
 final class CmuxChromiumBrowserView: NSView {
@@ -130,6 +165,7 @@ final class CmuxChromiumBrowserView: NSView {
     private var ioPipe: Pipe?
     private var pollTimer: Timer?
     private var hostLayer: CALayer?
+    private var surfaceHostLayers: [UInt64: CALayer] = [:]
     private var currentContextID: UInt32 = 0
     private var lastResizeSize: NSSize = .zero
     private var pendingURL: URL?
@@ -137,6 +173,7 @@ final class CmuxChromiumBrowserView: NSView {
     private var contentShellPID: pid_t = 0
     private var devToolsPort: Int?
     private var devToolsPageWebSocketURL: URL?
+    private var devToolsVisible = false
     private let devToolsQueue = DispatchQueue(label: "cmux.chromium.devtools")
     private static let sharedFreshMojoRuntime = OwlFreshMojoRuntime.load()
     private var proxyServer: String?
@@ -146,6 +183,7 @@ final class CmuxChromiumBrowserView: NSView {
     private var persistentUserStyles: [String] = []
     private var lastPersistentStateKey: String?
     private var attachedHostLayerContextID: UInt32 = 0
+    private var lastAppliedSurfaceTreeGeneration: Int = -1
     private var stateChangeNotifyPending = false
     private var pressedMouseButton: OwlMouseButton?
     private var lastContextMenuPoint: NSPoint?
@@ -165,9 +203,11 @@ final class CmuxChromiumBrowserView: NSView {
         self.profileIdentifier = profileIdentifier
         self.dataDirectory = dataDirectory
         proxyServer = Self.proxyServer(from: proxyConfiguration)
-        sessionDirectory = dataDirectory.appendingPathComponent("content-shell", isDirectory: true)
         let token = "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)"
         let shortToken = "\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString.prefix(8))"
+        sessionDirectory = dataDirectory
+            .appendingPathComponent("content-shell-sessions", isDirectory: true)
+            .appendingPathComponent(shortToken, isDirectory: true)
         contextFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-chromium-context-\(token).txt", isDirectory: false)
         resizeFile = FileManager.default.temporaryDirectory
@@ -193,6 +233,10 @@ final class CmuxChromiumBrowserView: NSView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 
     override func becomeFirstResponder() -> Bool {
         if let session = freshMojoSession,
@@ -223,6 +267,7 @@ final class CmuxChromiumBrowserView: NSView {
         CATransaction.setDisableActions(true)
         hostLayer?.frame = bounds
         CATransaction.commit()
+        applyFreshMojoSurfaceTree(force: true)
         writeResizeIfNeeded()
         launchIfPossible()
     }
@@ -424,6 +469,83 @@ final class CmuxChromiumBrowserView: NSView {
         }
     }
 
+    func devToolsFrontendURL(
+        preferredPanel: String?,
+        completion: @escaping (NSURL?, String?) -> Void
+    ) {
+        devToolsQueue.async { [weak self] in
+            guard let self else { return completion(nil, Self.browserScriptFailedTitle()) }
+            self.ensureDevToolsPageInfo { result in
+                switch result {
+                case .failure(let error):
+                    cmuxChromiumLogger.error("DevTools frontend unavailable: \(error.localizedDescription, privacy: .private)")
+                    completion(nil, Self.browserScriptFailedTitle())
+                case .success(let info):
+                    guard let frontendURL = self.frontendURL(from: info, preferredPanel: preferredPanel) else {
+                        completion(nil, Self.browserScriptFailedTitle())
+                        return
+                    }
+                    completion(frontendURL as NSURL, nil)
+                }
+            }
+        }
+    }
+
+    func toggleDevTools(
+        mode: UInt32,
+        preferredPanel: String?,
+        completion: @escaping (Bool, String?) -> Void
+    ) {
+        setDevToolsVisible(!devToolsVisible, mode: mode, preferredPanel: preferredPanel, completion: completion)
+    }
+
+    func setDevToolsVisible(
+        _ visible: Bool,
+        mode: UInt32,
+        preferredPanel: String?,
+        completion: @escaping (Bool, String?) -> Void
+    ) {
+        let apply = { [weak self] in
+            guard let self,
+                  let session = self.freshMojoSession,
+                  let runtime = self.freshMojoRuntime else {
+                completion(false, Self.browserScriptFailedTitle())
+                return
+            }
+
+            let result = visible
+                ? runtime.openDevTools(session, mode: mode)
+                : runtime.closeDevTools(session)
+
+            switch result {
+            case .failure(let error):
+                cmuxChromiumLogger.error("DevTools visibility change failed: \(error.localizedDescription, privacy: .private)")
+                completion(false, Self.browserScriptFailedTitle())
+            case .success(let ok):
+                guard ok else {
+                    completion(false, Self.browserScriptFailedTitle())
+                    return
+                }
+                self.devToolsVisible = visible
+                if visible, let preferredPanel, !preferredPanel.isEmpty {
+                    _ = runtime.evaluateDevToolsJavaScript(
+                        session,
+                        script: Self.devToolsPanelSelectionScript(preferredPanel)
+                    )
+                }
+                DispatchQueue.main.async { [weak self] in
+                    self?.notifyStateChanged()
+                }
+                completion(true, nil)
+            }
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
     private func applyPersistentBrowserState() {
         guard freshMojoSession != nil || devToolsPort != nil || currentContextID != 0 else { return }
         let key = [
@@ -570,7 +692,6 @@ final class CmuxChromiumBrowserView: NSView {
             notifyStateChanged()
             return
         }
-
         do {
             try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
             try? FileManager.default.removeItem(at: contextFile)
@@ -664,6 +785,7 @@ final class CmuxChromiumBrowserView: NSView {
 
         let userData = Unmanaged.passRetained(self).toOpaque()
         freshMojoUserDataPointer = userData
+        setenv("OWL_FRESH_ENABLE_DEVTOOLS", "1", 1)
         guard let session = runtime.createSession(
             contentShellPath: executableURL.path,
             initialURL: url.absoluteString,
@@ -683,6 +805,8 @@ final class CmuxChromiumBrowserView: NSView {
         freshMojoSession = session
         launchedURL = url
         contentShellPID = pid_t(runtime.hostPID(session))
+        devToolsPort = nil
+        devToolsPageWebSocketURL = nil
         isLoading = true
         estimatedProgress = 0.1
 
@@ -739,6 +863,8 @@ final class CmuxChromiumBrowserView: NSView {
             case .ready, .compositor:
                 if hostPID > 0, self.contentShellPID != pid_t(hostPID) {
                     self.contentShellPID = pid_t(hostPID)
+                    self.devToolsPort = nil
+                    self.devToolsPageWebSocketURL = nil
                     shouldNotify = true
                 }
                 if contextID != 0 {
@@ -803,6 +929,7 @@ final class CmuxChromiumBrowserView: NSView {
                 self.freshMojoPollTimer = nil
                 self.releaseFreshMojoUserDataPointer()
             case .surfaceTree:
+                self.applyFreshMojoSurfaceTree(force: false)
                 self.presentNativeMenuIfNeeded()
             case .log, .none:
                 if kind == .log, let message {
@@ -843,6 +970,9 @@ final class CmuxChromiumBrowserView: NSView {
 
     @discardableResult
     private func attachHostLayer(contextID: UInt32) -> Bool {
+        if !surfaceHostLayers.isEmpty {
+            return false
+        }
         guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type else { return false }
         if attachedHostLayerContextID == contextID,
            hostLayer?.superlayer === layer {
@@ -864,6 +994,63 @@ final class CmuxChromiumBrowserView: NSView {
         attachedHostLayerContextID = contextID
         CATransaction.commit()
         return true
+    }
+
+    private func applyFreshMojoSurfaceTree(force: Bool) {
+        guard let session = freshMojoSession,
+              let freshMojoRuntime,
+              let tree = freshMojoRuntime.surfaceTree(session) else {
+            return
+        }
+        guard force || tree.generation != lastAppliedSurfaceTreeGeneration else { return }
+        lastAppliedSurfaceTreeGeneration = tree.generation
+
+        let drawableSurfaces = tree.surfaces
+            .filter { $0.visible && $0.contextID != 0 && $0.isLayerBackedSurface }
+            .sorted {
+                if $0.zIndex != $1.zIndex {
+                    return $0.zIndex < $1.zIndex
+                }
+                return $0.surfaceID < $1.surfaceID
+            }
+
+        guard !drawableSurfaces.isEmpty else { return }
+        guard let cls = NSClassFromString("CALayerHost") as? CALayer.Type else { return }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        hostLayer?.removeFromSuperlayer()
+        hostLayer = nil
+        attachedHostLayerContextID = 0
+
+        var visibleSurfaceIDs = Set<UInt64>()
+        for surface in drawableSurfaces {
+            visibleSurfaceIDs.insert(surface.surfaceID)
+            let host = surfaceHostLayers[surface.surfaceID] ?? {
+                let layer = cls.init()
+                layer.autoresizingMask = []
+                layer.contentsGravity = .topLeft
+                surfaceHostLayers[surface.surfaceID] = layer
+                return layer
+            }()
+
+            host.setValue(NSNumber(value: surface.contextID), forKey: "contextId")
+            host.frame = surface.frame(in: bounds)
+            host.zPosition = CGFloat(surface.zIndex)
+            host.isHidden = false
+            if host.superlayer !== layer {
+                layer?.addSublayer(host)
+            }
+        }
+
+        let staleSurfaceIDs = surfaceHostLayers.keys.filter { !visibleSurfaceIDs.contains($0) }
+        for surfaceID in staleSurfaceIDs {
+            surfaceHostLayers[surfaceID]?.removeFromSuperlayer()
+            surfaceHostLayers.removeValue(forKey: surfaceID)
+        }
+
+        CATransaction.commit()
     }
 
     private func writeResizeIfNeeded(force: Bool = false) {
@@ -994,31 +1181,203 @@ final class CmuxChromiumBrowserView: NSView {
             completion(.success(url))
             return
         }
-        guard let port = devToolsPort,
-              let listURL = URL(string: "http://127.0.0.1:\(port)/json") else {
+        ensureDevToolsPageInfo { [weak self] result in
+            switch result {
+            case .failure(let error):
+                completion(.failure(error))
+            case .success(let info):
+                self?.devToolsPageWebSocketURL = info.webSocketURL
+                completion(.success(info.webSocketURL))
+            }
+        }
+    }
+
+    private func ensureDevToolsPageInfo(
+        completion: @escaping (Result<DevToolsPageInfo, Error>) -> Void
+    ) {
+        let candidatePorts = devToolsCandidatePorts()
+        guard !candidatePorts.isEmpty else {
             completion(.failure(CmuxChromiumCoreError.devToolsUnavailable))
             return
         }
+        queryDevToolsPageInfo(
+            candidatePorts: candidatePorts,
+            expectedURLString: currentURL?.absoluteString ?? launchedURL?.absoluteString,
+            completion: completion
+        )
+    }
+
+    private func devToolsCandidatePorts() -> [Int] {
+        var ports: [Int] = []
+        func append(_ port: Int?) {
+            guard let port, port > 0, !ports.contains(port) else { return }
+            ports.append(port)
+        }
+
+        let currentProcessPorts = Self.discoverDevToolsPorts(for: contentShellPID)
+        for port in currentProcessPorts {
+            append(port)
+        }
+
+        if let devToolsPort, currentProcessPorts.contains(devToolsPort) {
+            append(devToolsPort)
+        }
+
+        if ports.isEmpty, contentShellPID <= 0 {
+            append(devToolsPort)
+        }
+        return ports
+    }
+
+    private func queryDevToolsPageInfo(
+        candidatePorts: [Int],
+        expectedURLString: String?,
+        completion: @escaping (Result<DevToolsPageInfo, Error>) -> Void
+    ) {
+        guard let port = candidatePorts.first else {
+            devToolsPort = nil
+            devToolsPageWebSocketURL = nil
+            completion(.failure(CmuxChromiumCoreError.devToolsUnavailable))
+            return
+        }
+        guard let listURL = URL(string: "http://127.0.0.1:\(port)/json") else {
+            queryDevToolsPageInfo(
+                candidatePorts: Array(candidatePorts.dropFirst()),
+                expectedURLString: expectedURLString,
+                completion: completion
+            )
+            return
+        }
+        let fallbackPorts = Array(candidatePorts.dropFirst())
         URLSession.shared.dataTask(with: listURL) { data, _, error in
-            let result: Result<URL, Error>
+            let result: Result<DevToolsPageInfo, Error>
             if let error {
                 result = .failure(error)
             } else if let data,
                       let entries = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                      let page = entries.first(where: { ($0["type"] as? String) == "page" }),
+                      let page = Self.inspectablePageEntry(from: entries, expectedURLString: expectedURLString),
                       let webSocket = page["webSocketDebuggerUrl"] as? String,
                       let url = URL(string: webSocket) {
-                result = .success(url)
+                result = .success(DevToolsPageInfo(
+                    port: port,
+                    webSocketURL: url,
+                    frontendPath: page["devtoolsFrontendUrl"] as? String
+                ))
             } else {
                 result = .failure(CmuxChromiumCoreError.devToolsUnavailable)
             }
             self.devToolsQueue.async { [weak self] in
-                if case .success(let url) = result {
-                    self?.devToolsPageWebSocketURL = url
+                guard let self else { return }
+                switch result {
+                case .success(let info):
+                    self.devToolsPort = info.port
+                    self.devToolsPageWebSocketURL = info.webSocketURL
+                    completion(.success(info))
+                case .failure:
+                    self.queryDevToolsPageInfo(
+                        candidatePorts: fallbackPorts,
+                        expectedURLString: expectedURLString,
+                        completion: completion
+                    )
                 }
-                completion(result)
             }
         }.resume()
+    }
+
+    private static func discoverDevToolsPorts(for processIdentifier: pid_t) -> [Int] {
+        guard processIdentifier > 0 else { return [] }
+        var fdInfos = [proc_fdinfo](repeating: proc_fdinfo(), count: 1024)
+        let byteCount = fdInfos.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(
+                processIdentifier,
+                PROC_PIDLISTFDS,
+                0,
+                buffer.baseAddress,
+                Int32(buffer.count)
+            )
+        }
+        guard byteCount > 0 else { return [] }
+
+        let fdCount = min(
+            fdInfos.count,
+            Int(byteCount) / MemoryLayout<proc_fdinfo>.stride
+        )
+        var ports: [Int] = []
+        for fdInfo in fdInfos.prefix(fdCount) where fdInfo.proc_fdtype == PROX_FDTYPE_SOCKET {
+            var socketInfo = socket_fdinfo()
+            let size = withUnsafeMutablePointer(to: &socketInfo) { pointer in
+                proc_pidfdinfo(
+                    processIdentifier,
+                    fdInfo.proc_fd,
+                    PROC_PIDFDSOCKETINFO,
+                    pointer,
+                    Int32(MemoryLayout<socket_fdinfo>.size)
+                )
+            }
+            guard size == MemoryLayout<socket_fdinfo>.size,
+                  socketInfo.psi.soi_kind == SOCKINFO_TCP,
+                  socketInfo.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_LISTEN else {
+                continue
+            }
+
+            let networkPort = UInt16(truncatingIfNeeded: socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport)
+            let port = Int(UInt16(bigEndian: networkPort))
+            if port > 0 {
+                ports.append(port)
+            }
+        }
+        return ports
+    }
+
+    private static func inspectablePageEntry(
+        from entries: [[String: Any]],
+        expectedURLString: String?
+    ) -> [String: Any]? {
+        let pageEntries = entries.filter { ($0["type"] as? String) == "page" }
+        let inspectableEntries = pageEntries.filter { entry in
+            let rawURL = (entry["url"] as? String) ?? ""
+            let title = (entry["title"] as? String) ?? ""
+            return !rawURL.contains("/devtools/") &&
+                !rawURL.hasPrefix("devtools://") &&
+                title != "DevTools"
+        }
+        if let expectedURLString,
+           let matchingEntry = inspectableEntries.first(where: { ($0["url"] as? String) == expectedURLString }) {
+            return matchingEntry
+        }
+        return inspectableEntries.first
+    }
+
+    private func frontendURL(from info: DevToolsPageInfo, preferredPanel: String?) -> URL? {
+        let baseURL = URL(string: "http://127.0.0.1:\(info.port)")
+        let rawFrontend = info.frontendPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let frontendURL: URL? = {
+            guard let rawFrontend, !rawFrontend.isEmpty else { return nil }
+            if rawFrontend.hasPrefix("/") {
+                return baseURL.flatMap { URL(string: rawFrontend, relativeTo: $0)?.absoluteURL }
+            }
+            return URL(string: rawFrontend)
+        }()
+        var fallbackComponents = URLComponents()
+        fallbackComponents.scheme = "http"
+        fallbackComponents.host = "127.0.0.1"
+        fallbackComponents.port = info.port
+        fallbackComponents.path = "/devtools/inspector.html"
+        fallbackComponents.queryItems = [
+            URLQueryItem(
+                name: "ws",
+                value: "\(info.webSocketURL.host ?? "127.0.0.1"):\(info.webSocketURL.port ?? info.port)\(info.webSocketURL.path)"
+            )
+        ]
+        let fallbackURL = fallbackComponents.url
+        guard let url = frontendURL ?? fallbackURL else { return nil }
+        guard let preferredPanel, !preferredPanel.isEmpty else { return url }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var items = components.queryItems ?? []
+        items.removeAll { $0.name == "panel" }
+        items.append(URLQueryItem(name: "panel", value: preferredPanel))
+        components.queryItems = items
+        return components.url
     }
 
     private func sendDevToolsCommand(
@@ -1155,7 +1514,7 @@ final class CmuxChromiumBrowserView: NSView {
                kind: UInt32(mouseType),
                x: Float(local.x),
                y: Float(max(0, bounds.height - local.y)),
-               button: UInt32(eventButton.rawValue),
+               button: Self.freshMojoButtonValue(eventButton),
                clickCount: UInt32(clamping: event.clickCount),
                deltaX: 0,
                deltaY: 0,
@@ -1204,7 +1563,7 @@ final class CmuxChromiumBrowserView: NSView {
                kind: UInt32(OwlMouseType.wheel.rawValue),
                x: Float(local.x),
                y: Float(max(0, bounds.height - local.y)),
-               button: UInt32(OwlMouseButton.none.rawValue),
+               button: Self.freshMojoButtonValue(.none),
                clickCount: 0,
                deltaX: Float(event.scrollingDeltaX),
                deltaY: Float(event.scrollingDeltaY),
@@ -1222,6 +1581,19 @@ final class CmuxChromiumBrowserView: NSView {
             deltaY: Double(event.scrollingDeltaY),
             modifiers: UInt32(truncatingIfNeeded: event.modifierFlags.rawValue)
         )
+    }
+
+    private static func freshMojoButtonValue(_ button: OwlMouseButton) -> UInt32 {
+        switch button {
+        case .none:
+            return 0
+        case .left:
+            return 1
+        case .middle:
+            return 2
+        case .right:
+            return 3
+        }
     }
 
     private func postKeyEvent(_ event: NSEvent) {
@@ -1299,6 +1671,7 @@ final class CmuxChromiumBrowserView: NSView {
         try? FileManager.default.removeItem(at: contextFile)
         try? FileManager.default.removeItem(at: resizeFile)
         try? FileManager.default.removeItem(at: controlSocketFile)
+        try? FileManager.default.removeItem(at: sessionDirectory)
     }
 
     private func teardownProcessOnly() {
@@ -1325,8 +1698,14 @@ final class CmuxChromiumBrowserView: NSView {
         attachedHostLayerContextID = 0
         devToolsPort = nil
         devToolsPageWebSocketURL = nil
+        devToolsVisible = false
         hostLayer?.removeFromSuperlayer()
         hostLayer = nil
+        for hostLayer in surfaceHostLayers.values {
+            hostLayer.removeFromSuperlayer()
+        }
+        surfaceHostLayers.removeAll()
+        lastAppliedSurfaceTreeGeneration = -1
         pressedMouseButton = nil
         lastContextMenuPoint = nil
         lastPresentedNativeMenuGeneration = -1
@@ -1352,6 +1731,26 @@ final class CmuxChromiumBrowserView: NSView {
 
     fileprivate static func browserScriptFailedTitle() -> String {
         String(localized: "browser.chromium.error.scriptFailed", defaultValue: "Browser script failed")
+    }
+
+    private static func devToolsPanelSelectionScript(_ panel: String) -> String {
+        let panelLiteral = (try? String(data: JSONEncoder().encode(panel), encoding: .utf8)) ?? "\"\(panel)\""
+        return """
+        (() => {
+          const panel = \(panelLiteral);
+          const show = () => {
+            const inspectorView = globalThis.UI?.inspectorView;
+            if (!inspectorView?.showPanel) return false;
+            Promise.resolve(inspectorView.showPanel(panel)).catch(() => {});
+            return true;
+          };
+          if (!show()) {
+            globalThis.addEventListener?.("DOMContentLoaded", () => { show(); }, { once: true });
+            globalThis.setTimeout?.(() => { show(); }, 0);
+          }
+          return true;
+        })()
+        """
     }
 
     private static func contentShellExecutableURL() -> URL? {
@@ -1395,6 +1794,12 @@ private enum OwlFreshMojoEventKind: Int32 {
     case surfaceTree = 6
 }
 
+private struct DevToolsPageInfo {
+    let port: Int
+    let webSocketURL: URL
+    let frontendPath: String?
+}
+
 private enum OwlFreshSurfaceKind: Int {
     case webView = 0
     case popupWidget = 1
@@ -1419,13 +1824,61 @@ private struct OwlFreshSurfaceTree: Decodable {
 }
 
 private struct OwlFreshSurface: Decodable {
+    var surfaceID: UInt64
+    var parentSurfaceID: UInt64
     var kind: Int
+    var contextID: UInt32
     var x: Int
     var y: Int
     var width: Int
     var height: Int
+    var scale: CGFloat
+    var zIndex: Int
     var visible: Bool
     var nativeMenuItems: [OwlFreshNativeMenuItem]
+    var label: String
+
+    var isLayerBackedSurface: Bool {
+        kind == OwlFreshSurfaceKind.webView.rawValue
+            || kind == OwlFreshSurfaceKind.popupWidget.rawValue
+            || kind == OwlFreshSurfaceKind.devTools.rawValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: OwlFreshJSONKey.self)
+        surfaceID = container.decode(UInt64.self, forAnyKey: ["surfaceId", "surfaceID", "surface_id"], default: 0)
+        parentSurfaceID = container.decode(
+            UInt64.self,
+            forAnyKey: ["parentSurfaceId", "parentSurfaceID", "parent_surface_id"],
+            default: 0
+        )
+        kind = container.decode(Int.self, forAnyKey: ["kind"], default: OwlFreshSurfaceKind.webView.rawValue)
+        contextID = container.decode(UInt32.self, forAnyKey: ["contextId", "contextID", "context_id"], default: 0)
+        x = container.decode(Int.self, forAnyKey: ["x"], default: 0)
+        y = container.decode(Int.self, forAnyKey: ["y"], default: 0)
+        width = container.decode(Int.self, forAnyKey: ["width"], default: 0)
+        height = container.decode(Int.self, forAnyKey: ["height"], default: 0)
+        scale = CGFloat(container.decode(Double.self, forAnyKey: ["scale"], default: 1))
+        zIndex = container.decode(Int.self, forAnyKey: ["zIndex", "z_index"], default: 0)
+        visible = container.decode(Bool.self, forAnyKey: ["visible"], default: false)
+        nativeMenuItems = container.decode(
+            [OwlFreshNativeMenuItem].self,
+            forAnyKey: ["nativeMenuItems", "native_menu_items"],
+            default: []
+        )
+        label = container.decode(String.self, forAnyKey: ["label"], default: "")
+    }
+
+    func frame(in bounds: CGRect) -> CGRect {
+        let rawWidth = CGFloat(max(width, 1))
+        let rawHeight = CGFloat(max(height, 1))
+        return CGRect(
+            x: CGFloat(x),
+            y: bounds.height - CGFloat(y) - rawHeight,
+            width: rawWidth,
+            height: rawHeight
+        )
+    }
 }
 
 private struct OwlFreshNativeMenuItem: Decodable {
@@ -1433,6 +1886,43 @@ private struct OwlFreshNativeMenuItem: Decodable {
     var toolTip: String
     var enabled: Bool
     var separator: Bool
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: OwlFreshJSONKey.self)
+        label = container.decode(String.self, forAnyKey: ["label"], default: "")
+        toolTip = container.decode(String.self, forAnyKey: ["toolTip", "tool_tip"], default: "")
+        enabled = container.decode(Bool.self, forAnyKey: ["enabled"], default: false)
+        separator = container.decode(Bool.self, forAnyKey: ["separator"], default: false)
+    }
+}
+
+private struct OwlFreshJSONKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+
+    init?(intValue: Int) {
+        stringValue = "\(intValue)"
+        self.intValue = intValue
+    }
+}
+
+private extension KeyedDecodingContainer where Key == OwlFreshJSONKey {
+    func decode<T: Decodable>(_ type: T.Type, forAnyKey keys: [String], default defaultValue: T) -> T {
+        for key in keys {
+            guard let codingKey = OwlFreshJSONKey(stringValue: key),
+                  contains(codingKey),
+                  let value = try? decode(type, forKey: codingKey) else {
+                continue
+            }
+            return value
+        }
+        return defaultValue
+    }
 }
 
 private final class OwlNativeMenuPresenter: NSObject, NSMenuDelegate {
@@ -1552,6 +2042,23 @@ private final class OwlFreshMojoRuntime {
         UnsafeMutablePointer<Bool>?,
         UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
     ) -> Int32
+    private typealias DevToolsOpen = @convention(c) (
+        OpaquePointer?,
+        UInt32,
+        UnsafeMutablePointer<Bool>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) -> Int32
+    private typealias DevToolsClose = @convention(c) (
+        OpaquePointer?,
+        UnsafeMutablePointer<Bool>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) -> Int32
+    private typealias DevToolsEvaluateJavaScript = @convention(c) (
+        OpaquePointer?,
+        UnsafePointer<CChar>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
+        UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+    ) -> Int32
     private typealias PollEvents = @convention(c) (UInt32) -> Void
     private typealias FreeBuffer = @convention(c) (UnsafeMutableRawPointer?) -> Void
 
@@ -1579,6 +2086,9 @@ private final class OwlFreshMojoRuntime {
     private let surfaceTreeGetJSON: SurfaceTreeJSON?
     private let nativeSurfaceAcceptActivePopupMenuItem: AcceptActivePopupMenuItem?
     private let nativeSurfaceCancelActivePopup: CancelActivePopup?
+    private let devToolsOpen: DevToolsOpen
+    private let devToolsClose: DevToolsClose
+    private let devToolsEvaluateJavaScript: DevToolsEvaluateJavaScript
     private let pollEventsFunction: PollEvents
     private let freeBuffer: FreeBuffer
 
@@ -1607,6 +2117,9 @@ private final class OwlFreshMojoRuntime {
         surfaceTreeGetJSON: SurfaceTreeJSON?,
         nativeSurfaceAcceptActivePopupMenuItem: AcceptActivePopupMenuItem?,
         nativeSurfaceCancelActivePopup: CancelActivePopup?,
+        devToolsOpen: DevToolsOpen,
+        devToolsClose: DevToolsClose,
+        devToolsEvaluateJavaScript: DevToolsEvaluateJavaScript,
         pollEventsFunction: PollEvents,
         freeBuffer: FreeBuffer
     ) {
@@ -1634,6 +2147,9 @@ private final class OwlFreshMojoRuntime {
         self.surfaceTreeGetJSON = surfaceTreeGetJSON
         self.nativeSurfaceAcceptActivePopupMenuItem = nativeSurfaceAcceptActivePopupMenuItem
         self.nativeSurfaceCancelActivePopup = nativeSurfaceCancelActivePopup
+        self.devToolsOpen = devToolsOpen
+        self.devToolsClose = devToolsClose
+        self.devToolsEvaluateJavaScript = devToolsEvaluateJavaScript
         self.pollEventsFunction = pollEventsFunction
         self.freeBuffer = freeBuffer
     }
@@ -1675,6 +2191,12 @@ private final class OwlFreshMojoRuntime {
             let surfaceTreeCaptureSurfaceJSON = symbol(
                 "owl_fresh_mojo_surface_tree_capture_surface_json",
                 as: CaptureSurface.self
+            ),
+            let devToolsOpen = symbol("owl_fresh_mojo_devtools_open", as: DevToolsOpen.self),
+            let devToolsClose = symbol("owl_fresh_mojo_devtools_close", as: DevToolsClose.self),
+            let devToolsEvaluateJavaScript = symbol(
+                "owl_fresh_mojo_devtools_evaluate_javascript",
+                as: DevToolsEvaluateJavaScript.self
             ),
             let pollEventsFunction = symbol("owl_fresh_mojo_poll_events", as: PollEvents.self),
             let freeBuffer = symbol("owl_fresh_mojo_free_buffer", as: FreeBuffer.self)
@@ -1724,6 +2246,9 @@ private final class OwlFreshMojoRuntime {
             surfaceTreeGetJSON: surfaceTreeGetJSON,
             nativeSurfaceAcceptActivePopupMenuItem: nativeSurfaceAcceptActivePopupMenuItem,
             nativeSurfaceCancelActivePopup: nativeSurfaceCancelActivePopup,
+            devToolsOpen: devToolsOpen,
+            devToolsClose: devToolsClose,
+            devToolsEvaluateJavaScript: devToolsEvaluateJavaScript,
             pollEventsFunction: pollEventsFunction,
             freeBuffer: freeBuffer
         )
@@ -1945,6 +2470,48 @@ private final class OwlFreshMojoRuntime {
         let status = nativeSurfaceCancelActivePopup(session, &ok, &error)
         consumeCString(error)
         return status == 0 && ok
+    }
+
+    func openDevTools(_ session: OpaquePointer, mode: UInt32) -> Result<Bool, Error> {
+        var ok = false
+        var error: UnsafeMutablePointer<CChar>?
+        let status = devToolsOpen(session, mode, &ok, &error)
+        if status != 0 {
+            return .failure(CmuxChromiumCoreError.devToolsError(consumeCString(error) ?? "DevTools open failed"))
+        }
+        consumeCString(error)
+        return .success(ok)
+    }
+
+    func closeDevTools(_ session: OpaquePointer) -> Result<Bool, Error> {
+        var ok = false
+        var error: UnsafeMutablePointer<CChar>?
+        let status = devToolsClose(session, &ok, &error)
+        if status != 0 {
+            return .failure(CmuxChromiumCoreError.devToolsError(consumeCString(error) ?? "DevTools close failed"))
+        }
+        consumeCString(error)
+        return .success(ok)
+    }
+
+    func evaluateDevToolsJavaScript(_ session: OpaquePointer, script: String) -> Result<Any?, Error> {
+        var result: UnsafeMutablePointer<CChar>?
+        var error: UnsafeMutablePointer<CChar>?
+        let status = script.withCString {
+            devToolsEvaluateJavaScript(session, $0, &result, &error)
+        }
+        if status != 0 {
+            return .failure(CmuxChromiumCoreError.devToolsError(consumeCString(error) ?? "DevTools JavaScript execution failed"))
+        }
+        consumeCString(error)
+        guard let json = consumeCString(result) else {
+            return .success(nil)
+        }
+        guard let data = json.data(using: .utf8) else {
+            return .success(json)
+        }
+        let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        return .success(value)
     }
 
     func pollEvents(timeoutMilliseconds: UInt32) {

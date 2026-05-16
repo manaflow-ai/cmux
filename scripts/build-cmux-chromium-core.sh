@@ -463,6 +463,13 @@ cat > "$RESOURCE_DIR/cmux-chromium-manifest.json" <<EOF
   "hostClassName": "CmuxChromiumBrowserHost",
   "hostFactoryClassName": "CmuxChromiumBrowserHostFactory",
   "hostAPIVersion": 1,
+  "forbiddenCEFMarkersVerifiedAbsent": [
+    "Chromium Embedded Framework",
+    "libcef",
+    "CefInitialize",
+    "CefBrowser",
+    "CEF.framework"
+  ],
   "renderingAPI": {
     "nativeViewHost": "Chromium remote_cocoa WebContents NSView",
     "compositorLayer": "CALayerHost",
