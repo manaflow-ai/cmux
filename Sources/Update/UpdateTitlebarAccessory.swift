@@ -1656,15 +1656,6 @@ private struct NotificationsPopoverView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
-            } else if notificationStore.notifications.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "bell.badge")
-                        .font(.system(size: 28))
-                        .foregroundColor(.secondary)
-                    Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
-                        .font(.headline)
-                }
-                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -1676,10 +1667,17 @@ private struct NotificationsPopoverView: View {
                                 onClear: { notificationStore.remove(id: notification.id) }
                             )
                         }
+                        ForEach(workspaceUnreadItems) { item in
+                            WorkspaceUnreadNotificationRow(
+                                item: item,
+                                onOpen: { openWorkspaceUnread(item) },
+                                onClear: { notificationStore.markRead(forTabId: item.id) }
+                            )
+                        }
                     }
                     .padding(12)
                 }
-                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 320, maxHeight: 480)
+                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180, maxHeight: 480)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -1687,6 +1685,17 @@ private struct NotificationsPopoverView: View {
 
     private func tabTitle(for tabId: UUID) -> String? {
         AppDelegate.shared?.tabTitle(for: tabId)
+    }
+
+    private var workspaceUnreadItems: [WorkspaceUnreadIndicatorListItem] {
+        let appDelegate = AppDelegate.shared
+        return WorkspaceUnreadIndicatorListBuilder.make(
+            unreadWorkspaceIds: notificationStore.workspaceUnreadIndicatorIds,
+            orderedWorkspaceIds: appDelegate?.workspaceIdsForUnreadPresentation() ?? [],
+            titleForWorkspace: { workspaceId in
+                appDelegate?.tabTitle(for: workspaceId)
+            }
+        )
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {
@@ -1714,6 +1723,13 @@ private struct NotificationsPopoverView: View {
                 surfaceId: notification.surfaceId,
                 notificationId: notification.id
             )
+            onDismiss()
+        }
+    }
+
+    private func openWorkspaceUnread(_ item: WorkspaceUnreadIndicatorListItem) {
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.openWorkspaceUnreadIndicator(tabId: item.id)
             onDismiss()
         }
     }

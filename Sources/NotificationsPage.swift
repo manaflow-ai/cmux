@@ -15,8 +15,6 @@ struct NotificationsPage: View {
 
             if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 emptyState
-            } else if notificationStore.notifications.isEmpty {
-                workspaceUnreadIndicatorState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -40,6 +38,13 @@ struct NotificationsPage: View {
                                     notificationStore.remove(id: notification.id)
                                 },
                                 focusedNotificationId: $focusedNotificationId
+                            )
+                        }
+                        ForEach(workspaceUnreadItems) { item in
+                            WorkspaceUnreadNotificationRow(
+                                item: item,
+                                onOpen: { openWorkspaceUnread(item) },
+                                onClear: { clearWorkspaceUnread(item) }
                             )
                         }
                     }
@@ -103,17 +108,6 @@ struct NotificationsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var workspaceUnreadIndicatorState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "bell.badge")
-                .font(.system(size: 32))
-                .foregroundColor(.secondary)
-            Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
-                .font(.headline)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     @ViewBuilder
     private var jumpToUnreadButton: some View {
         if let key = jumpToUnreadShortcut.keyEquivalent {
@@ -151,6 +145,32 @@ struct NotificationsPage: View {
 
     private func tabTitle(for tabId: UUID) -> String? {
         AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    }
+
+    private var workspaceUnreadItems: [WorkspaceUnreadIndicatorListItem] {
+        WorkspaceUnreadIndicatorListBuilder.make(
+            unreadWorkspaceIds: notificationStore.workspaceUnreadIndicatorIds,
+            orderedWorkspaceIds: workspaceUnreadPresentationOrder,
+            titleForWorkspace: tabTitle(for:)
+        )
+    }
+
+    private var workspaceUnreadPresentationOrder: [UUID] {
+        let appDelegateOrder = AppDelegate.shared?.workspaceIdsForUnreadPresentation() ?? []
+        let localOrder = tabManager.tabs.map(\.id)
+        var seen = Set<UUID>()
+        return (appDelegateOrder + localOrder).filter { seen.insert($0).inserted }
+    }
+
+    private func openWorkspaceUnread(_ item: WorkspaceUnreadIndicatorListItem) {
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.openWorkspaceUnreadIndicator(tabId: item.id)
+            selection = .tabs
+        }
+    }
+
+    private func clearWorkspaceUnread(_ item: WorkspaceUnreadIndicatorListItem) {
+        notificationStore.markRead(forTabId: item.id)
     }
 
     private var hasUnreadNotifications: Bool {
@@ -250,6 +270,53 @@ private struct NotificationRow: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+}
+
+struct WorkspaceUnreadNotificationRow: View {
+    let item: WorkspaceUnreadIndicatorListItem
+    let onOpen: () -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 12) {
+                    Circle()
+                        .fill(cmuxAccentColor())
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 6)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.title)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Text(String(localized: "notifications.unreadWorkspace.subtitle", defaultValue: "Marked as unread"))
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("WorkspaceUnreadNotificationRow.\(item.id.uuidString)")
+
+            Button(action: onClear) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "notifications.unreadWorkspace.clear", defaultValue: "Clear unread state"))
+            .safeHelp(String(localized: "notifications.unreadWorkspace.clear", defaultValue: "Clear unread state"))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
     }

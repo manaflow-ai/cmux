@@ -50491,6 +50491,57 @@
         }
       }
     },
+    "notifications.unreadWorkspace.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear unread state"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読状態をクリア"
+          }
+        }
+      }
+    },
+    "notifications.unreadWorkspace.fallbackTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読のワークスペース"
+          }
+        }
+      }
+    },
+    "notifications.unreadWorkspace.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marked as unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読に設定済み"
+          }
+        }
+      }
+    },
     "notifications.title": {
       "extractionState": "manual",
       "localizations": {

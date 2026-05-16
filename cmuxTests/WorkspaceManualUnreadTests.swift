@@ -510,6 +510,96 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertFalse(store.notificationMenuSnapshot.hasUnreadNotifications)
     }
 
+    func testManualUnreadWithoutNotificationRecordHasPresentationRow() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+
+        store.replaceNotificationsForTesting([])
+        store.markUnread(forTabId: workspaceId)
+
+        let rows = WorkspaceUnreadIndicatorListBuilder.make(
+            unreadWorkspaceIds: store.workspaceUnreadIndicatorIds,
+            orderedWorkspaceIds: [workspaceId],
+            titleForWorkspace: { id in id == workspaceId ? "Manual unread" : nil }
+        )
+
+        XCTAssertTrue(store.notifications.isEmpty)
+        XCTAssertEqual(store.notificationMenuSnapshot.unreadCount, 1)
+        XCTAssertEqual(rows, [
+            WorkspaceUnreadIndicatorListItem(id: workspaceId, title: "Manual unread")
+        ])
+    }
+
+    func testWorkspaceUnreadPresentationRowsFollowWorkspaceOrderAndIncludeUnknownIds() {
+        let first = UUID()
+        let second = UUID()
+        let unknown = UUID()
+
+        let rows = WorkspaceUnreadIndicatorListBuilder.make(
+            unreadWorkspaceIds: [unknown, second, first],
+            orderedWorkspaceIds: [second, first],
+            titleForWorkspace: { id in
+                switch id {
+                case first: return "First"
+                case second: return "Second"
+                default: return nil
+                }
+            }
+        )
+
+        XCTAssertEqual(rows.map(\.id), [second, first, unknown])
+        XCTAssertEqual(rows[0].title, "Second")
+        XCTAssertEqual(rows[1].title, "First")
+        XCTAssertFalse(rows[2].title.isEmpty)
+    }
+
+    func testOpeningWorkspaceUnreadPresentationRowClearsManualUnread() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalTabManager = appDelegate.tabManager
+
+        AppDelegate.shared = appDelegate
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        appDelegate.tabManager = manager
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        defer {
+            window.orderOut(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let unreadWorkspace = manager.addWorkspace(title: "Manual unread", select: false)
+
+        store.markUnread(forTabId: unreadWorkspace.id)
+        manager.focusTab(currentWorkspace.id)
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertEqual(store.unreadCount(forTabId: unreadWorkspace.id), 1)
+
+        XCTAssertTrue(appDelegate.openWorkspaceUnreadIndicator(tabId: unreadWorkspace.id))
+
+        XCTAssertEqual(manager.selectedTabId, unreadWorkspace.id)
+        XCTAssertEqual(store.unreadCount(forTabId: unreadWorkspace.id), 0)
+    }
+
     func testMarkPanelReadClearsPanelDerivedWorkspaceUnread() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let store = TerminalNotificationStore.shared

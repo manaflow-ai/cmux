@@ -673,6 +673,39 @@ struct TerminalNotification: Identifiable, Hashable {
     var paneFlash: Bool = true
 }
 
+struct WorkspaceUnreadIndicatorListItem: Identifiable, Equatable, Hashable {
+    let id: UUID
+    let title: String
+}
+
+enum WorkspaceUnreadIndicatorListBuilder {
+    static func make(
+        unreadWorkspaceIds: Set<UUID>,
+        orderedWorkspaceIds: [UUID],
+        titleForWorkspace: (UUID) -> String?
+    ) -> [WorkspaceUnreadIndicatorListItem] {
+        guard !unreadWorkspaceIds.isEmpty else { return [] }
+
+        var seen = Set<UUID>()
+        let orderedIds = orderedWorkspaceIds.filter { workspaceId in
+            unreadWorkspaceIds.contains(workspaceId) && seen.insert(workspaceId).inserted
+        }
+        let remainingIds = unreadWorkspaceIds
+            .filter { !seen.contains($0) }
+            .sorted { $0.uuidString < $1.uuidString }
+
+        return (orderedIds + remainingIds).map { workspaceId in
+            WorkspaceUnreadIndicatorListItem(
+                id: workspaceId,
+                title: titleForWorkspace(workspaceId) ?? String(
+                    localized: "notifications.unreadWorkspace.fallbackTitle",
+                    defaultValue: "Unread workspace"
+                )
+            )
+        }
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {

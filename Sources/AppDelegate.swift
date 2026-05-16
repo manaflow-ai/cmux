@@ -10643,6 +10643,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func openWorkspaceUnreadIndicator(tabId: UUID) -> Bool {
+        guard let workspace = workspaceFor(tabId: tabId) ??
+            tabManager?.tabs.first(where: { $0.id == tabId }) else {
+            return false
+        }
+        let panelId = workspace.preferredUnreadPanelIdForJump()
+        let didOpen = openNotification(tabId: tabId, surfaceId: panelId, notificationId: nil)
+        if didOpen {
+            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
+        }
+        return didOpen
+    }
+
+    func workspaceIdsForUnreadPresentation() -> [UUID] {
+        var seen = Set<UUID>()
+        var orderedIds: [UUID] = []
+
+        let preferredContext = preferredRegisteredMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        let orderedContexts = ([preferredContext].compactMap { $0 } + sortedMainWindowContextsForSessionSnapshot())
+        for context in orderedContexts {
+            for workspaceId in context.tabManager.tabs.map(\.id) where seen.insert(workspaceId).inserted {
+                orderedIds.append(workspaceId)
+            }
+        }
+
+        if let tabManager {
+            for workspaceId in tabManager.tabs.map(\.id) where seen.insert(workspaceId).inserted {
+                orderedIds.append(workspaceId)
+            }
+        }
+
+        return orderedIds
+    }
+
+    @discardableResult
     func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
         preferredWindow: NSWindow? = nil
     ) -> TerminalNotification? {
