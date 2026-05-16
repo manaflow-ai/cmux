@@ -17688,14 +17688,15 @@ class TerminalController {
         let selectedWorkspace = selectedWorkspaceID.flatMap { id in
             tabManager?.tabs.first(where: { $0.id == id })
         }
+        let workspaceCount = tabManager?.tabs.count ?? 0
 
         return .ok([
             "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": MobileHostIdentity.displayName() ?? NSNull(),
+            "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
             "host_service": status.payload,
-            "workspace_count": tabManager?.tabs.count ?? 0,
-            "selected_workspace_id": selectedWorkspaceID?.uuidString ?? NSNull(),
-            "selected_terminal_id": selectedWorkspace?.focusedPanelId?.uuidString ?? NSNull(),
+            "workspace_count": workspaceCount,
+            "selected_workspace_id": v2OrNull(selectedWorkspaceID?.uuidString),
+            "selected_terminal_id": v2OrNull(selectedWorkspace?.focusedPanelId?.uuidString),
             "snapshot_fidelity": "ansi_vt_or_plain_text_fallback"
         ])
     }
@@ -17739,10 +17740,11 @@ class TerminalController {
                 return [
                     "id": terminal.id.uuidString,
                     "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                    "current_directory": mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                        ?? mobileNonEmpty(terminal.directory)
-                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                        ?? NSNull(),
+                    "current_directory": v2OrNull(
+                        mobileNonEmpty(workspace.panelDirectories[terminal.id])
+                            ?? mobileNonEmpty(terminal.directory)
+                            ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                    ),
                     "is_ready": terminal.surface.surface != nil,
                     "is_focused": terminal.id == workspace.focusedPanelId
                 ]
@@ -17751,7 +17753,7 @@ class TerminalController {
             return [
                 "id": workspace.id.uuidString,
                 "title": workspace.title,
-                "current_directory": mobileNonEmpty(workspace.currentDirectory) ?? NSNull(),
+                "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
                 "is_selected": workspace.id == tabManager.selectedTabId,
                 "terminals": terminals
             ]

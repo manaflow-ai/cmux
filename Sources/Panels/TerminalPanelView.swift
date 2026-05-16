@@ -64,7 +64,7 @@ private struct TerminalViewportGeometryReporter: ViewModifier {
                     .onAppear {
                         recordTerminalViewportGeometryForUITest(proxy: proxy, panel: panel)
                     }
-                    .onChange(of: proxy.size) { _ in
+                    .onChange(of: proxy.size) {
                         recordTerminalViewportGeometryForUITest(proxy: proxy, panel: panel)
                     }
             }
