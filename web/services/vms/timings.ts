@@ -22,6 +22,7 @@ export class VmTimingRecorder implements VmTimingSink {
   private readonly counts = new Map<VmTimingStage, number>();
   private readonly startedAt: number;
   private readonly debugTimings: boolean;
+  private finished = false;
 
   constructor(
     private readonly span: Span,
@@ -43,6 +44,8 @@ export class VmTimingRecorder implements VmTimingSink {
   }
 
   finish(context: Record<string, unknown> = {}): void {
+    if (this.finished) return;
+    this.finished = true;
     this.record("total", performance.now() - this.startedAt);
     if (!this.debugTimings) return;
     console.info("cmux vm timings", JSON.stringify({
