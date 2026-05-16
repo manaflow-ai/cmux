@@ -679,6 +679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private var ghosttyCrashBreadcrumbFileRevealer: (URL) -> Void = AppDelegate.defaultGhosttyCrashBreadcrumbFileRevealer
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1634,8 +1635,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ),
                 body: String(
                     localized: "crashBreadcrumb.body",
-                    defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
-                )
+                    defaultValue: "A diagnostic file is available. Open this notification to reveal it."
+                ),
+                userInfo: GhosttyCrashBreadcrumb.notificationUserInfo(for: pendingCrash)
             )
             GhosttyCrashBreadcrumb.markShown(pendingCrash)
         }
@@ -13756,6 +13758,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
+        if handleGhosttyCrashBreadcrumbNotificationResponse(response) {
+            return
+        }
         if handleFeedNotificationResponse(response) {
             return
         }
@@ -13772,25 +13777,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
-            let notificationId: UUID? = {
-                if let id = UUID(uuidString: response.notification.request.identifier) {
-                    return id
-                }
-                if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
-                   let id = UUID(uuidString: idString) {
-                    return id
-                }
-                return nil
-            }()
+            let notificationId = notificationId(from: response)
             DispatchQueue.main.async {
                 _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
             }
         case UNNotificationDismissActionIdentifier:
+            let notificationId = notificationId(from: response)
             DispatchQueue.main.async {
-                if let notificationId = UUID(uuidString: response.notification.request.identifier) {
-                    self.notificationStore?.markRead(id: notificationId)
-                } else if let notificationIdString = response.notification.request.content.userInfo["notificationId"] as? String,
-                          let notificationId = UUID(uuidString: notificationIdString) {
+                if let notificationId {
                     self.notificationStore?.markRead(id: notificationId)
                 }
             }
@@ -13798,6 +13792,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             break
         }
     }
+
+    private func handleGhosttyCrashBreadcrumbNotificationResponse(_ response: UNNotificationResponse) -> Bool {
+        let userInfo = response.notification.request.content.userInfo
+        guard let tabIdString = userInfo["tabId"] as? String,
+              UUID(uuidString: tabIdString) == GhosttyCrashBreadcrumb.notificationTabId,
+              let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(from: userInfo) else {
+            return false
+        }
+
+        let notificationId = notificationId(from: response)
+        switch response.actionIdentifier {
+        case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
+            DispatchQueue.main.async { [weak self] in
+                _ = self?.openGhosttyCrashBreadcrumbNotification(
+                    crashFileURL,
+                    notificationId: notificationId
+                )
+            }
+        case UNNotificationDismissActionIdentifier:
+            DispatchQueue.main.async { [weak self] in
+                if let notificationId {
+                    self?.notificationStore?.markRead(id: notificationId)
+                }
+            }
+        default:
+            break
+        }
+        return true
+    }
+
+    private func notificationId(from response: UNNotificationResponse) -> UUID? {
+        if let id = UUID(uuidString: response.notification.request.identifier) {
+            return id
+        }
+        if let idString = response.notification.request.content.userInfo["notificationId"] as? String,
+           let id = UUID(uuidString: idString) {
+            return id
+        }
+        return nil
+    }
+
+    @MainActor
+    private func revealGhosttyCrashBreadcrumbFile(_ fileURL: URL) {
+        ghosttyCrashBreadcrumbFileRevealer(fileURL)
+    }
+
+    @MainActor
+    private static func defaultGhosttyCrashBreadcrumbFileRevealer(_ fileURL: URL) {
+        let fileManager = FileManager.default
+        let resolvedURL = fileURL.standardizedFileURL
+        if fileManager.fileExists(atPath: resolvedURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([resolvedURL])
+            return
+        }
+
+        let parentURL = resolvedURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: parentURL.path) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: parentURL.path)
+            return
+        }
+
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path)
+    }
+
+#if DEBUG
+    func configureGhosttyCrashBreadcrumbFileRevealerForTesting(_ revealer: @escaping (URL) -> Void) {
+        ghosttyCrashBreadcrumbFileRevealer = revealer
+    }
+
+    func resetGhosttyCrashBreadcrumbFileRevealerForTesting() {
+        ghosttyCrashBreadcrumbFileRevealer = Self.defaultGhosttyCrashBreadcrumbFileRevealer
+    }
+#endif
 
     private func installMainWindowKeyObserver() {
         guard windowKeyObservers.isEmpty else { return }
@@ -14099,6 +14166,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
         }
 #endif
+        if let notificationId,
+           let notification = notificationStore?.notifications.first(where: { $0.id == notificationId }),
+           notification.tabId == tabId,
+           notification.surfaceId == surfaceId,
+           notification.tabId == GhosttyCrashBreadcrumb.notificationTabId,
+           let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(from: notification.userInfo) {
+            return openGhosttyCrashBreadcrumbNotification(
+                crashFileURL,
+                notificationId: notificationId
+            )
+        }
+
         guard let context = contextContainingTabId(tabId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
@@ -14127,6 +14206,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
         return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    }
+
+    @discardableResult
+    private func openGhosttyCrashBreadcrumbNotification(
+        _ crashFileURL: URL,
+        notificationId: UUID?
+    ) -> Bool {
+        revealGhosttyCrashBreadcrumbFile(crashFileURL)
+        if let notificationId {
+            notificationStore?.markRead(id: notificationId)
+        }
+        return true
     }
 
     private func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {

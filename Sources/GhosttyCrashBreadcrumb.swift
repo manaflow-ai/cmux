@@ -9,6 +9,7 @@ nonisolated enum GhosttyCrashBreadcrumb {
     static let lastCleanExitDefaultsKey = "ghosttyCrashBreadcrumb.lastCleanExitAt"
     static let lastShownCrashDefaultsKey = "ghosttyCrashBreadcrumb.lastShownCrashAt"
     static let notificationTabId = UUID(uuidString: "00000000-0000-0000-0000-000000003873")!
+    static let notificationFilePathUserInfoKey = "ghosttyCrashBreadcrumb.filePath"
 
     static var defaultCrashDirectoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -45,6 +46,27 @@ nonisolated enum GhosttyCrashBreadcrumb {
 
     static func markCleanExit(defaults: UserDefaults = .standard, date: Date = Date()) {
         defaults.set(date, forKey: lastCleanExitDefaultsKey)
+    }
+
+    static func notificationUserInfo(for pendingCrash: PendingCrash) -> [String: String] {
+        [
+            notificationFilePathUserInfoKey: pendingCrash.fileURL.standardizedFileURL.path,
+        ]
+    }
+
+    static func crashFileURL(from userInfo: [AnyHashable: Any]) -> URL? {
+        crashFileURL(fromPath: userInfo[notificationFilePathUserInfoKey] as? String)
+    }
+
+    static func crashFileURL(from userInfo: [String: String]) -> URL? {
+        crashFileURL(fromPath: userInfo[notificationFilePathUserInfoKey])
+    }
+
+    private static func crashFileURL(fromPath path: String?) -> URL? {
+        guard let path else { return nil }
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return nil }
+        return URL(fileURLWithPath: trimmedPath).standardizedFileURL
     }
 
     private static func latestCrashFile(
