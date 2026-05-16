@@ -3933,29 +3933,33 @@ private enum MobileTerminalHardwareKeyResolver {
         var modifierFlags: UIKeyModifierFlags
     }
 
-    private static let commands: [Command] = [
-        Command(input: UIKeyCommand.inputUpArrow, modifierFlags: []),
-        Command(input: UIKeyCommand.inputDownArrow, modifierFlags: []),
-        Command(input: UIKeyCommand.inputLeftArrow, modifierFlags: []),
-        Command(input: UIKeyCommand.inputRightArrow, modifierFlags: []),
-        Command(input: UIKeyCommand.inputLeftArrow, modifierFlags: [.alternate]),
-        Command(input: UIKeyCommand.inputRightArrow, modifierFlags: [.alternate]),
-        Command(input: UIKeyCommand.inputHome, modifierFlags: []),
-        Command(input: UIKeyCommand.inputEnd, modifierFlags: []),
-        Command(input: UIKeyCommand.inputPageUp, modifierFlags: []),
-        Command(input: UIKeyCommand.inputPageDown, modifierFlags: []),
-        Command(input: UIKeyCommand.inputDelete, modifierFlags: []),
-        Command(input: UIKeyCommand.inputDelete, modifierFlags: [.alternate]),
-        Command(input: UIKeyCommand.inputEscape, modifierFlags: []),
-        Command(input: "\r", modifierFlags: []),
-        Command(input: "\n", modifierFlags: []),
-        Command(input: "\t", modifierFlags: []),
-        Command(input: "\t", modifierFlags: [.shift]),
-    ] + Array("abcdefghijklmnopqrstuvwxyz[]\\ 234567/").map(String.init).map {
-        Command(input: $0, modifierFlags: [.control])
-    } + Array("@^_?").map(String.init).map {
-        Command(input: $0, modifierFlags: [.control, .shift])
-    }
+    private static let baseCommands: [Command] = [
+        Command(input: UIKeyCommand.inputUpArrow, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputDownArrow, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputLeftArrow, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputRightArrow, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputLeftArrow, modifierFlags: .alternate),
+        Command(input: UIKeyCommand.inputRightArrow, modifierFlags: .alternate),
+        Command(input: UIKeyCommand.inputHome, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputEnd, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputPageUp, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputPageDown, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputDelete, modifierFlags: UIKeyModifierFlags()),
+        Command(input: UIKeyCommand.inputDelete, modifierFlags: .alternate),
+        Command(input: UIKeyCommand.inputEscape, modifierFlags: UIKeyModifierFlags()),
+        Command(input: "\r", modifierFlags: UIKeyModifierFlags()),
+        Command(input: "\n", modifierFlags: UIKeyModifierFlags()),
+        Command(input: "\t", modifierFlags: UIKeyModifierFlags()),
+        Command(input: "\t", modifierFlags: .shift),
+    ]
+
+    private static let commands: [Command] =
+        baseCommands
+        + controlInputs.map { Command(input: $0, modifierFlags: .control) }
+        + shiftedControlInputs.map { Command(input: $0, modifierFlags: [.control, .shift]) }
+
+    private static let controlInputs = "abcdefghijklmnopqrstuvwxyz[]\\ 234567/".map { String($0) }
+    private static let shiftedControlInputs = "@^_?".map { String($0) }
 
     @MainActor
     static func makeKeyCommands(target: Any, action: Selector) -> [UIKeyCommand] {
