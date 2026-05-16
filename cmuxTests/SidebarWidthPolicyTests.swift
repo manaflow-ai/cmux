@@ -9,10 +9,10 @@ import XCTest
 #endif
 
 final class SidebarWidthPolicyTests: XCTestCase {
-    func testContentViewClampAllowsNarrowSidebarBelowLegacyMinimum() {
+    func testContentViewClampKeepsMinimumSidebarWidth() {
         XCTAssertEqual(
             ContentView.clampedSidebarWidth(184, maximumWidth: 600),
-            184,
+            CGFloat(SessionPersistencePolicy.minimumSidebarWidth),
             accuracy: 0.001
         )
     }
