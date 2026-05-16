@@ -4572,6 +4572,7 @@ extension BrowserPanel {
 
     func resetForWorkspaceContextChange(reason: String) {
         guard needsWorkspaceContextReset else {
+            resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(
                 "browser.contextReset.skip panel=\(id.uuidString.prefix(5)) " +
