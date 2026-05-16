@@ -3650,6 +3650,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
 
         XCTAssertTrue(browserShouldRouteExternalNavigation(vscode, targetFrameIsMainFrame: false))
+        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
     }
 
     func testEmbeddedSubframeNavigationStaysInWebView() throws {
@@ -3660,8 +3661,10 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
 
     func testIntentBrowserFallbackURLExtraction() throws {
         let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
+        let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
 
-        XCTAssertEqual(browserIntentFallbackURL(for: intent)?.absoluteString, "https://zoom.us/join/abc")
+        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
+        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
     }
 
     func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {

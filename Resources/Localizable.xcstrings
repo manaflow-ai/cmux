@@ -11984,6 +11984,74 @@
         }
       }
     },
+    "browser.externalOpenPrompt.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A web page in cmux wants to open a link in another app. You can stay in the browser instead."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のウェブページが別のアプリでリンクを開こうとしています。代わりにブラウザに留まることもできます。"
+          }
+        }
+      }
+    },
+    "browser.externalOpenPrompt.openApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを開く"
+          }
+        }
+      }
+    },
+    "browser.externalOpenPrompt.stayInBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stay in Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザに留まる"
+          }
+        }
+      }
+    },
+    "browser.externalOpenPrompt.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open External App?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部アプリを開きますか？"
+          }
+        }
+      }
+    },
     "browser.error.insecure.message": {
       "extractionState": "manual",
       "localizations": {

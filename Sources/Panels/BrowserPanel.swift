@@ -1244,8 +1244,13 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+enum BrowserExternalNavigationAction: Equatable {
+    case browserFallback(URL)
+    case promptToOpenApp(URL)
+}
+
 func browserShouldRouteExternalNavigation(_ url: URL, targetFrameIsMainFrame _: Bool?) -> Bool {
-    return browserShouldOpenURLExternally(url)
+    return browserExternalNavigationAction(for: url) != nil
 }
 
 func browserIntentFallbackURL(for url: URL) -> URL? {
@@ -1273,9 +1278,52 @@ func browserIntentFallbackURL(for url: URL) -> URL? {
     return nil
 }
 
+func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationAction? {
+    if let fallbackURL = browserIntentFallbackURL(for: url) {
+        return .browserFallback(fallbackURL)
+    }
+    guard browserShouldOpenURLExternally(url) else { return nil }
+    return .promptToOpenApp(url)
+}
+
 private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
+}
+
+private func browserPresentExternalNavigationPrompt(
+    for url: URL,
+    in webView: WKWebView,
+    completion: @escaping (Bool) -> Void
+) {
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = String(
+        localized: "browser.externalOpenPrompt.title",
+        defaultValue: "Open External App?"
+    )
+    alert.informativeText = String(
+        localized: "browser.externalOpenPrompt.message",
+        defaultValue: "A web page in cmux wants to open a link in another app. You can stay in the browser instead."
+    )
+    alert.addButton(withTitle: String(
+        localized: "browser.externalOpenPrompt.openApp",
+        defaultValue: "Open App"
+    ))
+    alert.addButton(withTitle: String(
+        localized: "browser.externalOpenPrompt.stayInBrowser",
+        defaultValue: "Stay in Browser"
+    ))
+
+    let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+        completion(response == .alertFirstButtonReturn)
+    }
+
+    if let window = webView.window {
+        alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        return
+    }
+    handleResponse(alert.runModal())
 }
 
 private func browserPresentExternalNavigationFailure(for url: URL, in webView: WKWebView) {
@@ -1309,24 +1357,11 @@ private func browserPresentExternalNavigationFailure(for url: URL, in webView: W
 }
 
 @discardableResult
-func browserHandleExternalNavigation(
+private func browserOpenExternalNavigationURL(
     _ url: URL,
     source: String,
-    webView: WKWebView,
-    loadFallbackRequest: (URLRequest) -> Void
+    webView: WKWebView
 ) -> Bool {
-    if let fallbackURL = browserIntentFallbackURL(for: url) {
-        let request = URLRequest(url: fallbackURL)
-        loadFallbackRequest(request)
-#if DEBUG
-        cmuxDebugLog(
-            "browser.navigation.external source=\(source) opened=1 fallback=1 " +
-            "fallbackURL=\(browserNavigationDebugURL(fallbackURL)) url=\(browserNavigationDebugURL(url))"
-        )
-#endif
-        return true
-    }
-
     let opened = NSWorkspace.shared.open(url)
     if !opened {
         browserPresentExternalNavigationFailure(for: url, in: webView)
@@ -1337,7 +1372,45 @@ func browserHandleExternalNavigation(
         "url=\(browserNavigationDebugURL(url))"
     )
 #endif
-    return true
+    return opened
+}
+
+@discardableResult
+func browserHandleExternalNavigation(
+    _ url: URL,
+    source: String,
+    webView: WKWebView,
+    loadFallbackRequest: (URLRequest) -> Void
+) -> Bool {
+    guard let action = browserExternalNavigationAction(for: url) else { return false }
+
+    switch action {
+    case let .browserFallback(fallbackURL):
+        let request = URLRequest(url: fallbackURL)
+        loadFallbackRequest(request)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.navigation.external source=\(source) opened=1 fallback=1 " +
+            "fallbackURL=\(browserNavigationDebugURL(fallbackURL)) url=\(browserNavigationDebugURL(url))"
+        )
+#endif
+        return true
+
+    case let .promptToOpenApp(externalURL):
+        browserPresentExternalNavigationPrompt(for: externalURL, in: webView) { shouldOpenApp in
+            guard shouldOpenApp else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.navigation.external source=\(source) opened=0 prompt=1 allowed=0 " +
+                    "url=\(browserNavigationDebugURL(externalURL))"
+                )
+#endif
+                return
+            }
+            browserOpenExternalNavigationURL(externalURL, source: source, webView: webView)
+        }
+        return true
+    }
 }
 
 enum BrowserUserAgentSettings {
