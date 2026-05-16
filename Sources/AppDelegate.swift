@@ -14326,12 +14326,12 @@ private extension AppDelegate {
         target: Any?,
         sender: Any?
     ) -> Bool {
+        guard Thread.isMainThread else { return false }
         guard Self.shouldInterceptWindowCloseAction(
             action,
             target: target,
             sender: sender
         ) else { return false }
-        guard Thread.isMainThread else { return false }
 
         return MainActor.assumeIsolated {
             guard let window = Self.actionWindow(
