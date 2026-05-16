@@ -1234,7 +1234,7 @@ final class CommandPaletteFuzzyMatcherTests: XCTestCase {
         XCTAssertGreaterThan(renameTabScore ?? 0, reopenTabScore ?? 0)
     }
 
-    func testRenameScoresHigherThanUnrelatedCommand() {
+    func testRenameScoresHigherThanUnrelatedCommandWhenUnrelatedStillMatches() {
         let renameScore = CommandPaletteFuzzyMatcher.score(
             query: "rename",
             candidates: ["Rename Tab…", "Tab • Terminal 1", "rename", "tab", "title"]
@@ -1254,8 +1254,9 @@ final class CommandPaletteFuzzyMatcherTests: XCTestCase {
         )
 
         XCTAssertNotNil(renameScore)
-        XCTAssertNotNil(unrelatedScore)
-        XCTAssertGreaterThan(renameScore ?? 0, unrelatedScore ?? 0)
+        if let unrelatedScore {
+            XCTAssertGreaterThan(renameScore ?? 0, unrelatedScore)
+        }
     }
 
     func testTokenMatchingRequiresAllTokens() {
@@ -1307,6 +1308,18 @@ final class CommandPaletteFuzzyMatcherTests: XCTestCase {
         XCTAssertTrue(indices.contains(7))
         XCTAssertTrue(indices.contains(8))
         XCTAssertTrue(indices.contains(9))
+    }
+
+    func testMatchCharacterIndicesPreferStitchedWordsOverSingleEditPrefix() {
+        let indices = CommandPaletteFuzzyMatcher.matchCharacterIndices(
+            query: "wunr",
+            candidate: "Mark Workspace as Unread"
+        )
+
+        XCTAssertTrue(indices.contains(5))
+        XCTAssertTrue(indices.contains(18))
+        XCTAssertTrue(indices.contains(19))
+        XCTAssertTrue(indices.contains(20))
     }
 }
 

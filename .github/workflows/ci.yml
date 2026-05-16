@@ -201,6 +201,10 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -370,6 +374,10 @@ jobs:
       - name: Install zig
         run: |
           ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -555,6 +563,10 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -625,6 +637,10 @@ jobs:
       - name: Install zig
         run: |
           ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
