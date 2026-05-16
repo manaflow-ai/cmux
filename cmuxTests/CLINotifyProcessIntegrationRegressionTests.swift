@@ -1231,13 +1231,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testMoveSurfaceWindowFlagTargetsDestinationOnly() throws {
+    func testMoveSurfaceWindowFlagScopesIndexedSurfaceAndTargetsDestinationWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("move-surface-window")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let targetWindowId = "11111111-1111-1111-1111-111111111111"
         let sourceSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let targetWorkspaceId = "33333333-3333-3333-3333-333333333333"
 
         defer {
             Darwin.close(listenerFD)
@@ -1254,8 +1255,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             switch method {
             case "surface.list":
-                XCTAssertNil(params["window_id"], line)
-                XCTAssertNil(params["workspace_id"], line)
+                XCTAssertEqual(params["window_id"] as? String, targetWindowId, line)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId, line)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -1272,12 +1273,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             case "surface.move":
                 XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceId)
                 XCTAssertEqual(params["window_id"] as? String, targetWindowId)
+                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
                 return self.v2Response(
                     id: id,
                     ok: true,
                     result: [
                         "surface_id": sourceSurfaceId,
                         "window_id": targetWindowId,
+                        "workspace_id": targetWorkspaceId,
                     ]
                 )
             default:
@@ -1292,7 +1295,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["move-surface", "--surface", "0", "--window", targetWindowId],
+            arguments: ["move-surface", "--surface", "0", "--workspace", targetWorkspaceId, "--window", targetWindowId],
             environment: environment,
             timeout: 5
         )
