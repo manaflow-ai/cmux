@@ -2779,13 +2779,15 @@ final class BrowserPanel: Panel, ObservableObject {
         return max(0, Int((now.timeIntervalSince(hiddenAt) * 1000.0).rounded()))
     }
 
-    private func resetWebViewLifecycleMetadata() {
+    private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         webViewLifecycleState = .newTab
-        webViewLastVisibleAt = nil
-        webViewLastHiddenAt = nil
-        webViewLastVisibilityChangeAt = nil
-        webViewLastVisibilityChangeReason = nil
-        isWebViewVisibleInUI = false
+        if resetVisibility {
+            webViewLastVisibleAt = nil
+            webViewLastHiddenAt = nil
+            webViewLastVisibilityChangeAt = nil
+            webViewLastVisibilityChangeReason = nil
+            isWebViewVisibleInUI = false
+        }
         isClosingWebViewLifecycle = false
     }
 
@@ -3417,7 +3419,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        resetWebViewLifecycleMetadata()
+        resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
@@ -3769,7 +3771,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
-        resetWebViewLifecycleMetadata()
+        resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
