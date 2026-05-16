@@ -3,7 +3,8 @@ import SwiftUI
 import WebKit
 
 /// SwiftUI view that renders a MarkdownPanel's content in a WKWebView using
-/// marked.js + github-markdown-css + highlight.js.
+/// marked.js + github-markdown-css + highlight.js for preview and CodeMirror
+/// 6 for source editing.
 ///
 /// We render through a web view (rather than the previous MarkdownUI path)
 /// so that:
@@ -98,12 +99,15 @@ struct MarkdownPanelView: View {
             .accessibilityHidden(panel.displayMode != .preview)
 
             if panel.displayMode == .text {
-                FilePreviewTextEditor(
+                MarkdownCodeMirrorEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: appearance.contentBackgroundColor,
-                    themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
+                    theme: MarkdownCodeMirrorTheme.resolve(
+                        backgroundColor: appearance.contentBackgroundColor,
+                        foregroundColor: themeForegroundColor
+                    ),
+                    backgroundColor: appearance.contentBackgroundColor,
+                    onRequestPanelFocus: onRequestPanelFocus
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -149,7 +153,7 @@ struct MarkdownPanelView: View {
         case .preview:
             PanelHeaderIconButton(
                 systemName: "doc.plaintext",
-                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                label: String(localized: "markdown.mode.showEditor", defaultValue: "Show Editor"),
                 action: { panel.setDisplayMode(.text) }
             )
         case .text:

@@ -180,6 +180,47 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(after["top"] ?? .greatestFiniteMagnitude, before["top"] ?? 0, accuracy: 6)
     }
 
+    func testCodeMirrorEditorShellLoadsBundleAndEditsDocument() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        defer { webView.navigationDelegate = nil }
+
+        let loaded = expectation(description: "markdown editor shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownCodeMirrorAssets.shared.shellHTML(),
+            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("editor.md")
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        let theme = MarkdownCodeMirrorTheme.resolve(
+            backgroundColor: NSColor(srgbRed: 0.08, green: 0.09, blue: 0.10, alpha: 1),
+            foregroundColor: NSColor(srgbRed: 0.86, green: 0.88, blue: 0.90, alpha: 1)
+        )
+        let payload: [String: Any] = [
+            "document": "# Title\n\n- [ ] Task\n\n[[Nested Note]]\n",
+            "theme": theme.payload,
+            "strings": [
+                "taskComplete": "Completed task",
+                "taskIncomplete": "Incomplete task"
+            ]
+        ]
+        let bootJSON = try Self.jsonLiteral(payload)
+        _ = try await webView.evaluateJavaScript("window.cmuxMarkdownEditor.boot(\(bootJSON));")
+
+        let original = try await webView.evaluateJavaScript("window.cmuxMarkdownEditor.getDocument();") as? String
+        XCTAssertEqual(original, "# Title\n\n- [ ] Task\n\n[[Nested Note]]\n")
+
+        let updatedJSON = try Self.jsonLiteral(["# Updated\n\n- [x] Task\n"])
+        _ = try await webView.evaluateJavaScript("window.cmuxMarkdownEditor.setDocument(\(updatedJSON)[0]);")
+        let updated = try await webView.evaluateJavaScript("window.cmuxMarkdownEditor.getDocument();") as? String
+        XCTAssertEqual(updated, "# Updated\n\n- [x] Task\n")
+    }
+
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
@@ -238,6 +279,11 @@ final class MarkdownPanelTests: XCTestCase {
             return nil
         }
         return (red, green, blue, alpha)
+    }
+
+    private static func jsonLiteral(_ value: Any) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value)
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
     }
 }
 

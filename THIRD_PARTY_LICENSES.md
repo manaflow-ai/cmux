@@ -208,3 +208,42 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+## Markdown Editor Web Assets
+
+cmux bundles these files under `Resources/markdown-editor/` so the markdown
+editor has no runtime CDN dependency.
+
+### CodeMirror 6
+
+- **License:** MIT License
+- **Copyright:** Copyright (C) 2018-2021 by Marijn Haverbeke and others
+- **Source:** https://github.com/codemirror/dev
+- **Bundled packages:**
+  - @codemirror/autocomplete 6.20.2
+  - @codemirror/commands 6.10.3
+  - @codemirror/lang-css 6.3.1
+  - @codemirror/lang-html 6.4.11
+  - @codemirror/lang-javascript 6.2.5
+  - @codemirror/lang-markdown 6.5.0
+  - @codemirror/language 6.12.3
+  - @codemirror/lint 6.9.6
+  - @codemirror/search 6.7.0
+  - @codemirror/state 6.6.0
+  - @codemirror/view 6.42.1
+
+### Lezer
+
+- **License:** MIT License
+- **Copyright:** Copyright (C) 2018 by Marijn Haverbeke and others
+- **Source:** https://github.com/lezer-parser
+- **Bundled packages:**
+  - @lezer/common 1.5.2
+  - @lezer/css 1.3.3
+  - @lezer/highlight 1.2.3
+  - @lezer/html 1.3.13
+  - @lezer/javascript 1.5.4
+  - @lezer/lr 1.4.10
+  - @lezer/markdown 1.6.3
