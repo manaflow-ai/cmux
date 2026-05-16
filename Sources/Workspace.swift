@@ -772,8 +772,9 @@ extension Workspace {
                 ?? snapshot.directory
                 ?? currentDirectory
             let restoredEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
+            let restoredWorkingDirectory = restoredEphemeralWorktree?.worktreePath ?? workingDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil
-                ? (restoredEphemeralWorktree?.worktreePath ?? workingDirectory)
+                ? restoredWorkingDirectory
                 : nil
             let restorableAgent = snapshot.terminal?.agent
             let restorableTmuxStartCommand = restorableAgent == nil
@@ -782,7 +783,7 @@ extension Workspace {
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
                 SessionRestoredTerminalCommandStore.writeLauncherScript(
                     command: $0,
-                    workingDirectory: workingDirectory
+                    workingDirectory: restoredWorkingDirectory
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand

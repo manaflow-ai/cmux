@@ -3332,15 +3332,17 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
         case "new-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let type = optionValue(commandArgs, name: "--type")
-            let direction = optionValue(commandArgs, name: "--direction") ?? "right"
-            let url = optionValue(commandArgs, name: "--url")
-            let focusOpt = optionValue(commandArgs, name: "--focus")
-            let cwdOpt = optionValue(commandArgs, name: "--cwd")
-            let commandOpt = optionValue(commandArgs, name: "--command")
-            let worktreeOpt = hasFlag(commandArgs, name: "--worktree")
-            let worktreeCleanupOpt = optionValue(commandArgs, name: "--worktree-cleanup")
+            let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (type, rem1) = parseOption(rem0, name: "--type")
+            let (directionOpt, rem2) = parseOption(rem1, name: "--direction")
+            let (url, rem3) = parseOption(rem2, name: "--url")
+            let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
+            let (cwdOpt, rem5) = parseOption(rem4, name: "--cwd")
+            let (commandOpt, rem6) = parseOption(rem5, name: "--command")
+            let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
+            let (worktreeOpt, _) = parseFlag(rem7, name: "--worktree")
+            let workspaceArg = workspaceOpt ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let direction = directionOpt ?? "right"
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -3354,15 +3356,16 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let type = optionValue(commandArgs, name: "--type")
-            let paneRaw = optionValue(commandArgs, name: "--pane")
-            let url = optionValue(commandArgs, name: "--url")
-            let focusOpt = optionValue(commandArgs, name: "--focus")
-            let cwdOpt = optionValue(commandArgs, name: "--cwd")
-            let commandOpt = optionValue(commandArgs, name: "--command")
-            let worktreeOpt = hasFlag(commandArgs, name: "--worktree")
-            let worktreeCleanupOpt = optionValue(commandArgs, name: "--worktree-cleanup")
+            let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (type, rem1) = parseOption(rem0, name: "--type")
+            let (paneRaw, rem2) = parseOption(rem1, name: "--pane")
+            let (url, rem3) = parseOption(rem2, name: "--url")
+            let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
+            let (cwdOpt, rem5) = parseOption(rem4, name: "--cwd")
+            let (commandOpt, rem6) = parseOption(rem5, name: "--command")
+            let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
+            let (worktreeOpt, _) = parseFlag(rem7, name: "--worktree")
+            let workspaceArg = workspaceOpt ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }

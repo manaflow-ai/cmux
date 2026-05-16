@@ -6255,22 +6255,16 @@ class TerminalController {
             return error
         }
         let initialDividerPosition = parsedInitialDivider.value
+        if panelType == .browser,
+           let worktreeError = v2EphemeralWorktreeOptions(params: params, panelType: panelType).error {
+            return worktreeError
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
         if panelType == .browser {
-            if v2Bool(params, "worktree") == true {
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "error.ephemeralWorktree.terminalOnly",
-                        defaultValue: "worktree mode is only supported for terminal panes"
-                    ),
-                    data: nil
-                )
-            }
             v2MainSync {
                 guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -6425,22 +6419,16 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        if panelType == .browser,
+           let worktreeError = v2EphemeralWorktreeOptions(params: params, panelType: panelType).error {
+            return worktreeError
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         if panelType == .browser {
-            if v2Bool(params, "worktree") == true {
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "error.ephemeralWorktree.terminalOnly",
-                        defaultValue: "worktree mode is only supported for terminal panes"
-                    ),
-                    data: nil
-                )
-            }
             v2MainSync {
                 guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -7835,6 +7823,10 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        if panelType == .browser,
+           let worktreeError = v2EphemeralWorktreeOptions(params: params, panelType: panelType).error {
+            return worktreeError
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7849,16 +7841,6 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create pane", data: nil)
         if panelType == .browser {
-            if v2Bool(params, "worktree") == true {
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "error.ephemeralWorktree.terminalOnly",
-                        defaultValue: "worktree mode is only supported for terminal panes"
-                    ),
-                    data: nil
-                )
-            }
             v2MainSync {
                 guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
