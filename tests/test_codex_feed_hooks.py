@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import hmac
 import os
 import shutil
 import socket
@@ -52,6 +53,8 @@ CMUX_CODEX_FEED_EVENTS = (
 
 FAKE_WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 FAKE_SURFACE_ID = "22222222-2222-2222-2222-222222222222"
+FAKE_RELAY_ID = "test-relay"
+FAKE_RELAY_TOKEN = b"cmux-test-relay-token-32-bytes!!"
 
 
 class FakeCmuxSocket:
@@ -144,7 +147,124 @@ class FakeCmuxSocket:
                     conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
 
 
-def monitor_pids_for_session(session_id: str) -> list[int]:
+class FakeRelayCmuxSocket:
+    def __init__(
+        self,
+        decision: dict | None,
+        surfaces: list[dict] | None = None,
+        app_pid: int | None = None,
+    ):
+        self.decision = decision
+        self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
+        self.app_pid = os.getpid() if app_pid is None else app_pid
+        self.relay_id = FAKE_RELAY_ID
+        self.relay_token = FAKE_RELAY_TOKEN
+        self.address = ""
+        self.frames: list[dict] = []
+        self._ready = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def __enter__(self) -> "FakeRelayCmuxSocket":
+        self._thread.start()
+        if not self._ready.wait(timeout=3):
+            raise RuntimeError("fake relay socket did not start")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._stop.set()
+        if self.address:
+            host, port_text = self.address.rsplit(":", 1)
+            try:
+                with socket.create_connection((host, int(port_text)), timeout=1):
+                    pass
+            except OSError:
+                pass
+        self._thread.join(timeout=3)
+
+    def _run(self) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("127.0.0.1", 0))
+            server.listen(8)
+            self.address = f"127.0.0.1:{server.getsockname()[1]}"
+            self._ready.set()
+            while not self._stop.is_set():
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    continue
+                threading.Thread(target=self._handle_conn, args=(conn,), daemon=True).start()
+
+    def _read_line(self, conn: socket.socket) -> bytes:
+        data = b""
+        while b"\n" not in data and not self._stop.is_set():
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        line, _, _ = data.partition(b"\n")
+        return line
+
+    def _handle_conn(self, conn: socket.socket) -> None:
+        with conn:
+            nonce = f"nonce-{time.monotonic_ns()}"
+            challenge = {
+                "protocol": "cmux-relay-auth",
+                "version": 1,
+                "relay_id": self.relay_id,
+                "nonce": nonce,
+            }
+            conn.sendall(json.dumps(challenge).encode("utf-8") + b"\n")
+            auth_line = self._read_line(conn)
+            try:
+                auth = json.loads(auth_line.decode("utf-8"))
+            except json.JSONDecodeError:
+                return
+            auth_message = f"relay_id={self.relay_id}\nnonce={nonce}\nversion=1".encode("utf-8")
+            expected_mac = hmac.new(self.relay_token, auth_message, hashlib.sha256).hexdigest()
+            if auth.get("relay_id") != self.relay_id or auth.get("mac") != expected_mac:
+                conn.sendall(json.dumps({"ok": False}).encode("utf-8") + b"\n")
+                return
+            conn.sendall(json.dumps({"ok": True}).encode("utf-8") + b"\n")
+
+            data = b""
+            while not self._stop.is_set():
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+                while b"\n" in data:
+                    line, data = data.split(b"\n", 1)
+                    if not line:
+                        continue
+                    raw_line = line.decode("utf-8")
+                    try:
+                        frame = json.loads(raw_line)
+                    except json.JSONDecodeError:
+                        self.frames.append({"raw": raw_line})
+                        conn.sendall(b"OK\n")
+                        continue
+                    self.frames.append(frame)
+                    result: dict = {"status": "acknowledged"}
+                    if frame.get("method") == "surface.list":
+                        result = {"surfaces": self.surfaces}
+                    elif frame.get("method") == "system.identify":
+                        result = {"app_pid": self.app_pid}
+                    elif self.decision is not None:
+                        result = {
+                            "status": "resolved",
+                            "decision": self.decision,
+                        }
+                    response = {
+                        "id": frame.get("id"),
+                        "ok": True,
+                        "result": result,
+                    }
+                    conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+
+
+def monitor_processes_for_session(session_id: str) -> list[tuple[int, str]]:
     ps_path = shutil.which("ps")
     if ps_path is None:
         raise AssertionError("ps executable not found")
@@ -157,7 +277,7 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
     )
     if result.returncode != 0:
         raise AssertionError(f"ps failed: {result.stderr}")
-    pids: list[int] = []
+    processes: list[tuple[int, str]] = []
     for line in result.stdout.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -167,8 +287,12 @@ def monitor_pids_for_session(session_id: str) -> list[int]:
             " hooks codex monitor " in f" {command} "
             and f"--session {session_id}" in command
         ):
-            pids.append(int(pid_text))
-    return pids
+            processes.append((int(pid_text), command))
+    return processes
+
+
+def monitor_pids_for_session(session_id: str) -> list[int]:
+    return [pid for pid, _ in monitor_processes_for_session(session_id)]
 
 
 def wait_for_monitor_pids(session_id: str, *, present: bool, timeout: float) -> list[int]:
@@ -423,6 +547,78 @@ def test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path: str, root
 
     if monitor_pids_for_session(session_id):
         raise AssertionError("prompt-submit started an unowned codex monitor")
+
+
+def test_codex_prompt_submit_relay_uses_lease_without_owner_pid(cli_path: str, root: Path) -> None:
+    state_dir = root / "hook-state-relay"
+    transcript_path = root / "codex-relay.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-monitor-relay-session-{os.getpid()}"
+    turn_id = f"codex-monitor-relay-turn-{os.getpid()}"
+    env = os.environ.copy()
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+
+    with FakeRelayCmuxSocket(None, app_pid=99_999_999) as fake:
+        env["CMUX_SOCKET_PATH"] = fake.address
+        env["CMUX_RELAY_ID"] = fake.relay_id
+        env["CMUX_RELAY_TOKEN"] = fake.relay_token.hex()
+        try:
+            prompt = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", fake.address, "hooks", "codex", "prompt-submit"],
+                input=json.dumps(prompt),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex prompt-submit failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+
+            wait_for_monitor_pids(session_id, present=True, timeout=5)
+            monitor_commands = [command for _, command in monitor_processes_for_session(session_id)]
+            if any("--owner-pid" in command for command in monitor_commands):
+                raise AssertionError(f"relay-backed monitor used a local owner PID: {monitor_commands!r}")
+            if any(frame.get("method") == "system.identify" for frame in fake.frames):
+                raise AssertionError(f"relay-backed prompt-submit queried app_pid: {fake.frames!r}")
+
+            stop = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            result = subprocess.run(
+                [cli_path, "--socket", fake.address, "hooks", "codex", "stop"],
+                input=json.dumps(stop),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex stop failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+            wait_for_monitor_pids(session_id, present=False, timeout=5)
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
 def test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path: str, root: Path) -> None:
@@ -1807,6 +2003,7 @@ def main() -> int:
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_skips_monitor_when_lease_write_fails(cli_path, root)
             test_codex_prompt_submit_skips_monitor_without_owner_pid(cli_path, root)
+            test_codex_prompt_submit_relay_uses_lease_without_owner_pid(cli_path, root)
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_monitor_exits_when_owner_pid_is_gone(cli_path, root)
