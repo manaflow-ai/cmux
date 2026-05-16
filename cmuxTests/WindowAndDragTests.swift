@@ -2795,6 +2795,99 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
     }
 
+    @MainActor
+    func testWorkspaceDropHitTestDoesNotRequestPasteboardData() throws {
+        let owner = try makeDeferredBonsplitPayloadOwner()
+        let pasteboard = NSPasteboard(name: .drag)
+        pasteboard.clearContents()
+        pasteboard.declareTypes([Self.bonsplitPasteboardType], owner: owner)
+        defer { pasteboard.clearContents() }
+
+        let view = SidebarBonsplitTabWorkspaceDropView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        _ = view.hitTest(NSPoint(x: 20, y: 20))
+
+        XCTAssertEqual(owner.requestedTypes, [])
+    }
+
+    @MainActor
+    func testNewWorkspaceDropHitTestDoesNotRequestPasteboardData() throws {
+        let owner = try makeDeferredBonsplitPayloadOwner()
+        let pasteboard = NSPasteboard(name: .drag)
+        pasteboard.clearContents()
+        pasteboard.declareTypes(Self.currentProcessBonsplitPasteboardTypes, owner: owner)
+        defer { pasteboard.clearContents() }
+
+        let view = SidebarBonsplitTabNewWorkspaceDropView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        _ = view.hitTest(NSPoint(x: 20, y: 20))
+
+        XCTAssertEqual(owner.requestedTypes, [])
+    }
+
+    func testBonsplitPasteboardTypeWithoutProcessMarkerIsIgnoredWithoutRequestingData() throws {
+        let owner = try makeDeferredBonsplitPayloadOwner()
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.foreign.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.declareTypes([Self.bonsplitPasteboardType], owner: owner)
+        defer { pasteboard.clearContents() }
+
+        XCTAssertFalse(BonsplitTabDragPayload.hasTransferType(in: pasteboard))
+        XCTAssertEqual(owner.requestedTypes, [])
+    }
+
+    @MainActor
+    func testWorkspaceDropDraggingUpdatedDoesNotRequestPasteboardData() throws {
+        let owner = try makeDeferredBonsplitPayloadOwner()
+        let pasteboard = makeDeferredBonsplitPayloadPasteboard(owner: owner)
+        defer { pasteboard.clearContents() }
+
+        let workspaceId = UUID()
+        let view = SidebarBonsplitTabWorkspaceDropView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        view.targets = [
+            SidebarDropPlanner.WorkspaceDropTarget(
+                workspaceId: workspaceId,
+                isPinned: false,
+                frame: CGRect(x: 0, y: 0, width: 200, height: 200)
+            )
+        ]
+        view.hasValidTransfer = {
+            _ = pasteboard.data(forType: Self.bonsplitPasteboardType)
+            return true
+        }
+        var canPerformActionCalled = false
+        view.canPerformAction = { _ in
+            canPerformActionCalled = true
+            return true
+        }
+
+        let dragInfo = MockBonsplitDraggingInfo(
+            location: NSPoint(x: 20, y: 100),
+            pasteboard: pasteboard
+        )
+        XCTAssertEqual(view.draggingUpdated(dragInfo), .move)
+        XCTAssertEqual(owner.requestedTypes, [])
+        XCTAssertFalse(canPerformActionCalled)
+    }
+
+    @MainActor
+    func testNewWorkspaceDropDraggingUpdatedDoesNotRequestPasteboardData() throws {
+        let owner = try makeDeferredBonsplitPayloadOwner()
+        let pasteboard = makeDeferredBonsplitPayloadPasteboard(owner: owner)
+        defer { pasteboard.clearContents() }
+
+        let view = SidebarBonsplitTabNewWorkspaceDropView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        view.isValidTransfer = {
+            _ = pasteboard.data(forType: Self.bonsplitPasteboardType)
+            return true
+        }
+
+        let dragInfo = MockBonsplitDraggingInfo(
+            location: NSPoint(x: 20, y: 20),
+            pasteboard: pasteboard
+        )
+        XCTAssertEqual(view.draggingUpdated(dragInfo), .move)
+        XCTAssertEqual(owner.requestedTypes, [])
+    }
+
     private func makeBonsplitPayloadPasteboard(
         kind: String?,
         includesFilePreviewTransferType: Bool = false
@@ -2817,6 +2910,109 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }
         return pasteboard
+    }
+
+    private static let bonsplitPasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+    private static let currentProcessBonsplitPasteboardTypes = [
+        bonsplitPasteboardType,
+        BonsplitTabDragPayload.currentProcessMarkerType
+    ]
+
+    private func makeDeferredBonsplitPayloadPasteboard(owner: DeferredBonsplitPasteboardOwner) -> NSPasteboard {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.drag.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.declareTypes(Self.currentProcessBonsplitPasteboardTypes, owner: owner)
+        return pasteboard
+    }
+
+    private func makeDeferredBonsplitPayloadOwner() throws -> DeferredBonsplitPasteboardOwner {
+        let payload: [String: Any] = [
+            "tab": [
+                "id": UUID().uuidString
+            ],
+            "sourcePaneId": UUID().uuidString,
+            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        return DeferredBonsplitPasteboardOwner(data: try JSONSerialization.data(withJSONObject: payload))
+    }
+}
+
+private final class MockBonsplitDraggingInfo: NSObject, NSDraggingInfo {
+    let draggingDestinationWindow: NSWindow?
+    let draggingSourceOperationMask: NSDragOperation
+    let draggingLocation: NSPoint
+    let draggedImageLocation: NSPoint
+    let draggedImage: NSImage?
+    nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+    nonisolated(unsafe) let draggingSource: Any?
+    let draggingSequenceNumber: Int
+    var draggingFormation: NSDraggingFormation = .default
+    var animatesToDestination = false
+    var numberOfValidItemsForDrop = 1
+    let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+    init(
+        window: NSWindow? = nil,
+        location: NSPoint,
+        pasteboard: NSPasteboard,
+        sourceOperationMask: NSDragOperation = .move,
+        draggingSource: Any? = nil,
+        sequenceNumber: Int = 1
+    ) {
+        self.draggingDestinationWindow = window
+        self.draggingSourceOperationMask = sourceOperationMask
+        self.draggingLocation = location
+        self.draggedImageLocation = location
+        self.draggedImage = nil
+        self.draggingPasteboard = pasteboard
+        self.draggingSource = draggingSource
+        self.draggingSequenceNumber = sequenceNumber
+    }
+
+    func slideDraggedImage(to screenPoint: NSPoint) {}
+
+    override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+        nil
+    }
+
+    func enumerateDraggingItems(
+        options enumOpts: NSDraggingItemEnumerationOptions = [],
+        for view: NSView?,
+        classes classArray: [AnyClass],
+        searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+        using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+    ) {}
+
+    func resetSpringLoading() {}
+}
+
+private final class DeferredBonsplitPasteboardOwner: NSObject {
+    private let data: Data
+    private(set) var requestedTypes: [NSPasteboard.PasteboardType] = []
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    @objc(pasteboard:provideDataForType:)
+    func pasteboard(_ sender: NSPasteboard, provideDataForType type: NSPasteboard.PasteboardType) {
+        requestedTypes.append(type)
+        sender.setData(data, forType: type)
+    }
+}
+
+final class GhosttySurfaceSizeRetryPolicyTests: XCTestCase {
+    func testTabDragDeferralWaitsForMouseUpInsteadOfImmediateRetry() {
+        XCTAssertFalse(
+            GhosttySurfaceSizeRetryPolicy.shouldScheduleImmediateRetry(deferralReason: .tabDrag)
+        )
+        XCTAssertFalse(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: .leftMouseDragged))
+        XCTAssertTrue(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: .leftMouseUp))
+    }
+
+    func testTabDragDeferralRetriesAfterEscapeCancel() {
+        XCTAssertFalse(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(afterKeyDown: UInt16(kVK_Return)))
+        XCTAssertTrue(GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(afterKeyDown: UInt16(kVK_Escape)))
     }
 }
 

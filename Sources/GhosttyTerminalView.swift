@@ -14,6 +14,32 @@ import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
 
+enum GhosttySurfaceSizeDeferralReason: String {
+    case tabDrag
+}
+
+enum GhosttySurfaceSizeRetryPolicy {
+    static func shouldScheduleImmediateRetry(deferralReason: GhosttySurfaceSizeDeferralReason) -> Bool {
+        switch deferralReason {
+        case .tabDrag:
+            return false
+        }
+    }
+
+    static func shouldRunQueuedRetry(after eventType: NSEvent.EventType) -> Bool {
+        switch eventType {
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func shouldRunQueuedRetry(afterKeyDown keyCode: UInt16) -> Bool {
+        keyCode == UInt16(kVK_Escape)
+    }
+}
+
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
 
@@ -6714,7 +6740,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func installEventMonitor() {
         guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown]
+        ) { [weak self] event in
             return self?.localEventHandler(event) ?? event
         }
     }
@@ -6723,6 +6751,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch event.type {
         case .scrollWheel:
             return localEventScrollWheel(event)
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            retryDeferredSurfaceSizeAfterDragIfNeeded(eventType: event.type)
+            return event
+        case .keyDown:
+            retryDeferredSurfaceSizeAfterDragCancelIfNeeded(keyCode: event.keyCode)
+            return event
         default:
             return event
         }
@@ -6885,8 +6919,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
-        let types = NSPasteboard(name: .drag).types ?? []
-        return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+        let pasteboard = NSPasteboard(name: .drag)
+        return BonsplitTabDragPayload.hasTransferType(in: pasteboard) ||
+            SidebarTabDragPayload.hasTransferType(in: pasteboard)
     }
 
     private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
@@ -6907,26 +6942,46 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
             return false
         }
+        guard isDragResizeEvent(NSApp.currentEvent?.type) else { return false }
         guard hasTabDragPasteboardTypes() else { return false }
-        return isDragResizeEvent(NSApp.currentEvent?.type)
+        return true
     }
 
-    private func activeSurfaceResizeDeferralReason() -> String? {
+    private func activeSurfaceResizeDeferralReason() -> GhosttySurfaceSizeDeferralReason? {
         if inLiveResize || window?.inLiveResize == true {
             return nil
         }
-        return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+        return Self.shouldDeferSurfaceResizeForActiveDrag() ? .tabDrag : nil
     }
 
-    private func scheduleDeferredSurfaceSizeRetryIfNeeded() {
+    private func scheduleDeferredSurfaceSizeRetryIfNeeded(
+        deferralReason: GhosttySurfaceSizeDeferralReason
+    ) {
         guard window != nil else { return }
         guard !deferredSurfaceSizeRetryQueued else { return }
         deferredSurfaceSizeRetryQueued = true
+        guard GhosttySurfaceSizeRetryPolicy.shouldScheduleImmediateRetry(deferralReason: deferralReason) else {
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.deferredSurfaceSizeRetryQueued = false
             _ = self.updateSurfaceSize()
         }
+    }
+
+    private func retryDeferredSurfaceSizeAfterDragIfNeeded(eventType: NSEvent.EventType) {
+        guard deferredSurfaceSizeRetryQueued else { return }
+        guard GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(after: eventType) else { return }
+        deferredSurfaceSizeRetryQueued = false
+        _ = updateSurfaceSize()
+    }
+
+    private func retryDeferredSurfaceSizeAfterDragCancelIfNeeded(keyCode: UInt16) {
+        guard deferredSurfaceSizeRetryQueued else { return }
+        guard GhosttySurfaceSizeRetryPolicy.shouldRunQueuedRetry(afterKeyDown: keyCode) else { return }
+        deferredSurfaceSizeRetryQueued = false
+        _ = updateSurfaceSize()
     }
 
     @discardableResult
@@ -6949,12 +7004,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         pendingSurfaceSize = size
         if let deferralReason = activeSurfaceResizeDeferralReason() {
-            scheduleDeferredSurfaceSizeRetryIfNeeded()
+            scheduleDeferredSurfaceSizeRetryIfNeeded(deferralReason: deferralReason)
 #if DEBUG
-            let signature = "\(deferralReason)-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+            let signature = "\(deferralReason.rawValue)-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
             if lastSizeSkipSignature != signature {
                 cmuxDebugLog(
-                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(deferralReason) " +
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(deferralReason.rawValue) " +
                     "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
                     "inWindow=\(window != nil ? 1 : 0)"
                 )
@@ -7005,6 +7060,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lastSizeSkipSignature = nil
         }
 #endif
+        deferredSurfaceSizeRetryQueued = false
         let xScale = backingSize.width / size.width
         let yScale = backingSize.height / size.height
         let layerScale = max(1.0, window.backingScaleFactor)

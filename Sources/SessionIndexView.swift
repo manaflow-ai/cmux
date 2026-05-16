@@ -2346,12 +2346,11 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
     return try? JSONEncoder().encode(mirror)
 }
 
-/// NSItemProvider used by `.onDrag {}`. Registers ONLY
-/// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
-/// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
-/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
-/// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
-/// zones across the entire pane (including its center).
+/// NSItemProvider used by `.onDrag {}`. Registers only custom tab-transfer
+/// types so the terminal's NSDraggingDestination (which accepts `.string` /
+/// `public.utf8-plain-text`) is not hit-tested for our drag. With the terminal
+/// out of the way, bonsplit's SwiftUI `.onDrop(of: [.tabTransfer])` overlay can
+/// render the blue insert/split zones across the entire pane.
 ///
 /// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
 /// bonsplit's external-drop decoder reads from that pasteboard directly
@@ -2370,10 +2369,12 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
             completion(data, nil)
             return nil
         }
+        BonsplitTabDragPayload.registerCurrentProcessMarker(on: provider)
         let pb = NSPasteboard(name: .drag)
         let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-        pb.addTypes([type], owner: nil)
+        pb.addTypes([type, BonsplitTabDragPayload.currentProcessMarkerType], owner: nil)
         pb.setData(data, forType: type)
+        pb.setData(Data(), forType: BonsplitTabDragPayload.currentProcessMarkerType)
     }
 
     provider.suggestedName = entry.displayTitle

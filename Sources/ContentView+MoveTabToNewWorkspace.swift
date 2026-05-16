@@ -112,12 +112,12 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        acceptsDrag(sender)
+        acceptsDrop(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropActive(false) }
-        guard acceptsDrag(sender) else { return false }
+        guard acceptsDrop(sender) else { return false }
         return performMove()
     }
 
@@ -126,7 +126,7 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     }
 
     private func updateDrag(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard acceptsDrag(sender) else {
+        guard canTrackDrag(sender) else {
             setDropActive(false)
             return []
         }
@@ -134,19 +134,24 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
         return .move
     }
 
-    private func acceptsDrag(_ sender: any NSDraggingInfo) -> Bool {
-        guard sender.draggingPasteboard.types?.contains(Self.pasteboardType) == true else { return false }
+    private func canTrackDrag(_ sender: any NSDraggingInfo) -> Bool {
+        BonsplitTabDragPayload.hasTransferType(in: sender.draggingPasteboard)
+    }
+
+    private func acceptsDrop(_ sender: any NSDraggingInfo) -> Bool {
+        guard canTrackDrag(sender) else { return false }
         return isValidTransfer()
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
-        guard let eventType = NSApp.currentEvent?.type else { return true }
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
-            return true
-        default:
-            return false
+        if let eventType = NSApp.currentEvent?.type {
+            switch eventType {
+            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
+                break
+            default:
+                return false
+            }
         }
+        return BonsplitTabDragPayload.currentDragPasteboardHasTransferType()
     }
 }
