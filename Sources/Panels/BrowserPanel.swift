@@ -4531,7 +4531,7 @@ extension BrowserPanel {
         return false
     }
 
-    private static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
+    static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
         guard window.title.hasPrefix("Web Inspector") else { return false }
         guard let contentView = window.contentView else { return false }
         return windowContainsInspectorViews(contentView)

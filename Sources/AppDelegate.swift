@@ -14330,7 +14330,8 @@ private extension AppDelegate {
         guard Thread.isMainThread else { return false }
 
         return MainActor.assumeIsolated {
-            guard let window = Self.actionWindow(target: target, sender: sender) else { return false }
+            guard let window = Self.actionWindow(target: target, sender: sender),
+                  BrowserPanel.isDetachedInspectorWindow(window) else { return false }
 
             for panel in allBrowserPanelsForInspectorWindowClose() {
                 if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
