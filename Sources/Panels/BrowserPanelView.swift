@@ -778,9 +778,10 @@ struct BrowserPanelView: View {
             }
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
+            let effectiveVisibility = visibleInUI && isCurrentPaneOwner
             panel.noteWebViewVisibility(
-                visibleInUI && isCurrentPaneOwner,
-                reason: visibleInUI ? "view.visible" : "view.hidden"
+                effectiveVisibility,
+                reason: effectiveVisibility ? "view.visible" : "view.hidden"
             )
             if visibleInUI {
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
@@ -6701,11 +6702,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         let previousZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
-        let lifecycleVisibleInUI = coordinator.desiredPortalVisibleInUI
-        let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
-        DispatchQueue.main.async { [weak panel] in
-            panel?.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
-        }
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
@@ -6739,6 +6735,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 bounds: host.bounds,
                 reason: "update"
             )
+        if portalHostAccepted || didReleasePortalHost {
+            let lifecycleVisibleInUI = portalHostAccepted && coordinator.desiredPortalVisibleInUI
+            let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
+            panel.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
+        }
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
             cmuxDebugLog(
