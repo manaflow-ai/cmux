@@ -11933,6 +11933,74 @@
         }
       }
     },
+    "browser.externalOpenFailure.appName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリ"
+          }
+        }
+      }
+    },
+    "browser.externalOpenFailure.copyLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピー"
+          }
+        }
+      }
+    },
+    "browser.externalOpenFailure.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ might not be installed, or macOS could not open this link. Install the app, or copy the link and open it elsewhere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がインストールされていないか、macOS がこのリンクを開けませんでした。アプリをインストールするか、リンクをコピーして別の場所で開いてください。"
+          }
+        }
+      }
+    },
+    "browser.externalOpenFailure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot Open Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを開けません"
+          }
+        }
+      }
+    },
     "browser.error.insecure.message": {
       "extractionState": "manual",
       "localizations": {

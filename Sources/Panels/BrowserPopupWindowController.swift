@@ -424,8 +424,11 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
+           browserShouldRouteExternalNavigation(
+               url,
+               targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+           ) {
+            browserHandleExternalNavigation(url, source: "popupUIDelegate", webView: webView)
             return nil
         }
 
@@ -566,24 +569,24 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // Only guard main-frame navigations
-        guard navigationAction.targetFrame?.isMainFrame != false else {
-            decisionHandler(.allow)
-            return
-        }
-
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
-            #if DEBUG
-            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
-            #endif
+        if browserShouldRouteExternalNavigation(
+            url,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+        ) {
+            browserHandleExternalNavigation(url, source: "popupNavDelegate", webView: webView)
             decisionHandler(.cancel)
+            return
+        }
+
+        // Only guard main-frame navigations
+        guard navigationAction.targetFrame?.isMainFrame != false else {
+            decisionHandler(.allow)
             return
         }
 
