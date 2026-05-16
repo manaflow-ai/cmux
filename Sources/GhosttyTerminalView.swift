@@ -4503,9 +4503,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
     private var teardownRequestReason: String?
+    // Main-thread only. Public socket send entrypoints synchronously hop to the
+    // main queue before reading `surface` or mutating this pending queue.
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
-    private let pendingSocketInputLock = NSLock()
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var headlessStartupWindow: NSWindow?
@@ -6109,11 +6110,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func enqueuePendingSocketInputs(_ inputs: [PendingSocketInput]) -> Bool {
+        assert(Thread.isMainThread)
         let incomingBytes = inputs.reduce(0) { $0 + $1.estimatedBytes }
         guard incomingBytes > 0 else { return true }
-
-        pendingSocketInputLock.lock()
-        defer { pendingSocketInputLock.unlock() }
 
         guard incomingBytes <= maxPendingSocketInputBytes,
               pendingSocketInputBytes + incomingBytes <= maxPendingSocketInputBytes else {
@@ -6143,13 +6142,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func flushPendingSocketInputIfNeeded() {
+        assert(Thread.isMainThread)
         guard let surface = liveSurfaceForSocketWrite(reason: "socket.flushPendingInput") else { return }
-        pendingSocketInputLock.lock()
         let queued = pendingSocketInputQueue
         let queuedBytes = pendingSocketInputBytes
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
-        pendingSocketInputLock.unlock()
         guard !queued.isEmpty else { return }
 
         var queuedKeys = 0
@@ -6226,8 +6224,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @MainActor
     func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
-        pendingSocketInputLock.lock()
-        defer { pendingSocketInputLock.unlock() }
         let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
             if case .key = item {
                 count += 1
