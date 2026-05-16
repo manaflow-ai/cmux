@@ -2489,6 +2489,59 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
+    func testNilTargetMainWindowCloseActionDoesNotCloseAttachedInspector() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let contentView = mainWindow.contentView else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = contentView.bounds
+            contentView.addSubview(browserPanel.webView)
+        }
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(
+                x: contentView.bounds.midX,
+                y: 0,
+                width: contentView.bounds.midX,
+                height: contentView.bounds.height
+            ),
+            configuration: WKWebViewConfiguration()
+        )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        mainWindow.makeKeyAndOrderFront(nil)
+        mainWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        _ = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Nil-target main-window Close actions must not be mistaken for detached inspector window closes"
+        )
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+    }
+
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
         let (panel, inspector) = makePanelWithInspector()
 
