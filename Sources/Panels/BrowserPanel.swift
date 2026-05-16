@@ -3820,16 +3820,16 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
-        tearDownCurrentWebViewForRelease(webView, reason: "panelClose")
-        navigationDelegate = nil
-        uiDelegate = nil
-        webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
         faviconTask?.cancel()
         faviconTask = nil
+        tearDownCurrentWebViewForRelease(webView, reason: "panelClose")
+        navigationDelegate = nil
+        uiDelegate = nil
+        webViewDidRequestClose = nil
     }
 
     // MARK: - Popup window management
