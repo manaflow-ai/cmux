@@ -121,10 +121,6 @@ enum TitlebarControlsVisualMetrics {
     static func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
         yOffset + verticalLift
     }
-
-    static func liftedTopInset(_ topInset: CGFloat) -> CGFloat {
-        topInset - verticalLift
-    }
 }
 
 func titlebarNotificationBadgeFontSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
@@ -787,7 +783,7 @@ struct TitlebarControlsView: View {
                 action: onFocusHistoryBack,
                 isEnabled: focusHistoryAvailability.canNavigateBack
             ) {
-                iconLabel(systemName: "chevron.left", config: config)
+                iconLabel(systemName: "arrow.left", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
 
@@ -798,7 +794,7 @@ struct TitlebarControlsView: View {
                 action: onFocusHistoryForward,
                 isEnabled: focusHistoryAvailability.canNavigateForward
             ) {
-                iconLabel(systemName: "chevron.right", config: config)
+                iconLabel(systemName: "arrow.right", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
