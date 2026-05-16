@@ -563,6 +563,54 @@ final class NotificationDockBadgeTests: XCTestCase {
             GhosttyCrashBreadcrumb.crashFileURL(from: notificationResponseUserInfo),
             crashFileURL
         )
+        XCTAssertEqual(
+            GhosttyCrashBreadcrumb.crashFileURL(from: crashUserInfo),
+            crashFileURL
+        )
+    }
+
+    func testCrashBreadcrumbNotificationRowRevealsCrashFile() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let store = TerminalNotificationStore.shared
+        let notificationId = UUID()
+        let crashFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
+            .standardizedFileURL
+        let pendingCrash = GhosttyCrashBreadcrumb.PendingCrash(
+            fileURL: crashFileURL,
+            modifiedAt: Date()
+        )
+        var revealedURL: URL?
+
+        appDelegate.notificationStore = store
+        appDelegate.configureGhosttyCrashBreadcrumbFileRevealerForTesting { revealedURL = $0.standardizedFileURL }
+        defer { appDelegate.resetGhosttyCrashBreadcrumbFileRevealerForTesting() }
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: notificationId,
+                tabId: GhosttyCrashBreadcrumb.notificationTabId,
+                surfaceId: nil,
+                title: "Crash",
+                subtitle: "",
+                body: "",
+                createdAt: Date(),
+                isRead: false,
+                paneFlash: true,
+                userInfo: GhosttyCrashBreadcrumb.notificationUserInfo(for: pendingCrash)
+            ),
+        ])
+
+        XCTAssertTrue(appDelegate.openNotification(
+            tabId: GhosttyCrashBreadcrumb.notificationTabId,
+            surfaceId: nil,
+            notificationId: notificationId
+        ))
+        XCTAssertEqual(revealedURL, crashFileURL)
+        XCTAssertEqual(store.notifications.first?.isRead, true)
     }
 
     func testNotificationBadgePreferenceDefaultsToEnabled() {

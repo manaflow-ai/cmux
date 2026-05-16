@@ -55,13 +55,17 @@ nonisolated enum GhosttyCrashBreadcrumb {
     }
 
     static func crashFileURL(from userInfo: [AnyHashable: Any]) -> URL? {
-        guard let path = userInfo[notificationFilePathUserInfoKey] as? String else {
-            return nil
-        }
+        crashFileURL(fromPath: userInfo[notificationFilePathUserInfoKey] as? String)
+    }
+
+    static func crashFileURL(from userInfo: [String: String]) -> URL? {
+        crashFileURL(fromPath: userInfo[notificationFilePathUserInfoKey])
+    }
+
+    private static func crashFileURL(fromPath path: String?) -> URL? {
+        guard let path else { return nil }
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPath.isEmpty else {
-            return nil
-        }
+        guard !trimmedPath.isEmpty else { return nil }
         return URL(fileURLWithPath: trimmedPath).standardizedFileURL
     }
 

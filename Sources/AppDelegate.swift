@@ -679,6 +679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private var ghosttyCrashBreadcrumbFileRevealer: (URL) -> Void = AppDelegate.defaultGhosttyCrashBreadcrumbFileRevealer
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -13691,10 +13692,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
             Task { @MainActor [weak self] in
-                self?.revealGhosttyCrashBreadcrumbFile(crashFileURL)
-                if let notificationId {
-                    self?.notificationStore?.markRead(id: notificationId)
-                }
+                _ = self?.openGhosttyCrashBreadcrumbNotification(
+                    crashFileURL,
+                    notificationId: notificationId
+                )
             }
         case UNNotificationDismissActionIdentifier:
             Task { @MainActor [weak self] in
@@ -13721,6 +13722,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     private func revealGhosttyCrashBreadcrumbFile(_ fileURL: URL) {
+        ghosttyCrashBreadcrumbFileRevealer(fileURL)
+    }
+
+    @MainActor
+    private static func defaultGhosttyCrashBreadcrumbFileRevealer(_ fileURL: URL) {
         let fileManager = FileManager.default
         let resolvedURL = fileURL.standardizedFileURL
         if fileManager.fileExists(atPath: resolvedURL.path) {
@@ -13736,6 +13742,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path)
     }
+
+#if DEBUG
+    func configureGhosttyCrashBreadcrumbFileRevealerForTesting(_ revealer: @escaping (URL) -> Void) {
+        ghosttyCrashBreadcrumbFileRevealer = revealer
+    }
+
+    func resetGhosttyCrashBreadcrumbFileRevealerForTesting() {
+        ghosttyCrashBreadcrumbFileRevealer = Self.defaultGhosttyCrashBreadcrumbFileRevealer
+    }
+#endif
 
     private func installMainWindowKeyObserver() {
         guard windowKeyObservers.isEmpty else { return }
@@ -14019,6 +14035,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
         }
 #endif
+        if let notificationId,
+           let notification = notificationStore?.notifications.first(where: { $0.id == notificationId }),
+           let crashFileURL = GhosttyCrashBreadcrumb.crashFileURL(from: notification.userInfo) {
+            return openGhosttyCrashBreadcrumbNotification(
+                crashFileURL,
+                notificationId: notificationId
+            )
+        }
+
         guard let context = contextContainingTabId(tabId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
@@ -14047,6 +14072,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
         return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    }
+
+    @discardableResult
+    private func openGhosttyCrashBreadcrumbNotification(
+        _ crashFileURL: URL,
+        notificationId: UUID?
+    ) -> Bool {
+        revealGhosttyCrashBreadcrumbFile(crashFileURL)
+        if let notificationId {
+            notificationStore?.markRead(id: notificationId)
+        }
+        return true
     }
 
     private func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
