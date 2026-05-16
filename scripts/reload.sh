@@ -566,6 +566,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
+      set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$TAG_APP_PATH/Contents/Resources/bin/cmux"
+      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$TAG_APP_PATH/Contents/Resources/shell-integration"
       set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
@@ -666,6 +668,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # socket and resource-path conflicts.
   OPEN_CLEAN_ENV=(
     env
+    -u CMUX_SOCKET
+    -u CMUX_SOCKET_PASSWORD
     -u CMUX_SOCKET_PATH
     -u CMUX_WORKSPACE_ID
     -u CMUX_SURFACE_ID
@@ -675,10 +679,14 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_TAG
     -u CMUX_DEBUG_LOG
     -u CMUX_BUNDLE_ID
+    -u CMUX_BUNDLED_CLI_PATH
     -u CMUX_SHELL_INTEGRATION
+    -u CMUX_SHELL_INTEGRATION_DIR
+    -u CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
     -u GHOSTTY_BIN_DIR
     -u GHOSTTY_RESOURCES_DIR
     -u GHOSTTY_SHELL_FEATURES
+    -u GHOSTTY_SURFACE_ID
     # Dev shells (including CI/Codex) often force-disable paging by exporting these.
     # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
     -u GIT_PAGER
@@ -694,6 +702,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG"
     CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1
     CMUXTERM_REPO_ROOT="$PWD"
+    CMUX_BUNDLED_CLI_PATH="$CLI_PATH"
+    CMUX_SHELL_INTEGRATION_DIR="$APP_PATH/Contents/Resources/shell-integration"
     CMUX_PORT="$CMUX_DEV_PORT"
     CMUX_PORT_END="$CMUX_DEV_PORT_END"
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
