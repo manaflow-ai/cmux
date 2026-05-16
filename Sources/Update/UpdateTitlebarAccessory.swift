@@ -127,6 +127,10 @@ func titlebarNotificationBadgeFontSize(for config: TitlebarControlsStyleConfig) 
     max(7, config.badgeSize - 6)
 }
 
+func titlebarNotificationBellGlyphScale(for config: TitlebarControlsStyleConfig) -> CGSize {
+    CGSize(width: 0.96, height: config.iconSize <= 11 ? 0.86 : 0.82)
+}
+
 func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
     1
 }
@@ -751,7 +755,7 @@ struct TitlebarControlsView: View {
                 onToggleNotifications()
             }) {
                 ZStack(alignment: .topTrailing) {
-                    iconLabel(systemName: "bell", config: config)
+                    notificationBellIconLabel(config: config)
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
@@ -956,6 +960,17 @@ struct TitlebarControlsView: View {
     private func sidebarIconLabel(config: TitlebarControlsStyleConfig) -> some View {
         titlebarIconChrome(config: config) {
             TitlebarSidebarGlyph(iconSize: config.iconSize)
+        }
+    }
+
+    @ViewBuilder
+    private func notificationBellIconLabel(config: TitlebarControlsStyleConfig) -> some View {
+        let scale = titlebarNotificationBellGlyphScale(for: config)
+        titlebarIconChrome(config: config) {
+            Image(systemName: "bell")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
+                .scaleEffect(x: scale.width, y: scale.height, anchor: .center)
         }
     }
 
