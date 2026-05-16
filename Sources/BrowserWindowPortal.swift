@@ -10,10 +10,6 @@ private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
-private func browserPortalIsInspectorClassName(_ className: String) -> Bool {
-    className.contains("WKInspector") || className.contains("WebInspector")
-}
-
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }
@@ -1211,8 +1207,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func isInspectorView(_ view: NSView) -> Bool {
-        browserPortalIsInspectorClassName(String(describing: type(of: view))) ||
-            browserPortalIsInspectorClassName(NSStringFromClass(type(of: view)))
+        cmuxIsWebInspectorObject(view)
     }
 
     private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
@@ -2310,9 +2305,7 @@ final class WindowBrowserPortal: NSObject {
         var stack: [NSView] = [root]
         while let current = stack.popLast() {
             if current !== root {
-                let className = String(describing: type(of: current))
-                if (browserPortalIsInspectorClassName(className) ||
-                    browserPortalIsInspectorClassName(NSStringFromClass(type(of: current)))),
+                if cmuxIsWebInspectorObject(current),
                    !current.isHidden,
                    current.alphaValue > 0,
                    current.frame.width > 1,
@@ -2378,8 +2371,7 @@ final class WindowBrowserPortal: NSObject {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if browserPortalIsInspectorClassName(String(describing: type(of: subview))) ||
-                    browserPortalIsInspectorClassName(NSStringFromClass(type(of: subview))) {
+                if cmuxIsWebInspectorObject(subview) {
                     count += 1
                 }
                 stack.append(subview)
@@ -2441,7 +2433,7 @@ final class WindowBrowserPortal: NSObject {
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            if browserPortalIsInspectorClassName(className) || Self.containsInspectorView(in: view) {
+            if cmuxIsWebInspectorClassName(className) || Self.containsInspectorView(in: view) {
                 continue
             }
             guard className.contains("WK") else { continue }
@@ -2454,8 +2446,7 @@ final class WindowBrowserPortal: NSObject {
     private static func containsInspectorView(in root: NSView) -> Bool {
         var stack: [NSView] = [root]
         while let current = stack.popLast() {
-            if browserPortalIsInspectorClassName(String(describing: type(of: current))) ||
-                browserPortalIsInspectorClassName(NSStringFromClass(type(of: current))) {
+            if cmuxIsWebInspectorObject(current) {
                 return true
             }
             stack.append(contentsOf: current.subviews)
@@ -2505,8 +2496,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        browserPortalIsInspectorClassName(String(describing: type(of: webView))) ||
-            browserPortalIsInspectorClassName(NSStringFromClass(type(of: webView)))
+        cmuxIsWebInspectorObject(webView)
     }
 
     private func notifyHostedWebKitHidden(

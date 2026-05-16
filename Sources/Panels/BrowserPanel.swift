@@ -4522,10 +4522,7 @@ extension BrowserPanel {
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        let className = String(describing: type(of: root))
-        let objcClassName = NSStringFromClass(type(of: root))
-        if className.contains("WKInspector") || className.contains("WebInspector") ||
-            objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector") {
+        if cmuxIsWebInspectorObject(root) {
             return true
         }
         for subview in root.subviews where windowContainsInspectorViews(subview) {
@@ -4651,7 +4648,7 @@ extension BrowserPanel {
             "closed=\(closed ? 1 : 0) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
-        return true
+        return closed
     }
 
     private func shouldTreatDetachedInspectorWillCloseAsDockBack(source: String) -> Bool {
@@ -5919,10 +5916,7 @@ extension BrowserPanel {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                let className = String(describing: type(of: subview))
-                let objcClassName = NSStringFromClass(type(of: subview))
-                if className.contains("WKInspector") || className.contains("WebInspector") ||
-                    objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector") {
+                if cmuxIsWebInspectorObject(subview) {
                     count += 1
                 }
                 stack.append(subview)
@@ -6024,10 +6018,7 @@ private extension BrowserPanel {
     }
 
     static func isInspectorView(_ view: NSView) -> Bool {
-        let className = String(describing: type(of: view))
-        let objcClassName = NSStringFromClass(type(of: view))
-        return className.contains("WKInspector") || className.contains("WebInspector") ||
-            objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector")
+        cmuxIsWebInspectorObject(view)
     }
 
     static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
@@ -6155,8 +6146,7 @@ enum WebViewInspectorTeardown {
     }
 
     private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        let className = NSStringFromClass(type(of: webView))
-        return className.contains("WKInspector") || className.contains("WebInspector")
+        cmuxIsWebInspectorObject(webView)
     }
 }
 

@@ -434,22 +434,25 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
     }
 }
 
+func cmuxIsWebInspectorClassName(_ className: String) -> Bool {
+    className.contains("WKInspector") || className.contains("WebInspector")
+}
+
+func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
+    cmuxIsWebInspectorClassName(String(describing: type(of: object))) ||
+        cmuxIsWebInspectorClassName(NSStringFromClass(type(of: object)))
+}
+
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
-    let responderType = String(describing: type(of: responder))
-    let objcResponderType = NSStringFromClass(type(of: responder))
-    if responderType.contains("WKInspector") || responderType.contains("WebInspector") ||
-        objcResponderType.contains("WKInspector") || objcResponderType.contains("WebInspector") {
+    if cmuxIsWebInspectorObject(responder) {
         return true
     }
     guard let view = responder as? NSView else { return false }
     var node: NSView? = view
     var hops = 0
     while let current = node, hops < 64 {
-        let className = String(describing: type(of: current))
-        let objcClassName = NSStringFromClass(type(of: current))
-        if className.contains("WKInspector") || className.contains("WebInspector") ||
-            objcClassName.contains("WKInspector") || objcClassName.contains("WebInspector") {
+        if cmuxIsWebInspectorObject(current) {
             return true
         }
         node = current.superview
