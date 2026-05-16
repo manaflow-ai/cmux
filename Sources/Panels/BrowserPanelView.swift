@@ -6218,7 +6218,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 continue
             }
-            if browserPanelViewIsInspectorClassName(className) {
+            if browserPanelViewIsInspectorClassName(className) ||
+                browserPanelViewIsInspectorClassName(NSStringFromClass(type(of: view))) {
                 continue
             }
             guard className.contains("WK") else { continue }
