@@ -3108,6 +3108,23 @@
         }
       }
     },
+    "sidebar.help.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open help and resources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルプとリソースを開く"
+          }
+        }
+      }
+    },
     "sidebar.help.welcome": {
       "extractionState": "manual",
       "localizations": {
@@ -92917,6 +92934,23 @@
         }
       }
     },
+    "titlebar.newWorkspace.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a new workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースを作成"
+          }
+        }
+      }
+    },
     "titlebar.newWorkspace.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -93155,6 +93189,23 @@
         }
       }
     },
+    "titlebar.notifications.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を表示"
+          }
+        }
+      }
+    },
     "titlebar.notifications.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -93389,6 +93440,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перемкнути бічну панель"
+          }
+        }
+      }
+    },
+    "titlebar.sidebar.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or hide the sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの表示/非表示"
           }
         }
       }
