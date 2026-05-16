@@ -3272,6 +3272,15 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
         )
     }
 
+    func testControlNavigationRepeatLifecycleRequiresControlOnly() {
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .command]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .option]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .shift]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: []))
+    }
+
     func testSubmitOnReturnIgnoresCapsLockModifier() {
         XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: []))
         XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift]))

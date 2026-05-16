@@ -11805,7 +11805,15 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
-        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+        let targetHostedView = terminalPanel(for: panelId)?.hostedView
+        let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
+            hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
+                pendingReparentFocusSuppressionViews.values.contains { $0 === hostedView }
+        } ?? false
+        let shouldSuppressReentrantRefocus =
+            trigger == .terminalFirstResponder &&
+            selectionAlreadyConverged &&
+            targetHasPendingReparentSuppression
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
@@ -12407,6 +12415,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+#if DEBUG
+    func debugBeginReparentFocusSuppressionForTesting(_ hostedView: GhosttySurfaceScrollView, reason: String) {
+        suppressReparentFocusUntilLayoutFollowUp(hostedView, reason: reason)
+    }
+
+    func debugAttemptEventDrivenLayoutFollowUpForTesting() {
+        attemptEventDrivenLayoutFollowUp()
+    }
+
+    func debugHasPendingReparentFocusSuppressionsForTesting() -> Bool {
+        !pendingReparentFocusSuppressionViews.isEmpty
+    }
+#endif
+
     private func installLayoutFollowUpObservers() {
         guard layoutFollowUpTimeoutWorkItem == nil else { return }
 
@@ -12594,6 +12616,7 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
+        let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -12614,6 +12637,7 @@ final class Workspace: Identifiable, ObservableObject {
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
         clearReadyPendingReparentFocusSuppressions(reason: "workspace.layoutAttempt")
+        let reparentFocusPending = !pendingReparentFocusSuppressionViews.isEmpty
 
         let reason = layoutFollowUpReason ?? "workspace.layout"
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
@@ -12664,7 +12688,8 @@ final class Workspace: Identifiable, ObservableObject {
             browserVisibilityPending ||
             terminalFocusPending ||
             browserPanelPending ||
-            browserExitPending
+            browserExitPending ||
+            reparentFocusPending
 
         if !needsMoreWork {
             clearLayoutFollowUp()
@@ -12677,7 +12702,8 @@ final class Workspace: Identifiable, ObservableObject {
             (browserVisibilityPendingBefore && !browserVisibilityPending) ||
             (terminalFocusPendingBefore && !terminalFocusPending) ||
             (browserPanelPendingBefore && !browserPanelPending) ||
-            (browserExitPendingBefore && !browserExitPending)
+            (browserExitPendingBefore && !browserExitPending) ||
+            (reparentFocusPendingBefore && !reparentFocusPending)
 
         if didMakeProgress {
             layoutFollowUpStalledAttemptCount = 0

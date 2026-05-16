@@ -3875,6 +3875,31 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testLayoutFollowUpClearsPendingReparentSuppressionWithoutResponderEvent() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+
+        workspace.debugBeginReparentFocusSuppressionForTesting(
+            panel.hostedView,
+            reason: "workspace.testReparentSuppression"
+        )
+        XCTAssertTrue(workspace.debugHasPendingReparentFocusSuppressionsForTesting())
+        XCTAssertTrue(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
+
+        workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+
+        XCTAssertFalse(workspace.debugHasPendingReparentFocusSuppressionsForTesting())
+        XCTAssertFalse(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 

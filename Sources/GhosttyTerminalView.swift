@@ -7244,7 +7244,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
-                terminalSurface?.hostedView.noteSuppressedReparentFirstResponder()
 #if DEBUG
                 cmuxDebugLog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -9787,7 +9786,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
-    private var didSuppressReparentFirstResponder = false
     private var lastSearchOverlayStateID: ObjectIdentifier?
     private weak var cachedOwningWorkspace: Workspace?
     private weak var observedWorkspaceTerminalScrollBar: Workspace?
@@ -11808,21 +11806,21 @@ final class GhosttySurfaceScrollView: NSView {
     /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
     func suppressReparentFocus() {
         surfaceView.suppressingReparentFocus = true
-        didSuppressReparentFirstResponder = false
     }
 
-    fileprivate func noteSuppressedReparentFirstResponder() {
-        didSuppressReparentFirstResponder = true
+    func isSuppressingReparentFocusForLayoutFollowUp() -> Bool {
+        surfaceView.suppressingReparentFocus
     }
 
     func canClearPendingReparentFocusSuppressionAfterLayoutAttempt() -> Bool {
-        !surfaceView.suppressingReparentFocus || didSuppressReparentFirstResponder
+        // After Workspace has flushed a layout follow-up, the protected reparent
+        // turn has passed even if AppKit never tried to focus this old view.
+        true
     }
 
     func clearReparentFocusSuppressionForPointerFocus() {
         guard surfaceView.suppressingReparentFocus else { return }
         surfaceView.suppressingReparentFocus = false
-        didSuppressReparentFirstResponder = false
 #if DEBUG
         cmuxDebugLog("focus.reparent.pointerClear surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -11830,7 +11828,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     func clearSuppressReparentFocus() {
         surfaceView.suppressingReparentFocus = false
-        didSuppressReparentFirstResponder = false
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
             return size.width > 1 && size.height > 1

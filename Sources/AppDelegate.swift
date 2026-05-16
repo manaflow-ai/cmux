@@ -12676,7 +12676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !flags.contains(.control) {
+            if !browserOmnibarShouldContinueControlNavigationRepeat(flags: flags) {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +

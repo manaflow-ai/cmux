@@ -35,6 +35,10 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
+    browserOmnibarNormalizedModifierFlags(flags) == [.control]
+}
+
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags == [] || normalizedFlags == [.shift]
