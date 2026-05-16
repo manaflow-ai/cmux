@@ -2557,6 +2557,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isWebViewDiscardedForMemory: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
     private var hiddenWebViewDiscardTimer: DispatchSourceTimer?
+    private var hiddenWebViewDiscardPolicyCancellable: AnyCancellable?
 
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
@@ -2917,6 +2918,16 @@ final class BrowserPanel: Panel, ObservableObject {
             cancelHiddenWebViewDiscard()
         } else {
             scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
+        }
+    }
+
+    private func installHiddenWebViewDiscardPolicyObserver() {
+        hiddenWebViewDiscardPolicyCancellable = NotificationCenter.default.publisher(
+            for: UserDefaults.didChangeNotification
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.reevaluateHiddenWebViewDiscardScheduling(reason: "policy_changed")
         }
     }
 
@@ -3475,6 +3486,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
+        installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
         ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
@@ -4586,7 +4598,6 @@ final class BrowserPanel: Panel, ObservableObject {
             preserveRestoredSessionHistory: navigation.preserveRestoredSessionHistory
         )
         pendingRemoteNavigation = nil
-        reevaluateHiddenWebViewDiscardScheduling(reason: "pending_remote_navigation_cleared")
     }
 
     private func performNavigation(
@@ -4791,6 +4802,8 @@ final class BrowserPanel: Panel, ObservableObject {
     deinit {
         hiddenWebViewDiscardTimer?.cancel()
         hiddenWebViewDiscardTimer = nil
+        hiddenWebViewDiscardPolicyCancellable?.cancel()
+        hiddenWebViewDiscardPolicyCancellable = nil
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil
         developerToolsTransitionSettleWorkItem?.cancel()
@@ -5179,6 +5192,10 @@ extension BrowserPanel {
     private func setPreferredDeveloperToolsVisible(_ next: Bool) {
         guard preferredDeveloperToolsVisible != next else { return }
         preferredDeveloperToolsVisible = next
+    }
+
+    private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
+        guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
     }
 
@@ -5211,6 +5228,7 @@ extension BrowserPanel {
                 guard !self.isDeveloperToolsVisible() else { return }
                 self.developerToolsDetachedOpenGraceDeadline = nil
                 self.setPreferredDeveloperToolsVisible(false)
+                self.reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
                 self.cancelDeveloperToolsRestoreRetry()
 #if DEBUG
                 cmuxDebugLog(
@@ -5406,6 +5424,7 @@ extension BrowserPanel {
         } else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
+            reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         }
 
         if visible != targetVisible {
@@ -5516,6 +5535,7 @@ extension BrowserPanel {
         }
         setPreferredDeveloperToolsVisible(false)
         developerToolsLastKnownVisibleAt = nil
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
     }
 
@@ -5573,6 +5593,7 @@ extension BrowserPanel {
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
 #if DEBUG
         cmuxDebugLog(
