@@ -521,6 +521,54 @@ struct BrowserPanelView: View {
         browserChromeStyle.omnibarPillBackgroundColor
     }
 
+    private var hasVisibleOmnibarSuggestions: Bool {
+        addressBarFocused && !omnibarState.suggestions.isEmpty && omnibarPillFrame.width > 0
+    }
+
+    private var shouldRenderOmnibarSuggestionsInPortal: Bool {
+        hasVisibleOmnibarSuggestions &&
+            panel.shouldRenderWebView &&
+            !panel.shouldUseLocalInlineDeveloperToolsHosting()
+    }
+
+    private var shouldRenderOmnibarSuggestionsInSwiftUI: Bool {
+        hasVisibleOmnibarSuggestions && !shouldRenderOmnibarSuggestionsInPortal
+    }
+
+    private var omnibarSuggestionsFrameInPortal: CGRect? {
+        guard shouldRenderOmnibarSuggestionsInPortal else { return nil }
+        let top = max(0, omnibarPillFrame.maxY + 3 - addressBarHeight)
+        let height = OmnibarSuggestionsView.popupHeight(for: omnibarState.suggestions)
+        guard omnibarPillFrame.width > 0, height > 0 else { return nil }
+        return CGRect(
+            x: omnibarPillFrame.minX,
+            y: top,
+            width: omnibarPillFrame.width,
+            height: height
+        )
+    }
+
+    private var portalOmnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration? {
+        guard let frame = omnibarSuggestionsFrameInPortal else { return nil }
+        return BrowserPortalOmnibarSuggestionsConfiguration(
+            panelId: panel.id,
+            popupFrame: frame,
+            colorScheme: browserChromeColorScheme,
+            engineName: searchEngine.displayName,
+            items: omnibarState.suggestions,
+            selectedIndex: omnibarState.selectedSuggestionIndex,
+            isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
+            searchSuggestionsEnabled: remoteSuggestionsEnabled,
+            onCommit: { item in
+                commitSuggestion(item)
+            },
+            onHighlight: { idx in
+                let effects = omnibarReduce(state: &omnibarState, event: .highlightIndex(idx))
+                applyOmnibarEffects(effects)
+            }
+        )
+    }
+
     private var developerToolsButtonHelp: String {
         let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
         let _ = keyboardShortcutSettingsObserver.revision
@@ -586,7 +634,7 @@ struct BrowserPanelView: View {
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
-            if addressBarFocused, !omnibarState.suggestions.isEmpty, omnibarPillFrame.width > 0 {
+            if shouldRenderOmnibarSuggestionsInSwiftUI {
                 OmnibarSuggestionsView(
                     engineName: searchEngine.displayName,
                     items: omnibarState.suggestions,
@@ -1297,6 +1345,7 @@ struct BrowserPanelView: View {
                             onFieldDidFocus: { panel.noteFindFieldFocused() }
                         )
                     },
+                    omnibarSuggestions: portalOmnibarSuggestions,
                     paneTopChromeHeight: addressBarHeight
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
@@ -2055,6 +2104,12 @@ struct BrowserPanelView: View {
         isLoadingRemoteSuggestions = false
 
         guard addressBarFocused else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.omnibar.suggestions refresh=skip_unfocused " +
+                "panel=\(panel.id.uuidString.prefix(5)) bufferLen=\(omnibarState.buffer.utf8.count)"
+            )
+#endif
             let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
             applyOmnibarEffects(effects)
             return
@@ -2088,6 +2143,15 @@ struct BrowserPanelView: View {
         let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(items))
         applyOmnibarEffects(effects)
         refreshInlineCompletion()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.omnibar.suggestions refresh=local " +
+            "panel=\(panel.id.uuidString.prefix(5)) queryLen=\(query.utf8.count) " +
+            "items=\(items.count) history=\(historyEntries.count) openTabs=\(openTabMatches.count) " +
+            "staleRemote=\(staleRemote.count) frameWidth=\(String(format: "%.1f", omnibarPillFrame.width)) " +
+            "portal=\(shouldRenderOmnibarSuggestionsInPortal ? 1 : 0)"
+        )
+#endif
 
         guard !query.isEmpty else { return }
 
@@ -2106,6 +2170,12 @@ struct BrowserPanelView: View {
             let forcedEffects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
             applyOmnibarEffects(forcedEffects)
             refreshInlineCompletion()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.omnibar.suggestions refresh=forcedRemote " +
+                "panel=\(panel.id.uuidString.prefix(5)) queryLen=\(query.utf8.count) items=\(merged.count)"
+            )
+#endif
             return
         }
 
@@ -2139,6 +2209,13 @@ struct BrowserPanelView: View {
                 applyOmnibarEffects(effects)
                 refreshInlineCompletion()
                 isLoadingRemoteSuggestions = false
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.omnibar.suggestions refresh=remote " +
+                    "panel=\(panel.id.uuidString.prefix(5)) queryLen=\(query.utf8.count) " +
+                    "remote=\(remote.count) items=\(merged.count)"
+                )
+#endif
             }
         }
     }
@@ -4221,7 +4298,7 @@ private func browserOmnibarField(for responder: NSResponder?) -> OmnibarNativeTe
     return nil
 }
 
-private struct OmnibarSuggestionsView: View {
+struct OmnibarSuggestionsView: View {
     let engineName: String
     let items: [OmnibarSuggestion]
     let selectedIndex: Int
@@ -4233,14 +4310,22 @@ private struct OmnibarSuggestionsView: View {
 
     // Keep radii below half of the smallest rendered heights so this keeps a
     // squircle silhouette instead of auto-clamping into a capsule.
-    private let popupCornerRadius: CGFloat = 12
-    private let rowHighlightCornerRadius: CGFloat = 9
-    private let singleLineRowHeight: CGFloat = 24
-    private let rowSpacing: CGFloat = 1
-    private let topInset: CGFloat = 3
-    private let bottomInset: CGFloat = 3
+    private static let popupCornerRadius: CGFloat = 12
+    private static let rowHighlightCornerRadius: CGFloat = 9
+    private static let singleLineRowHeight: CGFloat = 24
+    private static let rowSpacing: CGFloat = 1
+    private static let topInset: CGFloat = 3
+    private static let bottomInset: CGFloat = 3
+    private static let maxPopupHeight: CGFloat = 560
+
+    private var popupCornerRadius: CGFloat { Self.popupCornerRadius }
+    private var rowHighlightCornerRadius: CGFloat { Self.rowHighlightCornerRadius }
+    private var singleLineRowHeight: CGFloat { Self.singleLineRowHeight }
+    private var rowSpacing: CGFloat { Self.rowSpacing }
+    private var topInset: CGFloat { Self.topInset }
+    private var bottomInset: CGFloat { Self.bottomInset }
     private var horizontalInset: CGFloat { topInset }
-    private let maxPopupHeight: CGFloat = 560
+    private var maxPopupHeight: CGFloat { Self.maxPopupHeight }
 
     private var totalRowCount: Int {
         max(1, items.count)
@@ -4268,7 +4353,18 @@ private struct OmnibarSuggestionsView: View {
     }
 
     private var popupHeight: CGFloat {
-        snapToDevicePixels(min(max(contentHeight, minimumPopupHeight), maxPopupHeight))
+        Self.popupHeight(for: items)
+    }
+
+    static func popupHeight(for items: [OmnibarSuggestion]) -> CGFloat {
+        let totalRowCount = max(1, items.count)
+        let rowsHeight = items.isEmpty ? singleLineRowHeight : CGFloat(items.count) * singleLineRowHeight
+        let gaps = CGFloat(max(0, totalRowCount - 1))
+        let contentHeight = rowsHeight + (gaps * rowSpacing) + topInset + bottomInset
+        let minimumPopupHeight = singleLineRowHeight + topInset + bottomInset
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let height = min(max(contentHeight, minimumPopupHeight), maxPopupHeight)
+        return (height * scale).rounded(.toNearestOrAwayFromZero) / scale
     }
 
     private var isPointerDrivenSelectionEvent: Bool {
@@ -4530,6 +4626,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let portalZPriority: Int
     let paneDropZone: DropZone?
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
+    let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
     let paneTopChromeHeight: CGFloat
 
     final class Coordinator {
@@ -6595,6 +6692,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         if host.window != nil, portalHostAccepted {
             Self.installPortalAnchorView(portalAnchorView, in: host)
         }
+        let activeOmnibarSuggestions = coordinator.desiredPortalVisibleInUI ? omnibarSuggestions : nil
 
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
@@ -6625,6 +6723,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
@@ -6660,6 +6759,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
                 BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+                BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
@@ -6707,6 +6807,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
             if !shouldBindNow,
                coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
                 BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
@@ -6737,6 +6838,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 context: activePaneDropContext
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
         }
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()

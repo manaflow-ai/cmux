@@ -2544,6 +2544,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2586,6 +2587,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2647,6 +2649,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -2730,6 +2733,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 

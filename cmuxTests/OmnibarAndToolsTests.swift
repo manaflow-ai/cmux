@@ -739,6 +739,50 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
 }
 
 @MainActor
+final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
+    func testPortalSuggestionsOverlayPassesHitTestingOutsidePopupFrame() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 420, height: 260))
+        let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
+        let popupFrame = CGRect(
+            x: 40,
+            y: 12,
+            width: 220,
+            height: OmnibarSuggestionsView.popupHeight(for: [item])
+        )
+
+        slot.setOmnibarSuggestions(
+            BrowserPortalOmnibarSuggestionsConfiguration(
+                panelId: UUID(),
+                popupFrame: popupFrame,
+                colorScheme: .dark,
+                engineName: "Google",
+                items: [item],
+                selectedIndex: 0,
+                isLoadingRemoteSuggestions: false,
+                searchSuggestionsEnabled: true,
+                onCommit: { _ in XCTFail("Unexpected commit") },
+                onHighlight: { _ in XCTFail("Unexpected highlight") }
+            )
+        )
+        slot.layoutSubtreeIfNeeded()
+
+        let overlay = slot.subviews.first {
+            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
+        }
+        XCTAssertNotNil(overlay)
+        guard let overlay else { return }
+
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 8, y: 8)))
+
+        let insideTopLeftPoint = NSPoint(x: popupFrame.midX, y: popupFrame.midY)
+        let insidePoint = overlay.isFlipped
+            ? insideTopLeftPoint
+            : NSPoint(x: insideTopLeftPoint.x, y: overlay.bounds.height - insideTopLeftPoint.y)
+        XCTAssertNotNil(overlay.hitTest(insidePoint))
+    }
+}
+
+@MainActor
 private final class OmnibarInlineDeletionHarness {
     var state = OmnibarState()
     var inlineCompletion: OmnibarInlineCompletion?
