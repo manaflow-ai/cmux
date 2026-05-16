@@ -9479,7 +9479,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -19909,7 +19909,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.createConfigDirIfMissing {
                 try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
             } else {
-                print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
+                print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
                 return
             }
         }

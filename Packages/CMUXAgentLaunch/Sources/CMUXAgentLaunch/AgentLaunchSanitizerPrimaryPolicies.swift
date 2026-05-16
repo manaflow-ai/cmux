@@ -180,7 +180,9 @@ extension AgentLaunchSanitizer {
             "--rules",
             "--sandbox",
             "--system-prompt-override",
-            "--tools"
+            "--tools",
+            "--worktree",
+            "-w"
         ],
         nonRestorableCommands: [
             "agent",

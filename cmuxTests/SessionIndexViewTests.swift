@@ -84,6 +84,25 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testGrokResumeCommandPreservesSpecifics() {
+        let entry = makeEntry(
+            agent: .grok,
+            sessionId: "grok-session-123",
+            title: "resume me",
+            specifics: .grok(
+                model: "grok-4",
+                permissionMode: "auto",
+                sandboxMode: "danger-full-access",
+                grokHome: "/tmp/grok home"
+            )
+        )
+
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "env GROK_HOME='/tmp/grok home' grok -r grok-session-123 -m grok-4 --permission-mode auto --sandbox danger-full-access"
+        )
+    }
+
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
         var emittedValues: [String?] = []
@@ -233,7 +252,8 @@ final class SessionIndexViewTests: XCTestCase {
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        specifics: AgentSpecifics? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
@@ -245,7 +265,7 @@ final class SessionIndexViewTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: agent.defaultSpecificsForTesting
+            specifics: specifics ?? agent.defaultSpecificsForTesting
         )
     }
 
@@ -335,7 +355,7 @@ private extension SessionAgent {
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
         case .grok:
-            return .grok
+            return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
         case .opencode:
             return .opencode(providerModel: nil, agentName: nil)
         case .rovodev:

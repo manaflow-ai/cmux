@@ -46,9 +46,18 @@ extension CMUXCLI {
 
         /// Resolves the config directory, respecting env override if set.
         func resolvedConfigDir() -> String {
+            let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            } ?? NSHomeDirectory()
             if let envKey = configDirEnvOverride,
-               let envValue = ProcessInfo.processInfo.environment[envKey],
-               !envValue.isEmpty {
+               let rawEnvValue = ProcessInfo.processInfo.environment[envKey] {
+                let envValue = rawEnvValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !envValue.isEmpty else {
+                    return URL(fileURLWithPath: home, isDirectory: true)
+                        .appendingPathComponent(configDir, isDirectory: true)
+                        .path
+                }
                 var url = URL(fileURLWithPath: NSString(string: envValue).expandingTildeInPath, isDirectory: true)
                 if let subpath = configDirEnvOverrideSubpath,
                    !subpath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -56,10 +65,6 @@ extension CMUXCLI {
                 }
                 return url.path
             }
-            let home = ProcessInfo.processInfo.environment["HOME"].flatMap { value -> String? in
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            } ?? NSHomeDirectory()
             return URL(fileURLWithPath: home, isDirectory: true)
                 .appendingPathComponent(configDir, isDirectory: true)
                 .path
@@ -133,6 +138,8 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                // Grok emits user-facing notifications through this hook;
+                // route them through the same completion path as Stop.
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],

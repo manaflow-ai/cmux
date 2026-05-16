@@ -194,7 +194,7 @@ struct PullRequestLink: Hashable {
 enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
-    case grok
+    case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
@@ -267,8 +267,22 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
             return parts.joined(separator: " ")
-        case .grok:
-            return "grok -r \(Self.shellQuote(sessionId))"
+        case let .grok(model, permissionMode, sandboxMode, grokHome):
+            var parts = ["grok -r \(Self.shellQuote(sessionId))"]
+            if let model, !model.isEmpty {
+                parts.append("-m \(Self.shellQuote(model))")
+            }
+            if let permissionMode, !permissionMode.isEmpty {
+                parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
+            }
+            if let sandboxMode, !sandboxMode.isEmpty {
+                parts.append("--sandbox \(Self.shellQuote(sandboxMode))")
+            }
+            let environment = grokHome.flatMap { value -> [String: String]? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : ["GROK_HOME": trimmed]
+            } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
