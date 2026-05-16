@@ -958,6 +958,9 @@ private enum CLISocketPathResolver {
             candidates.append("/tmp/cmux-debug-\(slug).sock")
             candidates.append("/tmp/cmux-\(slug).sock")
         }
+        if let bundledTaggedPath = bundledTaggedDebugSocketPath() {
+            candidates.append(bundledTaggedPath)
+        }
 
         candidates.append(requestedPath)
         candidates.append(defaultSocketPath)
@@ -969,6 +972,70 @@ private enum CLISocketPathResolver {
             candidates.append(last)
         }
         return candidates
+    }
+
+    private static func bundledTaggedDebugSocketPath() -> String? {
+        guard let executableURL = currentExecutableURL(),
+              let appBundleURL = containingAppBundleURL(for: executableURL),
+              let bundleIdentifier = bundleIdentifier(from: appBundleURL) else {
+            return nil
+        }
+        return taggedDebugSocketPath(bundleIdentifier: bundleIdentifier)
+    }
+
+    private static func currentExecutableURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = Array<CChar>(repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+            }
+        }
+        return Bundle.main.executableURL?.standardizedFileURL
+    }
+
+    private static func containingAppBundleURL(for executableURL: URL) -> URL? {
+        var current = executableURL.standardizedFileURL
+        while true {
+            if current.pathExtension == "app" {
+                return current
+            }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != current.path else {
+                return nil
+            }
+            current = parent
+        }
+    }
+
+    private static func bundleIdentifier(from appBundleURL: URL) -> String? {
+        let infoURL = appBundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist", isDirectory: false)
+        guard let data = try? Data(contentsOf: infoURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+              let info = plist as? [String: Any],
+              let rawIdentifier = info["CFBundleIdentifier"] as? String else {
+            return nil
+        }
+        let identifier = rawIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return identifier.isEmpty ? nil : identifier
+    }
+
+    private static func taggedDebugSocketPath(bundleIdentifier: String) -> String? {
+        let prefix = "com.cmuxterm.app.debug."
+        guard bundleIdentifier.hasPrefix(prefix) else {
+            return nil
+        }
+        let suffix = String(bundleIdentifier.dropFirst(prefix.count))
+        let slug = suffix
+            .replacingOccurrences(of: ".", with: "-")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        guard !slug.isEmpty else {
+            return nil
+        }
+        return "/tmp/cmux-debug-\(slug).sock"
     }
 
     private static func readLastSocketPath() -> String? {
