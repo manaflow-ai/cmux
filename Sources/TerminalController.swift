@@ -6858,28 +6858,28 @@ class TerminalController {
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
+            let runtimeSurface = terminalPanel.surface.surface
+            if let runtimeSurface,
+               ghostty_surface_process_exited(runtimeSurface) {
+                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            }
             let queued: Bool
-            if let surface = terminalPanel.surface.surface {
-                guard !ghostty_surface_process_exited(surface) else {
-                    result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
-                    return
-                }
-                guard terminalPanel.surface.sendInput(text) else {
-                    result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
-                    return
-                }
+            switch terminalPanel.surface.sendInputResult(text) {
+            case .sent:
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
                 queued = false
-            } else {
-                // Avoid blocking the main actor waiting for view/surface attachment.
-                guard terminalPanel.surface.sendInput(text) else {
-                    result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
-                    return
-                }
+            case .queued:
                 queued = true
+            case .inputQueueFull:
+                result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .surfaceUnavailable:
+                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+                return
             }
 #if DEBUG
             let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
@@ -6939,6 +6939,9 @@ class TerminalController {
                 return
             case .inputQueueFull:
                 result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .surfaceUnavailable:
+                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             }
             if surfaceWasReady {
@@ -15388,46 +15391,6 @@ class TerminalController {
         return result.isEmpty ? "ERROR: No tab selected" : result
     }
 
-    enum SocketTextChunk: Equatable {
-        case text(String)
-        case control(UnicodeScalar)
-    }
-
-    nonisolated static func socketTextChunks(_ text: String) -> [SocketTextChunk] {
-        guard !text.isEmpty else { return [] }
-
-        var chunks: [SocketTextChunk] = []
-        chunks.reserveCapacity(8)
-        var bufferedText = ""
-        bufferedText.reserveCapacity(text.count)
-
-        func flushBufferedText() {
-            guard !bufferedText.isEmpty else { return }
-            chunks.append(.text(bufferedText))
-            bufferedText.removeAll(keepingCapacity: true)
-        }
-
-        for scalar in text.unicodeScalars {
-            if isSocketControlScalar(scalar) {
-                flushBufferedText()
-                chunks.append(.control(scalar))
-            } else {
-                bufferedText.unicodeScalars.append(scalar)
-            }
-        }
-        flushBufferedText()
-        return chunks
-    }
-
-    private nonisolated static func isSocketControlScalar(_ scalar: UnicodeScalar) -> Bool {
-        switch scalar.value {
-        case 0x0A, 0x0D, 0x09, 0x1B, 0x7F:
-            return true
-        default:
-            return false
-        }
-    }
-
     private func sendInput(_ text: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -15455,14 +15418,21 @@ class TerminalController {
                 .replacingOccurrences(of: "\\t", with: "\t")
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
-            guard terminalPanel.surface.sendInput(unescaped) else {
+            switch terminalPanel.surface.sendInputResult(unescaped) {
+            case .sent:
+                if surfaceWasReady {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
+                }
+                success = true
+            case .queued:
+                success = true
+            case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
                 return
+            case .surfaceUnavailable:
+                error = Self.terminalProcessExitedSocketError
+                return
             }
-            if surfaceWasReady {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
-            }
-            success = true
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
@@ -15509,14 +15479,21 @@ class TerminalController {
                 .replacingOccurrences(of: "\\t", with: "\t")
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
-            guard terminalPanel.surface.sendInput(unescaped) else {
+            switch terminalPanel.surface.sendInputResult(unescaped) {
+            case .sent:
+                if surfaceWasReady {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
+                }
+                success = true
+            case .queued:
+                success = true
+            case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
                 return
+            case .surfaceUnavailable:
+                error = Self.terminalProcessExitedSocketError
+                return
             }
-            if surfaceWasReady {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
-            }
-            success = true
         }
 
         if let error { return error }
@@ -15588,14 +15565,21 @@ class TerminalController {
                 .replacingOccurrences(of: "\\t", with: "\t")
 
             let surfaceWasReady = terminalPanel.surface.surface != nil
-            guard terminalPanel.surface.sendInput(unescaped) else {
+            switch terminalPanel.surface.sendInputResult(unescaped) {
+            case .sent:
+                if surfaceWasReady {
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
+                }
+                success = true
+            case .queued:
+                success = true
+            case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
                 return
+            case .surfaceUnavailable:
+                error = Self.terminalProcessExitedSocketError
+                return
             }
-            if surfaceWasReady {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
-            }
-            success = true
         }
 
         if let error { return error }
@@ -15627,6 +15611,8 @@ class TerminalController {
                 error = "ERROR: Unknown key '\(keyName)'"
             case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
+            case .surfaceUnavailable:
+                error = Self.terminalProcessExitedSocketError
             }
         }
         if let error { return error }
@@ -15660,6 +15646,8 @@ class TerminalController {
                 error = "ERROR: Unknown key '\(keyName)'"
             case .inputQueueFull:
                 error = Self.terminalInputQueueFullSocketError
+            case .surfaceUnavailable:
+                error = Self.terminalProcessExitedSocketError
             }
         }
 
