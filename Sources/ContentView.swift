@@ -9764,6 +9764,7 @@ private struct CmuxExtensionTreeSectionHeader: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary.opacity(0.82))
                         .frame(width: 14, height: 14)
+                        .offset(y: section.systemImageName == "folder" ? -1 : 0)
 
                     Text(section.title)
                         .font(.system(size: 10.5, weight: .semibold))
