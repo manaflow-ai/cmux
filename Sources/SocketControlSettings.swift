@@ -299,8 +299,6 @@ struct SocketControlSettings {
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     private static let lastSocketPathFileName = "last-socket-path"
-    private static let processActiveSocketPathLock = NSLock()
-    private nonisolated(unsafe) static var processActiveSocketPathValue: String?
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
     static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
 
@@ -570,29 +568,6 @@ struct SocketControlSettings {
         if filePath != legacyLastSocketPathFile {
             writeSocketPathMarker(payload, to: legacyLastSocketPathFile)
         }
-    }
-
-    static func recordProcessActiveSocketPath(_ path: String) {
-        processActiveSocketPathLock.lock()
-        defer { processActiveSocketPathLock.unlock() }
-        processActiveSocketPathValue = path
-    }
-
-    static func clearProcessActiveSocketPath() {
-        processActiveSocketPathLock.lock()
-        defer { processActiveSocketPathLock.unlock() }
-        processActiveSocketPathValue = nil
-    }
-
-    static func resetProcessActiveSocketPathForTests() {
-        clearProcessActiveSocketPath()
-    }
-
-    static func processActiveSocketPath(preferredPath: String) -> String {
-        processActiveSocketPathLock.lock()
-        defer { processActiveSocketPathLock.unlock() }
-        let activePath = processActiveSocketPathValue
-        return activePath ?? preferredPath
     }
 
     static func shouldHonorSocketPathOverride(

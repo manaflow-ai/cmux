@@ -3412,6 +3412,102 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/stale tty scoped claude repo")
     }
 
+    func testProcessDetectionRemapsMovedCMUXScopedClaudeByFocusedTTYFallback() throws {
+        let oldWorkspaceId = UUID()
+        let oldPanelId = UUID()
+        let newWorkspaceId = UUID()
+        let newPanelId = UUID()
+        let ttyDevice: Int64 = 44_024
+        let scopedClaude = makeTopProcess(
+            pid: 10_024,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: oldWorkspaceId,
+            panelId: oldPanelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: newWorkspaceId,
+                panelId: newPanelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == scopedClaude.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        "6a4f9b09-7144-48b5-b5b6-76a3d9c4b490"
+                    ],
+                    environment: ["PWD": "/tmp/moved claude repo"]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, "6a4f9b09-7144-48b5-b5b6-76a3d9c4b490")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved claude repo")
+    }
+
+    func testProcessDetectionRemapsMovedCMUXScopedOpenCodeByFocusedTTYFallback() throws {
+        let oldWorkspaceId = UUID()
+        let oldPanelId = UUID()
+        let newWorkspaceId = UUID()
+        let newPanelId = UUID()
+        let ttyDevice: Int64 = 44_025
+        let scopedOpenCode = makeTopProcess(
+            pid: 10_025,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice,
+            workspaceId: oldWorkspaceId,
+            panelId: oldPanelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: newWorkspaceId,
+                panelId: newPanelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == scopedOpenCode.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/opt/homebrew/bin/opencode",
+                        "--session",
+                        "opencode-moved-session"
+                    ],
+                    environment: ["PWD": "/tmp/moved opencode repo"]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-moved-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved opencode repo")
+    }
+
     func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {
         let workspaceId = UUID()
         let panelId = UUID()

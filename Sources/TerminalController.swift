@@ -1042,11 +1042,17 @@ class TerminalController {
                 forDefaultPath: requestedPath,
                 currentUserID: currentUserID
             )
-        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
+        case "bind" where errnoCode == EADDRINUSE:
             return SocketControlSettings.userScopedFallbackSocketPath(
                 forDefaultPath: requestedPath,
                 currentUserID: currentUserID
             )
+        case "bind" where errnoCode == EACCES || errnoCode == EPERM:
+            guard requestedPath == SocketControlSettings.stableDefaultSocketPath ||
+                    requestedPath == SocketControlSettings.legacyStableDefaultSocketPath else {
+                return nil
+            }
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         default:
             return nil
         }
@@ -1203,7 +1209,6 @@ class TerminalController {
             return generation
         }
         listenerActivated = true
-        SocketControlSettings.recordProcessActiveSocketPath(activeSocketPath)
         let listenerSocket = newServerSocket
         print("TerminalController: Listening on \(activeSocketPath)")
         sentryBreadcrumb(
@@ -1384,7 +1389,6 @@ class TerminalController {
             close(socketToClose)
         }
         unlink(socketPathToUnlink)
-        SocketControlSettings.clearProcessActiveSocketPath()
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {

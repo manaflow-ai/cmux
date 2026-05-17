@@ -28,7 +28,7 @@ extension TerminalSurface {
 
     static func managedSocketPath(
         preferredPath: String = SocketControlSettings.socketPath(),
-        activeSocketPath: (String) -> String = SocketControlSettings.processActiveSocketPath(preferredPath:)
+        activeSocketPath: (String) -> String = TerminalController.shared.activeSocketPath(preferredPath:)
     ) -> String {
         activeSocketPath(preferredPath)
     }

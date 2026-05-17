@@ -9574,6 +9574,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
     func recordCurrentSessionSurfaceTTY(_ ttyName: String, forPanelId panelId: UUID) {
         let trimmedTTY = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTTY.isEmpty else { return }
@@ -9581,10 +9582,12 @@ final class Workspace: Identifiable, ObservableObject {
         currentSessionReportedTTYPanelIds.insert(panelId)
     }
 
+    @MainActor
     func hasCurrentSessionReportedTTY(forPanelId panelId: UUID) -> Bool {
         currentSessionReportedTTYPanelIds.contains(panelId)
     }
 
+    @MainActor
     func clearCurrentSessionSurfaceTTYReport(forPanelId panelId: UUID) {
         currentSessionReportedTTYPanelIds.remove(panelId)
     }

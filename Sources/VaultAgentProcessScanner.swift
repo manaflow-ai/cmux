@@ -295,6 +295,7 @@ extension RestorableAgentSessionIndex {
     ) -> [RestorableAgentProcessDetectionCandidate] {
         var candidates: [RestorableAgentProcessDetectionCandidate] = []
         var seenPIDs = Set<Int>()
+        var scopedPanelKeysByPID: [Int: PanelKey] = [:]
         let fallbackScopedPIDs: Set<Int>? = {
             guard let fallbackScope,
                   fallbackScope.ttyDevice != nil || fallbackScope.ttyName != nil else {
@@ -315,9 +316,11 @@ extension RestorableAgentSessionIndex {
                 continue
             }
             seenPIDs.insert(process.pid)
+            let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            scopedPanelKeysByPID[process.pid] = panelKey
             candidates.append(
                 RestorableAgentProcessDetectionCandidate(
-                    panelKey: PanelKey(workspaceId: workspaceId, panelId: panelId),
+                    panelKey: panelKey,
                     process: process,
                     arguments: arguments,
                     source: .cmuxScoped,
@@ -331,15 +334,26 @@ extension RestorableAgentSessionIndex {
             processSnapshot: processSnapshot,
             fallbackScope: fallbackScope
         )
-        for process in fallbackProcesses where !seenPIDs.contains(process.pid) {
-            guard processMatchesFallbackScope(process, fallbackScope: fallbackScope),
+        let fallbackPanelKey = PanelKey(workspaceId: fallbackScope.workspaceId, panelId: fallbackScope.panelId)
+        for process in fallbackProcesses {
+            let scopedPanelKey = scopedPanelKeysByPID[process.pid]
+            if scopedPanelKey == fallbackPanelKey {
+                continue
+            }
+            guard !seenPIDs.contains(process.pid) || scopedPanelKeysByPID[process.pid] != nil else {
+                continue
+            }
+            let canUseFallbackScope = scopedPanelKey != nil
+                ? process.canBeActiveAgentProcess
+                : processMatchesFallbackScope(process, fallbackScope: fallbackScope)
+            guard canUseFallbackScope,
                   let arguments = processArguments(process.pid) else {
                 continue
             }
             seenPIDs.insert(process.pid)
             candidates.append(
                 RestorableAgentProcessDetectionCandidate(
-                    panelKey: PanelKey(workspaceId: fallbackScope.workspaceId, panelId: fallbackScope.panelId),
+                    panelKey: fallbackPanelKey,
                     process: process,
                     arguments: arguments,
                     source: .fallbackScope,
