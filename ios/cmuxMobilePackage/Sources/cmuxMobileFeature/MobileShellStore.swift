@@ -441,11 +441,13 @@ public final class CMUXMobileShellStore {
         guard let normalizedHost = Self.normalizedManualHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionState = .disconnected
+            clearRemoteConnectionContext()
             return
         }
         guard (1...65535).contains(port) else {
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             connectionState = .disconnected
+            clearRemoteConnectionContext()
             return
         }
 
@@ -460,8 +462,7 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
-            clearActiveConnectionContext()
-            remoteClient = nil
+            clearRemoteConnectionContext()
         }
     }
 
@@ -501,9 +502,7 @@ public final class CMUXMobileShellStore {
         } catch {
             connectionError = L10n.string("mobile.pairing.invalidCode", defaultValue: "Invalid pairing code.")
             connectionState = .disconnected
-            remoteClient = nil
-            activeTicket = nil
-            activeRoute = nil
+            clearRemoteConnectionContext()
             return
         }
 
@@ -513,8 +512,7 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
-            clearActiveConnectionContext()
-            remoteClient = nil
+            clearRemoteConnectionContext()
         }
     }
 
@@ -766,7 +764,7 @@ public final class CMUXMobileShellStore {
         guard let route = ticket.preferredRoute(supportedKinds: supportedKinds) else {
             connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code uses an unsupported route.")
             connectionState = .disconnected
-            clearActiveConnectionContext()
+            clearRemoteConnectionContext()
             return
         }
 
@@ -811,6 +809,11 @@ public final class CMUXMobileShellStore {
         activeTicket = nil
         activeRoute = nil
         connectedHostName = ""
+    }
+
+    private func clearRemoteConnectionContext() {
+        clearActiveConnectionContext()
+        remoteClient = nil
     }
 
     private func syncSelectedTerminalForWorkspace() {

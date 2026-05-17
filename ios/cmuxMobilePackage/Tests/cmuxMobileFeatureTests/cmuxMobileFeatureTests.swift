@@ -474,6 +474,66 @@ import Testing
 }
 
 @MainActor
+@Test func unsupportedAttachTicketClearsPreviousRemoteClient() async throws {
+    let supportedRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let supportedTicket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [supportedRoute],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["ready"]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: supportedTicket).absoluteString)
+    #expect(store.phase == .workspaces)
+
+    let unsupportedRoute = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(id: "iroh-peer", relayHint: nil, directAddrs: [], relayURL: nil)
+    )
+    let unsupportedTicket = try CmxAttachTicket(
+        workspaceID: "iroh-workspace",
+        terminalID: "iroh-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [unsupportedRoute],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    await store.connectPairingURL(try attachURL(for: unsupportedTicket).absoluteString)
+
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "This pairing code uses an unsupported route.")
+
+    store.terminalInputText = "echo should-not-hit-old-host"
+    await store.submitTerminalInput()
+
+    let requests = try await responses.sentRequests()
+    #expect(requests.contains { $0.method == "workspace.list" })
+    #expect(requests.contains { $0.method == "terminal.snapshot" })
+    #expect(!requests.contains { $0.method == "terminal.input" })
+}
+
+@MainActor
 @Test func manualFallbackTicketListsWorkspacesWithoutSyntheticWorkspaceFilter() async throws {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "ticket unavailable"),
