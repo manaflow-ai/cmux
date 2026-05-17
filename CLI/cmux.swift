@@ -17116,7 +17116,7 @@ struct CMUXCLI {
         let subtitle = String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting")
         let body = describeAskUserQuestion(object) ?? String(
             localized: "agent.claude.input.body.askingQuestion",
-            defaultValue: "Claude is asking a question"
+            defaultValue: "The assistant is asking a question"
         )
         return (subtitle, body)
     }
@@ -17140,7 +17140,7 @@ struct CMUXCLI {
         let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
 
         if let sessionId {
-            try? sessionStore.upsert(
+            try sessionStore.upsert(
                 sessionId: sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -17152,7 +17152,7 @@ struct CMUXCLI {
         }
 
         let statusValue = String(localized: "agent.claude.input.status.needsInput", defaultValue: "Needs input")
-        _ = try? setClaudeStatus(
+        try setClaudeStatus(
             client: client,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -17327,7 +17327,7 @@ struct CMUXCLI {
         if parts.isEmpty {
             return redactClaudeSensitiveSpans(String(
                 localized: "agent.claude.input.body.askingQuestion",
-                defaultValue: "Claude is asking a question"
+                defaultValue: "The assistant is asking a question"
             ))
         }
         return redactClaudeSensitiveSpans(parts.joined(separator: "\n"))

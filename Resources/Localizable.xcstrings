@@ -20746,13 +20746,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude is asking a question"
+            "value": "The assistant is asking a question"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude が質問しています"
+            "value": "アシスタントが質問しています"
           }
         }
       }
