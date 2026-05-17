@@ -201,6 +201,39 @@ struct WorkstreamAgentGraphTests {
         #expect(children.map(\.workstreamId) == ["claude-child"])
     }
 
+    @Test("Metadata-light child before spawn suppresses duplicate pending spawn")
+    func metadataLightChildBeforeSpawnSuppressesDuplicatePendingSpawn() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        #expect(graph.nodeCount == 2)
+        #expect(graph.edgeCount == 1)
+        let children = graph.roots.first?.children ?? []
+        #expect(children.map(\.kind) == [.session])
+        #expect(children.map(\.workstreamId) == ["claude-child"])
+    }
+
     @Test("Ambiguous child matches before spawn keep pending spawn")
     func ambiguousChildMatchesBeforeSpawnKeepPendingSpawn() {
         let store = WorkstreamStore(ringCapacity: 10)

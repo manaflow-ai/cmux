@@ -34,7 +34,6 @@ struct FeedKeyboardFocusBridge: NSViewRepresentable {
         nsView.onFocusFirstItemRequested = onFocusFirstItemRequested
         nsView.onFocusChanged = onFocusChanged
         nsView.onFocusSnapshotChanged = onFocusSnapshotChanged
-        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 

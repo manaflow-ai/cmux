@@ -536,7 +536,6 @@ private struct SpawnRecord {
 
     func resolutionScore(matching record: SessionRecord) -> Int {
         var score = 0
-        var hasMetadataMatch = false
         if source == record.source {
             score += SpawnResolutionScore.existingChildSource
         }
@@ -549,21 +548,18 @@ private struct SpawnRecord {
            let recordSubagentType = record.subagentType,
            subagentType == recordSubagentType {
             score += SpawnResolutionScore.subagentType
-            hasMetadataMatch = true
         }
         if let model,
            let recordModel = record.model,
            model == recordModel {
             score += SpawnResolutionScore.model
-            hasMetadataMatch = true
         }
         if let taskDescription,
            let recordTaskDescription = record.taskDescription,
            taskDescription == recordTaskDescription {
             score += SpawnResolutionScore.taskDescription
-            hasMetadataMatch = true
         }
-        return hasMetadataMatch ? score : 0
+        return score
     }
 }
 
