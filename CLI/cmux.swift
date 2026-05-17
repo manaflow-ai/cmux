@@ -17820,9 +17820,17 @@ struct CMUXCLI {
     }
 
     private struct CodexHookFailureSummary {
+        let kind: CodexHookFailureKind
         let statusValue: String
         let subtitle: String
         let body: String
+    }
+
+    private enum CodexHookFailureKind {
+        case rateLimit
+        case auth
+        case network
+        case generic
     }
 
     private struct CodexHookFailureCandidate {
@@ -18370,11 +18378,13 @@ struct CMUXCLI {
 
         let subtitle: String
         let statusValue: String
+        let kind: CodexHookFailureKind
         if signal.contains("usage_limit") ||
             signal.contains("usage limit") ||
             signal.contains("rate_limit") ||
             signal.contains("rate limit") ||
             signal.contains("credits") {
+            kind = .rateLimit
             subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
             statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
         } else if signal.contains("unauthorized") ||
@@ -18382,6 +18392,7 @@ struct CMUXCLI {
                     signal.contains("access token") ||
                     signal.contains("sign in") ||
                     signal.contains("login") {
+            kind = .auth
             subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error")
             statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error")
         } else if signal.contains("response_stream") ||
@@ -18391,19 +18402,47 @@ struct CMUXCLI {
                     signal.contains("offline") ||
                     signal.contains("timed out") ||
                     signal.contains("timeout") {
+            kind = .network
             subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error")
             statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error")
         } else {
+            kind = .generic
             subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error")
             statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error")
         }
 
         let detail = candidate.additionalDetails ?? candidate.message
         return CodexHookFailureSummary(
+            kind: kind,
             statusValue: statusValue,
             subtitle: subtitle,
             body: truncate(normalizedSingleLine(detail), maxLength: 220)
         )
+    }
+
+    private func codexMonitorFailureNotificationBody(kind: CodexHookFailureKind) -> String {
+        switch kind {
+        case .rateLimit:
+            return String(
+                localized: "agent.codex.error.body.rateLimit",
+                defaultValue: "Codex stopped because the account is out of usage."
+            )
+        case .auth:
+            return String(
+                localized: "agent.codex.error.body.auth",
+                defaultValue: "Codex stopped because authentication needs attention."
+            )
+        case .network:
+            return String(
+                localized: "agent.codex.error.body.network",
+                defaultValue: "Codex stopped because the connection failed."
+            )
+        case .generic:
+            return String(
+                localized: "agent.codex.error.body.generic",
+                defaultValue: "Codex stopped before completing the turn."
+            )
+        }
     }
 
     private func codexHookStringValue(_ rawValue: Any?) -> String? {
@@ -18873,7 +18912,8 @@ struct CMUXCLI {
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            let body = codexMonitorFailureNotificationBody(kind: summary.kind)
+            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(body))"
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(

@@ -2956,7 +2956,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn.")
             },
             "Expected monitor to send no-final-response notification, saw \(state.commands)"
         )
@@ -3036,7 +3036,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Codex stopped because the connection failed.")
             },
             "Expected monitor to send stream error notification before terminal completion, saw \(state.commands)"
         )
@@ -3135,7 +3135,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|You've hit your usage limit. Try again later.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|Codex stopped because the account is out of usage.")
             },
             "Expected monitor to send usage-limit notification after unscoped abort, saw \(state.commands)"
         )
@@ -3235,7 +3235,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertFalse(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|")
             },
             "Did not expect monitor to publish stale pre-lease abort notification, saw \(state.commands)"
         )
@@ -3516,7 +3516,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn.")
             },
             "Expected monitor to recover from stale transcript path, saw \(state.commands)"
         )
@@ -3633,7 +3633,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Codex stopped because the connection failed.")
             },
             "Expected monitor to ignore old unscoped terminal event and report scoped stream error, saw \(state.commands)"
         )

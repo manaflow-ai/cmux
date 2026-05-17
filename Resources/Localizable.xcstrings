@@ -20791,6 +20791,74 @@
         }
       }
     },
+    "agent.codex.error.body.auth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex stopped because authentication needs attention."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証に対応が必要なため、Codex は停止しました。"
+          }
+        }
+      }
+    },
+    "agent.codex.error.body.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex stopped before completing the turn."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターンが完了する前に Codex は停止しました。"
+          }
+        }
+      }
+    },
+    "agent.codex.error.body.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex stopped because the connection failed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続に失敗したため、Codex は停止しました。"
+          }
+        }
+      }
+    },
+    "agent.codex.error.body.rateLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex stopped because the account is out of usage."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの使用量が不足したため、Codex は停止しました。"
+          }
+        }
+      }
+    },
     "agent.codex.error.status.auth": {
       "extractionState": "manual",
       "localizations": {
