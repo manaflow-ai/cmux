@@ -77,6 +77,36 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testCursorResumeCommandDropsCapturedNodeRuntimeFlags() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .cursor,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "~/.cursor",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "cursor",
+                executablePath: "/usr/local/bin/agent",
+                arguments: [
+                    "/usr/local/bin/agent",
+                    "agent",
+                    "--use-system-ca",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-chat"
+                ],
+                workingDirectory: "~/.cursor",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '~/.cursor' && '/usr/local/bin/agent' '--resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
+        )
+    }
+
     func testAdditionalHookAgentResumeCommandsUseVerifiedCLIResumeFlags() {
         let cursor = SessionRestorableAgentSnapshot(
             kind: .cursor,
@@ -219,6 +249,31 @@ extension SocketListenerAcceptPolicyTests {
                 workingDirectory: "/tmp/pi repo", environment: ["PI_CODING_AGENT_DIR": "/tmp/pi home", "OPENAI_API_KEY": "secret"], capturedAt: 123, source: "process"
             )
         )
+        let amp = SessionRestorableAgentSnapshot(
+            kind: .amp,
+            sessionId: "T-019e032c-c31a-77a9-ad87-8298ec47029f",
+            workingDirectory: "/tmp/amp repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "amp",
+                executablePath: "/Users/example/.local/bin/amp",
+                arguments: [
+                    "/Users/example/.local/bin/amp",
+                    "threads",
+                    "continue",
+                    "T-old-thread",
+                    "-l",
+                    "scratch",
+                    "--mode",
+                    "smart",
+                    "--effort",
+                    "high"
+                ],
+                workingDirectory: "/tmp/amp repo",
+                environment: ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json", "OPENAI_API_KEY": "secret"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
 
         XCTAssertEqual(
             cursor.resumeCommand,
@@ -241,6 +296,10 @@ extension SocketListenerAcceptPolicyTests {
             "cd '/tmp/qoder repo' && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan' '--workspace' '/tmp/qoder repo'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
+        XCTAssertEqual(
+            amp.resumeCommand,
+            "cd '/tmp/amp repo' && 'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"
+        )
     }
 
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {
@@ -462,6 +521,29 @@ extension SocketListenerAcceptPolicyTests {
                 "/tmp/factory repo",
                 "--append-system-prompt",
                 "be terse"
+            ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.local/bin/amp",
+                    "threads",
+                    "continue",
+                    "T-old-thread",
+                    "--mode",
+                    "smart",
+                    "--effort",
+                    "high"
+                ],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ),
+            [
+                "/Users/example/.local/bin/amp",
+                "--mode",
+                "smart",
+                "--effort",
+                "high"
             ]
         )
         XCTAssertEqual(

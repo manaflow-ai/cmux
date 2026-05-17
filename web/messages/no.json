@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux-passthrough",
       "tmuxDesc": "Hvis du bruker tmux inne i cmux, aktiver passthrough:",
-      "metaTitle": "Varsler"
+      "metaTitle": "Varsler",
+      "hooksTitle": "Varslings-hooks",
+      "hooksIntro": "<config>cmux.json</config> kan definere varslings-hooks som mottar hver varslingspolicy som JSON på stdin. Hver hook returnerer JSON på stdout. Hooks er av som standard; cmux kjører dem bare når <hooksMode>notifications.hooks</hooksMode> inneholder minst én aktivert hook. cmux bruker den returnerte varslingsteksten og effektene, slik at hooks kan filtrere bannere, beholde eller hoppe over sidepanelhistorikk, spille av lyder eller stoppe senere hooks.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Hook-inndata og -utdata",
+      "hooksDetails": "Hooks arves fra global <globalConfig>~/.config/cmux/cmux.json</globalConfig> og prosjektfilene <projectConfig>.cmux/cmux.json</projectConfig> fra overordnede mapper til gjeldende workspace. Prosjekt-hooks bruker samme tillitsdialog som andre prosjektkommandoer i <config>cmux.json</config> før de kjører. Feed-godkjenningsbannere går også gjennom disse hookene; å deaktivere <desktop>desktop</desktop> skjuler det innebygde banneret mens Feed-elementet fortsatt er tilgjengelig i cmux. Sett <hooksMode>notifications.hooksMode</hooksMode> til <replace>replace</replace> i en prosjektkonfigurasjon for å ignorere arvede hooks. Hvis en hook feiler, får tidsavbrudd eller returnerer ugyldig JSON, bruker cmux standard varslingsatferd og viser et hook-feilvarsel."
     },
     "browserAutomation": {
       "title": "Nettleserautomatisering",
