@@ -70,8 +70,16 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
           ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
 
       - name: Build tagged app
         run: ./scripts/reload.sh --tag "$PERF_TAG"

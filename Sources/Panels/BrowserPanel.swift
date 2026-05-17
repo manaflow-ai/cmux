@@ -981,6 +981,230 @@ struct BrowserPopupBrowserContext {
     let processPool: WKProcessPool
 }
 
+enum BrowserFileSystemAccessBridge {
+    static let scriptSource = """
+    (() => {
+      if (typeof window.showOpenFilePicker === "function") {
+        return true;
+      }
+      if (window.__cmuxFileSystemAccessBridgeInstalled) {
+        return true;
+      }
+      window.__cmuxFileSystemAccessBridgeInstalled = true;
+
+      const makeDOMException = (name, message) => {
+        try {
+          return new DOMException(message, name);
+        } catch (_) {
+          const error = new Error(message);
+          error.name = name;
+          return error;
+        }
+      };
+
+      const normalizeAcceptToken = (value) => {
+        if (typeof value !== "string") {
+          return null;
+        }
+        const token = value.trim();
+        return token.length > 0 ? token : null;
+      };
+
+      const acceptStringFromTypes = (types) => {
+        if (!Array.isArray(types)) {
+          return "";
+        }
+
+        const seen = new Set();
+        const tokens = [];
+        const pushToken = (value) => {
+          const token = normalizeAcceptToken(value);
+          if (token && !seen.has(token)) {
+            seen.add(token);
+            tokens.push(token);
+          }
+        };
+
+        for (const type of types) {
+          const accept = type && type.accept;
+          if (!accept || typeof accept !== "object") {
+            continue;
+          }
+
+          for (const [mimeType, extensions] of Object.entries(accept)) {
+            pushToken(mimeType);
+            if (Array.isArray(extensions)) {
+              for (const extension of extensions) {
+                pushToken(extension);
+              }
+            } else {
+              pushToken(extensions);
+            }
+          }
+        }
+
+        return tokens.join(",");
+      };
+
+      const FileSystemHandleShim = window.FileSystemHandle || function FileSystemHandle() {};
+      const FileSystemFileHandleShim = window.FileSystemFileHandle || function FileSystemFileHandle() {};
+      if (typeof window.FileSystemHandle !== "function") {
+        Object.defineProperty(window, "FileSystemHandle", {
+          value: FileSystemHandleShim,
+          configurable: true,
+          writable: true,
+        });
+      }
+      if (typeof window.FileSystemFileHandle !== "function") {
+        FileSystemFileHandleShim.prototype = Object.create(FileSystemHandleShim.prototype);
+        Object.defineProperty(FileSystemFileHandleShim.prototype, "constructor", {
+          value: FileSystemFileHandleShim,
+          configurable: true,
+          writable: true,
+        });
+        Object.defineProperty(window, "FileSystemFileHandle", {
+          value: FileSystemFileHandleShim,
+          configurable: true,
+          writable: true,
+        });
+      }
+
+      const makeFileHandle = (file) => {
+        const handle = Object.create(window.FileSystemFileHandle.prototype);
+        Object.defineProperties(handle, {
+          kind: {
+            value: "file",
+            enumerable: true,
+          },
+          name: {
+            value: file.name,
+            enumerable: true,
+          },
+          getFile: {
+            value: () => Promise.resolve(file),
+          },
+          isSameEntry: {
+            value: (other) => Promise.resolve(other === handle),
+          },
+          queryPermission: {
+            value: () => Promise.resolve("granted"),
+          },
+          requestPermission: {
+            value: () => Promise.resolve("granted"),
+          },
+        });
+        return handle;
+      };
+
+      const filePickerDismissedError = () => makeDOMException(
+        "AbortError",
+        "The file picker was dismissed."
+      );
+
+      const cleanupInput = (input) => {
+        if (input && input.parentNode) {
+          input.parentNode.removeChild(input);
+        }
+      };
+
+      const showOpenFilePicker = (options = {}) => new Promise((resolve, reject) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = options && options.multiple === true;
+        const accept = acceptStringFromTypes(options && options.types);
+        if (accept) {
+          input.accept = accept;
+        }
+        input.style.position = "fixed";
+        input.style.left = "-10000px";
+        input.style.top = "0";
+        input.style.width = "1px";
+        input.style.height = "1px";
+        input.style.opacity = "0";
+        input.tabIndex = -1;
+
+        let settled = false;
+        let focusFallbackScheduled = false;
+        let focusFallbackTimer = null;
+        const currentFiles = () => Array.from(input.files || []);
+        const cleanup = () => {
+          if (focusFallbackTimer !== null) {
+            clearTimeout(focusFallbackTimer);
+            focusFallbackTimer = null;
+          }
+          input.removeEventListener("change", handleChange);
+          input.removeEventListener("cancel", handleCancel);
+          window.removeEventListener("focus", handleWindowFocus);
+          cleanupInput(input);
+        };
+        const settle = (callback) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          callback();
+        };
+
+        const resolveFiles = () => {
+          const files = currentFiles();
+          settle(() => resolve(files.map(makeFileHandle)));
+        };
+
+        const dismissPicker = () => {
+          settle(() => reject(filePickerDismissedError()));
+        };
+
+        function handleChange() {
+          resolveFiles();
+        }
+
+        function handleCancel() {
+          dismissPicker();
+        }
+
+        function handleWindowFocus() {
+          if (settled || focusFallbackScheduled) {
+            return;
+          }
+          focusFallbackScheduled = true;
+          // Defer one turn so a selection-triggered change event can settle first.
+          focusFallbackTimer = setTimeout(() => {
+            focusFallbackTimer = null;
+            if (settled) {
+              return;
+            }
+            if (currentFiles().length > 0) {
+              resolveFiles();
+            } else {
+              dismissPicker();
+            }
+          }, 0);
+        }
+
+        input.addEventListener("change", handleChange);
+        input.addEventListener("cancel", handleCancel);
+        window.addEventListener("focus", handleWindowFocus);
+
+        try {
+          (document.body || document.documentElement).appendChild(input);
+          input.click();
+        } catch (error) {
+          settle(() => reject(error));
+        }
+      });
+
+      Object.defineProperty(window, "showOpenFilePicker", {
+        value: showOpenFilePicker,
+        configurable: true,
+        writable: true,
+      });
+
+      return true;
+    })();
+    """
+}
+
 func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
     guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
     let path = fileURL.path
@@ -2019,6 +2243,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -2672,6 +2897,13 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable JavaScript
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: BrowserFileSystemAccessBridge.scriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
         // Keep browser console/error/dialog telemetry active from document start on every navigation.
         // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
         // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
@@ -2742,6 +2974,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
@@ -2883,6 +3116,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
             self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
+        }
+        browserUIDelegate.closeRequested = { [weak self] closedWebView in
+            guard let self, self.isCurrentWebView(closedWebView) else { return }
+#if DEBUG
+            cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
+#endif
+            self.webViewDidRequestClose?()
         }
         self.uiDelegate = browserUIDelegate
 
@@ -3269,6 +3509,7 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         webViewObservers.append(urlObserver)
@@ -3283,6 +3524,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
+                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         webViewObservers.append(titleObserver)
@@ -3527,6 +3769,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
 
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
@@ -3548,6 +3791,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = nil
         navigationDelegate = nil
         uiDelegate = nil
+        webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         faviconTask?.cancel()
@@ -6779,6 +7023,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
+    var closeRequested: ((WKWebView) -> Void)?
+
+    func webViewDidClose(_ webView: WKWebView) {
+        closeRequested?(webView)
+    }
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
