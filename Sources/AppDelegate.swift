@@ -14032,16 +14032,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp else { return false }
 
         var seenManagers = Set<ObjectIdentifier>()
+        var browserPanels: [BrowserPanel] = []
         let managers = mainWindowContexts.values.map(\.tabManager) + [tabManager].compactMap { $0 }
         for manager in managers {
             guard seenManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
             for workspace in manager.tabs {
                 for panel in workspace.panels.values.compactMap({ $0 as? BrowserPanel }) {
-                    if panel.orderOutStaleWebInspectorWindowIfNeeded(window, reason: reason) {
-                        return true
-                    }
+                    browserPanels.append(panel)
                 }
             }
+        }
+        if browserPanels.contains(where: { $0.hasLiveDetachedWebInspectorWindow(window) }) {
+            return false
+        }
+        for panel in browserPanels where panel.orderOutStaleWebInspectorWindowIfNeeded(window, reason: reason) {
+            return true
         }
         return false
     }

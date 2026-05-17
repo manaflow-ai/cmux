@@ -4963,6 +4963,16 @@ extension BrowserPanel {
         return false
     }
 
+    private static func windowContainsView(_ root: NSView, target: NSView) -> Bool {
+        if root === target {
+            return true
+        }
+        for subview in root.subviews where windowContainsView(subview, target: target) {
+            return true
+        }
+        return false
+    }
+
     private static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
         guard window.title.hasPrefix("Web Inspector") else { return false }
         guard let contentView = window.contentView else { return false }
@@ -5064,9 +5074,24 @@ extension BrowserPanel {
         }
     }
 
+    func hasLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
+        guard Self.isWebInspectorWindowTitle(window) else { return false }
+        if let inspectorFrontend = webView.cmuxInspectorFrontendWebView() {
+            if inspectorFrontend.window === window {
+                return true
+            }
+            if let contentView = window.contentView,
+               Self.windowContainsView(contentView, target: inspectorFrontend) {
+                return true
+            }
+        }
+        return preferredDeveloperToolsPresentation == .detached && Self.isDetachedInspectorWindow(window)
+    }
+
     @discardableResult
     func orderOutStaleWebInspectorWindowIfNeeded(_ window: NSWindow, reason: String) -> Bool {
         guard Self.isWebInspectorWindowTitle(window) else { return false }
+        guard !hasLiveDetachedWebInspectorWindow(window) else { return false }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
         guard preferredDeveloperToolsPresentation == .attached || hasAttachedDeveloperToolsLayout() else {
             return false
