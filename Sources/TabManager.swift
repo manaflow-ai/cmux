@@ -4030,19 +4030,19 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func setWorkspaceHidden(_ tab: Workspace, hidden: Bool) -> Bool {
-        guard tabs.contains(where: { $0.id == tab.id }) else { return false }
-        if hidden, !tab.isHidden, !canHideWorkspaces([tab.id]) {
+        guard let liveTab = tabs.first(where: { $0.id == tab.id }) else { return false }
+        if hidden, !liveTab.isHidden, !canHideWorkspaces([liveTab.id]) {
             return false
         }
-        guard tab.isHidden != hidden else { return true }
+        guard liveTab.isHidden != hidden else { return true }
 
-        let nextSelection = hidden && selectedTabId == tab.id
-            ? nextVisibleWorkspaceId(afterHiding: tab.id)
+        let nextSelection = hidden && selectedTabId == liveTab.id
+            ? nextVisibleWorkspaceId(afterHiding: liveTab.id)
             : nil
 
-        tab.isHidden = hidden
+        liveTab.isHidden = hidden
         if hidden {
-            sidebarSelectedWorkspaceIds.remove(tab.id)
+            sidebarSelectedWorkspaceIds.remove(liveTab.id)
         }
         if let nextSelection {
             selectedTabId = nextSelection
@@ -5422,37 +5422,44 @@ class TabManager: ObservableObject {
     }
 
     func selectNextTab() {
-        let visibleTabs = visibleWorkspaceTabs
-        guard !visibleTabs.isEmpty else { return }
-        guard let currentId = selectedTabId,
-              let currentIndex = visibleTabs.firstIndex(where: { $0.id == currentId }) else {
-            selectedTabId = visibleTabs.first?.id
-            return
-        }
-        let nextIndex = (currentIndex + 1) % visibleTabs.count
+        guard let nextId = visibleWorkspaceIdForCycle(from: selectedTabId, direction: 1) else { return }
 #if DEBUG
-        let nextId = visibleTabs[nextIndex].id
-        debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
+        if let currentId = selectedTabId {
+            debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
+        }
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = visibleTabs[nextIndex].id
+        selectedTabId = nextId
     }
 
     func selectPreviousTab() {
-        let visibleTabs = visibleWorkspaceTabs
-        guard !visibleTabs.isEmpty else { return }
-        guard let currentId = selectedTabId,
-              let currentIndex = visibleTabs.firstIndex(where: { $0.id == currentId }) else {
-            selectedTabId = visibleTabs.first?.id
-            return
-        }
-        let prevIndex = (currentIndex - 1 + visibleTabs.count) % visibleTabs.count
+        guard let previousId = visibleWorkspaceIdForCycle(from: selectedTabId, direction: -1) else { return }
 #if DEBUG
-        let prevId = visibleTabs[prevIndex].id
-        debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
+        if let currentId = selectedTabId {
+            debugPrepareWorkspaceSwitch("prev", from: currentId, to: previousId)
+        }
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = visibleTabs[prevIndex].id
+        selectedTabId = previousId
+    }
+
+    private func visibleWorkspaceIdForCycle(from currentId: UUID?, direction: Int) -> UUID? {
+        let visibleTabs = visibleWorkspaceTabs
+        guard !visibleTabs.isEmpty else { return nil }
+        guard let currentId,
+              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else {
+            return visibleTabs.first?.id
+        }
+
+        let step = direction >= 0 ? 1 : -1
+        var candidateIndex = currentIndex
+        for _ in 0..<tabs.count {
+            candidateIndex = (candidateIndex + step + tabs.count) % tabs.count
+            if !tabs[candidateIndex].isHidden {
+                return tabs[candidateIndex].id
+            }
+        }
+        return nil
     }
 
     private func activateWorkspaceCycleHotWindow() {

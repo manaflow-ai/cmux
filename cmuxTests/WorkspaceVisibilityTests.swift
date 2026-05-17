@@ -53,6 +53,23 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertFalse(second.isHidden)
     }
 
+    func testWorkspaceCycleFromHiddenSelectionUsesAdjacentVisibleWorkspace() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+
+        manager.selectedTabId = second.id
+        manager.selectNextTab()
+        XCTAssertEqual(manager.selectedTabId, third.id)
+
+        manager.selectedTabId = second.id
+        manager.selectPreviousTab()
+        XCTAssertEqual(manager.selectedTabId, first.id)
+    }
+
     func testCannotHideLastVisibleWorkspace() throws {
         let manager = TabManager()
         let onlyWorkspace = try XCTUnwrap(manager.tabs.first)
@@ -96,6 +113,22 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertTrue(restored.tabs[1].isHidden)
         XCTAssertFalse(restored.tabs[2].isHidden)
         XCTAssertEqual(restored.visibleWorkspaceTabs.map { $0.customTitle ?? "" }, ["First", "Third"])
+    }
+
+    func testSetWorkspaceHiddenResolvesLiveWorkspaceAfterSessionRestore() throws {
+        let manager = TabManager()
+        _ = try XCTUnwrap(manager.tabs.first)
+        let staleSecond = manager.addWorkspace(select: false)
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        manager.restoreSessionSnapshot(snapshot)
+        let liveSecond = try XCTUnwrap(manager.tabs.first { $0.id == staleSecond.id })
+        XCTAssertFalse(liveSecond === staleSecond)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(staleSecond, hidden: true))
+
+        XCTAssertTrue(liveSecond.isHidden)
+        XCTAssertFalse(staleSecond.isHidden)
     }
 
     func testHiddenWorkspacesStayInNavigationHistory() throws {
