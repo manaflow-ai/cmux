@@ -402,21 +402,41 @@ final class cmuxMobileUITests: XCTestCase {
         line: UInt = #line
     ) {
         XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
-        if !element.isHittable {
-            dismissKeyboard(in: app)
-        }
-        let predicate = NSPredicate(format: "hittable == true")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
-        if result != .completed {
-            let frame = element.frame
-            XCTAssertFalse(frame.isNull || frame.isEmpty || frame.origin.x.isNaN || frame.origin.y.isNaN, file: file, line: line)
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
-                .tap()
+        dismissKeyboard(in: app)
+        guard let frame = waitForUsableFrame(of: element, timeout: 4) else {
+            XCTFail("Element has no usable frame: \(element.debugDescription)", file: file, line: line)
             return
         }
-        element.tap()
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+            .tap()
+    }
+
+    @MainActor
+    private func waitForUsableFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let frame = element.frame
+            if !frame.isNull,
+               !frame.isEmpty,
+               !frame.origin.x.isNaN,
+               !frame.origin.y.isNaN,
+               !frame.width.isNaN,
+               !frame.height.isNaN {
+                return frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let frame = element.frame
+        if !frame.isNull,
+           !frame.isEmpty,
+           !frame.origin.x.isNaN,
+           !frame.origin.y.isNaN,
+           !frame.width.isNaN,
+           !frame.height.isNaN {
+            return frame
+        }
+        return nil
     }
 
     @MainActor
