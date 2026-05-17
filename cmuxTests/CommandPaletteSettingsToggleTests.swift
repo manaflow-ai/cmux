@@ -98,6 +98,47 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testOpenSupportedFilesCommandTogglesAndPostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.openSupportedFilesInCmux"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: CmdClickSupportedFileRouteSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertFalse(defaults.bool(forKey: CmdClickSupportedFileRouteSettings.key))
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
+    func testConfigLinkAndFileOpeningSettingsHaveCommandPaletteToggles() throws {
+        XCTAssertNotNil(
+            CommandPaletteSettingsToggleCommands.descriptor(
+                commandId: "palette.toggleSetting.openTerminalLinksInCmuxBrowser"
+            )
+        )
+        XCTAssertNotNil(
+            CommandPaletteSettingsToggleCommands.descriptor(
+                commandId: "palette.toggleSetting.openSupportedFilesInCmux"
+            )
+        )
+    }
+
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
