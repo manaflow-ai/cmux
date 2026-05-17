@@ -4325,6 +4325,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        guard canRemoveWorkspacePreservingVisibleInvariant(tabs[index]) else { return nil }
         clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
 
@@ -4351,6 +4352,12 @@ class TabManager: ObservableObject {
     private func ensureAtLeastOneVisibleWorkspace() {
         guard !tabs.isEmpty, !tabs.contains(where: { !$0.isHidden }) else { return }
         tabs[0].isHidden = false
+    }
+
+    private func canRemoveWorkspacePreservingVisibleInvariant(_ workspace: Workspace) -> Bool {
+        guard tabs.count > 1 else { return true }
+        guard !workspace.isHidden else { return true }
+        return visibleWorkspaceTabs.count > 1
     }
 
     /// Attach an existing workspace to this window.
@@ -4427,29 +4434,27 @@ class TabManager: ObservableObject {
     }
 
     func canCloseWorkspace(_ workspace: Workspace, allowPinned: Bool = false) -> Bool {
-        allowPinned || !workspace.isPinned
+        (allowPinned || !workspace.isPinned) && canRemoveWorkspacePreservingVisibleInvariant(workspace)
     }
 
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
+        guard canRemoveWorkspacePreservingVisibleInvariant(workspace) else { return false }
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace)
     }
 
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
+        guard canRemoveWorkspacePreservingVisibleInvariant(workspace) else { return false }
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
     }
 
     @discardableResult
@@ -4649,9 +4654,16 @@ class TabManager: ObservableObject {
 
     private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
         let targetIds = Set(workspaceIds)
+        var remainingVisibleCount = visibleWorkspaceTabs.count
         return tabs.compactMap { workspace in
             guard targetIds.contains(workspace.id) else { return nil }
             guard allowPinned || !workspace.isPinned else { return nil }
+            if tabs.count > 1, !workspace.isHidden, remainingVisibleCount <= 1 {
+                return nil
+            }
+            if !workspace.isHidden {
+                remainingVisibleCount -= 1
+            }
             return workspace
         }
     }
@@ -4699,11 +4711,13 @@ class TabManager: ObservableObject {
         return String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
     }
 
+    @discardableResult
     private func closeWorkspaceIfRunningProcess(
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace
-    ) {
+    ) -> Bool {
+        guard canRemoveWorkspacePreservingVisibleInvariant(workspace) else { return false }
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         if requiresConfirmation,
@@ -4713,7 +4727,7 @@ class TabManager: ObservableObject {
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
                acceptCmdD: willCloseWindow
            ) {
-            return
+            return false
         }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
@@ -4725,6 +4739,7 @@ class TabManager: ObservableObject {
         } else {
             closeWorkspace(workspace)
         }
+        return true
     }
 
     private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {

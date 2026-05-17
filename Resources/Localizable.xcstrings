@@ -3079,7 +3079,7 @@
         }
       }
     },
-    "sidebar.hiddenWorkspace.title": {
+    "sidebar.hiddenWorkspaces.title.one": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3096,7 +3096,7 @@
         }
       }
     },
-    "sidebar.hiddenWorkspaces.title": {
+    "sidebar.hiddenWorkspaces.title.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -24614,6 +24614,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
+    "command.wakeWorkspace.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unhide the first hidden workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の非表示ワークスペースを再表示"
+          }
+        }
+      }
+    },
+    "command.wakeWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを起こす"
           }
         }
       }

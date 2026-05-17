@@ -1453,6 +1453,7 @@ struct ContentView: View {
         static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceCanHide = "workspace.canHide"
+        static let workspaceHasHidden = "workspace.hasHidden"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
         static let workspaceHasPeers = "workspace.hasPeers"
@@ -6195,6 +6196,7 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(CommandPaletteContextKeys.workspaceHasHidden, !tabManager.hiddenWorkspaceTabs.isEmpty)
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -6690,6 +6692,15 @@ struct ContentView: View {
                 keywords: ["workspace", "hide", "snooze"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanHide) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.wakeWorkspace",
+                title: constant(String(localized: "command.wakeWorkspace.title", defaultValue: "Wake Workspace")),
+                subtitle: constant(String(localized: "command.wakeWorkspace.subtitle", defaultValue: "Unhide the first hidden workspace")),
+                keywords: ["workspace", "show", "unhide", "wake", "snooze"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasHidden) }
             )
         )
         contributions.append(
@@ -7575,6 +7586,18 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
+            syncSidebarSelectedWorkspaceIds()
+        }
+        registry.register(commandId: "palette.wakeWorkspace") {
+            guard let workspace = tabManager.hiddenWorkspaceTabs.first,
+                  tabManager.setWorkspaceHidden(tabId: workspace.id, hidden: false) else {
+                NSSound.beep()
+                return
+            }
+            tabManager.selectWorkspace(workspace)
+            selectedTabIds = [workspace.id]
+            lastSidebarSelectionIndex = tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspace.id }
+            selection = .tabs
             syncSidebarSelectedWorkspaceIds()
         }
         registry.register(commandId: "palette.resetWorkspaceColor") {
@@ -8964,6 +8987,12 @@ struct ContentView: View {
            visibleIds.contains(selectedTabId) {
             selectedTabIds = [selectedTabId]
         }
+        if let selectedTabId = tabManager.selectedTabId,
+           visibleIds.contains(selectedTabId) {
+            lastSidebarSelectionIndex = tabManager.visibleWorkspaceTabs.firstIndex { $0.id == selectedTabId }
+        } else {
+            lastSidebarSelectionIndex = nil
+        }
         tabManager.setSidebarSelectedWorkspaceIds(selectedTabIds)
     }
 
@@ -10108,11 +10137,11 @@ struct VerticalTabsSidebar: View {
 
     private func hiddenWorkspacesTitle(count: Int) -> String {
         if count == 1 {
-            return String(localized: "sidebar.hiddenWorkspace.title", defaultValue: "Hidden Workspace (1)")
+            return String(localized: "sidebar.hiddenWorkspaces.title.one", defaultValue: "Hidden Workspace (1)")
         }
         return String(
             format: String(
-                localized: "sidebar.hiddenWorkspaces.title",
+                localized: "sidebar.hiddenWorkspaces.title.other",
                 defaultValue: "Hidden Workspaces (%d)"
             ),
             locale: .current,
@@ -10251,7 +10280,7 @@ struct VerticalTabsSidebar: View {
                 workspaceCount: renderContext.workspaceCount
             ),
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
-            canCloseWorkspace: renderContext.canCloseWorkspace,
+            canCloseWorkspace: tabManager.canCloseWorkspace(tab, allowPinned: true),
             accessibilityWorkspaceCount: accessibilityWorkspaceCount,
             unreadCount: resolvedPresentation.unreadCount,
             latestNotificationText: resolvedPresentation.latestNotificationText,

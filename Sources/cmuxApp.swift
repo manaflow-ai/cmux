@@ -1065,7 +1065,7 @@ struct cmuxApp: App {
         Button(String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace")) {
             manager.closeCurrentWorkspaceWithConfirmation()
         }
-        .disabled(workspace == nil)
+        .disabled(workspace.map { !manager.canCloseWorkspace($0, allowPinned: true) } ?? true)
 
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)

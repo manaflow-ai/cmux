@@ -63,6 +63,19 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, onlyWorkspace.id)
     }
 
+    func testCannotDetachLastVisibleWorkspaceWhenHiddenWorkspacesRemain() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+
+        XCTAssertFalse(manager.canCloseWorkspace(first, allowPinned: true))
+        XCTAssertNil(manager.detachWorkspace(tabId: first.id))
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
+    }
+
     func testSessionSnapshotRestoresHiddenWorkspaceState() throws {
         let manager = TabManager()
         let first = try XCTUnwrap(manager.tabs.first)

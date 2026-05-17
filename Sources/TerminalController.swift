@@ -4324,6 +4324,9 @@ class TerminalController {
 
         let includeHidden = v2Bool(params, "include_hidden") ?? false
         let workspaceFilter = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         var workspaces: [[String: Any]] = []
         v2MainSync {
             let sourceTabs: [Workspace]
