@@ -1,7 +1,7 @@
 import AppKit
 import CMUXWorkstream
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
