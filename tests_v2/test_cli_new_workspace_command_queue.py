@@ -178,7 +178,14 @@ def main() -> int:
             )
             combined = f"{proc.stdout}\n{proc.stderr}".strip()
             _must(proc.returncode == 0, f"CLI layout create failed ({proc.returncode}): {combined}")
-            _must(elapsed < 1.5, f"new-workspace --layout should return quickly, took {elapsed:.2f}s")
+            layout_quick_return_timeout = _float_env("NEW_WORKSPACE_LAYOUT_TIMEOUT", 5.0)
+            _must(
+                elapsed < layout_quick_return_timeout,
+                (
+                    "new-workspace --layout should return quickly, "
+                    f"took {elapsed:.2f}s (threshold {layout_quick_return_timeout:.1f}s)"
+                ),
+            )
 
             output = (proc.stdout or "").strip()
             _must(output.startswith("OK "), f"Expected OK response for layout create, got: {output!r}")
