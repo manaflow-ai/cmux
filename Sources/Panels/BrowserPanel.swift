@@ -25,6 +25,16 @@ func cmuxResponderChainContains(_ start: NSResponder?, target: NSResponder) -> B
     return false
 }
 
+func cmuxViewTreeContains(_ root: NSView, target: NSView) -> Bool {
+    if root === target {
+        return true
+    }
+    for subview in root.subviews where cmuxViewTreeContains(subview, target: target) {
+        return true
+    }
+    return false
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -4963,16 +4973,6 @@ extension BrowserPanel {
         return false
     }
 
-    private static func windowContainsView(_ root: NSView, target: NSView) -> Bool {
-        if root === target {
-            return true
-        }
-        for subview in root.subviews where windowContainsView(subview, target: target) {
-            return true
-        }
-        return false
-    }
-
     private static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
         guard window.title.hasPrefix("Web Inspector") else { return false }
         guard let contentView = window.contentView else { return false }
@@ -5081,7 +5081,7 @@ extension BrowserPanel {
                 return true
             }
             if let contentView = window.contentView,
-               Self.windowContainsView(contentView, target: inspectorFrontend) {
+               cmuxViewTreeContains(contentView, target: inspectorFrontend) {
                 return true
             }
         }

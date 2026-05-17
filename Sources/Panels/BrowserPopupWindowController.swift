@@ -284,17 +284,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             return true
         }
         if let contentView = window.contentView,
-           windowContainsView(contentView, target: inspectorFrontend) {
-            return true
-        }
-        return false
-    }
-
-    private static func windowContainsView(_ root: NSView, target: NSView) -> Bool {
-        if root === target {
-            return true
-        }
-        for subview in root.subviews where windowContainsView(subview, target: target) {
+           cmuxViewTreeContains(contentView, target: inspectorFrontend) {
             return true
         }
         return false
