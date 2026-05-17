@@ -176,7 +176,7 @@ final class TerminalTimestampStore {
         if let previousNewestTrackedRow, previousNewestTrackedRow >= minimumRow {
             refreshOldestTrackedRow(startingAt: minimumRow)
         } else {
-            clearTrackedBounds()
+            refreshTrackedBounds()
         }
     }
 
