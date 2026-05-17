@@ -75,7 +75,7 @@ extension CMUXCLI {
                     )
                 }
 
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
                 let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoThemes.path) {
