@@ -4062,7 +4062,7 @@ class TabManager: ObservableObject {
         }
 
         let beforeRange = tabs.indices.prefix(hiddenIndex)
-        if let previousIndex = beforeRange.first(where: { !tabs[$0].isHidden }) {
+        if let previousIndex = beforeRange.last(where: { !tabs[$0].isHidden }) {
             return tabs[previousIndex].id
         }
 
@@ -5693,18 +5693,23 @@ class TabManager: ObservableObject {
     func navigateBack() {
         guard historyIndex > 0 else { return }
 
-        // Find the previous valid tab in history (skip closed tabs)
+        // Find the previous visible tab in history. Keep hidden entries so they
+        // become navigable again if the workspace is unhidden.
         var targetIndex = historyIndex - 1
         while targetIndex >= 0 {
             let tabId = tabHistory[targetIndex]
-            if tabs.contains(where: { $0.id == tabId && !$0.isHidden }) {
+            if let tab = tabs.first(where: { $0.id == tabId }) {
+                if tab.isHidden {
+                    targetIndex -= 1
+                    continue
+                }
                 isNavigatingHistory = true
                 historyIndex = targetIndex
                 selectedTabId = tabId
                 isNavigatingHistory = false
                 return
             }
-            // Remove closed tab from history
+            // Remove closed tab from history.
             tabHistory.remove(at: targetIndex)
             historyIndex -= 1
             targetIndex -= 1
@@ -5714,18 +5719,23 @@ class TabManager: ObservableObject {
     func navigateForward() {
         guard historyIndex < tabHistory.count - 1 else { return }
 
-        // Find the next valid tab in history (skip closed tabs)
-        let targetIndex = historyIndex + 1
+        // Find the next visible tab in history. Keep hidden entries so they
+        // become navigable again if the workspace is unhidden.
+        var targetIndex = historyIndex + 1
         while targetIndex < tabHistory.count {
             let tabId = tabHistory[targetIndex]
-            if tabs.contains(where: { $0.id == tabId && !$0.isHidden }) {
+            if let tab = tabs.first(where: { $0.id == tabId }) {
+                if tab.isHidden {
+                    targetIndex += 1
+                    continue
+                }
                 isNavigatingHistory = true
                 historyIndex = targetIndex
                 selectedTabId = tabId
                 isNavigatingHistory = false
                 return
             }
-            // Remove closed tab from history
+            // Remove closed tab from history.
             tabHistory.remove(at: targetIndex)
             // Don't increment targetIndex since we removed the element
         }
