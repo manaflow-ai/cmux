@@ -191,6 +191,7 @@ public enum OpenCodeIndex {
         }
         defer { sqlite3_finalize(stmt) }
 
+        // SQLITE_TRANSIENT tells SQLite to copy Swift-managed string buffers during bind.
         let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         var bindIndex: Int32 = 1
         if !trimmedNeedle.isEmpty {

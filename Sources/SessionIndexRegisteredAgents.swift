@@ -27,7 +27,7 @@ extension SessionIndexStore {
         }
     }
 
-    nonisolated static func loadRegisteredAgentEntriesOnBackground(
+    nonisolated private static func loadRegisteredAgentEntriesOnBackground(
         registration: CmuxVaultAgentRegistration,
         needle: String,
         cwdFilter: String?,
