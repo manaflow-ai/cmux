@@ -584,10 +584,17 @@ final class AuthManager: ObservableObject {
     }
 
     func applySignInResult(_ result: SignInResult) async {
-        // Cache access token for fast synchronous reads
-        lastKnownAccessToken = result.accessToken
+        let mutationGeneration = beginAuthMutation(.signIn)
         await tokenStore.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
-        // Update published state synchronously on main actor
+        guard await keepAuthMutationIfCurrent(
+            mutationGeneration,
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken
+        ) else {
+            return
+        }
+
+        lastKnownAccessToken = result.accessToken
         let user = CMUXAuthUser(id: result.userId, primaryEmail: result.email, displayName: result.displayName)
         currentUser = user
         settingsStore.saveCachedUser(user)
@@ -602,8 +609,13 @@ final class AuthManager: ObservableObject {
     func signInWithCredential(email: String, password: String) async throws {
         authLog("signInWithCredential: email=\(email)")
         lastSignInError = nil
+        let mutationGeneration = beginAuthMutation(.signIn)
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if isCurrentAuthMutation(mutationGeneration) {
+                isLoading = false
+            }
+        }
 
         // Sign in directly via the Stack Auth API and store tokens ourselves,
         // bypassing the StackClientApp which has token refresh issues.
@@ -619,6 +631,13 @@ final class AuthManager: ObservableObject {
                 throw AuthManagerError.invalidCallback
             }
             await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+            guard await keepAuthMutationIfCurrent(
+                mutationGeneration,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            ) else {
+                return
+            }
             lastKnownAccessToken = accessToken
 
             // Fetch user info directly with the access token
@@ -657,6 +676,13 @@ final class AuthManager: ObservableObject {
                 }
             }
 
+            guard await keepAuthMutationIfCurrent(
+                mutationGeneration,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            ) else {
+                return
+            }
             currentUser = user
             settingsStore.saveCachedUser(user)
             availableTeams = teams
@@ -666,7 +692,9 @@ final class AuthManager: ObservableObject {
             authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
             didCompleteBrowserSignIn = true
         } catch {
-            lastSignInError = Self.signInError(from: error)
+            if isCurrentAuthMutation(mutationGeneration) {
+                lastSignInError = Self.signInError(from: error)
+            }
             throw error
         }
     }
