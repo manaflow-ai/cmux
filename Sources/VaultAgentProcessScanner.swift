@@ -242,34 +242,54 @@ extension RestorableAgentSessionIndex {
         panelKey: PanelKey,
         candidates: [RestorableAgentProcessDetectionCandidate]
     ) -> Bool {
-        var hasCMUXScopedClaude = false
-        var hasCMUXScopedOpenCode = false
-        var hasForegroundClaude = false
-        var hasForegroundOpenCode = false
+        var selectedClaude: (
+            source: RestorableAgentProcessDetectionCandidateSource,
+            isForeground: Bool,
+            matchesFallbackScope: Bool
+        )?
+        var selectedOpenCode: (
+            source: RestorableAgentProcessDetectionCandidateSource,
+            isForeground: Bool,
+            matchesFallbackScope: Bool
+        )?
         for candidate in candidates where candidate.panelKey == panelKey {
+            let priority = (
+                source: candidate.source,
+                isForeground: candidate.process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
             switch processDetectionBuiltinKind(candidate) {
             case .some(.claude):
-                if candidate.source == .cmuxScoped {
-                    hasCMUXScopedClaude = true
-                }
-                if candidate.process.isForegroundProcess {
-                    hasForegroundClaude = true
+                if let existing = selectedClaude {
+                    if processDetectionShouldReplaceCandidate(existing: existing, candidate: priority) {
+                        selectedClaude = priority
+                    }
+                } else {
+                    selectedClaude = priority
                 }
             case .some(.opencode):
-                if candidate.source == .cmuxScoped {
-                    hasCMUXScopedOpenCode = true
-                }
-                if candidate.process.isForegroundProcess {
-                    hasForegroundOpenCode = true
+                if let existing = selectedOpenCode {
+                    if processDetectionShouldReplaceCandidate(existing: existing, candidate: priority) {
+                        selectedOpenCode = priority
+                    }
+                } else {
+                    selectedOpenCode = priority
                 }
             default:
                 break
             }
         }
-        if hasCMUXScopedClaude != hasCMUXScopedOpenCode {
-            return hasCMUXScopedOpenCode
+        guard let selectedOpenCode else { return false }
+        guard let selectedClaude else { return true }
+        if selectedClaude.source == selectedOpenCode.source,
+           selectedClaude.matchesFallbackScope == selectedOpenCode.matchesFallbackScope,
+           selectedClaude.isForeground == selectedOpenCode.isForeground {
+            return false
         }
-        return hasForegroundOpenCode && !hasForegroundClaude
+        return processDetectionShouldReplaceCandidate(
+            existing: selectedClaude,
+            candidate: selectedOpenCode
+        )
     }
 
     private static func processDetectionBuiltinKind(

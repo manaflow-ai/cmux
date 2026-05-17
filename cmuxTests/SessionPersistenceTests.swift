@@ -4121,6 +4121,77 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, "opencode-foreground-session")
     }
 
+    func testProcessDetectionPrefersFocusedTTYOpenCodeOverForegroundClaudeForSamePanel() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let claudeTTYDevice: Int64 = 44_027
+        let openCodeTTYDevice: Int64 = 44_028
+        let foregroundClaude = makeTopProcess(
+            pid: 10_027,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: claudeTTYDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 300,
+            terminalProcessGroupID: 300
+        )
+        let focusedOpenCode = makeTopProcess(
+            pid: 10_028,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: openCodeTTYDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processGroupID: 400,
+            terminalProcessGroupID: 400
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: openCodeTTYDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [foregroundClaude, focusedOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case foregroundClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            "claude-foreground-session"
+                        ],
+                        environment: ["PWD": "/tmp/foreground claude repo"]
+                    )
+                case focusedOpenCode.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "opencode-focused-session"
+                        ],
+                        environment: ["PWD": "/tmp/focused opencode repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-focused-session")
+    }
+
     func testProcessDetectionSkipsBackgroundOpenCodeWithoutForegroundCandidate() {
         let workspaceId = UUID()
         let panelId = UUID()
