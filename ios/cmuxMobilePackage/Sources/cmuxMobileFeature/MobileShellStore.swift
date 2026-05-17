@@ -450,7 +450,7 @@ public final class CMUXMobileShellStore {
             )
             try await connect(ticket: ticket)
         } catch {
-            mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .public)")
+            mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
             clearActiveConnectionContext()
@@ -503,7 +503,7 @@ public final class CMUXMobileShellStore {
         do {
             try await connect(ticket: ticket)
         } catch {
-            mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .public)")
+            mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
             clearActiveConnectionContext()
@@ -875,7 +875,7 @@ public final class CMUXMobileShellStore {
             }
         }
         do {
-            mobileShellLog.info("refreshing terminal snapshot workspace=\(workspace.id.rawValue, privacy: .public) terminal=\(terminalID, privacy: .public)")
+            mobileShellLog.info("refreshing terminal snapshot workspace=\(workspace.id.rawValue, privacy: .private) terminal=\(terminalID, privacy: .private)")
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.snapshot",
@@ -897,7 +897,7 @@ public final class CMUXMobileShellStore {
                 terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
             )
         } catch {
-            mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .public)")
+            mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .private)")
             if Self.isTerminalSurfaceNotReady(error) {
                 if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
                     connectionError = nil
@@ -953,13 +953,13 @@ public final class CMUXMobileShellStore {
                 )
                 setSelectedWorkspaceID(candidate.workspaceID, refreshSnapshot: false)
                 selectedTerminalID = resolvedTerminalID
-                mobileShellLog.info("selected fallback ready terminal workspace=\(candidate.workspaceID.rawValue, privacy: .public) terminal=\(resolvedTerminalID.rawValue, privacy: .public)")
+                mobileShellLog.info("selected fallback ready terminal workspace=\(candidate.workspaceID.rawValue, privacy: .private) terminal=\(resolvedTerminalID.rawValue, privacy: .private)")
                 return true
             } catch {
                 if Self.isTerminalSurfaceNotReady(error) {
                     continue
                 }
-                mobileShellLog.error("fallback terminal snapshot failed: \(String(describing: error), privacy: .public)")
+                mobileShellLog.error("fallback terminal snapshot failed: \(String(describing: error), privacy: .private)")
                 return false
             }
         }
@@ -1018,7 +1018,7 @@ public final class CMUXMobileShellStore {
         }
         do {
             #if DEBUG
-            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspace.id.rawValue, privacy: .public) terminal=\(terminalID, privacy: .public)")
+            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspace.id.rawValue, privacy: .private) terminal=\(terminalID, privacy: .private)")
             #endif
             let terminalPreviewID = MobileTerminalPreview.ID(rawValue: terminalID)
             viewportSettlingRefreshesByTerminalID[terminalPreviewID] = max(
@@ -1162,7 +1162,7 @@ public final class CMUXMobileShellStore {
         }
         updatedWorkspaces[workspaceIndex].terminals[terminalIndex].viewportFit = viewportFit
         workspaces = updatedWorkspaces
-        mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .public) terminal=\(terminalID.rawValue, privacy: .public) rows=\(snapshot.visibleRows.count, privacy: .public)")
+        mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) rows=\(snapshot.visibleRows.count, privacy: .public)")
     }
 
     private static func isTerminalSurfaceNotReady(_ error: Error) -> Bool {
