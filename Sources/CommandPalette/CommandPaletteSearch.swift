@@ -137,6 +137,81 @@ enum CommandPaletteSwitcherSearchIndexer {
 enum CommandPaletteFuzzyMatcher {
     private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
 
+    struct WordSegment: Hashable, Sendable {
+        let start: Int
+        let end: Int
+    }
+
+    struct ASCIIScalarMask: Equatable, Sendable {
+        let low: UInt64
+        let high: UInt64
+
+        init(low: UInt64, high: UInt64) {
+            self.low = low
+            self.high = high
+        }
+
+        init(_ text: String) {
+            var low: UInt64 = 0
+            var high: UInt64 = 0
+            for scalar in text.unicodeScalars where scalar.isASCII {
+                let value = Int(scalar.value)
+                if value < 64 {
+                    low |= UInt64(1) << UInt64(value)
+                } else {
+                    high |= UInt64(1) << UInt64(value - 64)
+                }
+            }
+            self.low = low
+            self.high = high
+        }
+
+        func missingBitCount(from candidate: ASCIIScalarMask) -> Int {
+            (low & ~candidate.low).nonzeroBitCount + (high & ~candidate.high).nonzeroBitCount
+        }
+    }
+
+    struct PreparedToken: Equatable, Sendable {
+        let normalizedText: String
+        let characters: [Character]
+        let asciiMask: ASCIIScalarMask
+        let allowsSingleEdit: Bool
+        let containsTokenBoundaryCharacter: Bool
+        let scoreUpperBound: Int
+        let scoreUpperBoundWithoutExactMatch: Int
+
+        init(_ normalizedText: String) {
+            self.normalizedText = normalizedText
+            self.characters = Array(normalizedText)
+            self.asciiMask = ASCIIScalarMask(normalizedText)
+            self.allowsSingleEdit = characters.count >= 4
+            self.containsTokenBoundaryCharacter = characters.contains {
+                CommandPaletteFuzzyMatcher.tokenBoundaryChars.contains($0)
+            }
+            self.scoreUpperBound = max(8000, 3500 + (characters.count * 300))
+            self.scoreUpperBoundWithoutExactMatch = max(6799, 3500 + (characters.count * 300))
+        }
+
+        func couldMatch(_ candidate: PreparedCandidateText) -> Bool {
+            let missingCharacters = asciiMask.missingBitCount(from: candidate.asciiMask)
+            return missingCharacters <= (allowsSingleEdit ? 1 : 0)
+        }
+    }
+
+    struct PreparedCandidateText: Sendable {
+        let normalizedText: String
+        let characters: [Character]
+        let wordSegments: [WordSegment]
+        let asciiMask: ASCIIScalarMask
+
+        init(normalizedText: String) {
+            self.normalizedText = normalizedText
+            self.characters = Array(normalizedText)
+            self.wordSegments = CommandPaletteFuzzyMatcher.wordSegments(characters)
+            self.asciiMask = ASCIIScalarMask(normalizedText)
+        }
+    }
+
     private enum SingleEditWordPrefixEditKind {
         case candidateExtraCharacter
         case tokenExtraCharacter
@@ -148,7 +223,7 @@ enum CommandPaletteFuzzyMatcher {
             case .candidateExtraCharacter:
                 return 0
             case .tokenExtraCharacter:
-                return 10
+                return 240
             case .transposedCharacters:
                 return 24
             case .substitutedCharacter:
@@ -168,7 +243,7 @@ enum CommandPaletteFuzzyMatcher {
 
     struct PreparedQuery {
         let normalizedText: String
-        let tokens: [String]
+        let tokens: [PreparedToken]
 
         var isEmpty: Bool {
             tokens.isEmpty
@@ -179,7 +254,11 @@ enum CommandPaletteFuzzyMatcher {
         let normalizedQuery = normalizeForSearch(query)
         return PreparedQuery(
             normalizedText: normalizedQuery,
-            tokens: normalizedQuery.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+            tokens: normalizedQuery
+                .split(separator: " ")
+                .map(String.init)
+                .filter { !$0.isEmpty }
+                .map(PreparedToken.init)
         )
     }
 
@@ -190,34 +269,134 @@ enum CommandPaletteFuzzyMatcher {
             .lowercased()
     }
 
+    static func prepareCandidateText(_ candidate: String) -> PreparedCandidateText? {
+        let normalizedCandidate = normalizeForSearch(candidate)
+        guard !normalizedCandidate.isEmpty else { return nil }
+        return PreparedCandidateText(normalizedText: normalizedCandidate)
+    }
+
+    static func prepareNormalizedCandidateText(_ normalizedCandidate: String) -> PreparedCandidateText? {
+        guard !normalizedCandidate.isEmpty else { return nil }
+        return PreparedCandidateText(normalizedText: normalizedCandidate)
+    }
+
     static func score(query: String, candidate: String) -> Int? {
         score(query: query, candidates: [candidate])
     }
 
     static func score(query: String, candidates: [String]) -> Int? {
-        score(
-            preparedQuery: preparedQuery(query),
-            normalizedCandidates: candidates
-                .map(normalizeForSearch)
-                .filter { !$0.isEmpty }
+        let preparedQuery = preparedQuery(query)
+        var normalizedCandidates: [String] = []
+        normalizedCandidates.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            let normalizedCandidate = normalizeForSearch(candidate)
+            guard !normalizedCandidate.isEmpty else { continue }
+            normalizedCandidates.append(normalizedCandidate)
+        }
+        return score(
+            preparedQuery: preparedQuery,
+            normalizedCandidates: normalizedCandidates
         )
     }
 
     static func score(preparedQuery: PreparedQuery, normalizedCandidates: [String]) -> Int? {
+        score(
+            preparedQuery: preparedQuery,
+            preparedCandidates: normalizedCandidates.compactMap(prepareNormalizedCandidateText),
+            exactCandidateTexts: Set(normalizedCandidates)
+        )
+    }
+
+    static func score(preparedQuery: PreparedQuery, preparedCandidates: [PreparedCandidateText]) -> Int? {
+        score(
+            preparedQuery: preparedQuery,
+            preparedCandidates: preparedCandidates,
+            exactCandidateTexts: nil
+        )
+    }
+
+    static func score(preparedQuery: PreparedQuery, preparedCandidate: PreparedCandidateText) -> Int? {
         guard !preparedQuery.isEmpty else { return 0 }
-        guard !normalizedCandidates.isEmpty else { return nil }
 
         var totalScore = 0
         for token in preparedQuery.tokens {
+            guard token.couldMatch(preparedCandidate) else { return nil }
+            guard let tokenScore = scoreToken(token, in: preparedCandidate) else { return nil }
+            totalScore += tokenScore
+        }
+        return totalScore
+    }
+
+    static func score(
+        preparedQuery: PreparedQuery,
+        preparedCandidates: [PreparedCandidateText],
+        exactCandidateTexts: Set<String>?,
+        wholeCandidatePrefixScoreByToken: [String: Int]? = nil
+    ) -> Int? {
+        guard !preparedQuery.isEmpty else { return 0 }
+        guard !preparedCandidates.isEmpty else { return nil }
+
+        var totalScore = 0
+        for token in preparedQuery.tokens {
+            let hasExactCandidateText = exactCandidateTexts?.contains(token.normalizedText) == true
+            if token.scoreUpperBound == 8000, hasExactCandidateText {
+                totalScore += 8000
+                continue
+            }
+            if exactCandidateTexts != nil,
+               !hasExactCandidateText,
+               let prefixScore = wholeCandidatePrefixScoreByToken?[token.normalizedText]
+                    ?? bestWholeCandidatePrefixScore(token: token, preparedCandidates: preparedCandidates),
+               prefixScore >= token.scoreUpperBoundWithoutExactMatch {
+                totalScore += prefixScore
+                continue
+            }
+
             var bestTokenScore: Int?
-            for candidate in normalizedCandidates {
+            for candidate in preparedCandidates {
+                guard token.couldMatch(candidate) else { continue }
                 guard let candidateScore = scoreToken(token, in: candidate) else { continue }
                 bestTokenScore = max(bestTokenScore ?? candidateScore, candidateScore)
+                if bestTokenScore ?? 0 >= token.scoreUpperBound {
+                    break
+                }
             }
             guard let bestTokenScore else { return nil }
             totalScore += bestTokenScore
         }
         return totalScore
+    }
+
+    private static func bestWholeCandidatePrefixScore(
+        token: PreparedToken,
+        preparedCandidates: [PreparedCandidateText]
+    ) -> Int? {
+        var bestScore: Int?
+        for candidate in preparedCandidates where candidate.normalizedText.hasPrefix(token.normalizedText) {
+            let score = 6800 - max(0, candidate.characters.count - token.characters.count)
+            bestScore = max(bestScore ?? score, score)
+        }
+        return bestScore
+    }
+
+    static func wholeCandidatePrefixScoreByToken(
+        preparedCandidates: [PreparedCandidateText],
+        maxPrefixLength: Int = 16
+    ) -> [String: Int] {
+        var scores: [String: Int] = [:]
+        for candidate in preparedCandidates {
+            let prefixLimit = min(candidate.characters.count, maxPrefixLength)
+            guard prefixLimit > 0 else { continue }
+
+            for prefixLength in 1...prefixLimit {
+                let prefix = String(candidate.characters.prefix(prefixLength))
+                let score = 6800 - max(0, candidate.characters.count - prefixLength)
+                if score > (scores[prefix] ?? Int.min) {
+                    scores[prefix] = score
+                }
+            }
+        }
+        return scores
     }
 
     static func matchCharacterIndices(query: String, candidate: String) -> Set<Int> {
@@ -227,47 +406,69 @@ enum CommandPaletteFuzzyMatcher {
     static func matchCharacterIndices(preparedQuery: PreparedQuery, candidate: String) -> Set<Int> {
         guard !preparedQuery.isEmpty else { return [] }
 
-        let loweredCandidate = normalizeForSearch(candidate)
-        guard !loweredCandidate.isEmpty else { return [] }
+        guard let preparedCandidate = prepareCandidateText(candidate) else { return [] }
+        return matchCharacterIndices(preparedQuery: preparedQuery, preparedCandidate: preparedCandidate)
+    }
 
-        let candidateChars = Array(loweredCandidate)
+    static func matchCharacterIndices(
+        preparedQuery: PreparedQuery,
+        preparedCandidate: PreparedCandidateText
+    ) -> Set<Int> {
+        guard !preparedQuery.isEmpty else { return [] }
+
+        let loweredCandidate = preparedCandidate.normalizedText
+        let candidateChars = preparedCandidate.characters
         var matched: Set<Int> = []
 
         for token in preparedQuery.tokens {
-            if token == loweredCandidate {
+            guard token.couldMatch(preparedCandidate) else { continue }
+
+            if token.normalizedText == loweredCandidate {
                 matched.formUnion(0..<candidateChars.count)
                 continue
             }
 
-            if loweredCandidate.hasPrefix(token) {
-                matched.formUnion(0..<min(token.count, candidateChars.count))
+            if loweredCandidate.hasPrefix(token.normalizedText) {
+                matched.formUnion(0..<min(token.characters.count, candidateChars.count))
                 continue
             }
 
-            if let range = loweredCandidate.range(of: token) {
+            if let range = loweredCandidate.range(of: token.normalizedText) {
                 let start = loweredCandidate.distance(from: loweredCandidate.startIndex, to: range.lowerBound)
-                let end = min(candidateChars.count, start + token.count)
+                let end = min(candidateChars.count, start + token.characters.count)
                 matched.formUnion(start..<end)
                 continue
             }
 
-            if let singleEditPrefix = singleEditWordPrefixMatch(token: token, candidate: loweredCandidate) {
-                matched.formUnion(singleEditPrefix.matchedIndices)
+            if token.containsTokenBoundaryCharacter {
+                guard token.characters.count <= 3 else { continue }
+                if let subsequence = subsequenceMatchIndices(token: token, candidate: preparedCandidate) {
+                    matched.formUnion(subsequence)
+                }
                 continue
             }
 
-            if let initialism = initialismMatchIndices(token: token, candidate: loweredCandidate) {
+            if let initialism = initialismMatchIndices(token: token, candidate: preparedCandidate) {
                 matched.formUnion(initialism)
                 continue
             }
 
-            if let stitched = stitchedWordPrefixMatchIndices(token: token, candidate: loweredCandidate) {
+            if let stitched = stitchedWordPrefixMatchIndices(token: token, candidate: preparedCandidate) {
                 matched.formUnion(stitched)
                 continue
             }
 
-            guard token.count <= 3 else { continue }
-            if let subsequence = subsequenceMatchIndices(token: token, candidate: loweredCandidate) {
+            if let singleEditPrefix = singleEditWordPrefixMatch(
+                tokenChars: token.characters,
+                candidateChars: candidateChars,
+                segments: preparedCandidate.wordSegments
+            ) {
+                matched.formUnion(singleEditPrefix.matchedIndices)
+                continue
+            }
+
+            guard token.characters.count <= 3 else { continue }
+            if let subsequence = subsequenceMatchIndices(token: token, candidate: preparedCandidate) {
                 matched.formUnion(subsequence)
             }
         }
@@ -275,37 +476,92 @@ enum CommandPaletteFuzzyMatcher {
         return matched
     }
 
-    private static func scoreToken(_ token: String, in candidate: String) -> Int? {
-        guard !token.isEmpty else { return 0 }
+    static func tokenCanMatchWithoutSingleEdit(
+        _ token: PreparedToken,
+        preparedCandidate candidate: PreparedCandidateText
+    ) -> Bool {
+        guard !token.normalizedText.isEmpty else { return true }
 
-        let candidateChars = Array(candidate)
-        let tokenChars = Array(token)
+        let candidateText = candidate.normalizedText
+        if token.normalizedText == candidateText {
+            return true
+        }
+        if candidateText.hasPrefix(token.normalizedText) {
+            return true
+        }
+        if candidateText.range(of: token.normalizedText) != nil {
+            return true
+        }
+
+        guard !token.containsTokenBoundaryCharacter else {
+            return token.characters.count <= 3 && subsequenceScore(token: token, candidate: candidate) != nil
+        }
+
+        if bestWordScore(tokenChars: token.characters, candidate: candidate) != nil {
+            return true
+        }
+        if initialismScore(tokenChars: token.characters, candidate: candidate) != nil {
+            return true
+        }
+        if stitchedWordPrefixScore(tokenChars: token.characters, candidate: candidate) != nil {
+            return true
+        }
+        if token.characters.count <= 3, subsequenceScore(token: token, candidate: candidate) != nil {
+            return true
+        }
+        return false
+    }
+
+    static func usesSingleEditWordPrefix(
+        preparedQuery: PreparedQuery,
+        preparedCandidates: [PreparedCandidateText]
+    ) -> Bool {
+        for token in preparedQuery.tokens where token.allowsSingleEdit && !token.containsTokenBoundaryCharacter {
+            for candidate in preparedCandidates {
+                guard !tokenCanMatchWithoutSingleEdit(token, preparedCandidate: candidate) else { continue }
+                if singleEditWordPrefixMatch(
+                    tokenChars: token.characters,
+                    candidateChars: candidate.characters,
+                    segments: candidate.wordSegments
+                ) != nil {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func scoreToken(_ token: PreparedToken, in candidate: PreparedCandidateText) -> Int? {
+        guard !token.normalizedText.isEmpty else { return 0 }
+
+        let candidateText = candidate.normalizedText
+        let candidateChars = candidate.characters
+        let tokenChars = token.characters
         guard tokenChars.count <= candidateChars.count else { return nil }
 
-        if token == candidate {
+        if token.normalizedText == candidateText {
             return 8000
         }
-        if candidate.hasPrefix(token) {
-            return 6800 - max(0, candidate.count - token.count)
+        if candidateText.hasPrefix(token.normalizedText) {
+            return 6800 - max(0, candidateChars.count - tokenChars.count)
         }
 
         var bestScore: Int?
-        if let wordExactScore = bestWordScore(tokenChars: tokenChars, candidateChars: candidateChars, requireExactWord: true) {
-            bestScore = max(bestScore ?? wordExactScore, wordExactScore)
-        }
-        if let wordPrefixScore = bestWordScore(tokenChars: tokenChars, candidateChars: candidateChars, requireExactWord: false) {
-            bestScore = max(bestScore ?? wordPrefixScore, wordPrefixScore)
-        }
-        if let singleEditPrefixScore = singleEditWordPrefixScore(
-            tokenChars: tokenChars,
-            candidateChars: candidateChars
-        ) {
-            bestScore = max(bestScore ?? singleEditPrefixScore, singleEditPrefixScore)
+        if !token.containsTokenBoundaryCharacter {
+            if let wordScore = bestWordScore(tokenChars: tokenChars, candidate: candidate) {
+                bestScore = max(bestScore ?? wordScore, wordScore)
+            }
+            if let singleEditPrefixScore = singleEditWordPrefixScore(
+                tokenChars: tokenChars,
+                candidate: candidate
+            ) {
+                bestScore = max(bestScore ?? singleEditPrefixScore, singleEditPrefixScore)
+            }
         }
 
-        if let range = candidate.range(of: token) {
-            let distance = candidate.distance(from: candidate.startIndex, to: range.lowerBound)
-            let lengthPenalty = max(0, candidate.count - token.count)
+        if let range = candidateText.range(of: token.normalizedText) {
+            let distance = candidateText.distance(from: candidateText.startIndex, to: range.lowerBound)
+            let lengthPenalty = max(0, candidateChars.count - tokenChars.count)
             let boundaryBoost: Int = {
                 guard distance > 0 else { return 220 }
                 let prior = candidateChars[distance - 1]
@@ -315,12 +571,14 @@ enum CommandPaletteFuzzyMatcher {
             bestScore = max(bestScore ?? containsScore, containsScore)
         }
 
-        if let initialismScore = initialismScore(tokenChars: tokenChars, candidateChars: candidateChars) {
-            bestScore = max(bestScore ?? initialismScore, initialismScore)
-        }
+        if !token.containsTokenBoundaryCharacter {
+            if let initialismScore = initialismScore(tokenChars: tokenChars, candidate: candidate) {
+                bestScore = max(bestScore ?? initialismScore, initialismScore)
+            }
 
-        if let stitchedScore = stitchedWordPrefixScore(tokenChars: tokenChars, candidateChars: candidateChars) {
-            bestScore = max(bestScore ?? stitchedScore, stitchedScore)
+            if let stitchedScore = stitchedWordPrefixScore(tokenChars: tokenChars, candidate: candidate) {
+                bestScore = max(bestScore ?? stitchedScore, stitchedScore)
+            }
         }
 
         if tokenChars.count <= 3, let subsequence = subsequenceScore(token: token, candidate: candidate) {
@@ -333,13 +591,13 @@ enum CommandPaletteFuzzyMatcher {
 
     private static func bestWordScore(
         tokenChars: [Character],
-        candidateChars: [Character],
-        requireExactWord: Bool
+        candidate: PreparedCandidateText
     ) -> Int? {
         guard !tokenChars.isEmpty else { return nil }
 
+        let candidateChars = candidate.characters
         var best: Int?
-        for segment in wordSegments(candidateChars) {
+        for segment in candidate.wordSegments {
             let wordLength = segment.end - segment.start
             guard tokenChars.count <= wordLength else { continue }
 
@@ -349,14 +607,16 @@ enum CommandPaletteFuzzyMatcher {
                 break
             }
             guard matchesPrefix else { continue }
-            if requireExactWord && tokenChars.count != wordLength { continue }
 
             let lengthPenalty = max(0, wordLength - tokenChars.count) * 6
             let distancePenalty = segment.start * 8
             let trailingPenalty = max(0, candidateChars.count - wordLength)
-            let scoreBase = requireExactWord ? 6200 : 5600
-            let score = scoreBase - distancePenalty - lengthPenalty - trailingPenalty
-            best = max(best ?? score, score)
+            let prefixScore = 5600 - distancePenalty - lengthPenalty - trailingPenalty
+            best = max(best ?? prefixScore, prefixScore)
+            if tokenChars.count == wordLength {
+                let exactScore = 6200 - distancePenalty - trailingPenalty
+                best = max(best ?? exactScore, exactScore)
+            }
         }
 
         return best
@@ -364,15 +624,16 @@ enum CommandPaletteFuzzyMatcher {
 
     private static func singleEditWordPrefixScore(
         tokenChars: [Character],
-        candidateChars: [Character]
+        candidate: PreparedCandidateText
     ) -> Int? {
         guard let match = singleEditWordPrefixMatch(
             tokenChars: tokenChars,
-            candidateChars: candidateChars
+            candidateChars: candidate.characters,
+            segments: candidate.wordSegments
         ) else {
             return nil
         }
-        return singleEditWordPrefixScore(match: match, candidateLength: candidateChars.count)
+        return singleEditWordPrefixScore(match: match, candidateLength: candidate.characters.count)
     }
 
     private static func singleEditWordPrefixScore(
@@ -391,9 +652,10 @@ enum CommandPaletteFuzzyMatcher {
             - editPositionPenalty
     }
 
-    private static func initialismScore(tokenChars: [Character], candidateChars: [Character]) -> Int? {
+    private static func initialismScore(tokenChars: [Character], candidate: PreparedCandidateText) -> Int? {
         guard !tokenChars.isEmpty else { return nil }
-        let segments = wordSegments(candidateChars)
+        let candidateChars = candidate.characters
+        let segments = candidate.wordSegments
         guard tokenChars.count <= segments.count else { return nil }
 
         var matchedStarts: [Int] = []
@@ -436,9 +698,10 @@ enum CommandPaletteFuzzyMatcher {
         return true
     }
 
-    private static func stitchedWordPrefixScore(tokenChars: [Character], candidateChars: [Character]) -> Int? {
+    private static func stitchedWordPrefixScore(tokenChars: [Character], candidate: PreparedCandidateText) -> Int? {
         guard tokenChars.count >= 4 else { return nil }
-        let segments = wordSegments(candidateChars)
+        let candidateChars = candidate.characters
+        let segments = candidate.wordSegments
         guard segments.count >= 2 else { return nil }
 
         struct StitchState: Hashable {
@@ -507,12 +770,15 @@ enum CommandPaletteFuzzyMatcher {
         return 3500 + stitchedScore - lengthPenalty
     }
 
-    private static func stitchedWordPrefixMatchIndices(token: String, candidate: String) -> Set<Int>? {
-        let tokenChars = Array(token)
-        let candidateChars = Array(candidate)
+    private static func stitchedWordPrefixMatchIndices(
+        token: PreparedToken,
+        candidate: PreparedCandidateText
+    ) -> Set<Int>? {
+        let tokenChars = token.characters
+        let candidateChars = candidate.characters
         guard tokenChars.count >= 4 else { return nil }
 
-        let segments = wordSegments(candidateChars)
+        let segments = candidate.wordSegments
         guard segments.count >= 2 else { return nil }
 
         var tokenIndex = 0
@@ -573,12 +839,24 @@ enum CommandPaletteFuzzyMatcher {
         tokenChars: [Character],
         candidateChars: [Character]
     ) -> SingleEditWordPrefixMatch? {
+        singleEditWordPrefixMatch(
+            tokenChars: tokenChars,
+            candidateChars: candidateChars,
+            segments: wordSegments(candidateChars)
+        )
+    }
+
+    private static func singleEditWordPrefixMatch(
+        tokenChars: [Character],
+        candidateChars: [Character],
+        segments: [WordSegment]
+    ) -> SingleEditWordPrefixMatch? {
         guard tokenChars.count >= 4 else { return nil }
 
         var bestMatch: SingleEditWordPrefixMatch?
         var bestScore: Int?
 
-        for segment in wordSegments(candidateChars) {
+        for segment in segments {
             guard let match = singleEditWordPrefixMatch(
                 tokenChars: tokenChars,
                 candidateChars: candidateChars,
@@ -601,7 +879,7 @@ enum CommandPaletteFuzzyMatcher {
     private static func singleEditWordPrefixMatch(
         tokenChars: [Character],
         candidateChars: [Character],
-        segment: (start: Int, end: Int)
+        segment: WordSegment
     ) -> SingleEditWordPrefixMatch? {
         guard tokenChars.count >= 4 else { return nil }
 
@@ -733,8 +1011,8 @@ enum CommandPaletteFuzzyMatcher {
         return nil
     }
 
-    private static func wordSegments(_ candidateChars: [Character]) -> [(start: Int, end: Int)] {
-        var segments: [(start: Int, end: Int)] = []
+    private static func wordSegments(_ candidateChars: [Character]) -> [WordSegment] {
+        var segments: [WordSegment] = []
         var index = 0
 
         while index < candidateChars.count {
@@ -746,15 +1024,15 @@ enum CommandPaletteFuzzyMatcher {
             while index < candidateChars.count, !tokenBoundaryChars.contains(candidateChars[index]) {
                 index += 1
             }
-            segments.append((start: start, end: index))
+            segments.append(WordSegment(start: start, end: index))
         }
 
         return segments
     }
 
-    private static func subsequenceScore(token: String, candidate: String) -> Int? {
-        let tokenChars = Array(token)
-        let candidateChars = Array(candidate)
+    private static func subsequenceScore(token: PreparedToken, candidate: PreparedCandidateText) -> Int? {
+        let tokenChars = token.characters
+        let candidateChars = candidate.characters
         guard tokenChars.count <= candidateChars.count else { return nil }
 
         var searchIndex = 0
@@ -793,9 +1071,9 @@ enum CommandPaletteFuzzyMatcher {
         return max(1, score)
     }
 
-    private static func subsequenceMatchIndices(token: String, candidate: String) -> Set<Int>? {
-        let tokenChars = Array(token)
-        let candidateChars = Array(candidate)
+    private static func subsequenceMatchIndices(token: PreparedToken, candidate: PreparedCandidateText) -> Set<Int>? {
+        let tokenChars = token.characters
+        let candidateChars = candidate.characters
         guard tokenChars.count <= candidateChars.count else { return nil }
 
         var indices: Set<Int> = []
@@ -818,12 +1096,12 @@ enum CommandPaletteFuzzyMatcher {
         return indices
     }
 
-    private static func initialismMatchIndices(token: String, candidate: String) -> Set<Int>? {
-        let tokenChars = Array(token)
-        let candidateChars = Array(candidate)
+    private static func initialismMatchIndices(token: PreparedToken, candidate: PreparedCandidateText) -> Set<Int>? {
+        let tokenChars = token.characters
+        let candidateChars = candidate.characters
         guard !tokenChars.isEmpty else { return nil }
 
-        let segments = wordSegments(candidateChars)
+        let segments = candidate.wordSegments
         guard tokenChars.count <= segments.count else { return nil }
 
         var matched: Set<Int> = []
@@ -851,17 +1129,44 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
     let payload: Payload
     let rank: Int
     let title: String
-    let normalizedTitle: String
-    let normalizedSearchableTexts: [String]
+    let preparedTitle: CommandPaletteFuzzyMatcher.PreparedCandidateText?
+    let preparedSearchableTexts: [CommandPaletteFuzzyMatcher.PreparedCandidateText]
+    let searchableTextSet: Set<String>
+    let searchablePrefixScoreByToken: [String: Int]
+    let nucleoSearchText: String
 
     init(payload: Payload, rank: Int, title: String, searchableTexts: [String]) {
         self.payload = payload
         self.rank = rank
         self.title = title
-        self.normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
-        self.normalizedSearchableTexts = searchableTexts
-            .map(CommandPaletteFuzzyMatcher.normalizeForSearch)
-            .filter { !$0.isEmpty }
+        let normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
+        self.preparedTitle = CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText(normalizedTitle)
+
+        var nucleoSearchTexts: [String] = []
+        var normalizedTexts: [String] = []
+        var seen: Set<String> = []
+        normalizedTexts.reserveCapacity(searchableTexts.count)
+        nucleoSearchTexts.reserveCapacity(searchableTexts.count)
+        for text in searchableTexts {
+            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedText.isEmpty {
+                nucleoSearchTexts.append(trimmedText)
+            }
+            let normalizedText = CommandPaletteFuzzyMatcher.normalizeForSearch(text)
+            guard !normalizedText.isEmpty else { continue }
+            guard seen.insert(normalizedText).inserted else { continue }
+            normalizedTexts.append(normalizedText)
+        }
+
+        let preparedSearchableTexts = normalizedTexts.compactMap(
+            CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText
+        )
+        self.preparedSearchableTexts = preparedSearchableTexts
+        self.searchableTextSet = Set(normalizedTexts)
+        self.searchablePrefixScoreByToken = CommandPaletteFuzzyMatcher.wholeCandidatePrefixScoreByToken(
+            preparedCandidates: preparedSearchableTexts
+        )
+        self.nucleoSearchText = nucleoSearchTexts.joined(separator: "\n")
     }
 }
 
@@ -876,14 +1181,99 @@ struct CommandPaletteSearchCorpusResult<Payload>: Sendable where Payload: Sendab
 enum CommandPaletteSearchEngine {
     private static let titleMatchBonus = 2000
 
+    private struct ScoredEntry<Payload>: Sendable where Payload: Sendable {
+        let entry: CommandPaletteSearchCorpusEntry<Payload>
+        let index: Int
+        let score: Int
+    }
+
+    private static func scoredEntryIsBetter<Payload: Sendable>(
+        _ lhs: ScoredEntry<Payload>,
+        than rhs: ScoredEntry<Payload>
+    ) -> Bool {
+        if lhs.score != rhs.score { return lhs.score > rhs.score }
+        if lhs.entry.rank != rhs.entry.rank { return lhs.entry.rank < rhs.entry.rank }
+        let titleComparison = lhs.entry.title.localizedCaseInsensitiveCompare(rhs.entry.title)
+        if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
+        return lhs.index < rhs.index
+    }
+
+    private static func scoredEntryIsWorse<Payload: Sendable>(
+        _ lhs: ScoredEntry<Payload>,
+        than rhs: ScoredEntry<Payload>
+    ) -> Bool {
+        scoredEntryIsBetter(rhs, than: lhs)
+    }
+
+    private static func siftUpWorstScoredEntryHeap<Payload: Sendable>(
+        _ heap: inout [ScoredEntry<Payload>],
+        from startIndex: Int
+    ) {
+        var child = startIndex
+        while child > 0 {
+            let parent = (child - 1) / 2
+            guard scoredEntryIsWorse(heap[child], than: heap[parent]) else { break }
+            heap.swapAt(child, parent)
+            child = parent
+        }
+    }
+
+    private static func siftDownWorstScoredEntryHeap<Payload: Sendable>(
+        _ heap: inout [ScoredEntry<Payload>],
+        from startIndex: Int
+    ) {
+        var parent = startIndex
+        while true {
+            let leftChild = (parent * 2) + 1
+            guard leftChild < heap.count else { return }
+
+            let rightChild = leftChild + 1
+            var worstChild = leftChild
+            if rightChild < heap.count,
+               scoredEntryIsWorse(heap[rightChild], than: heap[leftChild]) {
+                worstChild = rightChild
+            }
+
+            guard scoredEntryIsWorse(heap[worstChild], than: heap[parent]) else { return }
+            heap.swapAt(parent, worstChild)
+            parent = worstChild
+        }
+    }
+
+    private static func appendScoredEntry<Payload: Sendable>(
+        _ scoredEntry: ScoredEntry<Payload>,
+        to scoredEntries: inout [ScoredEntry<Payload>],
+        limit: Int?
+    ) {
+        guard let limit else {
+            scoredEntries.append(scoredEntry)
+            return
+        }
+
+        if scoredEntries.count < limit {
+            scoredEntries.append(scoredEntry)
+            siftUpWorstScoredEntryHeap(&scoredEntries, from: scoredEntries.count - 1)
+            return
+        }
+
+        guard let worstEntry = scoredEntries.first,
+              scoredEntryIsBetter(scoredEntry, than: worstEntry) else {
+            return
+        }
+        scoredEntries[0] = scoredEntry
+        siftDownWorstScoredEntryHeap(&scoredEntries, from: 0)
+    }
+
     static func search<Payload: Sendable>(
         entries: [CommandPaletteSearchCorpusEntry<Payload>],
         query: String,
+        resultLimit: Int? = nil,
         historyBoost: (Payload, Bool) -> Int
     ) -> [CommandPaletteSearchCorpusResult<Payload>] {
         search(
             entries: entries,
             query: query,
+            resultLimit: resultLimit,
             historyBoost: historyBoost,
             shouldCancel: nil
         )
@@ -892,12 +1282,14 @@ enum CommandPaletteSearchEngine {
     static func search<Payload: Sendable>(
         entries: [CommandPaletteSearchCorpusEntry<Payload>],
         query: String,
+        resultLimit: Int? = nil,
         historyBoost: (Payload, Bool) -> Int,
         shouldCancel: @escaping () -> Bool
     ) -> [CommandPaletteSearchCorpusResult<Payload>] {
         search(
             entries: entries,
             query: query,
+            resultLimit: resultLimit,
             historyBoost: historyBoost,
             shouldCancel: Optional(shouldCancel)
         )
@@ -906,13 +1298,18 @@ enum CommandPaletteSearchEngine {
     private static func search<Payload: Sendable>(
         entries: [CommandPaletteSearchCorpusEntry<Payload>],
         query: String,
+        resultLimit: Int?,
         historyBoost: (Payload, Bool) -> Int,
         shouldCancel: (() -> Bool)?
     ) -> [CommandPaletteSearchCorpusResult<Payload>] {
+        if let resultLimit, resultLimit <= 0 {
+            return []
+        }
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let queryIsEmpty = preparedQuery.isEmpty
-        var results: [CommandPaletteSearchCorpusResult<Payload>] = []
-        results.reserveCapacity(entries.count)
+        let limitedResultCount = resultLimit.map { min($0, entries.count) }
+        var scoredEntries: [ScoredEntry<Payload>] = []
+        scoredEntries.reserveCapacity(limitedResultCount ?? entries.count)
 
         func shouldCancelSearch(at index: Int) -> Bool {
             guard let shouldCancel else { return false }
@@ -922,14 +1319,14 @@ enum CommandPaletteSearchEngine {
         if queryIsEmpty {
             for (index, entry) in entries.enumerated() {
                 if shouldCancelSearch(at: index) { return [] }
-                results.append(
-                    CommandPaletteSearchCorpusResult(
-                    payload: entry.payload,
-                    rank: entry.rank,
-                    title: entry.title,
-                    score: historyBoost(entry.payload, true),
-                    titleMatchIndices: []
-                )
+                appendScoredEntry(
+                    ScoredEntry(
+                        entry: entry,
+                        index: index,
+                        score: historyBoost(entry.payload, true)
+                    ),
+                    to: &scoredEntries,
+                    limit: limitedResultCount
                 )
             }
         } else {
@@ -941,28 +1338,51 @@ enum CommandPaletteSearchEngine {
                 ) else {
                     continue
                 }
-                results.append(
-                    CommandPaletteSearchCorpusResult(
-                        payload: entry.payload,
-                        rank: entry.rank,
-                        title: entry.title,
-                        score: fuzzyScore + historyBoost(entry.payload, false),
-                        titleMatchIndices: CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                            preparedQuery: preparedQuery,
-                            candidate: entry.title
-                        )
-                    )
+                appendScoredEntry(
+                    ScoredEntry(
+                        entry: entry,
+                        index: index,
+                        score: fuzzyScore + historyBoost(entry.payload, false)
+                    ),
+                    to: &scoredEntries,
+                    limit: limitedResultCount
                 )
             }
         }
 
         if shouldCancel?() == true { return [] }
 
-        return results.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        scoredEntries.sort { scoredEntryIsBetter($0, than: $1) }
+
+        let outputCount = resultLimit.map { min($0, scoredEntries.count) } ?? scoredEntries.count
+        var results: [CommandPaletteSearchCorpusResult<Payload>] = []
+        results.reserveCapacity(outputCount)
+        for index in 0..<outputCount {
+            if shouldCancelSearch(at: index) { return [] }
+            let scoredEntry = scoredEntries[index]
+            let entry = scoredEntry.entry
+            let titleMatchIndices: Set<Int>
+            if queryIsEmpty {
+                titleMatchIndices = []
+            } else {
+                titleMatchIndices = entry.preparedTitle.map {
+                    CommandPaletteFuzzyMatcher.matchCharacterIndices(
+                        preparedQuery: preparedQuery,
+                        preparedCandidate: $0
+                    )
+                } ?? []
+            }
+            results.append(
+                CommandPaletteSearchCorpusResult(
+                    payload: entry.payload,
+                    rank: entry.rank,
+                    title: entry.title,
+                    score: scoredEntry.score,
+                    titleMatchIndices: titleMatchIndices
+                )
+            )
         }
+        return results
     }
 
     private static func weightedScore<Payload: Sendable>(
@@ -970,18 +1390,21 @@ enum CommandPaletteSearchEngine {
         entry: CommandPaletteSearchCorpusEntry<Payload>
     ) -> Int? {
         guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
-                    preparedQuery: preparedQuery,
-                    normalizedCandidates: entry.normalizedSearchableTexts
-                ) else {
+            preparedQuery: preparedQuery,
+            preparedCandidates: entry.preparedSearchableTexts,
+            exactCandidateTexts: entry.searchableTextSet,
+            wholeCandidatePrefixScoreByToken: entry.searchablePrefixScoreByToken
+        ) else {
             return nil
         }
-        guard !entry.normalizedTitle.isEmpty,
-              let titleScore = CommandPaletteFuzzyMatcher.score(
+        if let preparedTitle = entry.preparedTitle,
+           preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }),
+           let titleScore = CommandPaletteFuzzyMatcher.score(
                 preparedQuery: preparedQuery,
-                normalizedCandidates: [entry.normalizedTitle]
-              ) else {
-            return fuzzyScore
+                preparedCandidate: preparedTitle
+            ) {
+            return max(fuzzyScore, titleScore + titleMatchBonus)
         }
-        return max(fuzzyScore, titleScore + titleMatchBonus)
+        return fuzzyScore
     }
 }

@@ -21,6 +21,15 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
             "missing_pids": missingPIDs
         ]
     }
+
+    func attributedPayload(sharedAcross occurrenceCount: Int) -> [String: Any] {
+        guard occurrenceCount > 1 else { return payload() }
+        var attributed = self
+        attributed.cpuPercent /= Double(occurrenceCount)
+        attributed.residentBytes = attributed.residentBytes / Int64(occurrenceCount)
+        attributed.virtualBytes = attributed.virtualBytes / Int64(occurrenceCount)
+        return attributed.payload()
+    }
 }
 
 nonisolated struct CmuxTopProcessInfo: Sendable {
@@ -31,6 +40,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let ttyDevice: Int64?
     let cmuxWorkspaceID: UUID?
     let cmuxSurfaceID: UUID?
+    let cmuxAttributionReason: String?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
     var cpuPercent: Double
@@ -42,6 +52,13 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
 nonisolated struct CmuxTopProcessScope: Sendable {
     let workspaceID: UUID?
     let surfaceID: UUID?
+    let attributionReason: String
+
+    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.attributionReason = attributionReason
+    }
 }
 
 nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
@@ -60,7 +77,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         )
     }
 
-    private init(
+    init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool
@@ -150,6 +167,26 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return summary
     }
 
+    func programSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        var aggregates: [String: CmuxProgramProcessAggregate] = [:]
+
+        for pid in pids.sorted() {
+            guard let process = processesByPID[pid] else { continue }
+            let title = process.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let key = title.lowercased()
+            if aggregates[key] == nil {
+                aggregates[key] = CmuxProgramProcessAggregate(id: key, title: title)
+            }
+            aggregates[key]?.append(process)
+        }
+
+        return aggregates.values
+            .filter { $0.processIds.count > 1 }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .map { $0.payload() }
+    }
+
     func processTreePayload(for pids: Set<Int>, rootPIDs explicitRootPIDs: Set<Int> = []) -> [[String: Any]] {
         let allowedPIDs = Set(pids.filter { processesByPID[$0] != nil })
         guard !allowedPIDs.isEmpty else { return [] }
@@ -171,7 +208,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
 
         var visited: Set<Int> = []
-        return roots.compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
+        return roots.compactMap {
+            processTreeNode(
+                pid: $0,
+                allowedPIDs: allowedPIDs,
+                rootPIDs: explicitRootPIDs,
+                visited: &visited
+            )
+        }
     }
 
     func topLevelPIDs(for pids: Set<Int>) -> Set<Int> {
@@ -196,9 +240,103 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         )
     }
 
+    func codingAgentSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        var aggregates: [String: CmuxCodingAgentProcessAggregate] = [:]
+
+        for pid in pids.sorted() {
+            guard let process = processesByPID[pid] else { continue }
+            let processArguments = Self.processArgumentsIfNeeded(for: process)
+            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments?.arguments ?? [],
+                environment: processArguments?.environment ?? [:]
+            ) else { continue }
+
+            if aggregates[definition.id] == nil {
+                aggregates[definition.id] = CmuxCodingAgentProcessAggregate(definition: definition)
+            }
+            aggregates[definition.id]?.append(process)
+        }
+
+        return CmuxTaskManagerCodingAgentDefinition.builtIns.compactMap { definition in
+            guard let aggregate = aggregates[definition.id] else { return nil }
+            return aggregate.payload()
+        }
+    }
+
+    private static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
+        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: process.name,
+            processPath: process.path
+        ) else { return nil }
+        return processArgumentsAndEnvironment(for: process.pid)
+    }
+
+    private struct CmuxProgramProcessAggregate {
+        let id: String
+        let title: String
+        var cpuPercent: Double = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+        var seenProcessIds: Set<Int> = []
+
+        mutating func append(_ process: CmuxTopProcessInfo) {
+            guard seenProcessIds.insert(process.pid).inserted else { return }
+            cpuPercent += process.cpuPercent
+            residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+            processIds.append(process.pid)
+        }
+
+        func payload() -> [String: Any] {
+            let sortedProcessIds = processIds.sorted()
+            return [
+                "id": id,
+                "name": title,
+                "resources": CmuxTopResourceSummary(
+                    cpuPercent: cpuPercent,
+                    residentBytes: residentBytes,
+                    processCount: sortedProcessIds.count,
+                    pids: sortedProcessIds
+                ).payload()
+            ]
+        }
+    }
+
+    private struct CmuxCodingAgentProcessAggregate {
+        let definition: CmuxTaskManagerCodingAgentDefinition
+        var cpuPercent: Double = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+        var seenProcessIds: Set<Int> = []
+
+        mutating func append(_ process: CmuxTopProcessInfo) {
+            guard seenProcessIds.insert(process.pid).inserted else { return }
+            cpuPercent += process.cpuPercent
+            residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+            processIds.append(process.pid)
+        }
+
+        func payload() -> [String: Any] {
+            let sortedProcessIds = processIds.sorted()
+            return [
+                "id": definition.id,
+                "display_name": definition.displayName,
+                "asset_name": definition.assetName ?? NSNull(),
+                "resources": CmuxTopResourceSummary(
+                    cpuPercent: cpuPercent,
+                    residentBytes: residentBytes,
+                    processCount: sortedProcessIds.count,
+                    pids: sortedProcessIds
+                ).payload()
+            ]
+        }
+    }
+
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>,
         visited: inout Set<Int>
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
@@ -209,7 +347,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let childNodes = (childrenByParentPID[pid] ?? [])
             .filter { allowedPIDs.contains($0) }
             .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
+            .compactMap {
+                processTreeNode(
+                    pid: $0,
+                    allowedPIDs: allowedPIDs,
+                    rootPIDs: rootPIDs,
+                    visited: &visited
+                )
+            }
 
         var payload: [String: Any] = [
             "kind": "process",
@@ -217,6 +362,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "ppid": process.parentPID,
             "name": process.name,
             "path": process.path ?? NSNull(),
+            "attribution_reason": attributionReason(for: process, allowedPIDs: allowedPIDs, rootPIDs: rootPIDs),
             "thread_count": process.threadCount,
             "resources": summary(for: [pid]).payload(),
             "children": childNodes
@@ -247,6 +393,33 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             payload["tpgid"] = NSNull()
         }
         return payload
+    }
+
+    private func attributionReason(
+        for process: CmuxTopProcessInfo,
+        allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>
+    ) -> String {
+        if let reason = process.cmuxAttributionReason {
+            return reason
+        }
+        if rootPIDs.contains(process.pid), isWebKitWebContentProcess(process) {
+            return "webview-root-pid"
+        }
+        if rootPIDs.contains(process.pid) {
+            return "explicit-root-pid"
+        }
+        if allowedPIDs.contains(process.parentPID) {
+            return "child-process"
+        }
+        return "included-process"
+    }
+
+    private func isWebKitWebContentProcess(_ process: CmuxTopProcessInfo) -> Bool {
+        if process.name.localizedCaseInsensitiveContains("WebContent") {
+            return true
+        }
+        return process.path?.localizedCaseInsensitiveContains("com.apple.WebKit.WebContent") == true
     }
 
     private func processSortKey(_ pid: Int) -> String {
@@ -346,6 +519,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             ttyDevice: ttyDevice,
             cmuxWorkspaceID: cmuxScope?.workspaceID,
             cmuxSurfaceID: cmuxScope?.surfaceID,
+            cmuxAttributionReason: cmuxScope?.attributionReason,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: 0,

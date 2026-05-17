@@ -1,6 +1,13 @@
 import Foundation
 
 public enum AgentLaunchSanitizer {
+    // Runtime/interpreter flags may appear in captured process argv, but they
+    // are not portable agent session options to replay after a resume command.
+    // Values are token widths, including the option token itself.
+    private static let runtimeOnlyOptionWidths: [String: Int] = [
+        "--use-system-ca": 1,
+    ]
+
     struct Policy {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []
@@ -29,6 +36,12 @@ public enum AgentLaunchSanitizer {
             }
             guard let preserved = preservedArguments(kind: "claude", args: tail) else { return nil }
             return [executable, "claude-teams"] + preserved
+        case "codexTeams":
+            if tail.first == "codex-teams" {
+                tail.removeFirst()
+            }
+            guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
+            return [executable, "codex-teams"] + preserved
         case "omo":
             if tail.first == "omo" {
                 tail.removeFirst()
@@ -42,6 +55,9 @@ public enum AgentLaunchSanitizer {
         }
 
         switch fallbackKind {
+        case "codex":
+            guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
+            return [executable] + preserved
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
@@ -59,6 +75,24 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: codexPolicy)
         case "pi":
             return preserveOptions(args, policy: piPolicy)
+        case "amp":
+            // Strip the `threads continue <id>` resume sub-subcommand if the
+            // captured launch already started by resuming a thread, so we
+            // don't double-add it. Supports the documented short aliases:
+            // `t`/`thread` for `threads`, and `c` for `continue`.
+            var tail = args
+            let threadsAliases: Set<String> = ["threads", "thread", "t"]
+            let continueAliases: Set<String> = ["continue", "c"]
+            if let first = tail.first, threadsAliases.contains(first) {
+                tail.removeFirst()
+                if let next = tail.first, continueAliases.contains(next) {
+                    tail.removeFirst()
+                    if let candidate = tail.first, !candidate.hasPrefix("-") {
+                        tail.removeFirst()
+                    }
+                }
+            }
+            return preserveOptions(tail, policy: ampPolicy)
         case "cursor":
             var tail = args
             if tail.first == "agent" {
@@ -105,6 +139,92 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    public static func preservedCodexForkArguments(args: [String]) -> [String]? {
+        var tail = args
+        if let forkCommand = codexForkCommand(in: tail) {
+            tail = dropCodexForkPositionals(tail, forkCommand: forkCommand)
+        }
+        return preserveOptions(tail, policy: codexPolicy)
+    }
+
+    private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
+        if codexForkCommand(in: args) != nil {
+            return preservedCodexForkArguments(args: args)
+        }
+        return preservedArguments(kind: "codex", args: args)
+    }
+
+    private struct CodexForkCommand {
+        let forkIndex: Int
+        let sessionIndex: Int
+    }
+
+    private static func codexForkCommand(in args: [String]) -> CodexForkCommand? {
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                return nil
+            }
+            if !arg.hasPrefix("-") || arg == "-" {
+                guard arg == "fork",
+                      let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
+                    return nil
+                }
+                return CodexForkCommand(forkIndex: index, sessionIndex: sessionIndex)
+            }
+            let width = optionWidth(args, index: index, policy: codexPolicy)
+            if codexPolicy.variadicOptions.contains(arg) {
+                let end = min(args.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end where args[candidateIndex] == "fork" {
+                        if let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex) {
+                            return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
+                        }
+                    }
+                }
+            }
+            index += width
+        }
+        return nil
+    }
+
+    private static func codexForkCommandSessionIndex(_ args: [String], forkIndex: Int) -> Int? {
+        var index = forkIndex + 1
+        while index < args.count {
+            let argument = args[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return looksLikeCodexSessionIdentifier(argument) ? index : nil
+            }
+            let width = optionWidth(args, index: index, policy: codexPolicy)
+            if codexPolicy.variadicOptions.contains(argument) {
+                let end = min(args.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end {
+                        if looksLikeCodexSessionIdentifier(args[candidateIndex]) {
+                            return candidateIndex
+                        }
+                    }
+                }
+            }
+            index += width
+        }
+        return nil
+    }
+
+    private static func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 20 else { return false }
+        if trimmed.hasPrefix("019") {
+            return true
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
+    }
+
     private static func preserveOptions(_ args: [String], policy: Policy) -> [String]? {
         var result: [String] = []
         var index = 0
@@ -149,8 +269,9 @@ public enum AgentLaunchSanitizer {
                 continue
             }
 
-            let width = optionWidth(args, index: index, policy: policy)
-            if shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
+            let runtimeOnlyWidth = runtimeOnlyOptionWidth(arg)
+            let width = runtimeOnlyWidth ?? optionWidth(args, index: index, policy: policy)
+            if runtimeOnlyWidth != nil || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
                 index += width
                 continue
             }
@@ -167,13 +288,78 @@ public enum AgentLaunchSanitizer {
         return result
     }
 
+    private static func dropCodexForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
+        var result: [String] = []
+        var index = 0
+
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                break
+            }
+            if index == forkCommand.forkIndex {
+                index += 1
+                continue
+            }
+            if index == forkCommand.sessionIndex {
+                index += 1
+                while index < args.count, !args[index].hasPrefix("-") {
+                    index += 1
+                }
+                continue
+            }
+            if !arg.hasPrefix("-") || arg == "-" {
+                index += 1
+                continue
+            }
+
+            let width = optionWidth(args, index: index, policy: codexPolicy)
+            let end = min(args.count, index + width)
+            if codexPolicy.variadicOptions.contains(arg),
+               forkCommand.forkIndex > index,
+               forkCommand.forkIndex < end {
+                if forkCommand.forkIndex > index + 1 {
+                    result.append(contentsOf: args[index..<forkCommand.forkIndex])
+                }
+                index = forkCommand.forkIndex
+                continue
+            }
+            if codexPolicy.variadicOptions.contains(arg),
+               forkCommand.sessionIndex > index,
+               forkCommand.sessionIndex < end {
+                if forkCommand.sessionIndex > index + 1 {
+                    result.append(contentsOf: args[index..<forkCommand.sessionIndex])
+                }
+                index = forkCommand.sessionIndex
+                continue
+            }
+            result.append(contentsOf: args[index..<end])
+            index += width
+        }
+
+        return result
+    }
+
     private static func shouldDropOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
         if droppedOptions.contains(arg) { return true }
         guard let equals = arg.firstIndex(of: "=") else { return false }
         return droppedOptions.contains(String(arg[..<equals]))
     }
 
-    private static func optionWidth(_ args: [String], index: Int, policy: Policy) -> Int {
+    private static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {
+        if let width = runtimeOnlyOptionWidths[arg] {
+            return width
+        }
+        guard let equals = arg.firstIndex(of: "=") else { return nil }
+        return runtimeOnlyOptionWidths[String(arg[..<equals])].map { _ in 1 }
+    }
+
+    private static func optionWidth(
+        _ args: [String],
+        index: Int,
+        policy: Policy,
+        stopVariadicAtPositionals: Set<String> = []
+    ) -> Int {
         let arg = args[index]
         if arg.contains("=") {
             return 1
@@ -193,7 +379,9 @@ public enum AgentLaunchSanitizer {
         }
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
-            while end < args.count, !args[end].hasPrefix("-") {
+            while end < args.count,
+                  !args[end].hasPrefix("-"),
+                  !stopVariadicAtPositionals.contains(args[end]) {
                 end += 1
             }
             return max(1, end - index)

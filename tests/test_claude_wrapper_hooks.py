@@ -82,6 +82,19 @@ printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_L
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
+if [[ "${1:-}" == "--help" ]]; then
+  cat <<'HELP'
+Usage: claude [options] [command] [prompt]
+
+Commands:
+  agents             Manage agents
+  doctor             Check Claude health
+  experimental-next  Future command exposed by the real CLI help
+  plugin|plugins     Manage plugins
+  update|upgrade     Update Claude
+HELP
+  exit 0
+fi
 exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
 """,
         )
@@ -213,6 +226,106 @@ exit 0
             hook_cmux_bin_value,
             launch_argv_b64_value,
         )
+
+
+def run_wrapper_terminal_env_probe(
+    argv: list[str],
+    *,
+    hooks_disabled: bool = False,
+) -> tuple[int, dict[str, str], list[str], str, set[str]]:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        real_dir = tmp / "real-bin"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        real_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "claude"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        env_log = tmp / "real-env.log"
+        args_log = tmp / "real-args.log"
+        socket_path = str(tmp / "cmux.sock")
+        fingerprint_env = {
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.envprobe",
+            "CMUX_BUNDLED_CLI_PATH": str(wrapper_dir / "cmux"),
+            "CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION": "1",
+            "CMUX_PANEL_ID": "panel:test",
+            "CMUX_PORT": "9170",
+            "CMUX_PORT_END": "9179",
+            "CMUX_PORT_RANGE": "10",
+            "CMUX_SHELL_INTEGRATION": "1",
+            "CMUX_SHELL_INTEGRATION_DIR": str(tmp / "shell-integration"),
+            "CMUX_SOCKET_PATH": socket_path,
+            "CMUX_SURFACE_ID": "surface:test",
+            "CMUX_TAB_ID": "tab:test",
+            "CMUX_WORKSPACE_ID": "workspace:test",
+            "TERMINFO": str(tmp / "terminfo"),
+        }
+        if hooks_disabled:
+            fingerprint_env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        probe_key_lines = "\n".join(f"  {key}" for key in fingerprint_env)
+
+        make_executable(
+            real_dir / "claude",
+            f"""#!/usr/bin/env bash
+set -euo pipefail
+: > "$FAKE_REAL_ENV_LOG"
+: > "$FAKE_REAL_ARGS_LOG"
+keys=(
+{probe_key_lines}
+)
+for key in "${{keys[@]}}"; do
+  if [[ ${{!key+x}} ]]; then
+    printf '%s=%s\\n' "$key" "${{!key}}" >> "$FAKE_REAL_ENV_LOG"
+  else
+    printf '%s=__UNSET__\\n' "$key" >> "$FAKE_REAL_ENV_LOG"
+  fi
+done
+for arg in "$@"; do
+  printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
+done
+""",
+        )
+
+        make_executable(
+            wrapper_dir / "cmux",
+            """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  exit 0
+fi
+exit 0
+""",
+        )
+
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            test_socket.bind(socket_path)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+            env.update(fingerprint_env)
+            env["FAKE_REAL_ENV_LOG"] = str(env_log)
+            env["FAKE_REAL_ARGS_LOG"] = str(args_log)
+
+            proc = subprocess.run(
+                [str(wrapper), *argv],
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            test_socket.close()
+
+        observed_env = dict(line.split("=", 1) for line in read_lines(env_log))
+        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(fingerprint_env)
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -349,7 +462,7 @@ exit 0
 def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: list[str]) -> None:
     code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
         socket_state="live",
-        argv=["--print", "hello"],
+        argv=["hello"],
     )
     expect(code == 0, f"live socket: wrapper exited {code}: {stderr}", failures)
     expect("--settings" in real_argv, f"live socket: missing --settings in args: {real_argv}", failures)
@@ -360,7 +473,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"live socket: wrapper should not unlock bypass permissions via {flag}: {real_argv}",
             failures,
         )
-    expect(real_argv[-2:] == ["--print", "hello"], f"live socket: expected original print args to pass through, got {real_argv}", failures)
+    expect(real_argv[-1] == "hello", f"live socket: expected original arg to pass through, got {real_argv}", failures)
     expect(any(" ping" in line for line in cmux_log), f"live socket: expected cmux ping, got {cmux_log}", failures)
     expect(
         any("timeout=0.75" in line for line in cmux_log),
@@ -398,7 +511,6 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         "SessionEnd": "session-end",
         "Notification": "notification",
         "UserPromptSubmit": "prompt-submit",
-        "PreToolUse": "pre-tool-use",
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
@@ -406,8 +518,28 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
             failures,
         )
-    # PreToolUse should be async to avoid blocking tool execution
-    pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
+    pre_tool_use_groups = hooks.get("PreToolUse", [])
+    cron_guard_groups = [group for group in pre_tool_use_groups if group.get("matcher") == "CronCreate"]
+    expect(cron_guard_groups, f"PreToolUse should install a CronCreate guard, got {pre_tool_use_groups}", failures)
+    if cron_guard_groups:
+        cron_guard_hooks = cron_guard_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude cron-create-guard'
+                and h.get("async") is not True
+                for h in cron_guard_hooks
+            ),
+            f"CronCreate guard should synchronously call hooks claude cron-create-guard, got {cron_guard_hooks}",
+            failures,
+        )
+
+    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
+    pre_tool_use_hooks = [
+        hook
+        for group in pre_tool_use_groups
+        for hook in group.get("hooks", [])
+        if "pre-tool-use" in hook.get("command", "")
+    ]
     expect(
         any(h.get("async") is True for h in pre_tool_use_hooks),
         f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
@@ -439,54 +571,6 @@ def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> 
     expect(argv[0].endswith("/real-bin/claude"), f"plain claude: expected real claude executable, got {argv}", failures)
 
 
-def test_plain_claude_injects_hook_flags(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=[],
-    )
-    expect(code == 0, f"plain claude injection: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"plain claude injection: expected --settings injection, got {real_argv}", failures)
-    expect("--session-id" in real_argv, f"plain claude injection: expected --session-id injection, got {real_argv}", failures)
-
-
-def test_print_invocation_injects_hook_flags(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["--print", "hi"],
-    )
-    expect(code == 0, f"print injection: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"print injection: expected --settings injection, got {real_argv}", failures)
-    expect("--session-id" in real_argv, f"print injection: expected --session-id injection, got {real_argv}", failures)
-    expect(real_argv[-2:] == ["--print", "hi"], f"print injection: expected print args preserved, got {real_argv}", failures)
-
-
-def test_short_worktree_invocation_injects_hook_flags(failures: list[str]) -> None:
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["-w", "feature-worktree"],
-    )
-    expect(code == 0, f"short worktree injection: wrapper exited {code}: {stderr}", failures)
-    expect("--settings" in real_argv, f"short worktree injection: expected --settings injection, got {real_argv}", failures)
-    expect("--session-id" in real_argv, f"short worktree injection: expected --session-id injection, got {real_argv}", failures)
-    expect(real_argv[-2:] == ["-w", "feature-worktree"], f"short worktree injection: expected worktree args preserved, got {real_argv}", failures)
-
-
-def test_value_options_before_print_do_not_hide_interactive_entry(failures: list[str]) -> None:
-    cases = [
-        ("short model", ["-m", "claude-opus-4", "--print", "hello"]),
-        ("agents json", ["--agents", '{"reviewer":{}}', "--print", "hello"]),
-    ]
-    for label, argv in cases:
-        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-            socket_state="live",
-            argv=argv,
-        )
-        expect(code == 0, f"{label} value-option injection: wrapper exited {code}: {stderr}", failures)
-        expect("--settings" in real_argv, f"{label} value-option injection: expected --settings injection, got {real_argv}", failures)
-        expect("--session-id" in real_argv, f"{label} value-option injection: expected --session-id injection, got {real_argv}", failures)
-        expect(real_argv[-len(argv):] == argv, f"{label} value-option injection: expected original args preserved, got {real_argv}", failures)
-
-
 def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> None:
     subcommands = [
         "mcp",
@@ -503,9 +587,10 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         "setup-token",
         "install",
         "daemon",
+        "experimental-next",
     ]
     for subcommand in subcommands:
-        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
             socket_state="live",
             argv=[subcommand],
         )
@@ -513,6 +598,7 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         expect(real_argv == [subcommand], f"{subcommand} passthrough: expected raw argv, got {real_argv}", failures)
         expect("--settings" not in real_argv, f"{subcommand} passthrough: expected no --settings injection, got {real_argv}", failures)
         expect("--session-id" not in real_argv, f"{subcommand} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{subcommand} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
@@ -522,6 +608,42 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect(real_argv == ["--model", "sonnet", "agents"], f"agents after global option passthrough: expected raw argv, got {real_argv}", failures)
     expect("--settings" not in real_argv, f"agents after global option passthrough: expected no --settings injection, got {real_argv}", failures)
     expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
+
+
+def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
+    for flag in ("--help", "--version", "-h", "-v"):
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=[flag],
+        )
+        expect(code == 0, f"{flag} passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == [flag], f"{flag} passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{flag} passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{flag} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{flag} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
+def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
+    scenarios = [
+        ("agents env probe", {}),
+        ("agents hooks-disabled env probe", {"hooks_disabled": True}),
+    ]
+    for label, kwargs in scenarios:
+        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"], **kwargs)
+        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == ["agents"], f"{label}: expected raw argv, got {real_argv}", failures)
+        expect(
+            set(observed_env) == expected_keys,
+            f"{label}: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            failures,
+        )
+
+        for key, value in observed_env.items():
+            expect(
+                value == "__UNSET__",
+                f"{label}: expected {key} unset, got {value!r}",
+                failures,
+            )
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
@@ -534,7 +656,7 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
         "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
     }
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
-        argv=["--print", "hello"],
+        argv=["hello"],
         inherited_env=inherited,
     )
     expect(code == 0, f"fresh auth env: wrapper exited {code}: {stderr}", failures)
@@ -825,7 +947,7 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
     restored = "--max-old-space-size=2048 --trace-warnings"
     code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
         socket_state="live",
-        argv=["--print", "hello"],
+        argv=["hello"],
         node_options=existing,
     )
     expect(code == 0, f"space-separated heap flag: wrapper exited {code}: {stderr}", failures)
@@ -851,7 +973,7 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
         bad_tmpdir.write_text("occupied", encoding="utf-8")
         code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
-            argv=["--print", "hello"],
+            argv=["hello"],
             tmpdir=str(bad_tmpdir),
         )
     expect(code == 0, f"tmpdir failure: wrapper exited {code}: {stderr}", failures)
@@ -866,9 +988,9 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
-        ("allow/print", ["--allow-dangerously-skip-permissions", "--print", "hello"], True, "--allow-dangerously-skip-permissions"),
+        ("allow/plain", ["--allow-dangerously-skip-permissions", "hello"], True, "--allow-dangerously-skip-permissions"),
         ("allow/resume", ["--allow-dangerously-skip-permissions", "--resume", "some-session-id"], False, "--allow-dangerously-skip-permissions"),
-        ("short/print", ["--dangerously-skip-permissions", "--print", "hello"], True, "--dangerously-skip-permissions"),
+        ("short/plain", ["--dangerously-skip-permissions", "hello"], True, "--dangerously-skip-permissions"),
         ("short/resume", ["--dangerously-skip-permissions", "--resume", "some-session-id"], False, "--dangerously-skip-permissions"),
     ]
     for label, argv, expects_session_id, expected_flag in cases:
@@ -893,7 +1015,7 @@ def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> 
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
             socket_state="live",
-            argv=["--print", "hello"],
+            argv=["hello"],
             tmpdir=str(tmpdir),
         )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
@@ -970,11 +1092,9 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
-    test_plain_claude_injects_hook_flags(failures)
-    test_print_invocation_injects_hook_flags(failures)
-    test_short_worktree_invocation_injects_hook_flags(failures)
-    test_value_options_before_print_do_not_hide_interactive_entry(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
+    test_passthrough_flags_bypass_hook_injection(failures)
+    test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
