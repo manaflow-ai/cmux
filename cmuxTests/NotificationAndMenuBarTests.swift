@@ -426,6 +426,26 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         XCTAssertEqual(pending?.modifiedAt, crashDate)
     }
 
+    func testPendingCrashDetectedFromMatchingEnvelopeWhenNewerThanCleanExit() throws {
+        let cleanExit = Date(timeIntervalSince1970: 100)
+        let crashDate = Date(timeIntervalSince1970: 200)
+        defaults.set(cleanExit, forKey: GhosttyCrashBreadcrumb.lastCleanExitDefaultsKey)
+        let currentExecutablePath = try XCTUnwrap(Bundle.main.executableURL?.path)
+        let crashURL = try writeCrashEnvelope(
+            named: "matching-newer.ghosttycrash",
+            executablePath: currentExecutablePath,
+            modifiedAt: crashDate
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), crashURL.resolvingSymlinksInPath())
+        XCTAssertEqual(pending?.modifiedAt, crashDate)
+    }
+
     func testPendingCrashIgnoresNewerCrashFromDifferentExecutable() throws {
         let currentCrashDate = Date(timeIntervalSince1970: 200)
         let foreignCrashDate = Date(timeIntervalSince1970: 300)
