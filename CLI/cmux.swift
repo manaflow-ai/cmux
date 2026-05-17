@@ -20138,7 +20138,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let codexHookTrustEntriesToRemove = Self.codexHookTrustEntries(
             hooks: hooks,
             hooksFilePath: filePath,
-            def: def
+            def: def,
+            includeLegacyOwnedCommands: true
         )
         let codexDefaultHookTrustHashesToRemove = Set(Self.codexHookTrustEntries(
             hooks: buildHooksDict(for: def),
@@ -20413,11 +20414,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexHookTrustEntries(
         hooks: [String: Any],
         hooksFilePath: String,
-        def: AgentHookDef
+        def: AgentHookDef,
+        includeLegacyOwnedCommands: Bool = false
     ) -> [CodexHookTrustEntry] {
         guard def.name == "codex" else { return [] }
         let isOwnedCommand: (String) -> Bool = { command in
-            isCmuxOwnedHookCommand(command, for: def, includeLegacy: false)
+            isCmuxOwnedHookCommand(command, for: def, includeLegacy: includeLegacyOwnedCommands)
         }
         var entries: [CodexHookTrustEntry] = []
         let keySource = codexNormalizedHookSourcePath(hooksFilePath)

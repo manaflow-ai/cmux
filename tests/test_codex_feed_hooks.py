@@ -1724,6 +1724,71 @@ def test_uninstall_retry_preserves_user_hook_trust_at_default_cmux_key(
             raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
 
 
+def test_uninstall_removes_legacy_codex_hook_trust(cli_path: str, root: Path) -> None:
+    codex_home = root / "codex-home-uninstall-legacy-trust"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    config_path = codex_home / "config.toml"
+    legacy_command = "cmux feed-hook --source codex --event PreToolUse"
+    legacy_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    legacy_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command=legacy_command,
+        timeout=120_000,
+        status_message=None,
+    )
+    hooks_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": legacy_command,
+                                    "timeout": 120_000,
+                                }
+                            ]
+                        }
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config_path.write_text(
+        f'[hooks.state."{legacy_key}"]\n'
+        f'trusted_hash = "{legacy_hash}"\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    if legacy_command in json.dumps(hooks):
+        raise AssertionError(f"legacy cmux hook command was preserved: {hooks!r}")
+    config_toml = config_path.read_text(encoding="utf-8")
+    if legacy_key in config_toml or legacy_hash in config_toml:
+        raise AssertionError(f"legacy cmux hook trust was preserved: {config_toml!r}")
+
+
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-uninstall"
     codex_home.mkdir()
@@ -1985,6 +2050,7 @@ def main() -> int:
             test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(cli_path, root)
             test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(cli_path, root)
             test_uninstall_retry_preserves_user_hook_trust_at_default_cmux_key(cli_path, root)
+            test_uninstall_removes_legacy_codex_hook_trust(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
