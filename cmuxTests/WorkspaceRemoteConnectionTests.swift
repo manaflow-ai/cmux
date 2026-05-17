@@ -1121,9 +1121,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
         var cleanupArguments: [[String]] = []
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
 
         Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
             cleanupArguments.append(arguments)
+            cleanupRequested.fulfill()
         }
         defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
 
@@ -1144,6 +1147,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(workspace.isRemoteTerminalSurface(initialTerminalID))
         XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        wait(for: [cleanupRequested], timeout: 0.2)
         XCTAssertTrue(cleanupArguments.isEmpty)
     }
 
