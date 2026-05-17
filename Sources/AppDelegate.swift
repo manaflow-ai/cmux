@@ -14605,6 +14605,9 @@ private extension AppDelegate {
         if let cell = sender as? NSCell {
             return cell.controlView?.window
         }
+        if target == nil, sender is NSMenuItem {
+            return NSApp.keyWindow ?? NSApp.mainWindow
+        }
         return allowFallback ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
     }
 

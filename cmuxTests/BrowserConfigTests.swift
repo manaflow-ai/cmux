@@ -2730,7 +2730,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 
-    func testDetachedInspectorWillCloseAfterDockingBackDoesNotCloseAttachedInspector() {
+    func testDetachedInspectorWillCloseDuringDockBackClosesInspectorBeforeWebKitAttachContinues() {
         let (panel, inspector) = makePanelWithInspector()
         let mainWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
@@ -2784,10 +2784,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertEqual(
             inspector.closeCount,
-            0,
-            "When WebKit docks a detached inspector back into the browser, the stale detached-window willClose must not close the live attached inspector"
+            1,
+            "Detached inspector willClose must close the owning inspector instead of letting WebKit continue an unstable in-window attach"
         )
-        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 
     func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
@@ -2917,6 +2917,67 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             inspector.closeCount,
             1,
             "Menu and keyboard close actions without an explicit target must still route through inspector teardown"
+        )
+        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+    }
+
+    func testDetachedInspectorNilTargetMenuItemCloseActionUsesKeyWindow() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { inspectorWindow.orderOut(nil) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let menuItem = NSMenuItem(
+            title: "Close",
+            action: NSSelectorFromString("close:"),
+            keyEquivalent: "w"
+        )
+        let handled = NSApp.sendAction(NSSelectorFromString("close:"), to: nil, from: menuItem)
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(
+            inspector.closeCount,
+            1,
+            "Nil-target menu Close actions must resolve the key detached inspector window before AppKit posts willClose"
         )
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
