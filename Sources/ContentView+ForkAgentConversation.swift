@@ -54,6 +54,7 @@ extension ContentView {
                   currentContext.workspace.id == workspaceId,
                   currentContext.panelId == panelId,
                   currentContext.panel.panelType == .terminal,
+                  currentContext.workspace.isRemoteTerminalSurface(panelId) == isInitialRemoteContext,
                   currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
                   Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId]) == ttyName else {
                 NSSound.beep()
@@ -74,7 +75,7 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
+            let isRemoteContext = isInitialRemoteContext
             guard await AgentForkSupport.supportsFork(
                 snapshot: snapshot,
                 isRemoteContext: isRemoteContext
