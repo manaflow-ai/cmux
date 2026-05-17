@@ -1612,6 +1612,13 @@ class TerminalController {
                 code: "invalid_request",
                 message: "Missing method"
             )
+        case .malformedID:
+            return v2Error(
+                id: nil,
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_request",
+                message: "id must be a string, number, or null"
+            )
         }
     }
 

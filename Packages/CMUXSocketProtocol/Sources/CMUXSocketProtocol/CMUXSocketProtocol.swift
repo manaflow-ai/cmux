@@ -32,15 +32,12 @@ nonisolated public struct V2SocketRequest {
     public let params: [String: Any]
     public let usesJSONRPC: Bool
     public let hasIdMember: Bool
-
-    public var isJSONRPCNotification: Bool {
-        usesJSONRPC && !hasIdMember
-    }
 }
 
 nonisolated public enum V2SocketRequestParseError: Error, Equatable {
     case missingMethod
     case invalidParams
+    case malformedID
 }
 
 nonisolated public enum V2CallResult {
@@ -111,12 +108,17 @@ nonisolated public enum CMUXSocketProtocol {
         }
 
         let params = try paramsObject(in: dict)
+        let usesJSONRPC = usesJSONRPC(dict)
+        let hasIdMember = dict.keys.contains("id")
+        if usesJSONRPC && hasIdMember && !isValidJSONRPCID(dict["id"]) {
+            throw V2SocketRequestParseError.malformedID
+        }
         return V2SocketRequest(
             id: dict["id"],
             method: method,
             params: params,
-            usesJSONRPC: usesJSONRPC(dict),
-            hasIdMember: dict.keys.contains("id")
+            usesJSONRPC: usesJSONRPC,
+            hasIdMember: hasIdMember
         )
     }
 
@@ -128,6 +130,17 @@ nonisolated public enum CMUXSocketProtocol {
             throw V2SocketRequestParseError.invalidParams
         }
         return params
+    }
+
+    private static func isValidJSONRPCID(_ id: Any?) -> Bool {
+        guard let id else { return true }
+        if id is NSNull || id is String {
+            return true
+        }
+        if let number = id as? NSNumber {
+            return CFGetTypeID(number) != CFBooleanGetTypeID()
+        }
+        return false
     }
 
     public static let socketWorkerV2Methods: Set<String> = [
