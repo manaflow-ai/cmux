@@ -15,7 +15,7 @@ nonisolated enum GhosttyCrashBreadcrumb {
             .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
     }
 
-    @concurrent
+    @Sendable
     nonisolated static func pendingCrashFromDefaultStorage() async -> PendingCrash? {
         await Task.detached(priority: .utility) {
             pendingCrash()
