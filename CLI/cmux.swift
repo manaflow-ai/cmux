@@ -17915,7 +17915,8 @@ struct CMUXCLI {
     private func readCodexTranscriptFailure(
         path: String,
         turnId: String? = nil,
-        requireTerminalCompletion: Bool = false
+        requireTerminalCompletion: Bool = false,
+        unscopedEventNotBefore: Date? = nil
     ) -> CodexTranscriptFailureReadResult {
         guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
             return .unavailable
@@ -17933,8 +17934,10 @@ struct CMUXCLI {
                   let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
                 continue
             }
+            let unscopedEventIsInCurrentTurn = codexTranscriptLineIsAtOrAfter(object, unscopedEventNotBefore)
 
-            if (turnId == nil || sawRelevantTurn) && codexTranscriptLineHasAssistantMessage(object) {
+            if (turnId == nil || sawRelevantTurn || unscopedEventIsInCurrentTurn)
+                && codexTranscriptLineHasAssistantMessage(object) {
                 sawAssistantMessage = true
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
@@ -17950,8 +17953,14 @@ struct CMUXCLI {
             case "task_started":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
-                    guard payloadTurnId == turnId else {
-                        continue
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else {
+                            continue
+                        }
+                    } else {
+                        guard unscopedEventIsInCurrentTurn else {
+                            continue
+                        }
                     }
                 }
                 sawRelevantTurn = true
@@ -17959,11 +17968,15 @@ struct CMUXCLI {
                 candidateCanPublishBeforeTerminal = false
             case "error":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                if let turnId, let payloadTurnId {
-                    guard payloadTurnId == turnId else {
-                        continue
+                if let turnId {
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else {
+                            continue
+                        }
+                        sawRelevantTurn = true
+                    } else if unscopedEventIsInCurrentTurn {
+                        sawRelevantTurn = true
                     }
-                    sawRelevantTurn = true
                 }
                 if let failure = codexHookFailureCandidate(
                     from: payload,
@@ -17975,11 +17988,15 @@ struct CMUXCLI {
                 }
             case "stream_error":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
-                if let turnId, let payloadTurnId {
-                    guard payloadTurnId == turnId else {
-                        continue
+                if let turnId {
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else {
+                            continue
+                        }
+                        sawRelevantTurn = true
+                    } else if unscopedEventIsInCurrentTurn {
+                        sawRelevantTurn = true
                     }
-                    sawRelevantTurn = true
                 }
                 if let failure = codexHookFailureCandidate(
                     from: payload,
@@ -17992,8 +18009,14 @@ struct CMUXCLI {
             case "task_complete", "turn_complete":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
                 if let turnId {
-                    guard payloadTurnId == turnId else {
-                        continue
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else {
+                            continue
+                        }
+                    } else {
+                        guard sawRelevantTurn || unscopedEventIsInCurrentTurn else {
+                            continue
+                        }
                     }
                 }
                 sawRelevantTurn = true
@@ -18036,6 +18059,52 @@ struct CMUXCLI {
             return .pending
         }
         return .healthy
+    }
+
+    private func codexTranscriptLineIsAtOrAfter(_ object: [String: Any], _ boundary: Date?) -> Bool {
+        guard let boundary,
+              let timestamp = codexTranscriptLineTimestamp(object) else {
+            return false
+        }
+        return timestamp >= boundary
+    }
+
+    private func codexTranscriptLineTimestamp(_ object: [String: Any]) -> Date? {
+        if let string = firstString(in: object, keys: ["timestamp", "time", "created_at", "createdAt"]) {
+            if let date = codexTranscriptISO8601Date(from: string) {
+                return date
+            }
+            if let value = Double(string) {
+                return codexTranscriptDate(fromUnixTime: value)
+            }
+        }
+        for key in ["timestamp", "time", "created_at", "createdAt"] {
+            guard let rawValue = object[key] else { continue }
+            if let number = rawValue as? NSNumber {
+                return codexTranscriptDate(fromUnixTime: number.doubleValue)
+            }
+            if let value = rawValue as? Double {
+                return codexTranscriptDate(fromUnixTime: value)
+            }
+            if let value = rawValue as? Int {
+                return codexTranscriptDate(fromUnixTime: Double(value))
+            }
+        }
+        return nil
+    }
+
+    private func codexTranscriptISO8601Date(from value: String) -> Date? {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: value) {
+            return date
+        }
+        return ISO8601DateFormatter().date(from: value)
+    }
+
+    private func codexTranscriptDate(fromUnixTime value: Double) -> Date? {
+        guard value.isFinite, value > 0 else { return nil }
+        return Date(timeIntervalSince1970: value > 10_000_000_000 ? value / 1_000 : value)
     }
 
     private func readCodexTranscriptUserInput(
@@ -18582,6 +18651,14 @@ struct CMUXCLI {
         return record.retiredAt != nil
     }
 
+    private func codexMonitorLeaseCreatedAt(path: String?) -> Date? {
+        guard let path, !path.isEmpty,
+              let record = readCodexMonitorLease(path: path) else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: record.createdAt)
+    }
+
     private func removeCodexMonitorLease(path: String?) {
         guard let path, !path.isEmpty else { return }
         try? FileManager.default.removeItem(atPath: path)
@@ -18687,6 +18764,7 @@ struct CMUXCLI {
 
         defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        let unscopedEventNotBefore = codexMonitorLeaseCreatedAt(path: leasePath)
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
@@ -18723,7 +18801,8 @@ struct CMUXCLI {
                 switch readCodexTranscriptFailure(
                     path: currentTranscriptPath,
                     turnId: turnId,
-                    requireTerminalCompletion: true
+                    requireTerminalCompletion: true,
+                    unscopedEventNotBefore: unscopedEventNotBefore
                 ) {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
