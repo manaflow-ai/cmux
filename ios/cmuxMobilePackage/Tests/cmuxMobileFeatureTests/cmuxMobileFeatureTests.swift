@@ -441,6 +441,58 @@ import Testing
 }
 
 @MainActor
+@Test func manualFallbackTicketListsWorkspacesWithoutSyntheticWorkspaceFilter() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(message: "ticket unavailable"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    let requests = try await responses.sentRequests()
+    let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(workspaceList.workspaceID == nil)
+    #expect(store.phase == .workspaces)
+}
+
+@MainActor
+@Test func uuidAttachTicketListsScopedWorkspace() async throws {
+    let workspaceID = UUID().uuidString
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let requests = try await responses.sentRequests()
+    let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(workspaceList.workspaceID == workspaceID)
+    #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
+}
+
+@MainActor
 @Test func manualHostPairingRejectsInvalidHost() async {
     let store = CMUXMobileShellStore.preview()
 
@@ -1449,6 +1501,7 @@ private actor ScriptedTransportResponses {
             let params = request["params"] as? [String: Any] ?? [:]
             return RecordedRPCRequest(
                 method: request["method"] as? String,
+                workspaceID: params["workspace_id"] as? String,
                 viewportColumns: params["viewport_columns"] as? Int,
                 viewportRows: params["viewport_rows"] as? Int,
                 clientID: params["client_id"] as? String,
@@ -1461,6 +1514,7 @@ private actor ScriptedTransportResponses {
 
 private struct RecordedRPCRequest: Sendable {
     var method: String?
+    var workspaceID: String?
     var viewportColumns: Int?
     var viewportRows: Int?
     var clientID: String?

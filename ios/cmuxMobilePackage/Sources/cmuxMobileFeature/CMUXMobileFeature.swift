@@ -3870,7 +3870,6 @@ private final class TerminalUIKitActionButton: UIButton {
         accessibilityLabel = action.accessibilityLabel
         accessibilityIdentifier = action.accessibilityIdentifier
         addTarget(self, action: #selector(handleActivation), for: .touchUpInside)
-        addTarget(self, action: #selector(handleActivation), for: .primaryActionTriggered)
     }
 
     required init?(coder: NSCoder) {

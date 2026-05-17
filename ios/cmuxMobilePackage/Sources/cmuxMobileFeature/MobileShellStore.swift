@@ -726,7 +726,7 @@ public final class CMUXMobileShellStore {
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "workspace.list",
-                params: ["workspace_id": ticket.workspaceID]
+                params: Self.initialWorkspaceListParams(for: ticket)
             )
         )
         let response = try MobileSyncWorkspaceListResponse.decode(resultData)
@@ -737,6 +737,13 @@ public final class CMUXMobileShellStore {
         syncSelectedTerminalForWorkspace()
         connectionState = .connected
         await refreshSelectedTerminalSnapshot()
+    }
+
+    private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
+        guard UUID(uuidString: ticket.workspaceID) != nil else {
+            return [:]
+        }
+        return ["workspace_id": ticket.workspaceID]
     }
 
     private func clearActiveConnectionContext() {
