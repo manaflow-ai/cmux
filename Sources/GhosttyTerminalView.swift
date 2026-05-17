@@ -17,6 +17,38 @@ import UniformTypeIdentifiers
 private let terminalNotificationFallbackTitle =
     String(localized: "terminal.notification.fallbackTitle", defaultValue: "Terminal")
 
+@MainActor
+private func handleTerminalDesktopNotification(
+    tabId: UUID,
+    surfaceId: UUID?,
+    actionTitle: String,
+    actionBody: String
+) -> Bool {
+    let owningManager =
+        AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
+    let tabTitle = owningManager?.titleForTab(tabId) ?? terminalNotificationFallbackTitle
+    let workspaceAgentPIDs =
+        owningManager?.tabs.first(where: { $0.id == tabId })?.agentPIDs ?? [:]
+    let route = TerminalDesktopNotificationBridge.route(
+        claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
+        workspaceAgentPIDs: workspaceAgentPIDs,
+        actionTitle: actionTitle,
+        actionBody: actionBody,
+        fallbackTabTitle: tabTitle
+    )
+    guard case .deliver(let notification) = route else {
+        return true
+    }
+    TerminalNotificationStore.shared.addNotification(
+        tabId: tabId,
+        surfaceId: surfaceId,
+        title: notification.title,
+        subtitle: "",
+        body: notification.body
+    )
+    return true
+}
+
 @_silgen_name("ghostty_surface_clear_selection")
 private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
 
@@ -3671,29 +3703,13 @@ class GhosttyApp {
                     // Claude hooks are active. Other terminal notifications in the same
                     // workspace (for example Codex OSC prompts) should still flow into
                     // the cmux notification pipeline.
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
-                    let tabTitle = owningManager.titleForTab(tabId) ?? terminalNotificationFallbackTitle
-                    let workspaceAgentPIDs =
-                        owningManager.tabs.first(where: { $0.id == tabId })?.agentPIDs ?? [:]
-                    let route = TerminalDesktopNotificationBridge.route(
-                        claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
-                        workspaceAgentPIDs: workspaceAgentPIDs,
-                        actionTitle: actionTitle,
-                        actionBody: actionBody,
-                        fallbackTabTitle: tabTitle
-                    )
-                    guard case .deliver(let notification) = route else {
-                        return true
-                    }
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    TerminalNotificationStore.shared.addNotification(
+                    return handleTerminalDesktopNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
-                        title: notification.title,
-                        subtitle: "",
-                        body: notification.body
+                        actionTitle: actionTitle,
+                        actionBody: actionBody
                     )
-                    return true
                 }
             }
 
@@ -3942,27 +3958,11 @@ class GhosttyApp {
             performOnMain {
                 // Suppress only generic Claude raw-OSC attention banners when Claude hooks
                 // are active; preserve other terminal notification sources in the workspace.
-                let owningManager =
-                    AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                let tabTitle = owningManager?.titleForTab(tabId) ?? terminalNotificationFallbackTitle
-                let workspaceAgentPIDs =
-                    owningManager?.tabs.first(where: { $0.id == tabId })?.agentPIDs ?? [:]
-                let route = TerminalDesktopNotificationBridge.route(
-                    claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
-                    workspaceAgentPIDs: workspaceAgentPIDs,
-                    actionTitle: actionTitle,
-                    actionBody: actionBody,
-                    fallbackTabTitle: tabTitle
-                )
-                guard case .deliver(let notification) = route else {
-                    return
-                }
-                TerminalNotificationStore.shared.addNotification(
+                _ = handleTerminalDesktopNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
-                    title: notification.title,
-                    subtitle: "",
-                    body: notification.body
+                    actionTitle: actionTitle,
+                    actionBody: actionBody
                 )
             }
             return true
