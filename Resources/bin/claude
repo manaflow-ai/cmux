@@ -287,8 +287,21 @@ node_options_restore_dir() {
     while [[ "$fallback_root" == */ && "$fallback_root" != "/" ]]; do
         fallback_root="${fallback_root%/}"
     done
-    local fallback_dir
-    fallback_dir="$(mktemp -d "$fallback_root/cmux-node-options.XXXXXX")" || return 1
+    local uid="${UID:-}"
+    if [[ -z "$uid" ]]; then
+        uid="$(id -u 2>/dev/null)" || return 1
+    fi
+    [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+
+    local fallback_dir="$fallback_root/cmux-node-options-$uid"
+    if [[ -L "$fallback_dir" || ( -e "$fallback_dir" && ! -d "$fallback_dir" ) ]]; then
+        return 1
+    fi
+    mkdir -p "$fallback_dir" || return 1
+    if [[ -L "$fallback_dir" || ! -d "$fallback_dir" || ! -O "$fallback_dir" ]]; then
+        return 1
+    fi
+    chmod 0700 "$fallback_dir" || return 1
     printf '%s' "$fallback_dir/cmux/node-options"
 }
 

@@ -487,11 +487,20 @@ func TestClaudeNodeOptionsRestoreDirFallsBackWhenUserConfigDirUnavailable(t *tes
 		t.Fatalf("claudeNodeOptionsRestoreDir should not fail without HOME: %v", err)
 	}
 
-	if !strings.HasPrefix(got, tempDir+string(os.PathSeparator)) {
-		t.Fatalf("claudeNodeOptionsRestoreDir fallback = %q, want under %q", got, tempDir)
+	expectedRoot := filepath.Join(tempDir, fmt.Sprintf("cmux-node-options-%d", os.Getuid()))
+	want := filepath.Join(expectedRoot, "cmux", "node-options")
+	if got != want {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback = %q, want stable fallback %q", got, want)
 	}
-	if !strings.HasSuffix(got, filepath.Join("cmux", "node-options")) {
-		t.Fatalf("claudeNodeOptionsRestoreDir fallback = %q, want sanitizer-visible suffix", got)
+	info, err := os.Stat(expectedRoot)
+	if err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should create fallback root: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback root is not a directory: %q", expectedRoot)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback root mode = %o, want 0700", info.Mode().Perm())
 	}
 }
 

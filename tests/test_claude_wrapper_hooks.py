@@ -1225,9 +1225,10 @@ def test_live_socket_missing_home_still_injects_node_options_restore(failures: l
         f"missing home: expected NODE_OPTIONS restore preload, got {node_options!r}",
         failures,
     )
+    expected_restore_path = fallback_tmp / f"cmux-node-options-{os.getuid()}" / "cmux" / "node-options" / "restore-node-options.cjs"
     expect(
-        str(fallback_tmp) in restore_path,
-        f"missing home: expected fallback restore module under TMPDIR, got {restore_path!r}",
+        Path(restore_path) == expected_restore_path,
+        f"missing home: expected stable fallback restore module {expected_restore_path}, got {restore_path!r}",
         failures,
     )
     expect(

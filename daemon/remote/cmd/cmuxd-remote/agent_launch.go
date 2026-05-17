@@ -336,11 +336,43 @@ func claudeNodeOptionsRestoreDir() (string, error) {
 	if err == nil && strings.TrimSpace(configDir) != "" {
 		return filepath.Join(configDir, "cmux", "node-options"), nil
 	}
-	fallbackDir, err := os.MkdirTemp(os.TempDir(), "cmux-node-options.")
+	return claudeNodeOptionsTempRestoreDir()
+}
+
+func claudeNodeOptionsTempRestoreDir() (string, error) {
+	fallbackRoot := filepath.Join(os.TempDir(), fmt.Sprintf("cmux-node-options-%d", os.Getuid()))
+	if info, err := os.Lstat(fallbackRoot); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("node options fallback directory is a symlink: %s", fallbackRoot)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("node options fallback path is not a directory: %s", fallbackRoot)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	if err := os.MkdirAll(fallbackRoot, 0700); err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(fallbackRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(fallbackDir, "cmux", "node-options"), nil
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("node options fallback directory is a symlink: %s", fallbackRoot)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("node options fallback path is not a directory: %s", fallbackRoot)
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
+		return "", fmt.Errorf("node options fallback directory is not owned by uid %d: %s", os.Getuid(), fallbackRoot)
+	}
+	if err := os.Chmod(fallbackRoot, 0700); err != nil {
+		return "", err
+	}
+
+	return filepath.Join(fallbackRoot, "cmux", "node-options"), nil
 }
 
 // --- Focused context ---
