@@ -707,7 +707,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testProcessDetectionFallbackScopeOnlyUsesLocalTTY() throws {
+    func testProcessDetectionFallbackScopeOnlyUsesFreshLocalTTY() throws {
         let workspaceId = UUID()
         let panelId = UUID()
         let localScope = try XCTUnwrap(
@@ -715,6 +715,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
+                ttyWasReportedInCurrentSession: true,
                 ttyName: " ttys001 "
             )
         )
@@ -727,6 +728,16 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: true,
+                ttyWasReportedInCurrentSession: true,
+                ttyName: "ttys001"
+            )
+        )
+        XCTAssertNil(
+            ContentView.commandPaletteProcessDetectionFallbackScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                isRemoteTerminal: false,
+                ttyWasReportedInCurrentSession: false,
                 ttyName: "ttys001"
             )
         )

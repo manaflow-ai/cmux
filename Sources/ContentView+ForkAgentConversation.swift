@@ -33,6 +33,7 @@ extension ContentView {
         let panelId = initialContext.panelId
         let isInitialRemoteContext = initialContext.workspace.isRemoteTerminalSurface(panelId)
         let ttyName = Self.commandPaletteNormalizedTTYName(initialContext.workspace.surfaceTTYNames[panelId])
+        let ttyWasReportedInCurrentSession = initialContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
         let ttyCacheValue = Self.commandPaletteTTYCacheValue(ttyName)
         let panelKey = Self.commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
@@ -45,6 +46,7 @@ extension ContentView {
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteTerminal: isInitialRemoteContext,
+                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession,
                     ttyName: ttyName
                 )
             )
@@ -52,6 +54,7 @@ extension ContentView {
                   currentContext.workspace.id == workspaceId,
                   currentContext.panelId == panelId,
                   currentContext.panel.panelType == .terminal,
+                  currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
                   Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId]) == ttyName else {
                 NSSound.beep()
                 return
@@ -176,13 +179,18 @@ extension ContentView {
         workspaceId: UUID,
         panelId: UUID,
         isRemoteTerminal: Bool,
+        ttyWasReportedInCurrentSession: Bool,
         ttyName: String?
     ) -> RestorableAgentProcessDetectionScope? {
         guard !isRemoteTerminal else { return nil }
+        guard ttyWasReportedInCurrentSession,
+              let normalizedTTYName = commandPaletteNormalizedTTYName(ttyName) else {
+            return nil
+        }
         return RestorableAgentProcessDetectionScope(
             workspaceId: workspaceId,
             panelId: panelId,
-            ttyName: ttyName
+            ttyName: normalizedTTYName
         )
     }
 }

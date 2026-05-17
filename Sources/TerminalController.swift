@@ -5246,7 +5246,7 @@ class TerminalController {
                 return
             }
 
-            tab.surfaceTTYNames[surfaceId] = ttyName
+            tab.recordCurrentSessionSurfaceTTY(ttyName, forPanelId: surfaceId)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
@@ -17324,7 +17324,7 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
-                tab.surfaceTTYNames[scope.panelId] = ttyName
+                tab.recordCurrentSessionSurfaceTTY(ttyName, forPanelId: scope.panelId)
                 if tab.isRemoteWorkspace {
                     tab.syncRemotePortScanTTYs()
                     _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelId)
@@ -17368,7 +17368,7 @@ class TerminalController {
                 return
             }
 
-            tab.surfaceTTYNames[surfaceId] = ttyName
+            tab.recordCurrentSessionSurfaceTTY(ttyName, forPanelId: surfaceId)
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)

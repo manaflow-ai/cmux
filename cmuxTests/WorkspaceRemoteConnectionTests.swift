@@ -1272,6 +1272,29 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(source.bonsplitController.tabs(inPane: sourcePaneID).count, 0)
     }
 
+    @MainActor
+    func testDetachAttachPreservesCurrentSessionTTYReport() throws {
+        let source = Workspace()
+        let destination = Workspace()
+
+        let panelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        source.recordCurrentSessionSurfaceTTY("/dev/ttys004", forPanelId: panelID)
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panelID))
+        XCTAssertFalse(source.hasCurrentSessionReportedTTY(forPanelId: panelID))
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, panelID)
+        XCTAssertEqual(destination.surfaceTTYNames[panelID], "/dev/ttys004")
+        XCTAssertTrue(destination.hasCurrentSessionReportedTTY(forPanelId: panelID))
+    }
+
     func testDetectedSSHUploadFailureCleansUpEarlierRemoteUploads() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(

@@ -1472,6 +1472,7 @@ struct ContentView: View {
         static let panelHasPane = "panel.hasPane"
         static let panelHasForkableAgent = "panel.hasForkableAgent"
         static let panelTTYName = "panel.ttyName"
+        static let panelTTYReportedInCurrentSession = "panel.ttyReportedInCurrentSession"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -5924,6 +5925,7 @@ struct ContentView: View {
         let panelId = panelContext.panelId
         let isRemoteTerminal = panelContext.workspace.isRemoteTerminalSurface(panelId)
         let ttyName = panelContext.workspace.surfaceTTYNames[panelId]
+        let ttyWasReportedInCurrentSession = panelContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
         let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
@@ -5996,7 +5998,8 @@ struct ContentView: View {
                     fallbackSnapshot: fallbackSnapshot,
                     fallbackFingerprint: fallbackFingerprint,
                     isRemoteTerminal: isRemoteTerminal,
-                    ttyName: ttyName
+                    ttyName: ttyName,
+                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession
                 )
                 return
             }
@@ -6023,7 +6026,8 @@ struct ContentView: View {
             fallbackSnapshot: nil,
             fallbackFingerprint: nil,
             isRemoteTerminal: isRemoteTerminal,
-            ttyName: ttyName
+            ttyName: ttyName,
+            ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession
         )
     }
 
@@ -6034,12 +6038,14 @@ struct ContentView: View {
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         fallbackFingerprint: String?,
         isRemoteTerminal: Bool,
-        ttyName: String?
+        ttyName: String?,
+        ttyWasReportedInCurrentSession: Bool
     ) {
         let normalizedTTYName = Self.commandPaletteNormalizedTTYName(ttyName)
         let probeFingerprint = [
             fallbackFingerprint ?? "",
             isRemoteTerminal ? "remote" : "local",
+            ttyWasReportedInCurrentSession ? "freshTTY" : "staleTTY",
             normalizedTTYName ?? ""
         ].joined(separator: "\u{1f}")
         if let task = commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] {
@@ -6059,6 +6065,7 @@ struct ContentView: View {
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteTerminal: isRemoteTerminal,
+                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession,
                     ttyName: normalizedTTYName
                 )
             )
@@ -6081,6 +6088,7 @@ struct ContentView: View {
                 guard let currentContext = focusedPanelContext,
                       currentContext.workspace.id == workspaceId,
                       currentContext.panelId == panelId,
+                      currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
                       Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId]) == normalizedTTYName else {
                     commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
@@ -6352,6 +6360,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelIsRemoteTerminal, panelIsRemoteTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelTTYReportedInCurrentSession,
+                workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
+            )
             if let ttyName = Self.commandPaletteNormalizedTTYName(workspace.surfaceTTYNames[panelId]) {
                 snapshot.setString(CommandPaletteContextKeys.panelTTYName, ttyName)
             }
