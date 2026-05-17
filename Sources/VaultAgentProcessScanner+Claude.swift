@@ -295,14 +295,6 @@ extension RestorableAgentSessionIndex {
         }
     }
 
-    private static func normalizedLaunchKind(_ launcher: String) -> String {
-        launcher
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-    }
-
     private static func canonicalClaudeInheritedLauncher(_ launcher: String) -> String? {
         switch normalizedLaunchKind(launcher) {
         case "claude":
@@ -330,32 +322,6 @@ extension RestorableAgentSessionIndex {
         return Array(arguments.dropFirst())
     }
 
-    private static func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
-        guard let rawValue = normalized(rawValue),
-              let data = Data(base64Encoded: rawValue) else {
-            return nil
-        }
-        var parts: [String] = []
-        var start = data.startIndex
-        var index = data.startIndex
-        while index < data.endIndex {
-            if data[index] == 0 {
-                guard let value = String(data: data[start..<index], encoding: .utf8) else {
-                    return nil
-                }
-                parts.append(value)
-                start = data.index(after: index)
-            }
-            index = data.index(after: index)
-        }
-        if start < data.endIndex {
-            guard let value = String(data: data[start..<data.endIndex], encoding: .utf8) else {
-                return nil
-            }
-            parts.append(value)
-        }
-        return parts.isEmpty ? nil : parts
-    }
 }
 
 extension VaultObservedAgentProcess {

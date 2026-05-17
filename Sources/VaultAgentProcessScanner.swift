@@ -874,7 +874,7 @@ extension RestorableAgentSessionIndex {
         }
     }
 
-    private static func normalizedLaunchKind(_ launcher: String) -> String {
+    static func normalizedLaunchKind(_ launcher: String) -> String {
         launcher
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -882,7 +882,7 @@ extension RestorableAgentSessionIndex {
             .replacingOccurrences(of: "_", with: "")
     }
 
-    private static func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
+    static func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
         guard let rawValue = normalized(rawValue),
               let data = Data(base64Encoded: rawValue) else {
             return nil
