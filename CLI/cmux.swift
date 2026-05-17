@@ -18140,6 +18140,8 @@ struct CMUXCLI {
     }()
 
     private static let codexTranscriptBasicISO8601Formatter = ISO8601DateFormatter()
+    // ISO8601DateFormatter is mutable and not documented as thread-safe; this CLI path is
+    // synchronous, so a lock keeps cached parser reuse simple without introducing an actor hop.
     private static let codexTranscriptISO8601FormatterLock = NSLock()
 
     private func codexTranscriptDate(fromUnixTime value: Double) -> Date? {
