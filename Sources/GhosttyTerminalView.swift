@@ -1845,6 +1845,7 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
+    private var synchronizedRuntimeColorScheme: ghostty_color_scheme_e?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -2953,7 +2954,7 @@ class GhosttyApp {
         previousColorScheme != currentColorScheme
     }
 
-    static func ghosttyRuntimeColorScheme(
+    nonisolated static func ghosttyRuntimeColorScheme(
         for colorScheme: GhosttyConfig.ColorSchemePreference
     ) -> ghostty_color_scheme_e {
         switch colorScheme {
@@ -3179,7 +3180,9 @@ class GhosttyApp {
     ) {
         guard let app else { return }
         let scheme = Self.ghosttyRuntimeColorScheme(for: colorScheme)
+        guard synchronizedRuntimeColorScheme != scheme else { return }
         ghostty_app_set_color_scheme(app, scheme)
+        synchronizedRuntimeColorScheme = scheme
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
             logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
