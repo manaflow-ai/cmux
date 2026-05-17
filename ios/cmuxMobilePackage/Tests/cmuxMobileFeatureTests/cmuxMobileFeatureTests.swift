@@ -23,6 +23,24 @@ import Testing
     #endif
 }
 
+@Test func authAutoLoginPolicyUsesRealStoredTokenState() {
+    let credentials = AuthAutoLoginCredentials(email: "test@example.com", password: "pass")
+
+    #expect(MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: false))
+    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: true))
+    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
+}
+
+@Test func manualRouteAuthPolicyOnlyTreatsNumeric127HostsAsLoopback() throws {
+    let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
+    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+}
+
 @Test func compactHeightUsesStackWorkspaceNavigation() {
     #expect(
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(

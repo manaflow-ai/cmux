@@ -16,6 +16,15 @@ enum MobileAuthBuildPolicy {
     }
 }
 
+enum MobileAuthAutoLoginPolicy {
+    static func shouldStartAutoLogin(
+        credentials: AuthAutoLoginCredentials?,
+        hasStoredTokens: Bool
+    ) -> Bool {
+        credentials != nil && !hasStoredTokens
+    }
+}
+
 @MainActor
 @Observable
 final class AuthManager {
@@ -148,17 +157,21 @@ final class AuthManager {
             return
         }
 
-        if let credentials = autoLoginCredentials, !authSessionCache.hasTokens {
+        let cachedUser = authUserCache.load()
+        let hasAccessToken = await stack.getAccessToken() != nil
+        let hasRefreshToken = await stack.getRefreshToken() != nil
+        let hasStoredTokens = hasAccessToken || hasRefreshToken
+
+        if let credentials = autoLoginCredentials,
+           MobileAuthAutoLoginPolicy.shouldStartAutoLogin(
+               credentials: credentials,
+               hasStoredTokens: hasStoredTokens
+           ) {
             authLog.debug("Starting auto-login for \(credentials.email, privacy: .private)")
             await performAutoLogin(credentials)
             return
         }
         #endif
-
-        let cachedUser = authUserCache.load()
-        let hasAccessToken = await stack.getAccessToken() != nil
-        let hasRefreshToken = await stack.getRefreshToken() != nil
-        let hasStoredTokens = hasAccessToken || hasRefreshToken
 
         if hasStoredTokens {
             authSessionCache.setHasTokens(true)

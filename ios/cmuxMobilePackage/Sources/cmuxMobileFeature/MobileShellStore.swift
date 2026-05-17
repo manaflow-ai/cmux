@@ -228,7 +228,7 @@ public struct CMUXMobileRuntime: Sendable {
     }
 }
 
-private enum MobileShellRouteAuthPolicy {
+enum MobileShellRouteAuthPolicy {
     static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
@@ -254,7 +254,24 @@ private enum MobileShellRouteAuthPolicy {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return normalizedHost == "localhost" ||
             normalizedHost == "::1" ||
-            normalizedHost.hasPrefix("127.")
+            isIPv4LoopbackHost(normalizedHost)
+    }
+
+    private static func isIPv4LoopbackHost(_ host: String) -> Bool {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else {
+            return false
+        }
+        let octets = parts.compactMap { part -> Int? in
+            guard !part.isEmpty,
+                  part.utf8.allSatisfy({ (48...57).contains($0) }),
+                  let value = Int(part),
+                  (0...255).contains(value) else {
+                return nil
+            }
+            return value
+        }
+        return octets.count == 4 && octets[0] == 127
     }
 
     private static func isTailscaleDNSHost(_ host: String) -> Bool {
