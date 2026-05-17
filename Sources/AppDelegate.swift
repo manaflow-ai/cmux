@@ -9136,7 +9136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             window.contentView?.layoutSubtreeIfNeeded()
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+            #if DEBUG
             TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: window)
+            #endif
             terminalPanel.hostedView.superview?.layoutSubtreeIfNeeded()
             terminalPanel.hostedView.layoutSubtreeIfNeeded()
             terminalPanel.surface.forceRefresh(reason: "uiTest.terminalViewport")

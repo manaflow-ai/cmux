@@ -865,6 +865,68 @@ import Testing
 }
 
 @MainActor
+@Test func remoteCreateTerminalKeepsOtherWorkspacesWhenMacReturnsScopedList() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    var responseFrames = [
+        try rpcTwoWorkspaceListFrame(),
+        try rpcSnapshotResultFrame(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-build",
+            visibleLines: ["initial"]
+        ),
+        try rpcTerminalCreateScopedFrame(),
+    ]
+    for _ in 0..<8 {
+        responseFrames.append(
+            try rpcSnapshotResultFrame(
+                workspaceID: "workspace-main",
+                terminalID: "workspace-main-terminal-2",
+                visibleLines: [
+                    "$ cmux ios",
+                    "workspace: cmux",
+                    "terminal: Terminal 2",
+                ]
+            )
+        )
+    }
+    let responses = ScriptedTransportResponses(responseFrames)
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
+
+    store.createTerminal()
+
+    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "workspace-main-terminal-2" ||
+        store.selectedWorkspace?.terminals.first(where: { $0.id.rawValue == "workspace-main-terminal-2" })?.lines
+            .contains("terminal: Terminal 2") != true {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+    #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-2")
+    #expect(store.workspaces.first { $0.id.rawValue == "workspace-docs" }?.terminals.first?.id.rawValue == "terminal-notes")
+}
+
+@MainActor
 @Test func selectingWorkspaceReconcilesTerminalSelection() {
     let store = CMUXMobileShellStore.preview()
     store.signIn()
@@ -1671,6 +1733,77 @@ private func rpcWorkspaceCreateFrame() throws -> Data {
                             "id": "workspace-3-terminal-1",
                             "title": "Terminal 1",
                             "current_directory": "/Users/test/workspace-3",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcTwoWorkspaceListFrame() throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "workspaces": [
+                [
+                    "id": "workspace-main",
+                    "title": "cmux",
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "terminal-build",
+                            "title": "Build",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+                [
+                    "id": "workspace-docs",
+                    "title": "Docs",
+                    "current_directory": "/Users/test/docs",
+                    "is_selected": false,
+                    "terminals": [
+                        [
+                            "id": "terminal-notes",
+                            "title": "Notes",
+                            "current_directory": "/Users/test/docs",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcTerminalCreateScopedFrame() throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "created_terminal_id": "workspace-main-terminal-2",
+            "workspaces": [
+                [
+                    "id": "workspace-main",
+                    "title": "cmux",
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "terminal-build",
+                            "title": "Build",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": false,
+                        ],
+                        [
+                            "id": "workspace-main-terminal-2",
+                            "title": "Terminal 2",
+                            "current_directory": "/Users/test/project",
                             "is_ready": true,
                             "is_focused": true,
                         ],

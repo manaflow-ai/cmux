@@ -855,7 +855,7 @@ public final class CMUXMobileShellStore {
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            applyRemoteWorkspaceList(response)
+            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if let createdID = response.createdTerminalID {
                 selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
             }
@@ -1120,9 +1120,23 @@ public final class CMUXMobileShellStore {
 
     private func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
-        preferActiveTicketTarget: Bool = false
+        preferActiveTicketTarget: Bool = false,
+        mergeExistingWorkspaces: Bool = false
     ) {
-        workspaces = response.workspaces.map(MobileWorkspacePreview.init(remote:))
+        let remoteWorkspaces = response.workspaces.map(MobileWorkspacePreview.init(remote:))
+        if mergeExistingWorkspaces {
+            var mergedWorkspaces = workspaces
+            for remoteWorkspace in remoteWorkspaces {
+                if let existingIndex = mergedWorkspaces.firstIndex(where: { $0.id == remoteWorkspace.id }) {
+                    mergedWorkspaces[existingIndex] = remoteWorkspace
+                } else {
+                    mergedWorkspaces.append(remoteWorkspace)
+                }
+            }
+            workspaces = mergedWorkspaces
+        } else {
+            workspaces = remoteWorkspaces
+        }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
