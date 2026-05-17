@@ -666,8 +666,10 @@ extension RestorableAgentSessionIndex {
         if let sessionId = normalized(environment["CODEX_SESSION_ID"]) {
             return sessionId
         }
+        // Codex fork processes do not always publish CODEX_THREAD_ID, so keep
+        // the command session as a fallback instead of dropping the pane.
         guard let command = codexSessionCommand(in: tail),
-              command.name == "resume" else {
+              command.name == "resume" || command.name == "fork" else {
             return nil
         }
         return command.sessionId

@@ -2594,7 +2594,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             ),
             "019dad34-d218-7943-b81a-eddac5c87951"
         )
-        XCTAssertNil(
+        XCTAssertEqual(
             RestorableAgentSessionIndex.codexSessionIdForProcess(
                 arguments: [
                     "/Users/lawrence/.bun/bin/codex",
@@ -2602,7 +2602,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "019dad34-d218-7943-b81a-eddac5c87951"
                 ],
                 environment: [:]
-            )
+            ),
+            "019dad34-d218-7943-b81a-eddac5c87951"
         )
         XCTAssertEqual(
             RestorableAgentSessionIndex.codexLaunchArgumentsForProcess(
@@ -3429,6 +3430,56 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.forkCommand,
             "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+        )
+    }
+
+    func testProcessDetectionKeepsCodexForkCommandWhenThreadEnvironmentMissing() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_032
+        let process = makeTopProcess(
+            pid: 10_032,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        "019dad34-d218-7943-b81a-eddac5c87951",
+                        "--model",
+                        "gpt-5.4",
+                        "stale fork prompt"
+                    ],
+                    environment: [
+                        "CODEX_HOME": "/tmp/codex home",
+                        "PWD": "/tmp/codex fork repo"
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, "019dad34-d218-7943-b81a-eddac5c87951")
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
         )
     }
 
