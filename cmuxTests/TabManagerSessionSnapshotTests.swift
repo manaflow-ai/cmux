@@ -434,6 +434,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
     }
 
+    func testRestoreClosedPanelRequiresOriginalWorkspaceBeforeChangingSelection() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        let snapshot = try XCTUnwrap(firstWorkspace.sessionSnapshot(includeScrollback: false).panels.first)
+        let entry = ClosedPanelHistoryEntry(
+            workspaceId: UUID(),
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: snapshot
+        )
+
+        XCTAssertFalse(manager.restoreClosedPanel(entry))
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+    }
+
     func testReopenClosedPanelPreservesForwardFocusHistoryBranch() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

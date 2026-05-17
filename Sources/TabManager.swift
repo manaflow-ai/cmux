@@ -6349,22 +6349,21 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> Bool {
-        guard let workspace =
-            tabs.first(where: { $0.id == entry.workspaceId })
-            ?? selectedWorkspace
-            ?? tabs.first else {
+        guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else {
             return false
         }
 
         let preRestoreFocus = currentFocusHistoryEntry
         let panelId = withFocusHistoryRecordingSuppressed {
-            if selectedTabId != workspace.id {
-                selectedTabId = workspace.id
-            }
-            return workspace.restoreClosedPanel(entry)
+            workspace.restoreClosedPanel(entry)
         }
 
         guard let panelId else { return false }
+        withFocusHistoryRecordingSuppressed {
+            if selectedTabId != workspace.id {
+                selectedTabId = workspace.id
+            }
+        }
         recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
         rememberFocusedSurface(tabId: workspace.id, surfaceId: panelId)
         recordFocusInHistory(workspaceId: workspace.id, panelId: panelId, preservingForwardBranch: true)
@@ -6391,11 +6390,13 @@ class TabManager: ObservableObject {
         withFocusHistoryRecordingSuppressed {
             selectedTabId = workspace.id
         }
+        recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
         if let focusedPanelId = workspace.focusedPanelId {
-            recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
             rememberFocusedSurface(tabId: workspace.id, surfaceId: focusedPanelId)
             workspace.triggerFocusFlash(panelId: focusedPanelId)
             recordFocusInHistory(workspaceId: workspace.id, panelId: focusedPanelId, preservingForwardBranch: true)
+        } else {
+            recordFocusInHistory(workspaceId: workspace.id, panelId: nil, preservingForwardBranch: true)
         }
         return true
     }
