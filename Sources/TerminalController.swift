@@ -18100,11 +18100,23 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        terminalPanel.sendInput(text)
-        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
+        let sendResult = terminalPanel.surface.sendInputResult(text)
+        switch sendResult {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
+        case .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+        }
         return .ok([
             "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString
+            "surface_id": terminalPanel.id.uuidString,
+            "queued": sendResult == .queued,
         ])
     }
 

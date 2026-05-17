@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
+import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
@@ -1171,6 +1172,39 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             0,
             "A daemon send that accepts newline input for a cold terminal must queue the Return event instead of reporting OK for bytes that cannot execute."
         )
+    }
+
+    func testMobileTerminalInputReportsRejectedClosedSurface() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.mobile.closed")
+
+        let response = TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "input",
+                method: "terminal.input",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": panel.id.uuidString,
+                    "text": "echo dropped\r",
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected closed mobile terminal input to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "surface_unavailable")
     }
 }
 
