@@ -81,7 +81,7 @@ class TerminalController {
         var rows: Int
         var updatedAt: Date
     }
-    private static let mobileViewportReportTTL: TimeInterval = 120
+    private static let mobileViewportReportTTL: TimeInterval = 5
     private static let mobileTerminalSnapshotMaximumScrollbackRows = 120
     private static let mobileTerminalSnapshotFrameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
     private static let mobileTerminalSnapshotEstimatedCellByteCount = 128

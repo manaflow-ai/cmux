@@ -4005,7 +4005,7 @@ private enum TerminalUIKitPalette {
     static let nubInnerDot = UIColor(red: 0.85, green: 0.85, blue: 0.85, alpha: 1)
 }
 
-private enum MobileTerminalHardwareKeyResolver {
+enum MobileTerminalHardwareKeyResolver {
     private struct Command {
         var input: String
         var modifierFlags: UIKeyModifierFlags
@@ -4022,7 +4022,6 @@ private enum MobileTerminalHardwareKeyResolver {
         Command(input: UIKeyCommand.inputEnd, modifierFlags: UIKeyModifierFlags()),
         Command(input: UIKeyCommand.inputPageUp, modifierFlags: UIKeyModifierFlags()),
         Command(input: UIKeyCommand.inputPageDown, modifierFlags: UIKeyModifierFlags()),
-        Command(input: UIKeyCommand.inputDelete, modifierFlags: UIKeyModifierFlags()),
         Command(input: UIKeyCommand.inputDelete, modifierFlags: .alternate),
         Command(input: UIKeyCommand.inputEscape, modifierFlags: UIKeyModifierFlags()),
         Command(input: "\r", modifierFlags: UIKeyModifierFlags()),
@@ -4073,8 +4072,6 @@ private enum MobileTerminalHardwareKeyResolver {
             return "\u{1B}[5~"
         case (UIKeyCommand.inputPageDown, []):
             return "\u{1B}[6~"
-        case (UIKeyCommand.inputDelete, []):
-            return "\u{1B}[3~"
         case (UIKeyCommand.inputDelete, [.alternate]):
             return "\u{1B}\u{7F}"
         case (UIKeyCommand.inputEscape, []):

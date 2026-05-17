@@ -3,6 +3,9 @@ import Foundation
 import StackAuth
 import SwiftUI
 import Testing
+#if canImport(UIKit)
+import UIKit
+#endif
 @testable import cmuxMobileFeature
 
 @MainActor
@@ -1302,6 +1305,13 @@ import Testing
     #expect(MobileTerminalInputResolver.backspaceInput(modifier: .command) == "\u{15}")
     #expect(MobileTerminalInputResolver.backspaceInput(modifier: .alternate) == "\u{1B}\u{7F}")
 }
+
+#if canImport(UIKit)
+@Test func terminalHardwareDeleteUsesTextInputBackspacePath() {
+    #expect(MobileTerminalHardwareKeyResolver.input(UIKeyCommand.inputDelete, modifierFlags: []) == nil)
+    #expect(MobileTerminalHardwareKeyResolver.input(UIKeyCommand.inputDelete, modifierFlags: .alternate) == "\u{1B}\u{7F}")
+}
+#endif
 
 @MainActor
 @Test func submittedTerminalInputStillAppendsCarriageReturn() async throws {
