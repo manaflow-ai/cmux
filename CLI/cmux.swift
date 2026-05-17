@@ -377,7 +377,7 @@ private struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-private enum AgentHookNotificationStatus {
+private enum AgentHookNotificationStatus: String, Codable {
     case idle
     case needsInput
     case error
@@ -401,6 +401,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var isRestorable: Bool?
     var lastSubtitle: String?
     var lastBody: String?
+    var lastNotificationStatus: AgentHookNotificationStatus?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -503,6 +504,7 @@ private final class ClaudeHookSessionStore {
         isRestorable: Bool? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
+        lastNotificationStatus: AgentHookNotificationStatus? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -522,6 +524,7 @@ private final class ClaudeHookSessionStore {
                 isRestorable: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
+                lastNotificationStatus: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -551,6 +554,9 @@ private final class ClaudeHookSessionStore {
             }
             if let body = normalizeOptional(lastBody) {
                 record.lastBody = body
+            }
+            if let lastNotificationStatus {
+                record.lastNotificationStatus = lastNotificationStatus
             }
             record.updatedAt = now
             state.sessions[normalized] = record
@@ -756,7 +762,7 @@ private final class ClaudeHookSessionStore {
     }
 }
 
-private let codexHookWrapperProcessNames: Set<String> = [
+private let agentHookWrapperProcessNames: Set<String> = [
     "sh",
     "bash",
     "zsh",
@@ -19145,13 +19151,13 @@ struct CMUXCLI {
 
     // MARK: - Agent PID inference
 
-    private func inferredCodexAgentPID() -> Int? {
+    private func inferredAgentPID() -> Int? {
         var candidate = getppid()
         var remainingWrapperSkips = 8
 
         while candidate > 1, remainingWrapperSkips > 0 {
             guard let processName = processName(for: candidate) else { break }
-            if !codexHookWrapperProcessNames.contains(processName) {
+            if !agentHookWrapperProcessNames.contains(processName) {
                 break
             }
             let next = parentPID(of: candidate)
@@ -20939,7 +20945,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: nil, fallback: workspaceArg, client: client)
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: nil, fallback: surfaceArg, workspaceId: workspaceId, client: client)
             sendAgentFeedTelemetry(workspaceId: workspaceId)
-            let pid = inferredCodexAgentPID()
+            let pid = inferredAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -20973,7 +20979,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             sendAgentFeedTelemetry(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredCodexAgentPID()
+            let pid = mapped?.pid ?? inferredAgentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -21047,7 +21053,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
-                let pid = mapped?.pid ?? inferredCodexAgentPID()
+                let pid = mapped?.pid ?? inferredAgentPID()
                 let codexFailure: CodexHookFailureSummary?
                 if def.name == "codex" {
                     codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
@@ -21146,13 +21152,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     summary = AgentHookNotificationSummary(
                         subtitle: mapped?.lastSubtitle ?? restored.subtitle,
                         body: savedBody,
-                        status: restored.status,
+                        status: mapped?.lastNotificationStatus ?? restored.status,
                         isFallback: false
                     )
                 }
 
                 if !sessionId.isEmpty {
-                    let pid = mapped?.pid ?? inferredCodexAgentPID()
+                    let pid = mapped?.pid ?? inferredAgentPID()
                     let launchCommand = agentLaunchCommandFromEnvironment(
                         env,
                         fallbackPID: pid,
@@ -21167,7 +21173,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         pid: pid,
                         launchCommand: launchCommand,
                         lastSubtitle: summary.subtitle,
-                        lastBody: summary.body
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status
                     )
                 }
 

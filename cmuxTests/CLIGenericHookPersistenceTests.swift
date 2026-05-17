@@ -339,12 +339,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
         XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
 
-        let waitingMessage = "Waiting for input: choose docs section"
+        let waitingMessage = "Choose docs section"
         let waitingCommandStart = state.commands.count
         let waiting = runGrokHook(
             "notification",
-            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(waitingMessage)"}"#
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"\#(waitingMessage)"}"#
         )
         XCTAssertFalse(waiting.timedOut, waiting.stderr)
         XCTAssertEqual(waiting.status, 0, waiting.stderr)
@@ -388,6 +389,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
         XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
     }
 
     func testGrokHookInstallRoutesNotificationEventToNotificationSubcommand() throws {
