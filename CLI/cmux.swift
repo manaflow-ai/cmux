@@ -20217,6 +20217,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     private static let cmuxCodexHookTrustEnd =
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    private static let codexHookTrustTableHeaderRegex = try! NSRegularExpression(
+        pattern: #"^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\\n]|\\.)*)"\s*\]\s*(#.*)?$"#
+    )
 
     struct CodexHookTrustEntry: Equatable {
         let key: String
@@ -20704,12 +20707,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
-        let pattern = #"^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\\n]|\\.)*)"\s*\]\s*(#.*)?$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return nil
-        }
         let range = NSRange(line.startIndex..<line.endIndex, in: line)
-        guard let match = regex.firstMatch(in: line, range: range),
+        guard let match = codexHookTrustTableHeaderRegex.firstMatch(in: line, range: range),
               let keyRange = Range(match.range(at: 1), in: line) else {
             return nil
         }
