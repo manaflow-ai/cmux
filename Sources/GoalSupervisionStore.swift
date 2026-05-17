@@ -238,6 +238,7 @@ final class GoalSupervisionStore {
 
     private func persistCurrentGoals() {
         let snapshot = goals
+        let revisionAtStart = mutationRevision
         persistTask?.cancel()
         persistTask = Task { [persistence] in
             do {
@@ -245,6 +246,7 @@ final class GoalSupervisionStore {
                 try await persistence.save(snapshot)
                 try Task.checkCancellation()
                 await MainActor.run {
+                    guard self.mutationRevision == revisionAtStart else { return }
                     if self.hasLoaded {
                         self.deletedGoalIDs.removeAll()
                     }
