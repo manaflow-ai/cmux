@@ -852,11 +852,22 @@ final class DockControlsStore: ObservableObject {
 
     @discardableResult
     func dockBonsplitTransfer(_ transfer: BonsplitTabDragPayload.Transfer) -> Bool {
-        guard let located = AppDelegate.shared?.locateBonsplitSurface(tabId: transfer.tab.id),
-              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
-            return false
+        guard let target = dockBonsplitTransferTarget(transfer) else { return false }
+        return dockPanel(panelId: target.panelId, workspace: target.workspace)
+    }
+
+    func canDockBonsplitTransfer(_ transfer: BonsplitTabDragPayload.Transfer) -> Bool {
+        dockBonsplitTransferTarget(transfer) != nil
+    }
+
+    private func dockBonsplitTransferTarget(_ transfer: BonsplitTabDragPayload.Transfer) -> (panelId: UUID, workspace: Workspace)? {
+        guard let located = AppDelegate.shared?.locateBonsplitSurface(tabId: transfer.tab.id) else {
+            return nil
         }
-        return dockPanel(panelId: located.panelId, workspace: workspace)
+        guard let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+            return nil
+        }
+        return (located.panelId, workspace)
     }
 
     func dragItemProvider(for controlID: String) -> NSItemProvider {
@@ -1533,7 +1544,8 @@ private struct DockBonsplitTabDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
-        return BonsplitTabDragPayload.currentTransfer() != nil
+        guard let transfer = BonsplitTabDragPayload.currentTransfer() else { return false }
+        return store.canDockBonsplitTransfer(transfer)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
