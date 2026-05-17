@@ -38,7 +38,7 @@ def _wait_for_file_text(path: Path, needle: str, timeout_s: float = 8.0) -> str:
 def _first_terminal_surface_id(payload: dict) -> str:
     surfaces = payload.get("surfaces") or []
     for row in surfaces:
-        if row.get("type") in (None, "terminal"):
+        if row.get("type") == "terminal":
             surface_id = str(row.get("id") or "")
             if surface_id:
                 return surface_id
@@ -86,13 +86,17 @@ def main() -> int:
                 )
                 + "\n"
             )
-            c._call(
+            send_payload = c._call(
                 "surface.send_text",
                 {
                     "workspace_id": created_workspace,
                     "surface_id": split_surface,
                     "text": command,
                 },
+            ) or {}
+            _must(
+                str(send_payload.get("surface_id") or "") == split_surface,
+                f"surface.send_text returned unexpected surface_id: {send_payload}",
             )
 
             text = _wait_for_file_text(marker_path, token)
