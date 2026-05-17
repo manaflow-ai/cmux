@@ -87,10 +87,73 @@ final class AuthManagerSignInErrorTests: XCTestCase {
         XCTAssertNil(storedAccessToken)
         XCTAssertNil(storedRefreshToken)
     }
+
+    func testStaleCallbackFailureDoesNotOverwriteSignOutState() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.StaleCallbackFailure.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let client = BlockingFailureAuthClient()
+        let manager = AuthManager(
+            client: client,
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=refresh-token&stack_access=access-token"))
+        let callbackTask = Task {
+            try await manager.handleCallbackURL(callbackURL)
+        }
+
+        await client.waitForCurrentUserRequest()
+        await manager.signOut()
+        await client.failCurrentUserRequest()
+        try await callbackTask.value
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertNil(manager.currentUser)
+        XCTAssertNil(manager.lastSignInError)
+    }
 }
 
 private struct TestAuthClient: AuthClientProtocol {
     func currentUser() async throws -> CMUXAuthUser? { nil }
+    func listTeams() async throws -> [AuthTeamSummary] { [] }
+    func currentAccessToken() async throws -> String? { nil }
+    func signOut() async throws {}
+}
+
+private actor BlockingFailureAuthClient: AuthClientProtocol {
+    private var currentUserContinuation: CheckedContinuation<CMUXAuthUser?, any Error>?
+    private var currentUserWaiter: CheckedContinuation<Void, Never>?
+
+    func currentUser() async throws -> CMUXAuthUser? {
+        try await withCheckedThrowingContinuation { continuation in
+            currentUserContinuation = continuation
+            currentUserWaiter?.resume()
+            currentUserWaiter = nil
+        }
+    }
+
+    func waitForCurrentUserRequest() async {
+        if currentUserContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            currentUserWaiter = continuation
+        }
+    }
+
+    func failCurrentUserRequest() {
+        let continuation = currentUserContinuation
+        currentUserContinuation = nil
+        continuation?.resume(throwing: AuthManagerError.missingAccessToken)
+    }
+
     func listTeams() async throws -> [AuthTeamSummary] { [] }
     func currentAccessToken() async throws -> String? { nil }
     func signOut() async throws {}

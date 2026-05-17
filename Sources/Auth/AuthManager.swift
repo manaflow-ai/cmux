@@ -487,6 +487,14 @@ final class AuthManager: ObservableObject {
             )
             return
         } catch {
+            guard isCurrentAuthMutation(mutationGeneration) else {
+                _ = await keepAuthMutationIfCurrent(
+                    mutationGeneration,
+                    accessToken: payload.accessToken,
+                    refreshToken: payload.refreshToken
+                )
+                return
+            }
             lastSignInError = Self.signInError(from: error)
             throw error
         }
