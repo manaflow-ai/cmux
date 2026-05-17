@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "ios/**"
+      - "Packages/CMUXAuthCore/**"
+      - "Packages/CMUXMobileCore/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
       - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:

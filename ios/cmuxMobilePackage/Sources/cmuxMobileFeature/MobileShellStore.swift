@@ -1238,7 +1238,25 @@ private struct MobileTerminalSnapshotCandidate: Sendable {
 }
 
 private struct MobileManualHostStatusResponse: Decodable, Sendable {
+    private struct HostService: Decodable, Sendable {
+        var routes: [CmxAttachRoute]
+    }
+
     var routes: [CmxAttachRoute]
+
+    private enum CodingKeys: String, CodingKey {
+        case routes
+        case hostService = "host_service"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let routes = try container.decodeIfPresent([CmxAttachRoute].self, forKey: .routes) {
+            self.routes = routes
+            return
+        }
+        routes = try container.decode(HostService.self, forKey: .hostService).routes
+    }
 
     static func decode(_ data: Data) throws -> MobileManualHostStatusResponse {
         try JSONDecoder().decode(MobileManualHostStatusResponse.self, from: data)

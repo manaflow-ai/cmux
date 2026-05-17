@@ -33,8 +33,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
 
         XCTAssertNotEqual(first.authToken, second.authToken)
-        XCTAssertTrue(store.containsValidTicket(authToken: first.authToken, now: now.addingTimeInterval(2)))
-        XCTAssertTrue(store.containsValidTicket(authToken: second.authToken, now: now.addingTimeInterval(2)))
+        XCTAssertEqual(
+            store.validTicket(authToken: first.authToken, now: now.addingTimeInterval(2))?.authToken,
+            first.authToken
+        )
+        XCTAssertEqual(
+            store.validTicket(authToken: second.authToken, now: now.addingTimeInterval(2))?.authToken,
+            second.authToken
+        )
     }
 
     func testMobileWorkspaceRPCRequiresAuthorization() async {

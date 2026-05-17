@@ -130,19 +130,20 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             handleRequest: { request in
-                await TerminalController.shared.mobileHostHandleRPC(request)
+                await MainActor.run {
+                    TerminalController.shared.mobileHostHandleRPC(request)
+                }
             },
-            onClose: { id, clientIDs in
-                await MobileHostService.shared.removeConnection(id: id, clientIDs: clientIDs)
+            onClose: { id in
+                await MobileHostService.shared.removeConnection(id: id)
             }
         )
         activeConnections[id] = session
         Task { await session.start() }
     }
 
-    private func removeConnection(id: UUID, clientIDs: Set<String>) {
+    private func removeConnection(id: UUID) {
         activeConnections.removeValue(forKey: id)
-        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -365,17 +366,16 @@ private actor MobileHostConnection {
     private let callbackQueue: DispatchQueue
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
-    private let onClose: @Sendable (UUID, Set<String>) async -> Void
+    private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
     private var isClosed = false
-    private var reportedClientIDs: Set<String> = []
 
     init(
         id: UUID,
         connection: NWConnection,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID, Set<String>) async -> Void
+        onClose: @escaping @Sendable (UUID) async -> Void
     ) {
         self.id = id
         self.connection = connection
@@ -402,8 +402,7 @@ private actor MobileHostConnection {
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
-        let clientIDs = reportedClientIDs
-        Task { await onClose(id, clientIDs) }
+        Task { await onClose(id) }
     }
 
     private func receiveNext() {
@@ -466,7 +465,6 @@ private actor MobileHostConnection {
     private func respond(to frame: Data) async {
         switch MobileHostRPCEnvelope.decodeRequest(frame) {
         case let .success(request):
-            recordMobileViewportClientID(from: request)
             if let error = await authorizeRequest(request) {
                 await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
                 return
@@ -475,18 +473,6 @@ private actor MobileHostConnection {
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
-        }
-    }
-
-    private func recordMobileViewportClientID(from request: MobileHostRPCRequest) {
-        switch request.method {
-        case "mobile.terminal.snapshot", "terminal.snapshot":
-            guard let clientID = request.params["client_id"] as? String else { return }
-            let trimmed = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            reportedClientIDs.insert(trimmed)
-        default:
-            return
         }
     }
 

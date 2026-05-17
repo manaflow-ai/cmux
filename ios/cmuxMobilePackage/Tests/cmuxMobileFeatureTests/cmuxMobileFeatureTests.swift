@@ -1372,11 +1372,13 @@ private func rpcAttachTicketFrame(
 private func rpcHostStatusFrame(routes: [[String: Any]]) throws -> Data {
     try rpcResultFrame(
         result: [
-            "is_running": true,
-            "port": CmxMobileDefaults.defaultHostPort,
-            "routes": routes,
-            "active_connection_count": 1,
-            "last_error": NSNull(),
+            "host_service": [
+                "is_running": true,
+                "port": CmxMobileDefaults.defaultHostPort,
+                "routes": routes,
+                "active_connection_count": 1,
+                "last_error": NSNull(),
+            ],
         ]
     )
 }
