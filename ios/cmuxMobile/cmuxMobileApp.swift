@@ -22,7 +22,7 @@ struct cmuxMobileApp: App {
 
     var body: some Scene {
         WindowGroup {
-            CMUXMobileAppView(store: .preview(runtime: Self.runtime))
+            CMUXMobileAppView(store: CMUXMobileShellStore(runtime: Self.runtime))
         }
     }
 }

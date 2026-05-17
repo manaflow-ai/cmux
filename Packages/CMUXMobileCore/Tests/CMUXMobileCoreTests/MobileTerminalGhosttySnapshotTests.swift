@@ -161,6 +161,18 @@ import Testing
     #expect(snapshot.renderedVisibleLines == ["1----2", "", "   mid", "3----4"])
 }
 
+@Test func ghosttyTextBuilderErasesDisplayThroughCursor() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-erase-display",
+        columns: 12,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "first line\nsecond line\u{001B}[2;7H\u{001B}[1J"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["", "       line"])
+}
+
 @Test func ghosttyTextBuilderPreservesFinalCursorPosition() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-cursor-position",
@@ -248,6 +260,20 @@ import Testing
 
     #expect(snapshot.renderedVisibleLines == ["abcd", ""])
     #expect(snapshot.visibleRows[0].isWrapped == false)
+    #expect(snapshot.cursor.column == 3)
+    #expect(snapshot.cursor.row == 0)
+}
+
+@Test func ghosttyTextBuilderTabsAtLastColumnDoNotLoopForever() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-tab-last-column",
+        columns: 4,
+        rows: 2,
+        scrollbackText: nil,
+        viewportText: "abc\t"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["abc", ""])
     #expect(snapshot.cursor.column == 3)
     #expect(snapshot.cursor.row == 0)
 }

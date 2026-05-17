@@ -33,6 +33,7 @@ final class MobileHostService {
     private let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
     private var listener: NWListener?
+    private var listenerGeneration = UUID()
     private var listenerPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var lastErrorDescription: String?
@@ -53,9 +54,11 @@ final class MobileHostService {
                     MobileHostService.shared.handleListenerState(state)
                 }
             }
+            let generation = UUID()
+            listenerGeneration = generation
             nextListener.newConnectionHandler = { connection in
                 Task { @MainActor in
-                    MobileHostService.shared.accept(connection)
+                    MobileHostService.shared.accept(connection, generation: generation)
                 }
             }
             listener = nextListener
@@ -77,6 +80,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        listenerGeneration = UUID()
         listener?.cancel()
         listener = nil
         listenerPort = nil
@@ -112,7 +116,12 @@ final class MobileHostService {
         return try ticketStore.payload(for: ticket)
     }
 
-    private func accept(_ connection: NWConnection) {
+    private func accept(_ connection: NWConnection, generation: UUID) {
+        guard listener != nil, generation == listenerGeneration else {
+            connection.cancel()
+            return
+        }
+
         let id = UUID()
         let session = MobileHostConnection(
             id: id,
@@ -123,16 +132,17 @@ final class MobileHostService {
             handleRequest: { request in
                 await TerminalController.shared.mobileHostHandleRPC(request)
             },
-            onClose: { id in
-                await MobileHostService.shared.removeConnection(id: id)
+            onClose: { id, clientIDs in
+                await MobileHostService.shared.removeConnection(id: id, clientIDs: clientIDs)
             }
         )
         activeConnections[id] = session
         Task { await session.start() }
     }
 
-    private func removeConnection(id: UUID) {
+    private func removeConnection(id: UUID, clientIDs: Set<String>) {
         activeConnections.removeValue(forKey: id)
+        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -143,8 +153,17 @@ final class MobileHostService {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        if ticketStore.containsValidTicket(authToken: request.auth?.attachToken) {
-            return nil
+        if let ticket = ticketStore.validTicket(authToken: request.auth?.attachToken) {
+            switch Self.ticketAuthorizationError(ticket: ticket, request: request) {
+            case nil:
+                return nil
+            case let error?:
+                if request.auth?.stackAccessToken == nil {
+                    return .failure(error)
+                }
+                // A ticket is intentionally narrow. Same-account Stack auth can
+                // still authorize broader operations such as creating workspaces.
+            }
         }
         do {
             try await MobileHostStackAuthVerifier.shared.verify(auth: request.auth)
@@ -156,6 +175,56 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private static func ticketAuthorizationError(
+        ticket: CmxAttachTicket,
+        request: MobileHostRPCRequest
+    ) -> MobileHostRPCError? {
+        let workspaceID = stringParam(request.params, keys: ["workspace_id", "workspaceID"])
+        let terminalID = stringParam(request.params, keys: ["surface_id", "terminal_id", "terminalID", "tab_id"])
+
+        switch request.method {
+        case "mobile.workspace.list", "workspace.list":
+            guard workspaceID == ticket.workspaceID else {
+                return scopedTicketError
+            }
+        case "mobile.terminal.create", "terminal.create",
+             "mobile.terminal.snapshot", "terminal.snapshot",
+             "mobile.terminal.input", "terminal.input":
+            guard workspaceID == ticket.workspaceID else {
+                return scopedTicketError
+            }
+            if let ticketTerminalID = ticket.terminalID {
+                guard terminalID == ticketTerminalID else {
+                    return scopedTicketError
+                }
+            }
+        case "mobile.host.status":
+            return nil
+        default:
+            return scopedTicketError
+        }
+        return nil
+    }
+
+    private static var scopedTicketError: MobileHostRPCError {
+        MobileHostRPCError(
+            code: "forbidden",
+            message: "Attach ticket is not valid for this workspace or terminal."
+        )
+    }
+
+    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
     }
 
     private static func requiresAuthorization(method: String) -> Bool {
@@ -296,16 +365,17 @@ private actor MobileHostConnection {
     private let callbackQueue: DispatchQueue
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
-    private let onClose: @Sendable (UUID) async -> Void
+    private let onClose: @Sendable (UUID, Set<String>) async -> Void
     private var receiveBuffer = Data()
     private var isClosed = false
+    private var reportedClientIDs: Set<String> = []
 
     init(
         id: UUID,
         connection: NWConnection,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID) async -> Void
+        onClose: @escaping @Sendable (UUID, Set<String>) async -> Void
     ) {
         self.id = id
         self.connection = connection
@@ -316,7 +386,8 @@ private actor MobileHostConnection {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [id] state in
+        connection.stateUpdateHandler = { [weak self, id] state in
+            guard let self else { return }
             Task { await self.handleState(state, connectionID: id) }
         }
         connection.start(queue: callbackQueue)
@@ -329,8 +400,10 @@ private actor MobileHostConnection {
         }
         isClosed = true
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
+        connection.stateUpdateHandler = nil
         connection.cancel()
-        Task { await onClose(id) }
+        let clientIDs = reportedClientIDs
+        Task { await onClose(id, clientIDs) }
     }
 
     private func receiveNext() {
@@ -340,7 +413,8 @@ private actor MobileHostConnection {
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: 64 * 1024
-        ) { data, _, isComplete, error in
+        ) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
             let errorDescription = error.map { String(describing: $0) }
             Task {
                 await self.handleReceive(
@@ -392,6 +466,7 @@ private actor MobileHostConnection {
     private func respond(to frame: Data) async {
         switch MobileHostRPCEnvelope.decodeRequest(frame) {
         case let .success(request):
+            recordMobileViewportClientID(from: request)
             if let error = await authorizeRequest(request) {
                 await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
                 return
@@ -400,6 +475,18 @@ private actor MobileHostConnection {
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
+        }
+    }
+
+    private func recordMobileViewportClientID(from request: MobileHostRPCRequest) {
+        switch request.method {
+        case "mobile.terminal.snapshot", "terminal.snapshot":
+            guard let clientID = request.params["client_id"] as? String else { return }
+            let trimmed = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            reportedClientIDs.insert(trimmed)
+        default:
+            return
         }
     }
 
@@ -419,7 +506,8 @@ private actor MobileHostConnection {
             content: frame,
             contentContext: .defaultMessage,
             isComplete: false,
-            completion: .contentProcessed { error in
+            completion: .contentProcessed { [weak self] error in
+                guard let self else { return }
                 if let error {
                     Task { await self.close(reason: String(describing: error)) }
                 }

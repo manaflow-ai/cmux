@@ -55,8 +55,11 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 
     public init(from decoder: Decoder) throws {
         let keyed = try decoder.container(keyedBy: DynamicCodingKey.self)
-        for key in keyed.allKeys where Self.forbiddenSecretKeys.contains(key.stringValue.lowercased()) {
-            throw MobileSyncPairingPayloadError.forbiddenSecretField(key.stringValue)
+        for key in keyed.allKeys {
+            let normalizedKey = key.stringValue.lowercased()
+            if Self.forbiddenSecretKeyMarkers.contains(where: { normalizedKey.contains($0) }) {
+                throw MobileSyncPairingPayloadError.forbiddenSecretField(key.stringValue)
+            }
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -121,10 +124,12 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         case transport
     }
 
-    private static let forbiddenSecretKeys: Set<String> = [
+    private static let forbiddenSecretKeyMarkers: Set<String> = [
         "auth",
         "authorization",
         "bearer",
+        "credential",
+        "jwt",
         "password",
         "secret",
         "token",

@@ -5634,6 +5634,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    @MainActor
     func updateSize(
         width: CGFloat,
         height: CGFloat,
@@ -5642,7 +5643,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         layerScale: CGFloat,
         backingSize: CGSize? = nil
     ) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
@@ -5698,8 +5699,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    @MainActor
     func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
-        guard let surface else {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
             hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return false
         }
@@ -5750,13 +5752,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    @MainActor
     func clearMobileViewportLimit(reason: String) -> Bool {
         mobileViewportPixelLimit = nil
         hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
         let uncappedWidth = lastUncappedPixelWidth
         let uncappedHeight = lastUncappedPixelHeight
-        guard let surface,
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "clearMobileViewportLimit"),
               uncappedWidth > 0,
               uncappedHeight > 0 else {
             return false

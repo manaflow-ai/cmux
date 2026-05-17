@@ -225,6 +225,7 @@ public final class CMUXMobileShellStore {
 
     private let runtime: CMUXMobileRuntime?
     private let clientID: String
+    private let terminalRefreshPollQueue = DispatchQueue(label: "dev.cmux.mobile.terminal-refresh-poll")
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -390,6 +391,7 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .public)")
             connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
+            clearActiveConnectionContext()
             remoteClient = nil
         }
     }
@@ -442,6 +444,7 @@ public final class CMUXMobileShellStore {
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .public)")
             connectionError = Self.localizedConnectionError(for: error)
             connectionState = .disconnected
+            clearActiveConnectionContext()
             remoteClient = nil
         }
     }
@@ -702,13 +705,14 @@ public final class CMUXMobileShellStore {
         guard let route = ticket.preferredRoute(supportedKinds: supportedKinds) else {
             connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code uses an unsupported route.")
             connectionState = .disconnected
+            clearActiveConnectionContext()
             return
         }
 
         activeTicket = ticket
         activeRoute = route
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
-        mobileShellLog.info("pairing selected route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .public)")
+        mobileShellLog.info("pairing selected route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
 
         guard let runtime else {
             remoteClient = nil
@@ -720,7 +724,10 @@ public final class CMUXMobileShellStore {
 
         let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
         let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(method: "workspace.list")
+            MobileCoreRPCClient.requestData(
+                method: "workspace.list",
+                params: ["workspace_id": ticket.workspaceID]
+            )
         )
         let response = try MobileSyncWorkspaceListResponse.decode(resultData)
         remoteClient = client
@@ -730,6 +737,12 @@ public final class CMUXMobileShellStore {
         syncSelectedTerminalForWorkspace()
         connectionState = .connected
         await refreshSelectedTerminalSnapshot()
+    }
+
+    private func clearActiveConnectionContext() {
+        activeTicket = nil
+        activeRoute = nil
+        connectedHostName = ""
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -974,7 +987,7 @@ public final class CMUXMobileShellStore {
 
     private func startTerminalRefreshPolling() {
         guard remoteClient != nil, terminalRefreshPollTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        let timer = DispatchSource.makeTimerSource(queue: terminalRefreshPollQueue)
         let intervalMilliseconds = Int(Self.terminalRefreshPollInterval * 1000)
         timer.schedule(
             deadline: .now() + .milliseconds(intervalMilliseconds),
@@ -982,12 +995,12 @@ public final class CMUXMobileShellStore {
             leeway: .milliseconds(150)
         )
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            guard self.remoteClient != nil, self.connectionState == .connected else {
-                self.stopTerminalRefreshPolling()
-                return
-            }
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.remoteClient != nil, self.connectionState == .connected else {
+                    self.stopTerminalRefreshPolling()
+                    return
+                }
                 await self.refreshSelectedTerminalSnapshot()
             }
         }
@@ -1402,12 +1415,14 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         if let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
            !authToken.isEmpty {
             auth["attach_token"] = authToken
-        } else if Self.requestRequiresAuth(request) {
-            guard Self.routeAllowsStackAuth(route) else {
-                throw MobileShellConnectionError.insecureManualRoute
-            }
+        }
+        if Self.requestRequiresAuth(request), Self.routeAllowsStackAuth(route) {
             if let accessToken = try? await AuthManager.shared.getAccessToken() {
                 auth["stack_access_token"] = accessToken
+            }
+        } else if auth["attach_token"] == nil, Self.requestRequiresAuth(request) {
+            guard Self.routeAllowsStackAuth(route) else {
+                throw MobileShellConnectionError.insecureManualRoute
             }
         }
         if !auth.isEmpty {
@@ -1519,6 +1534,8 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
 }
 
 private final class MobileRequestTimeoutState<T: Sendable>: @unchecked Sendable {
+    // DispatchSourceTimer and Task completion race on different executors; this
+    // lock protects the single-resume continuation state.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<T, Error>?
     private var operationTask: Task<T, Error>?

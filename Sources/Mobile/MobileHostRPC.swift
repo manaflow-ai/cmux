@@ -1,5 +1,7 @@
 import Foundation
 
+// JSONSerialization payloads are Foundation value containers. Requests are
+// decoded once, treated as immutable, and then passed across actor boundaries.
 struct MobileHostRPCRequest: @unchecked Sendable {
     let id: Any?
     let method: String
@@ -7,12 +9,15 @@ struct MobileHostRPCRequest: @unchecked Sendable {
     let auth: MobileHostRPCAuth?
 }
 
+// Authentication fields are plain immutable strings after envelope decoding.
 struct MobileHostRPCAuth: @unchecked Sendable {
     let attachToken: String?
     let stackAccessToken: String?
     let stackRefreshToken: String?
 }
 
+// Error data is normalized through MobileHostRPCEnvelope.jsonValue before it is
+// encoded back onto the wire.
 struct MobileHostRPCError: Error, @unchecked Sendable {
     let code: String
     let message: String
@@ -48,12 +53,32 @@ enum MobileHostRPCEnvelope {
             return .failure(MobileHostRPCError(code: "invalid_request", message: "Missing method"))
         }
 
+        let params: [String: Any]
+        if let rawParams = dict["params"] {
+            guard let paramsObject = rawParams as? [String: Any] else {
+                return .failure(MobileHostRPCError(code: "invalid_request", message: "params must be an object"))
+            }
+            params = paramsObject
+        } else {
+            params = [:]
+        }
+
+        let auth: MobileHostRPCAuth?
+        if let rawAuth = dict["auth"] {
+            guard let authObject = rawAuth as? [String: Any] else {
+                return .failure(MobileHostRPCError(code: "invalid_request", message: "auth must be an object"))
+            }
+            auth = decodeAuth(authObject)
+        } else {
+            auth = nil
+        }
+
         return .success(
             MobileHostRPCRequest(
                 id: dict["id"],
                 method: method,
-                params: dict["params"] as? [String: Any] ?? [:],
-                auth: decodeAuth(dict["auth"] as? [String: Any])
+                params: params,
+                auth: auth
             )
         )
     }

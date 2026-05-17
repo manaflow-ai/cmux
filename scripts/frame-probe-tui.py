@@ -248,9 +248,9 @@ def draw(stdscr: curses.window, stats: FrameStats, notify: NotifyState, args: ar
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     content_y = BORDER_THICKNESS if height >= BORDER_THICKNESS * 2 + 1 else 0
-    content_x = BORDER_THICKNESS + 1 if width >= BORDER_THICKNESS * 2 + 2 else 0
+    content_x = BORDER_THICKNESS if width >= BORDER_THICKNESS * 2 + 1 else 0
     content_height = max(0, height - (BORDER_THICKNESS * 2)) if height >= BORDER_THICKNESS * 2 + 1 else height
-    content_width = max(0, width - ((BORDER_THICKNESS + 1) * 2)) if width >= BORDER_THICKNESS * 2 + 2 else width
+    content_width = max(0, width - (BORDER_THICKNESS * 2)) if width >= BORDER_THICKNESS * 2 + 1 else width
     summary = stats.summary()
     budget = stats.budget_ms
     rows = [

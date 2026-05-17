@@ -45,6 +45,30 @@ import Testing
     }
 }
 
+@Test func pairingPayloadRejectsSecretFieldNamesContainingToken() throws {
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "mac-1",
+      "mac_display_name": "Studio",
+      "host": "100.64.1.2",
+      "port": 49831,
+      "expires_at": "2033-05-18T03:33:20Z",
+      "transport": "tailscale",
+      "refreshToken": "do-not-accept"
+    }
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    do {
+        _ = try decoder.decode(MobileSyncPairingPayload.self, from: Data(json.utf8))
+        Issue.record("Expected refreshToken-bearing payload to fail")
+    } catch let error as MobileSyncPairingPayloadError {
+        #expect(error == .forbiddenSecretField("refreshToken"))
+    }
+}
+
 @Test func pairingPayloadRejectsExpiredURLs() throws {
     let payload = try MobileSyncPairingPayload(
         macDeviceID: "mac-1",

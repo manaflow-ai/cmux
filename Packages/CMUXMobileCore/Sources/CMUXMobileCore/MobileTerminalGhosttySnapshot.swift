@@ -610,7 +610,6 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                     }
                 }
                 let savedColumn = column
-                column = 0
                 eraseLine(mode: 1)
                 column = savedColumn
             case 2, 3:
@@ -712,7 +711,12 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             case "\t":
                 let nextTabStop = min(resolvedColumns, ((column / 8) + 1) * 8)
                 while column < nextTabStop {
+                    let previousRow = row
+                    let previousColumn = column
                     writeCell(MobileTerminalGhosttyCell(text: " ", style: style))
+                    if wrapPending, row == previousRow, column == previousColumn {
+                        break
+                    }
                 }
             default:
                 writeCell(MobileTerminalGhosttyCell(text: String(character), style: style))

@@ -17936,7 +17936,12 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let workspaces = tabManager.tabs.enumerated().map { _, workspace in
+        let requestedWorkspaceID = v2UUID(params, "workspace_id")
+        let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
+            tabManager.tabs.filter { $0.id == workspaceID }
+        } ?? tabManager.tabs
+
+        let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
             let terminals = orderedPanels(in: workspace).compactMap { panel -> [String: Any]? in
                 guard let terminal = panel as? TerminalPanel else {
                     return nil
@@ -17973,6 +17978,49 @@ class TerminalController {
             payload["created_terminal_id"] = createdTerminalID
         }
         return .ok(payload)
+    }
+
+    func clearMobileViewportReports(clientIDs: Set<String>) {
+        guard !clientIDs.isEmpty else { return }
+
+        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
+            guard var reports = mobileViewportReportsBySurfaceID[surfaceID] else {
+                continue
+            }
+            let originalCount = reports.count
+            for clientID in clientIDs {
+                reports[clientID] = nil
+            }
+            guard reports.count != originalCount else {
+                continue
+            }
+
+            if reports.isEmpty {
+                mobileViewportReportsBySurfaceID[surfaceID] = nil
+                terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(
+                    reason: "mobile.viewport.connectionClosed"
+                )
+                continue
+            }
+
+            mobileViewportReportsBySurfaceID[surfaceID] = reports
+            if let minColumns = reports.values.map(\.columns).min(),
+               let minRows = reports.values.map(\.rows).min() {
+                terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+                    columns: minColumns,
+                    rows: minRows,
+                    reason: "mobile.viewport.connectionClosed"
+                )
+            }
+        }
+    }
+
+    private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
+        guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceID),
+              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+            return nil
+        }
+        return workspace.terminalPanel(for: surfaceID)
     }
 
     private func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {

@@ -53,14 +53,17 @@ final class MobileAttachTicketStore {
         ]
     }
 
-    func containsValidTicket(authToken: String?, now: Date = Date()) -> Bool {
+    func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
         pruneExpired(now: now)
         guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !authToken.isEmpty else {
-            return false
+            return nil
         }
-        guard let record = recordsByAuthToken[authToken] else { return false }
-        return record.ticket.expiresAt > now
+        guard let record = recordsByAuthToken[authToken],
+              record.ticket.expiresAt > now else {
+            return nil
+        }
+        return record.ticket
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {

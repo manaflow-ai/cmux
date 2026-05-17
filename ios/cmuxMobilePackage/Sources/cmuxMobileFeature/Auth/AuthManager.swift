@@ -184,7 +184,7 @@ final class AuthManager {
         do {
             try await signInWithPassword(email: credentials.email, password: credentials.password, setLoading: false)
         } catch {
-            authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .public)")
+            authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
             await clearPersistedStackSession()
             clearAuthState()
         }
@@ -201,7 +201,7 @@ final class AuthManager {
             clearAuthState()
             return
         } catch {
-            authLog.error("Session validation failed: \(error.localizedDescription, privacy: .public)")
+            authLog.error("Session validation failed: \(error.localizedDescription, privacy: .private)")
         }
 
         await clearPersistedStackSession()
@@ -239,7 +239,7 @@ final class AuthManager {
         do {
             try await stack.signOut()
         } catch {
-            authLog.error("Stack token clear failed: \(error.localizedDescription, privacy: .public)")
+            authLog.error("Stack token clear failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -350,7 +350,7 @@ final class AuthManager {
         do {
             try await stack.signOut()
         } catch {
-            authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .public)")
+            authLog.error("Sign-out failed: \(error.localizedDescription, privacy: .private)")
         }
 
         #if CMUX_DEV_AUTH
@@ -478,7 +478,7 @@ final class AuthUserCache {
         do {
             try store.save(user)
         } catch {
-            authLog.error("Failed to cache user: \(error.localizedDescription, privacy: .public)")
+            authLog.error("Failed to cache user: \(error.localizedDescription, privacy: .private)")
         }
     }
 
@@ -486,7 +486,7 @@ final class AuthUserCache {
         do {
             return try store.load()
         } catch {
-            authLog.error("Failed to load cached user: \(error.localizedDescription, privacy: .public)")
+            authLog.error("Failed to load cached user: \(error.localizedDescription, privacy: .private)")
             return nil
         }
     }
