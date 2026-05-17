@@ -8,7 +8,7 @@
     {
       "path": ".github/review-bot-rules/swift-architectural-rethink.md",
       "description": "Source-of-truth cmux lint rule for architectural review of Swift changes.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+      "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]
     },
     {
       "path": ".github/review-bot-rules/swift-blocking-runtime.md",
@@ -33,7 +33,7 @@
     {
       "path": ".github/review-bot-rules/swift-file-package-boundaries.md",
       "description": "Source-of-truth cmux lint rule for Swift file size and SwiftPM package boundary review.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+      "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]
     },
     {
       "path": ".github/review-bot-rules/swift-logging.md",
@@ -48,12 +48,12 @@
     {
       "path": "CLAUDE.md",
       "description": "Repo-local guidance for cmux Swift, SwiftUI, testing, shortcut, localization, and no-sleep policies.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+      "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]
     },
     {
       "path": "AGENTS.md",
       "description": "Repo-local guidance for cmux agents, Swift conventions, testing, shortcuts, localization, and no-sleep policies.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"]
+      "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]
     }
   ]
 }

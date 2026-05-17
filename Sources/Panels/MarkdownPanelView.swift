@@ -53,7 +53,7 @@ struct MarkdownPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(backgroundColor)
+        .background(contentBackgroundColor)
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
@@ -85,6 +85,7 @@ struct MarkdownPanelView: View {
             MarkdownWebRenderer(
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
+                backgroundColor: appearance.contentBackgroundColor,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -100,8 +101,9 @@ struct MarkdownPanelView: View {
                 FilePreviewTextEditor(
                     panel: panel,
                     isVisibleInUI: isVisibleInUI,
-                    themeBackgroundColor: themeBackgroundColor,
-                    themeForegroundColor: themeForegroundColor
+                    themeBackgroundColor: appearance.contentBackgroundColor,
+                    themeForegroundColor: themeForegroundColor,
+                    drawsBackground: appearance.drawsContentBackground
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -112,15 +114,8 @@ struct MarkdownPanelView: View {
         PanelFilePathHeader(
             iconSystemName: panel.displayIcon ?? "doc.richtext",
             filePath: panel.filePath,
-            backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor
         ) {
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
-            )
-            .foregroundStyle(.secondary)
-
             if panel.displayMode == .text {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
@@ -141,6 +136,10 @@ struct MarkdownPanelView: View {
                 confirmation: copyConfirmation?.label,
                 onCopyMarkdown: { copyAsMarkdown() },
                 onCopyHTML: { copyAsHTML() }
+            )
+            FileExternalOpenMenu(
+                fileURL: URL(fileURLWithPath: panel.filePath),
+                isDisabled: panel.isFileUnavailable
             )
         }
     }
@@ -186,8 +185,8 @@ struct MarkdownPanelView: View {
 
     // MARK: - Theme
 
-    private var backgroundColor: Color {
-        Color(nsColor: themeBackgroundColor)
+    private var contentBackgroundColor: Color {
+        Color(nsColor: appearance.contentBackgroundColor)
     }
 
     private var themeBackgroundColor: NSColor {

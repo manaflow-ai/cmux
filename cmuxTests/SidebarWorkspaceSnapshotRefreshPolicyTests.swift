@@ -143,6 +143,135 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
+    func testSkipsScrollWhenSelectedWorkspaceIdIsNil() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: nil as String?,
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenSelectedWorkspaceFirstAppears() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenSelectedWorkspaceMovesToTop() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "c",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "a",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["a", "c", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenSelectedWorkspaceIsMissing() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b"],
+                newWorkspaceIds: ["a", "c"]
+            )
+        )
+    }
+}
+
+final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
+    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertTrue(resolved.showsModifierShortcutHints)
+    }
+
+    func testNoFrozenPresentationUsesLiveSnapshot() {
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 2,
+            latestNotificationText: "live",
+            showsModifierShortcutHints: true
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: nil
+        )
+
+        XCTAssertEqual(resolved, live)
+    }
+
+    func testNonMatchingTabIdUsesLiveShortcutHints() {
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: UUID(),
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 1)
+        XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(resolved.showsModifierShortcutHints)
+    }
+}
+
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()

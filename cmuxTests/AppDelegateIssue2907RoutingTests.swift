@@ -249,11 +249,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id.uuidString
         terminalPanel.surface.markChildProcessExitedForTesting(reason: "unit-test-child-exited")
-        XCTAssertFalse(terminalPanel.surface.sendNamedKey("Return"))
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("send chart"), "ERROR: Failed to send input")
+        let processExitedSocketError = "ERROR: \(String(localized: "socket.terminal.processExited", defaultValue: "The terminal session has ended; reopen it or create a new terminal session."))"
+        XCTAssertEqual(terminalPanel.surface.sendNamedKey("Return"), .processExited)
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("send chart"), processExitedSocketError)
         XCTAssertEqual(
             TerminalController.shared.handleSocketLine("send_surface \(surfaceId) chart"),
-            "ERROR: Failed to send input"
+            processExitedSocketError
         )
 
         let textEnvelope = try v2Envelope(
@@ -265,7 +266,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         ).envelope
         XCTAssertEqual(textEnvelope["ok"] as? Bool, false)
         let textError = try XCTUnwrap(textEnvelope["error"] as? [String: Any])
-        XCTAssertEqual(textError["code"] as? String, "invalid_state")
+        XCTAssertEqual(textError["code"] as? String, "process_exited")
         let textErrorData = try XCTUnwrap(textError["data"] as? [String: Any])
         XCTAssertEqual(textErrorData["surface_id"] as? String, surfaceId)
 
@@ -278,7 +279,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         ).envelope
         XCTAssertEqual(keyEnvelope["ok"] as? Bool, false)
         let keyError = try XCTUnwrap(keyEnvelope["error"] as? [String: Any])
-        XCTAssertEqual(keyError["code"] as? String, "invalid_state")
+        XCTAssertEqual(keyError["code"] as? String, "process_exited")
         let keyErrorData = try XCTUnwrap(keyError["data"] as? [String: Any])
         XCTAssertEqual(keyErrorData["surface_id"] as? String, surfaceId)
 #else

@@ -81,6 +81,39 @@ class TerminalController {
         return MemoryLayout.size(ofValue: addr.sun_path) - 1
     }()
 
+    private static var terminalProcessExitedMessage: String {
+        String(
+            localized: "socket.terminal.processExited",
+            defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
+        )
+    }
+
+    private static var terminalInputQueueFullMessage: String {
+        String(
+            localized: "socket.terminal.inputQueueFull",
+            defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
+        )
+    }
+
+    private static var terminalSurfaceUnavailableMessage: String {
+        String(
+            localized: "socket.terminal.surfaceUnavailable",
+            defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
+        )
+    }
+
+    private static var terminalProcessExitedSocketError: String {
+        "ERROR: \(terminalProcessExitedMessage)"
+    }
+
+    private static var terminalInputQueueFullSocketError: String {
+        "ERROR: \(terminalInputQueueFullMessage)"
+    }
+
+    private static var terminalSurfaceUnavailableSocketError: String {
+        "ERROR: \(terminalSurfaceUnavailableMessage)"
+    }
+
     private struct ListenerStateSnapshot {
         let socketPath: String
         let serverSocket: Int32
@@ -3380,9 +3413,15 @@ class TerminalController {
         }
         v2AttachTopApplicationProcess(to: &windowNodes)
 
-        let processSnapshot = await Task.detached(priority: .utility) {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        }.value
+        let processSnapshot = await withTaskGroup(
+            of: CmuxTopProcessSnapshot.self,
+            returning: CmuxTopProcessSnapshot.self
+        ) { group in
+            group.addTask(priority: .utility) {
+                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+            }
+            return await group.next()!
+        }
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes
         let totalPIDs = v2AnnotateTopWindows(
@@ -3391,14 +3430,27 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
 
         return [
             "active": focused.isEmpty ? (NSNull() as Any) : focused,
             "caller": NSNull(),
             "sample": processSnapshot.samplePayload(),
             "totals": processSnapshot.summaryPayload(for: totalPIDs),
+            "program_totals": aggregates.programs,
+            "coding_agents": aggregates.codingAgents,
             "windows": annotatedWindows
         ]
+    }
+
+    private nonisolated func processAggregates(
+        from processSnapshot: CmuxTopProcessSnapshot,
+        totalPIDs: Set<Int>
+    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
+        (
+            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
+            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
+        )
     }
 
     private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
@@ -3420,9 +3472,12 @@ class TerminalController {
             browserPIDOccurrences: browserPIDOccurrences,
             includeProcesses: includeProcesses
         )
+        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
 
         payload["sample"] = processSnapshot.samplePayload()
         payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
+        payload["program_totals"] = aggregates.programs
+        payload["coding_agents"] = aggregates.codingAgents
         payload["windows"] = windowNodes
         return .ok(payload)
     }
@@ -6664,7 +6719,7 @@ class TerminalController {
             let terminals: [[String: Any]] = surfaces.enumerated().map { index, terminalSurface in
                 let mapped = mappedLocations[ObjectIdentifier(terminalSurface)]
                 let hostedView = terminalSurface.hostedView
-                let hostedWindow = mapped?.window ?? hostedView.window
+                let hostedWindow = mapped?.window ?? terminalSurface.uiWindow
                 let fallbackWindowMetadata = resolvedWindowMetadata(for: hostedWindow)
                 let resolvedWindowId = mapped?.windowId ?? fallbackWindowMetadata.windowId
                 let resolvedWindowIndex = mapped?.windowIndex ?? fallbackWindowMetadata.windowIndex
@@ -6728,7 +6783,8 @@ class TerminalController {
                     "runtime_surface_ready": terminalSurface.surface != nil,
                     "hosted_view_ptr": objectPointerString(hostedView),
                     "hosted_view_class": className(hostedView) ?? "nil",
-                    "hosted_view_in_window": hostedView.window != nil,
+                    "hosted_view_in_window": terminalSurface.isViewInWindow,
+                    "hosted_view_in_headless_bootstrap_window": terminalSurface.isHeadlessStartupWindow(hostedView.window),
                     "hosted_view_has_superview": hostedView.superview != nil,
                     "hosted_view_hidden": hostedView.isHidden,
                     "hosted_view_hidden_or_ancestor_hidden": hostedView.isHiddenOrHasHiddenAncestor,
@@ -6814,28 +6870,33 @@ class TerminalController {
             #if DEBUG
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
-            let routed = Self.routeUnescapedInput(text, to: terminalPanel)
-            // Ensure we present a new frame after injecting input so snapshot-based tests (and
-            // socket-driven agents) can observe the updated terminal without requiring a focus
-            // change to trigger a draw.
-            if routed.shouldForceRefresh {
+            let queued: Bool
+            switch terminalPanel.surface.sendInputResult(text) {
+            case .sent:
+                // Ensure we present a new frame after injecting input so snapshot-based tests (and
+                // socket-driven agents) can observe the updated terminal without requiring a focus
+                // change to trigger a draw.
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
-            }
-            guard routed.accepted || routed.failure == .empty else {
-                result = .err(
-                    code: "invalid_state",
-                    message: "Terminal input is not available",
-                    data: ["surface_id": surfaceId.uuidString]
-                )
+                queued = false
+            case .queued:
+                queued = true
+            case .inputQueueFull:
+                result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .surfaceUnavailable:
+                result = .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .processExited:
+                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
                 return
             }
 #if DEBUG
             let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
             cmuxDebugLog(
-                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(routed.queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
             )
 #endif
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "queued": queued, "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
     }
@@ -6872,27 +6933,26 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let delivery = terminalPanel.surface.sendNamedKeyDelivery(key)
-            switch delivery {
-            case .invalidKey:
+            let sendResult = terminalPanel.surface.sendNamedKey(key)
+            switch sendResult {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
+            case .queued:
+                break
+            case .unknownKey:
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
-            case .blocked:
-                result = .err(
-                    code: "invalid_state",
-                    message: "Terminal input is not available",
-                    data: ["surface_id": surfaceId.uuidString]
-                )
+            case .inputQueueFull:
+                result = .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
                 return
-            case .empty:
-                break
-            case .delivered:
-                break
+            case .surfaceUnavailable:
+                result = .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+                return
+            case .processExited:
+                result = .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+                return
             }
-            if delivery.shouldForceRefresh {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
-            }
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "queued": sendResult == .queued, "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
     }
@@ -12913,7 +12973,7 @@ class TerminalController {
                     panelId: panel.id,
                     hostedView: panel.hostedView,
                     urls: urls,
-                    window: panel.hostedView.window
+                    window: panel.surface.uiWindow
                 )
                 result = handled
                     ? .ok(["handled": true, "route": "text_destination", "payload": payload])
@@ -15259,51 +15319,6 @@ class TerminalController {
         return nil
     }
 
-    private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
-        if let surface = terminalPanel.surface.surface { return surface }
-
-        let terminalSurface = terminalPanel.surface
-        terminalSurface.requestBackgroundSurfaceStartIfNeeded()
-        _ = v2AwaitCallback(timeout: timeout) { finish in
-            var readyObserver: NSObjectProtocol?
-            var hostedViewObserver: NSObjectProtocol?
-            let finishOnce: () -> Void = {
-                if let readyObserver {
-                    NotificationCenter.default.removeObserver(readyObserver)
-                }
-                if let hostedViewObserver {
-                    NotificationCenter.default.removeObserver(hostedViewObserver)
-                }
-                finish(())
-            }
-
-            readyObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceDidBecomeReady,
-                object: terminalSurface,
-                queue: .main
-            ) { _ in
-                finishOnce()
-            }
-            hostedViewObserver = NotificationCenter.default.addObserver(
-                forName: .terminalSurfaceHostedViewDidMoveToWindow,
-                object: terminalSurface,
-                queue: .main
-            ) { _ in
-                Task { @MainActor in
-                    if terminalSurface.surface != nil {
-                        finishOnce()
-                    }
-                }
-            }
-
-            if terminalSurface.surface != nil {
-                finishOnce()
-            }
-        }
-
-        return terminalPanel.surface.surface
-    }
-
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg), tab.panels[uuid] != nil {
             return uuid
@@ -15381,77 +15396,6 @@ class TerminalController {
         return result.isEmpty ? "ERROR: No tab selected" : result
     }
 
-    enum SocketTextChunk: Equatable {
-        case text(String)
-        case control(UnicodeScalar)
-    }
-
-    nonisolated static func socketTextChunks(_ text: String) -> [SocketTextChunk] {
-        guard !text.isEmpty else { return [] }
-
-        var chunks: [SocketTextChunk] = []
-        chunks.reserveCapacity(8)
-        var bufferedText = ""
-        bufferedText.reserveCapacity(text.count)
-
-        func flushBufferedText() {
-            guard !bufferedText.isEmpty else { return }
-            chunks.append(.text(bufferedText))
-            bufferedText.removeAll(keepingCapacity: true)
-        }
-
-        for scalar in text.unicodeScalars {
-            if isSocketControlScalar(scalar) {
-                flushBufferedText()
-                chunks.append(.control(scalar))
-            } else {
-                bufferedText.unicodeScalars.append(scalar)
-            }
-        }
-        flushBufferedText()
-        return chunks
-    }
-
-    private nonisolated static func isSocketControlScalar(_ scalar: UnicodeScalar) -> Bool {
-        switch scalar.value {
-        case 0x0A, 0x0D, 0x09, 0x1B, 0x7F:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private struct RoutedTerminalInputResult {
-        enum Failure {
-            case blocked
-            case empty
-        }
-
-        let accepted: Bool
-        let queued: Bool
-        let shouldForceRefresh: Bool
-        let failure: Failure?
-    }
-
-    private static func routeUnescapedInput(_ text: String, to terminalPanel: TerminalPanel) -> RoutedTerminalInputResult {
-        let delivery = terminalPanel.surface.sendInputDelivery(text)
-        let failure: RoutedTerminalInputResult.Failure?
-        switch delivery {
-        case .blocked:
-            failure = .blocked
-        case .empty, .invalidKey:
-            failure = .empty
-        case .delivered:
-            failure = nil
-        }
-        return RoutedTerminalInputResult(
-            accepted: delivery.delivered,
-            queued: delivery.queued,
-            shouldForceRefresh: delivery.shouldForceRefresh,
-            failure: failure
-        )
-    }
-
     private func sendInput(_ text: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -15472,22 +15416,22 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            guard terminalPanel.surface.acceptsTerminalInput else {
-                success = false
+            switch terminalPanel.surface.sendInputResult(unescaped) {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
+                success = true
+            case .queued:
+                success = true
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+                return
+            case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+                return
+            case .processExited:
+                error = Self.terminalProcessExitedSocketError
                 return
             }
-            if terminalPanel.surface.surface == nil {
-                guard waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) != nil else {
-                    error = "ERROR: Surface not ready"
-                    return
-                }
-            }
-
-            let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
-            if routed.shouldForceRefresh {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
-            }
-            success = routed.accepted
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
@@ -15527,16 +15471,22 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            // This DEBUG-only command is used by UI tests to enqueue shell work in an
-            // existing workspace. Return once the input is queued on main so a long
-            // payload does not hold the control-socket response open in CI.
-            TerminalMutationBus.shared.enqueueMainActorMutation {
-                let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
-                if routed.shouldForceRefresh {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.sendInputToWorkspace")
-                }
+            switch terminalPanel.surface.sendInputResult(unescaped) {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
+                success = true
+            case .queued:
+                success = true
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+                return
+            case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+                return
+            case .processExited:
+                error = Self.terminalProcessExitedSocketError
+                return
             }
-            success = true
         }
 
         if let error { return error }
@@ -15590,28 +15540,36 @@ class TerminalController {
         let text = parts[1]
 
         var success = false
+        var error: String?
         v2MainSync {
-            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
-            guard terminalPanel.surface.acceptsTerminalInput else {
-                success = false
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
+                error = "ERROR: Surface not found"
                 return
             }
-            if terminalPanel.surface.surface == nil {
-                _ = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0)
-            }
-
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            let routed = Self.routeUnescapedInput(unescaped, to: terminalPanel)
-            if routed.shouldForceRefresh {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.sendInputToSurface")
+            switch terminalPanel.surface.sendInputResult(unescaped) {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
+                success = true
+            case .queued:
+                success = true
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+                return
+            case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+                return
+            case .processExited:
+                error = Self.terminalProcessExitedSocketError
+                return
             }
-            success = routed.accepted
         }
 
+        if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
@@ -15628,20 +15586,24 @@ class TerminalController {
                 return
             }
 
-            let delivery = terminalPanel.surface.sendNamedKeyDelivery(keyName)
-            switch delivery {
-            case .delivered:
+            switch terminalPanel.surface.sendNamedKey(keyName) {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendKey")
                 success = true
-            case .blocked:
-                error = "ERROR: Failed to send key"
-            case .empty:
-                success = false
-            case .invalidKey:
-                success = false
+            case .queued:
+                success = true
+            case .unknownKey:
+                error = "ERROR: Unknown key '\(keyName)'"
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+            case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+            case .processExited:
+                error = Self.terminalProcessExitedSocketError
             }
         }
         if let error { return error }
-        return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
+        return success ? "OK" : "ERROR: Failed to send key"
     }
 
     private func sendKeyToSurface(_ args: String) -> String {
@@ -15659,21 +15621,25 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            let delivery = terminalPanel.surface.sendNamedKeyDelivery(keyName)
-            switch delivery {
-            case .delivered:
+            switch terminalPanel.surface.sendNamedKey(keyName) {
+            case .sent:
+                terminalPanel.surface.forceRefresh(reason: "terminalController.sendKeyToSurface")
                 success = true
-            case .blocked:
-                error = "ERROR: Failed to send key"
-            case .empty:
-                success = false
-            case .invalidKey:
-                success = false
+            case .queued:
+                success = true
+            case .unknownKey:
+                error = "ERROR: Unknown key '\(keyName)'"
+            case .inputQueueFull:
+                error = Self.terminalInputQueueFullSocketError
+            case .surfaceUnavailable:
+                error = Self.terminalSurfaceUnavailableSocketError
+            case .processExited:
+                error = Self.terminalProcessExitedSocketError
             }
         }
 
         if let error { return error }
-        return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
+        return success ? "OK" : "ERROR: Failed to send key"
     }
 
     private func openExternallyWhenBrowserDisabled(rawURL: String? = nil, url: URL?) -> String {
