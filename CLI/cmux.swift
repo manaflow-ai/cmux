@@ -20017,6 +20017,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hooksFilePath: filePath,
             def: def
         )
+        let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
@@ -20068,13 +20069,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let trustClean = Self.codexConfigTomlRemovingHookTrust(
                     in: existingContent,
                     entries: codexHookTrustEntries,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    removingTrustedHashes: codexLegacyHookTrustHashes
                 )
                 let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
                 let trustInstall = Self.codexConfigTomlInstallingHookTrust(
                     in: featureContent,
                     entries: codexHookTrustEntries,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    removingTrustedHashes: codexLegacyHookTrustHashes
                 )
                 let newContent = trustInstall.content
                 if newContent != existingContent {
@@ -20359,11 +20362,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func codexConfigTomlRemovingHookTrust(
         in existingContent: String,
         entries: [CodexHookTrustEntry],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> String {
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
-        let trustedHashes = Set(entries.map(\.trustedHash))
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
         let removalResult = removeCmuxCodexHookTrustBlock(
             from: &lines,
             removingEscapedKeys: escapedKeys,
@@ -20380,11 +20384,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func codexConfigTomlInstallingHookTrust(
         in existingContent: String,
         entries: [CodexHookTrustEntry],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = []
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
-        let trustedHashes = Set(entries.map(\.trustedHash))
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
         let removalResult = removeCmuxCodexHookTrustBlock(
             from: &lines,
             removingEscapedKeys: escapedKeys,

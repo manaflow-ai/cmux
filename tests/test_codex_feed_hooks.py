@@ -1388,6 +1388,14 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         timeout=120_000,
         status_message=None,
     )
+    stale_legacy_key = f"{hooks_path.resolve()}:pre_tool_use:10:0"
+    stale_legacy_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command="cmux feed-hook --source codex --event PreToolUse",
+        timeout=120_000,
+        status_message=None,
+    )
     same_file_user_key = f"{hooks_path.resolve()}:pre_tool_use:8:0"
     escaped_user_key = "/tmp/third-party\\t/hooks.json:pre_tool_use:0:0"
     third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
@@ -1405,6 +1413,9 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         "\n"
         f'[hooks.state."{stale_old_cmux_key}"]\n'
         f'trusted_hash = "{stale_old_cmux_hash}"\n'
+        "\n"
+        f'[hooks.state."{stale_legacy_key}"]\n'
+        f'trusted_hash = "{stale_legacy_hash}"\n'
         "\n"
         f'[hooks.state."{same_file_user_key}"]\n'
         'trusted_hash = "sha256:same-file-user"\n'
@@ -1453,6 +1464,8 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
     if stale_old_cmux_key in config_toml:
         raise AssertionError(f"old cmux hook trust was preserved: {config_toml!r}")
+    if stale_legacy_key in config_toml or stale_legacy_hash in config_toml:
+        raise AssertionError(f"legacy cmux hook trust was preserved: {config_toml!r}")
     trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
     if config_toml.count(trust_begin) != 1:
