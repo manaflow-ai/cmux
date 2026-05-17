@@ -52,8 +52,8 @@ final class FeedKeyboardFocusView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        registerWithKeyboardFocusCoordinatorIfNeeded()
         guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
         #if DEBUG
         cmuxDebugLog("feed.focus.host attach window=\(ObjectIdentifier(window))")
         #endif
