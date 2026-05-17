@@ -11,11 +11,12 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: stress-vm-api.mjs [web-dir] <staging|production> [--count N] [--concurrency N] [--provider e2b|freestyle|default]";
+const usage = "Usage: stress-vm-api.mjs [web-dir] <staging|production> [--count N] [--concurrency N] [--provider e2b|freestyle|default] [--url https://preview.example]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const count = positiveInteger(optionValue(rest, "--count") ?? "8", "--count");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "4", "--concurrency"), count);
 const provider = optionValue(rest, "--provider") ?? "default";
+const targetUrl = optionValue(rest, "--url") ?? project.url;
 if (!["default", "e2b", "freestyle"].includes(provider)) {
   console.error("--provider must be default, e2b, or freestyle");
   process.exit(2);
@@ -78,12 +79,16 @@ console.log(JSON.stringify({
   ok: !interruptedSignal && failures.length === 0,
   target,
   project: project.projectName,
+  url: targetUrl,
   provider,
   count,
   concurrency,
   attempted: attempted.length,
   interruptedSignal: interruptedSignal || undefined,
   durationMs: Date.now() - startedAt,
+  createDurationMs: summarizeDurations(successes.map((result) => result.createDurationMs)),
+  attachDurationMs: summarizeDurations(successes.map((result) => result.attachDurationMs)),
+  rpcDurationMs: summarizeDurations(successes.map((result) => result.rpcDurationMs)),
   successes: successes.length,
   providerCounts,
   imageVersionCounts,
@@ -98,6 +103,9 @@ async function runCase(index) {
   let user;
   let vmId;
   let authHeaders;
+  let createDurationMs;
+  let attachDurationMs;
+  let rpcDurationMs;
   const cleanup = { vmDeleted: false, userDeleted: false };
   let cleanupPromise;
   const cleanupCase = () => {
@@ -128,7 +136,8 @@ async function runCase(index) {
     };
 
     const createBody = provider === "default" ? {} : { provider };
-    const create = await fetchWithTimeout(`${project.url}/api/vm`, {
+    const createStartedAt = performance.now();
+    const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: {
         ...authHeaders,
@@ -137,6 +146,7 @@ async function runCase(index) {
       },
       body: JSON.stringify(createBody),
     }, 90_000);
+    createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
@@ -144,11 +154,13 @@ async function runCase(index) {
     vmId = created.id;
     throwIfInterrupted();
 
-    const attach = await fetchWithTimeout(`${project.url}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
+    const attachStartedAt = performance.now();
+    const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
       body: JSON.stringify({ requireDaemon: true }),
     }, 45_000);
+    attachDurationMs = Math.round(performance.now() - attachStartedAt);
     const attachText = await attach.text();
     if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
     const attached = JSON.parse(attachText);
@@ -158,7 +170,9 @@ async function runCase(index) {
     }
     throwIfInterrupted();
 
+    const rpcStartedAt = performance.now();
     const rpc = await rpcProxyHealthz(attached.daemon.url, attached.daemon.token, attached.daemon.sessionId);
+    rpcDurationMs = Math.round(performance.now() - rpcStartedAt);
     throwIfInterrupted();
     return {
       ok: true,
@@ -167,6 +181,9 @@ async function runCase(index) {
       imageVersion: created.imageVersion,
       attachTransport: attached.transport,
       rpcCapabilities: rpc.capabilities,
+      createDurationMs,
+      attachDurationMs,
+      rpcDurationMs,
       durationMs: Date.now() - started,
       cleanup,
     };
@@ -176,6 +193,9 @@ async function runCase(index) {
       index,
       message: error instanceof Error ? error.message : String(error),
       vmIdSet: !!vmId,
+      createDurationMs,
+      attachDurationMs,
+      rpcDurationMs,
       durationMs: Date.now() - started,
       cleanup,
     };
@@ -192,7 +212,7 @@ async function cleanupRun({ getVmId, getAuthHeaders, getUser, cleanup }) {
 
   if (vmId && authHeaders) {
     try {
-      const destroy = await fetchWithTimeout(`${project.url}/api/vm/${encodeURIComponent(vmId)}`, {
+      const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
         method: "DELETE",
         headers: authHeaders,
       }, 45_000);
@@ -360,4 +380,28 @@ function countBy(values) {
     acc[value] = (acc[value] ?? 0) + 1;
     return acc;
   }, {});
+}
+
+function summarizeDurations(values) {
+  const numbers = values
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (numbers.length === 0) return null;
+  const total = numbers.reduce((sum, value) => sum + value, 0);
+  return {
+    min: numbers[0],
+    p50: percentile(numbers, 0.5),
+    p95: percentile(numbers, 0.95),
+    max: numbers[numbers.length - 1],
+    avg: Math.round(total / numbers.length),
+  };
+}
+
+function percentile(sortedNumbers, fraction) {
+  if (sortedNumbers.length === 1) return sortedNumbers[0];
+  const index = Math.max(0, Math.min(
+    sortedNumbers.length - 1,
+    Math.ceil(sortedNumbers.length * fraction) - 1,
+  ));
+  return sortedNumbers[index];
 }
