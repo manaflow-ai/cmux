@@ -349,6 +349,37 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         )
     }
 
+    func testPreferredPopoverAnchorRejectsButtonAnchorFromDifferentWindow() {
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { sourceWindow.orderOut(nil) }
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        guard let sourceContentView = sourceWindow.contentView,
+              let otherContentView = otherWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let fallback = NSView(frame: NSRect(x: 20, y: 40, width: 160, height: 24))
+        let buttonAnchor = NSView(frame: NSRect(x: 50, y: 2, width: 20, height: 20))
+        sourceContentView.addSubview(fallback)
+        otherContentView.addSubview(buttonAnchor)
+
+        XCTAssertTrue(
+            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+        )
+    }
+
     func testNotificationAnchorRegistryFindsNearestVisibleButtonAnchor() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),

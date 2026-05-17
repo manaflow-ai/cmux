@@ -176,8 +176,10 @@ func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
 }
 
 func preferredNotificationsPopoverAnchor(buttonAnchor: NSView?, fallbackAnchor: NSView?) -> NSView? {
+    let fallbackWindow = fallbackAnchor?.window
     guard let buttonAnchor,
-          buttonAnchor.window != nil,
+          let buttonWindow = buttonAnchor.window,
+          fallbackWindow == nil || buttonWindow === fallbackWindow,
           !buttonAnchor.bounds.isEmpty,
           notificationsPopoverAnchorIsVisible(buttonAnchor) else {
         return fallbackAnchor
