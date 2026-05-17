@@ -1090,9 +1090,8 @@ class TabManager: ObservableObject {
     private var focusHistory: [FocusHistoryEntry] = []
     private var historyIndex: Int = -1
     private var isNavigatingHistory = false
-    private var focusHistoryRecordingSuppressionDepth = 0
     private var shouldRecordFocusHistory: Bool {
-        !isNavigatingHistory && focusHistoryRecordingSuppressionDepth == 0
+        !isNavigatingHistory
     }
     private let maxHistorySize = 50
     private var selectionSideEffectsGeneration: UInt64 = 0
@@ -5602,13 +5601,6 @@ class TabManager: ObservableObject {
 
     // MARK: - Focus History Navigation
 
-    @discardableResult
-    private func withFocusHistoryRecordingSuppressed<Result>(_ body: () throws -> Result) rethrows -> Result {
-        focusHistoryRecordingSuppressionDepth += 1
-        defer { focusHistoryRecordingSuppressionDepth -= 1 }
-        return try body()
-    }
-
     private func recordFocusInHistory(workspaceId: UUID, panelId: UUID?) {
         guard shouldRecordFocusHistory else { return }
         let entry = FocusHistoryEntry(workspaceId: workspaceId, panelId: panelId)
@@ -7736,7 +7728,6 @@ extension TabManager {
         focusHistory.removeAll()
         historyIndex = -1
         isNavigatingHistory = false
-        focusHistoryRecordingSuppressionDepth = 0
         focusHistoryRevision &+= 1
         pendingWorkspaceUnfocusTarget = nil
         workspaceCycleCooldownTask?.cancel()
