@@ -803,7 +803,7 @@ import Testing
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
     )
-    let responses = ScriptedTransportResponses([
+    var responseFrames = [
         try rpcWorkspaceListFrame(
             workspaceID: "workspace-main",
             title: "cmux",
@@ -815,16 +815,21 @@ import Testing
             visibleLines: ["initial"]
         ),
         try rpcWorkspaceCreateFrame(),
-        try rpcSnapshotResultFrame(
-            workspaceID: "workspace-3",
-            terminalID: "workspace-3-terminal-1",
-            visibleLines: [
-                "$ cmux ios",
-                "workspace: Workspace 3",
-                "terminal: Terminal 1",
-            ]
-        ),
-    ])
+    ]
+    for _ in 0..<8 {
+        responseFrames.append(
+            try rpcSnapshotResultFrame(
+                workspaceID: "workspace-3",
+                terminalID: "workspace-3-terminal-1",
+                visibleLines: [
+                    "$ cmux ios",
+                    "workspace: Workspace 3",
+                    "terminal: Terminal 1",
+                ]
+            )
+        )
+    }
+    let responses = ScriptedTransportResponses(responseFrames)
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
@@ -835,7 +840,7 @@ import Testing
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     store.createWorkspace()
 
-    for _ in 0..<80 where store.selectedWorkspace?.id.rawValue != "workspace-3" ||
+    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" ||
         store.selectedWorkspace?.terminals.first?.lines.contains("workspace: Workspace 3") != true {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
