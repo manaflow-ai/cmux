@@ -181,6 +181,24 @@ import Testing
     #expect(relayURL == nil)
 }
 
+@Test func attachRouteDecoderDefaultsMissingPriorityToZero() throws {
+    let data = Data("""
+    {
+      "id": "tailscale",
+      "kind": "tailscale",
+      "endpoint": {
+        "type": "host_port",
+        "host": "100.64.1.2",
+        "port": 49831
+      }
+    }
+    """.utf8)
+
+    let route = try JSONDecoder().decode(CmxAttachRoute.self, from: data)
+
+    #expect(route.priority == 0)
+}
+
 @Test func attachRouteRejectsMismatchedEndpointKind() throws {
     #expect(throws: CmxAttachRouteError.endpointMismatch(
         kind: .iroh,
@@ -232,6 +250,37 @@ import Testing
     decoder.dateDecodingStrategy = .iso8601
 
     #expect(throws: CmxAttachTicketError.noRoutes) {
+        _ = try decoder.decode(CmxAttachTicket.self, from: data)
+    }
+}
+
+@Test func attachTicketDecoderRejectsExpiredTicket() throws {
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "macDisplayName": null,
+      "routes": [
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": {
+            "type": "host_port",
+            "host": "100.64.1.2",
+            "port": 49831
+          },
+          "priority": 0
+        }
+      ],
+      "expiresAt": "2001-01-01T00:00:00Z"
+    }
+    """.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    #expect(throws: CmxAttachTicketError.expired) {
         _ = try decoder.decode(CmxAttachTicket.self, from: data)
     }
 }

@@ -95,7 +95,7 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             id: container.decode(String.self, forKey: .id),
             kind: container.decode(CmxAttachTransportKind.self, forKey: .kind),
             endpoint: container.decode(CmxAttachEndpoint.self, forKey: .endpoint),
-            priority: container.decode(Int.self, forKey: .priority)
+            priority: container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
         )
     }
 
@@ -192,6 +192,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             expiresAt: container.decode(Date.self, forKey: .expiresAt),
             authToken: container.decodeIfPresent(String.self, forKey: .authToken)
         )
+        try validate(now: Date())
     }
 
     public init(

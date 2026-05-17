@@ -236,6 +236,7 @@ final class AuthManager {
     }
 
     private func clearAuthState() {
+        pendingNonce = nil
         authUserCache.clear()
         authSessionCache.clear()
         applyAuthState(.cleared())
@@ -297,8 +298,12 @@ final class AuthManager {
         }
         #endif
 
-        let nonce = try await stack.sendMagicLinkEmail(email: email, callbackUrl: AppEnvironment.current.magicLinkCallbackURL)
-        pendingNonce = nonce
+        do {
+            let nonce = try await stack.sendMagicLinkEmail(email: email, callbackUrl: AppEnvironment.current.magicLinkCallbackURL)
+            pendingNonce = nonce
+        } catch {
+            throw sanitizedAuthError(error)
+        }
     }
 
     func verifyCode(_ code: String) async throws {
@@ -310,8 +315,12 @@ final class AuthManager {
         defer { isLoading = false }
 
         let fullCode = AuthMagicLinkCode.compose(code: code, nonce: nonce)
-        try await stack.signInWithMagicLink(code: fullCode)
-        try await completeSignIn()
+        do {
+            try await stack.signInWithMagicLink(code: fullCode)
+            try await completeSignIn()
+        } catch {
+            throw sanitizedAuthError(error)
+        }
 
         pendingNonce = nil
     }
@@ -326,30 +335,42 @@ final class AuthManager {
             }
         }
 
-        try await stack.signInWithCredential(email: email, password: password)
-        try await completeSignIn()
+        do {
+            try await stack.signInWithCredential(email: email, password: password)
+            try await completeSignIn()
+        } catch {
+            throw sanitizedAuthError(error)
+        }
     }
 
     func signInWithApple() async throws {
         isLoading = true
         defer { isLoading = false }
 
-        try await stack.signInWithOAuth(
-            provider: "apple",
-            presentationContextProvider: AuthPresentationContextProvider.shared
-        )
-        try await completeSignIn()
+        do {
+            try await stack.signInWithOAuth(
+                provider: "apple",
+                presentationContextProvider: AuthPresentationContextProvider.shared
+            )
+            try await completeSignIn()
+        } catch {
+            throw sanitizedAuthError(error)
+        }
     }
 
     func signInWithGoogle() async throws {
         isLoading = true
         defer { isLoading = false }
 
-        try await stack.signInWithOAuth(
-            provider: "google",
-            presentationContextProvider: AuthPresentationContextProvider.shared
-        )
-        try await completeSignIn()
+        do {
+            try await stack.signInWithOAuth(
+                provider: "google",
+                presentationContextProvider: AuthPresentationContextProvider.shared
+            )
+            try await completeSignIn()
+        } catch {
+            throw sanitizedAuthError(error)
+        }
     }
 
     private func completeSignIn() async throws {
@@ -407,6 +428,48 @@ final class AuthManager {
             throw AuthError.unauthorized
         }
         return (accessToken, refreshToken)
+    }
+
+    private func sanitizedAuthError(_ error: Error) -> Error {
+        Self.displaySafeAuthError(error)
+    }
+
+    nonisolated static func displaySafeAuthError(_ error: Error) -> Error {
+        if let authError = error as? AuthError {
+            return authError
+        }
+        if let stackError = error as? StackAuthErrorProtocol {
+            switch stackError.code.uppercased() {
+            case "OAUTH_CANCELLED":
+                return AuthError.cancelled
+            case
+                "SCHEMA_ERROR",
+                "USER_EMAIL_ALREADY_EXISTS",
+                "VERIFICATION_CODE_ERROR",
+                "INVALID_OTP",
+                "OTP_EXPIRED",
+                "RATE_LIMIT",
+                "EMAIL_PASSWORD_MISMATCH",
+                "USER_NOT_FOUND",
+                "PASSKEY_AUTHENTICATION_FAILED",
+                "PASSKEY_WEBAUTHN_ERROR",
+                "INVALID_TOTP_CODE",
+                "REDIRECT_URL_NOT_WHITELISTED",
+                "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
+                "INVALID_APPLE_CREDENTIALS":
+                return error
+            case "UNAUTHORIZED", "INVALID_TOKEN", "TOKEN_EXPIRED":
+                return AuthError.unauthorized
+            default:
+                return AuthError.serverError(0, "auth_failed")
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return AuthError.networkError
+        }
+        return AuthError.serverError(0, "auth_failed")
     }
 }
 

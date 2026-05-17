@@ -1174,7 +1174,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
-    func testMobileTerminalInputReportsRejectedClosedSurface() throws {
+    func testMobileTerminalInputReportsRejectedClosedSurface() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
         TerminalController.shared.setActiveTabManager(manager)
@@ -1187,7 +1187,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         panel.surface.releaseSurfaceForTesting()
         panel.surface.beginPortalCloseLifecycle(reason: "test.mobile.closed")
 
-        let response = TerminalController.shared.mobileHostHandleRPC(
+        let response = await TerminalController.shared.mobileHostHandleRPC(
             MobileHostRPCRequest(
                 id: "input",
                 method: "terminal.input",
@@ -1207,8 +1207,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(error.code, "surface_unavailable")
     }
 
-    func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() throws {
-        let response = TerminalController.shared.mobileHostHandleRPC(
+    func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
+        let response = await TerminalController.shared.mobileHostHandleRPC(
             MobileHostRPCRequest(
                 id: "status",
                 method: "mobile.host.status",

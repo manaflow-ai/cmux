@@ -4531,7 +4531,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastUncappedPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
-    private var mobileViewportPixelLimit: (width: UInt32, height: UInt32)?
+    private var mobileViewportCellLimit: (columns: Int, rows: Int)?
     private let debugMetadataLock = NSLock()
     private let createdAt: Date = Date()
     private var runtimeSurfaceCreatedAt: Date?
@@ -5652,7 +5652,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let rawHpx = pixelDimension(from: resolvedBackingHeight)
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
-        let cappedSize = cappedByMobileViewportLimit(width: rawWpx, height: rawHpx)
+        let cappedSize = cappedByMobileViewportLimit(width: rawWpx, height: rawHpx, surface: surface)
         let wpx = cappedSize.width
         let hpx = cappedSize.height
         guard wpx > 0, hpx > 0 else { return false }
@@ -5664,7 +5664,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Self.sizeLog("updateSize-call surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) changed=\((scaleChanged || sizeChanged) ? 1 : 0)")
         #endif
 
-        if mobileViewportPixelLimit != nil {
+        if mobileViewportCellLimit != nil {
             updateMobileViewportBorder(
                 appliedWidth: wpx,
                 appliedHeight: hpx,
@@ -5721,7 +5721,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             max(1, rows) * cellHeight + verticalNonGridPixels
         ))
 
-        mobileViewportPixelLimit = (width: targetWidth, height: targetHeight)
+        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
         let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
         let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
         let appliedWidth = min(targetWidth, baseWidth)
@@ -5754,7 +5754,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     @MainActor
     func clearMobileViewportLimit(reason: String) -> Bool {
-        mobileViewportPixelLimit = nil
+        mobileViewportCellLimit = nil
         hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
         let uncappedWidth = lastUncappedPixelWidth
@@ -5786,13 +5786,40 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
-    private func cappedByMobileViewportLimit(width: UInt32, height: UInt32) -> (width: UInt32, height: UInt32) {
-        guard let mobileViewportPixelLimit else {
+    private func cappedByMobileViewportLimit(
+        width: UInt32,
+        height: UInt32,
+        surface: ghostty_surface_t
+    ) -> (width: UInt32, height: UInt32) {
+        guard let mobileViewportPixelLimit = mobileViewportPixelLimit(for: surface) else {
             return (width, height)
         }
         return (
             width: min(width, mobileViewportPixelLimit.width),
             height: min(height, mobileViewportPixelLimit.height)
+        )
+    }
+
+    private func mobileViewportPixelLimit(for surface: ghostty_surface_t) -> (width: UInt32, height: UInt32)? {
+        guard let mobileViewportCellLimit else {
+            return nil
+        }
+        let size = ghostty_surface_size(surface)
+        let cellWidth = max(1, Int(size.cell_width_px))
+        let cellHeight = max(1, Int(size.cell_height_px))
+        let currentColumns = max(1, Int(size.columns))
+        let currentRows = max(1, Int(size.rows))
+        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
+        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
+        return (
+            width: UInt32(min(
+                Int(UInt32.max),
+                max(1, mobileViewportCellLimit.columns) * cellWidth + horizontalNonGridPixels
+            )),
+            height: UInt32(min(
+                Int(UInt32.max),
+                max(1, mobileViewportCellLimit.rows) * cellHeight + verticalNonGridPixels
+            ))
         )
     }
 
@@ -10218,7 +10245,7 @@ private final class TerminalViewportBorderOverlayView: NSView {
         }
 
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let lineWidth = max(2 / max(1, scale), 1)
+        let lineWidth = 1 / max(1, scale)
         let width = min(effectiveSize.width, bounds.width)
         let height = min(effectiveSize.height, bounds.height)
         guard width > lineWidth, height > lineWidth else { return }

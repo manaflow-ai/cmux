@@ -441,6 +441,9 @@ struct SignInView: View {
         do {
             try await authManager.signInWithApple()
         } catch {
+            if case AuthError.cancelled = error {
+                return
+            }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
                 return
             }
@@ -455,6 +458,9 @@ struct SignInView: View {
         do {
             try await authManager.signInWithGoogle()
         } catch {
+            if case AuthError.cancelled = error {
+                return
+            }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
                 return
             }
@@ -866,6 +872,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobilePairButton")
                 }
 
+                #if os(iOS)
                 Section {
                     Button {
                         isShowingScanner = true
@@ -875,6 +882,7 @@ struct PairingView: View {
                     }
                     .accessibilityIdentifier("MobileScanQRCodeButton")
                 }
+                #endif
 
                 if let errorText {
                     Section {
@@ -907,6 +915,7 @@ struct PairingView: View {
                 #endif
             }
         }
+        #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
             MobilePairingScannerSheet { scannedCode in
                 pairingCode = scannedCode
@@ -914,6 +923,7 @@ struct PairingView: View {
                 connectPairingCode()
             }
         }
+        #endif
     }
 
     private var cancelButton: some View {

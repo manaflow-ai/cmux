@@ -5,6 +5,8 @@ enum AuthError: Error, LocalizedError {
     case serverError(Int, String)
     case invalidCode
     case unauthorized
+    case authFailure
+    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +18,10 @@ enum AuthError: Error, LocalizedError {
             return L10n.string("auth.error.invalid_code_short", defaultValue: "Invalid code. Please try again.")
         case .unauthorized:
             return L10n.string("auth.error.unauthorized", defaultValue: "Session expired. Please sign in again.")
+        case .authFailure:
+            return L10n.string("auth.error.wrong_password", defaultValue: "Incorrect email or password.")
+        case .cancelled:
+            return ""
         }
     }
 }

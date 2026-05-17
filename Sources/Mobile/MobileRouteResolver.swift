@@ -10,9 +10,26 @@ struct MobileHostRouteSnapshot: Sendable {
     }
 }
 
-struct MobileRouteResolver: Sendable {
+final class MobileRouteResolver: @unchecked Sendable {
+    private static let tailscaleRouteCacheTTL: TimeInterval = 30
+
+    private let cacheLock = NSLock()
+    private var cachedResolvedTailscaleHosts: [String] = []
+    private var cachedResolvedTailscaleHostsUpdatedAt: Date?
+    private var tailscaleRefreshTask: Task<[String], Never>?
+
     func routes(port: Int) -> MobileHostRouteSnapshot {
-        routes(port: port, tailscaleHosts: Self.tailscaleRouteHosts())
+        refreshTailscaleRoutes()
+        return routes(port: port, tailscaleHosts: currentTailscaleRouteHosts())
+    }
+
+    func routesResolvingTailscaleDNS(
+        port: Int,
+        resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
+        now: Date = Date()
+    ) async -> MobileHostRouteSnapshot {
+        let hosts = await resolvedTailscaleRouteHosts(resolveHosts: resolveHosts, now: now)
+        return routes(port: port, tailscaleHosts: hosts)
     }
 
     func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
@@ -50,8 +67,90 @@ struct MobileRouteResolver: Sendable {
         let dnsName: String?
     }
 
-    private static func tailscaleRouteHosts() -> [String] {
-        guard let candidate = preferredTailscaleAddressCandidate() else {
+    func refreshTailscaleRoutes() {
+        cacheLock.lock()
+        guard !hasFreshResolvedTailscaleHostsLocked(now: Date()) else {
+            cacheLock.unlock()
+            return
+        }
+        _ = tailscaleRefreshTaskLocked(resolveHosts: { Self.tailscaleRouteHosts(resolveDNS: true) })
+        cacheLock.unlock()
+    }
+
+    private func currentTailscaleRouteHosts() -> [String] {
+        if let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: Date()) {
+            return cachedHosts
+        }
+        return Self.tailscaleRouteHosts(resolveDNS: false)
+    }
+
+    private func resolvedTailscaleRouteHosts(
+        resolveHosts: @escaping @Sendable () -> [String],
+        now: Date
+    ) async -> [String] {
+        if let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: now) {
+            return cachedHosts
+        }
+        let task = tailscaleRefreshTask(resolveHosts: resolveHosts)
+        let hosts = await task.value
+        storeResolvedTailscaleHosts(hosts)
+        return hosts
+    }
+
+    private func resolvedTailscaleRouteHostsFromCache(now: Date) -> [String]? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        guard hasFreshResolvedTailscaleHostsLocked(now: now) else {
+            return nil
+        }
+        return cachedResolvedTailscaleHosts
+    }
+
+    private func hasFreshResolvedTailscaleHostsLocked(now: Date) -> Bool {
+        guard let updatedAt = cachedResolvedTailscaleHostsUpdatedAt else {
+            return false
+        }
+        let cachedHosts = cachedResolvedTailscaleHosts
+        return !cachedHosts.isEmpty && now.timeIntervalSince(updatedAt) <= Self.tailscaleRouteCacheTTL
+    }
+
+    private func tailscaleRefreshTask(
+        resolveHosts: @escaping @Sendable () -> [String]
+    ) -> Task<[String], Never> {
+        cacheLock.lock()
+        let task = tailscaleRefreshTaskLocked(resolveHosts: resolveHosts)
+        cacheLock.unlock()
+        return task
+    }
+
+    private func tailscaleRefreshTaskLocked(
+        resolveHosts: @escaping @Sendable () -> [String]
+    ) -> Task<[String], Never> {
+        if let tailscaleRefreshTask {
+            return tailscaleRefreshTask
+        }
+        let task = Task.detached(priority: .utility) {
+            resolveHosts()
+        }
+        tailscaleRefreshTask = task
+        Task.detached { [weak self, task] in
+            let hosts = await task.value
+            self?.storeResolvedTailscaleHosts(hosts)
+        }
+        return task
+    }
+
+    private func storeResolvedTailscaleHosts(_ hosts: [String], now: Date = Date()) {
+        let hasResolvedMagicDNS = hosts.contains { Self.isTailscaleDNSName($0) }
+        cacheLock.lock()
+        cachedResolvedTailscaleHosts = hosts
+        cachedResolvedTailscaleHostsUpdatedAt = hasResolvedMagicDNS ? now : nil
+        tailscaleRefreshTask = nil
+        cacheLock.unlock()
+    }
+
+    private static func tailscaleRouteHosts(resolveDNS: Bool) -> [String] {
+        guard let candidate = preferredTailscaleAddressCandidate(resolveDNS: resolveDNS) else {
             return []
         }
 
@@ -72,15 +171,15 @@ struct MobileRouteResolver: Sendable {
         }
     }
 
-    private static func preferredTailscaleAddressCandidate() -> TailscaleAddressCandidate? {
-        let candidates = tailscaleAddressCandidates()
+    private static func preferredTailscaleAddressCandidate(resolveDNS: Bool) -> TailscaleAddressCandidate? {
+        let candidates = tailscaleAddressCandidates(resolveDNS: resolveDNS)
         if let match = candidates.first(where: { isTailscaleDNSName($0.dnsName) }) {
             return match
         }
         return candidates.first
     }
 
-    private static func tailscaleAddressCandidates() -> [TailscaleAddressCandidate] {
+    private static func tailscaleAddressCandidates(resolveDNS: Bool) -> [TailscaleAddressCandidate] {
         var interfaces: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaces) == 0, let firstInterface = interfaces else {
             return []
@@ -113,7 +212,7 @@ struct MobileRouteResolver: Sendable {
                         TailscaleAddressCandidate(
                             interfaceName: interfaceName,
                             address: candidate,
-                            dnsName: reverseDNSHost(for: address)
+                            dnsName: resolveDNS ? reverseDNSHost(for: address) : nil
                         )
                     )
                 }

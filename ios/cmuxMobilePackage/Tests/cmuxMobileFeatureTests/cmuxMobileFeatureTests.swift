@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Foundation
+import StackAuth
 import SwiftUI
 import Testing
 @testable import cmuxMobileFeature
@@ -29,6 +30,45 @@ import Testing
     #expect(MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: false))
     #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: true))
     #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
+}
+
+@Test func authDisplaySafeErrorPreservesUserFacingStackErrors() throws {
+    let userFacingCodes = [
+        "SCHEMA_ERROR",
+        "USER_EMAIL_ALREADY_EXISTS",
+        "VERIFICATION_CODE_ERROR",
+        "INVALID_OTP",
+        "OTP_EXPIRED",
+        "RATE_LIMIT",
+        "EMAIL_PASSWORD_MISMATCH",
+        "USER_NOT_FOUND",
+        "PASSKEY_AUTHENTICATION_FAILED",
+        "PASSKEY_WEBAUTHN_ERROR",
+        "INVALID_TOTP_CODE",
+        "REDIRECT_URL_NOT_WHITELISTED",
+        "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
+        "INVALID_APPLE_CREDENTIALS",
+    ]
+
+    for code in userFacingCodes {
+        let mapped = AuthManager.displaySafeAuthError(StackAuthError(code: code, message: "message"))
+        let stackError = try #require(mapped as? StackAuthErrorProtocol)
+        #expect(stackError.code == code)
+    }
+}
+
+@Test func authDisplaySafeErrorMapsCancellationAndUnknownStackErrors() throws {
+    let cancelled = AuthManager.displaySafeAuthError(StackAuthError(code: "oauth_cancelled", message: "cancelled"))
+    guard case AuthError.cancelled = cancelled else {
+        Issue.record("Expected OAuth cancellation to map to AuthError.cancelled")
+        return
+    }
+
+    let unknown = AuthManager.displaySafeAuthError(StackAuthError(code: "UNEXPECTED", message: "raw server detail"))
+    guard case AuthError.serverError(0, "auth_failed") = unknown else {
+        Issue.record("Expected unknown Stack errors to use the generic auth failure")
+        return
+    }
 }
 
 @Test func manualRouteAuthPolicyOnlyTreatsNumeric127HostsAsLoopback() throws {
@@ -408,7 +448,7 @@ import Testing
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Use your Mac's Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Use a secure host name for your Mac, or pair with a QR/link from that Mac.")
 }
 
 @MainActor
@@ -487,7 +527,7 @@ import Testing
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "Use your Mac's Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Use a secure host name for your Mac, or pair with a QR/link from that Mac.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -604,6 +644,39 @@ import Testing
 }
 
 @MainActor
+@Test func terminalScopedAttachTicketListsScopedTerminal() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let requests = try await responses.sentRequests()
+    let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(workspaceList.workspaceID == workspaceID)
+    #expect(workspaceList.terminalID == terminalID)
+    #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
+}
+
+@MainActor
 @Test func attachTicketFallsBackToNextRouteWhenPreferredRouteFails() async throws {
     let workspaceID = UUID().uuidString
     let preferredRoute = try CmxAttachRoute(
@@ -684,7 +757,50 @@ import Testing
 }
 
 @MainActor
-@Test func manualHostPairingDoesNotSendStackAuthToCGNATAddress() async throws {
+@Test func manualHostPairingUsesTailscaleIPAfterDiscoveringSecureRoute() async throws {
+    let advertisedRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort,
+        priority: 10
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcHostStatusFrame(routes: [
+            try routePayload(
+                kind: .tailscale,
+                host: "work-mac.tailnet.ts.net",
+                port: CmxMobileDefaults.defaultHostPort,
+                priority: 10
+            ),
+        ]),
+        try rpcAttachTicketFrame(route: advertisedRoute, workspaceID: "tailscale-ip-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "tailscale-ip-workspace", title: "Tailscale IP Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-tailscale"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "tailscale-ip-workspace")
+    let requests = try await responses.sentRequests()
+    #expect(requests.count == 3)
+    #expect(requests.first?.method == "mobile.host.status")
+    #expect(requests.first?.hasAuth == false)
+    #expect(requests.dropFirst().first?.method == "mobile.attach_ticket.create")
+    #expect(requests.dropFirst().first?.stackAccessToken == "stack-token-for-tailscale")
+    #expect(requests.dropFirst(2).first?.method == "workspace.list")
+}
+
+@MainActor
+@Test func manualHostPairingRejectsTailscaleIPWithoutAdvertisedSecureRoute() async throws {
     let responses = ScriptedTransportResponses([
         try rpcHostStatusFrame(routes: [
             try routePayload(
@@ -707,11 +823,12 @@ import Testing
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Use your Mac's Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Use a secure host name for your Mac, or pair with a QR/link from that Mac.")
     let requests = try await responses.sentRequests()
     #expect(requests.count == 1)
     #expect(requests.first?.method == "mobile.host.status")
     #expect(requests.first?.hasAuth == false)
+    #expect(requests.first?.stackAccessToken == nil)
 }
 
 @MainActor
@@ -2073,6 +2190,7 @@ private actor ScriptedTransportResponses {
             return RecordedRPCRequest(
                 method: request["method"] as? String,
                 workspaceID: params["workspace_id"] as? String,
+                terminalID: params["terminal_id"] as? String,
                 viewportColumns: params["viewport_columns"] as? Int,
                 viewportRows: params["viewport_rows"] as? Int,
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
@@ -2089,6 +2207,7 @@ private actor ScriptedTransportResponses {
 private struct RecordedRPCRequest: Sendable {
     var method: String?
     var workspaceID: String?
+    var terminalID: String?
     var viewportColumns: Int?
     var viewportRows: Int?
     var maxScrollbackRows: Int?

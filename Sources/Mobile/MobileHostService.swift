@@ -62,6 +62,7 @@ final class MobileHostService {
             }
             listener = nextListener
             listenerPort = nextListener.port.map { Int($0.rawValue) }
+            routeResolver.refreshTailscaleRoutes()
             nextListener.start(queue: callbackQueue)
         } catch {
             lastErrorDescription = String(describing: error)
@@ -100,16 +101,45 @@ final class MobileHostService {
         )
     }
 
+    private func publicStatusSnapshot() async -> MobileHostServiceStatus {
+        let routes: [CmxAttachRoute]
+        if let listenerPort {
+            routes = await routeResolver.routesResolvingTailscaleDNS(port: listenerPort).routes
+        } else {
+            routes = []
+        }
+        return MobileHostServiceStatus(
+            isRunning: listener != nil && listenerPort != nil,
+            port: listenerPort,
+            routes: routes,
+            activeConnectionCount: activeConnections.count,
+            lastErrorDescription: lastErrorDescription
+        )
+    }
+
+    private func publicHostStatusResult() async -> MobileHostRPCResult {
+        let status = await publicStatusSnapshot()
+        return .ok([
+            "routes": status.routes.map(\.mobileHostJSONObject),
+            "snapshot_fidelity": "plain_text"
+        ])
+    }
+
     func createAttachTicket(
         workspaceID: String,
         terminalID: String?,
         ttl: TimeInterval
-    ) throws -> [String: Any] {
-        let status = statusSnapshot()
+    ) async throws -> [String: Any] {
+        let routes: [CmxAttachRoute]
+        if let listenerPort {
+            routes = await routeResolver.routesResolvingTailscaleDNS(port: listenerPort).routes
+        } else {
+            routes = []
+        }
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
-            routes: status.routes,
+            routes: routes,
             ttl: ttl
         )
         return try ticketStore.payload(for: ticket)
@@ -129,9 +159,10 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             handleRequest: { request in
-                await MainActor.run {
-                    TerminalController.shared.mobileHostHandleRPC(request)
+                if request.method == "mobile.host.status" {
+                    return await MobileHostService.shared.publicHostStatusResult()
                 }
+                return await TerminalController.shared.mobileHostHandleRPC(request)
             },
             onClose: { id in
                 await MobileHostService.shared.removeConnection(id: id)
@@ -182,12 +213,24 @@ final class MobileHostService {
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
         let workspaceID = stringParam(request.params, keys: ["workspace_id"])
-        let terminalID = stringParam(request.params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let terminalSelection = stringParamSelection(
+            request.params,
+            keys: ["surface_id", "terminal_id", "tab_id"]
+        )
+        if terminalSelection.hasConflict {
+            return scopedTicketError
+        }
+        let terminalID = terminalSelection.value
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             guard workspaceID == ticket.workspaceID else {
                 return scopedTicketError
+            }
+            if let ticketTerminalID = ticket.terminalID {
+                guard terminalID == ticketTerminalID else {
+                    return scopedTicketError
+                }
             }
         case "mobile.terminal.create", "terminal.create",
              "mobile.terminal.snapshot", "terminal.snapshot",
@@ -223,15 +266,31 @@ final class MobileHostService {
     }
 
     private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
+        stringParamSelection(params, keys: keys).value
+    }
+
+    private static func stringParamSelection(
+        _ params: [String: Any],
+        keys: [String]
+    ) -> StringParamSelection {
+        var selected: String?
         for key in keys {
             if let value = params[key] as? String {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    return trimmed
+                    if let selected, selected != trimmed {
+                        return StringParamSelection(value: selected, hasConflict: true)
+                    }
+                    selected = selected ?? trimmed
                 }
             }
         }
-        return nil
+        return StringParamSelection(value: selected, hasConflict: false)
+    }
+
+    private struct StringParamSelection {
+        let value: String?
+        let hasConflict: Bool
     }
 
     private static func requiresAuthorization(method: String) -> Bool {

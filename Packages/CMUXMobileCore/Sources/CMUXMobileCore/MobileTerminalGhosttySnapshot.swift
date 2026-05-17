@@ -504,8 +504,21 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
     }
 
     private static func row(from line: String, columns: Int) -> MobileTerminalGhosttyRow {
-        var cells = Array(line).prefix(columns).map { character in
-            MobileTerminalGhosttyCell(text: String(character))
+        var cells: [MobileTerminalGhosttyCell] = []
+        for character in line {
+            let width = terminalDisplayWidth(of: character)
+            switch width {
+            case 0:
+                guard !cells.isEmpty else { continue }
+                cells[cells.count - 1].text.append(character)
+            case 2:
+                guard cells.count + 2 <= columns else { break }
+                cells.append(MobileTerminalGhosttyCell(text: String(character), width: .wide))
+                cells.append(MobileTerminalGhosttyCell(width: .spacerTail))
+            default:
+                guard cells.count < columns else { break }
+                cells.append(MobileTerminalGhosttyCell(text: String(character)))
+            }
         }
         while cells.count < columns {
             cells.append(.blank)
@@ -692,6 +705,29 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             }
         }
 
+        func writeCharacter(_ character: Character) {
+            let width = terminalDisplayWidth(of: character)
+            switch width {
+            case 0:
+                guard column > 0 else { return }
+                ensureCellStorage(row: row, through: column - 1)
+                rows[row][column - 1].text.append(character)
+            case 2:
+                if column >= resolvedColumns - 1 {
+                    guard wrapsOverflow else { return }
+                    wrappedRowIndices.insert(row)
+                    row += 1
+                    column = 0
+                    wrapPending = false
+                    ensureRow(row)
+                }
+                writeCell(MobileTerminalGhosttyCell(text: String(character), width: .wide, style: style))
+                writeCell(MobileTerminalGhosttyCell(width: .spacerTail, style: style))
+            default:
+                writeCell(MobileTerminalGhosttyCell(text: String(character), style: style))
+            }
+        }
+
         while index < text.endIndex {
             if text[index] == "\u{001B}",
                let action = consumeEscapeSequence(in: text, index: &index, style: &style) {
@@ -719,7 +755,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                     }
                 }
             default:
-                writeCell(MobileTerminalGhosttyCell(text: String(character), style: style))
+                writeCharacter(character)
             }
         }
 
@@ -1099,6 +1135,100 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
 
     private static func xtermColorCubeComponent(_ component: Int) -> UInt8 {
         component == 0 ? 0 : UInt8(clamping: 55 + (component * 40))
+    }
+
+    private static func terminalDisplayWidth(of character: Character) -> Int {
+        let scalars = Array(character.unicodeScalars)
+        guard !scalars.isEmpty else { return 0 }
+        if scalars.allSatisfy({ terminalScalarDisplayWidth($0) == 0 }) {
+            return 0
+        }
+        if scalars.contains(where: isEmojiWidthSelector) || scalars.contains(where: isRegionalIndicatorScalar) {
+            return 2
+        }
+        return scalars.contains { terminalScalarDisplayWidth($0) == 2 } ? 2 : 1
+    }
+
+    private static func terminalScalarDisplayWidth(_ scalar: UnicodeScalar) -> Int {
+        let value = scalar.value
+        if value == 0 || value == 0x200D || (0xFE00...0xFE0F).contains(value) {
+            return 0
+        }
+        switch scalar.properties.generalCategory {
+        case .nonspacingMark, .enclosingMark:
+            return 0
+        default:
+            break
+        }
+        if isTerminalWideScalar(value) {
+            return 2
+        }
+        return 1
+    }
+
+    private static func isTerminalWideScalar(_ value: UInt32) -> Bool {
+        switch value {
+        case 0x1100...0x115F,
+             0x231A...0x231B,
+             0x2329...0x232A,
+             0x23E9...0x23EC,
+             0x23F0,
+             0x23F3,
+             0x25FD...0x25FE,
+             0x2614...0x2615,
+             0x2648...0x2653,
+             0x267F,
+             0x2693,
+             0x26A1,
+             0x26AA...0x26AB,
+             0x26BD...0x26BE,
+             0x26C4...0x26C5,
+             0x26CE,
+             0x26D4,
+             0x26EA,
+             0x26F2...0x26F3,
+             0x26F5,
+             0x26FA,
+             0x26FD,
+             0x2705,
+             0x270A...0x270B,
+             0x2728,
+             0x274C,
+             0x274E,
+             0x2753...0x2755,
+             0x2757,
+             0x2795...0x2797,
+             0x27B0,
+             0x27BF,
+             0x2B1B...0x2B1C,
+             0x2B50,
+             0x2B55,
+             0x2E80...0xA4CF,
+             0xAC00...0xD7A3,
+             0xF900...0xFAFF,
+             0xFE10...0xFE19,
+             0xFE30...0xFE6F,
+             0xFF00...0xFF60,
+             0xFFE0...0xFFE6,
+             0x1F004,
+             0x1F0CF,
+             0x1F18E,
+             0x1F191...0x1F19A,
+             0x1F200...0x1F251,
+             0x1F300...0x1FAFF,
+             0x20000...0x3FFFD:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isEmojiWidthSelector(_ scalar: UnicodeScalar) -> Bool {
+        scalar.value == 0xFE0F
+    }
+
+    private static func isRegionalIndicatorScalar(_ scalar: UnicodeScalar) -> Bool {
+        (0x1F1E6...0x1F1FF).contains(scalar.value)
     }
 }
 

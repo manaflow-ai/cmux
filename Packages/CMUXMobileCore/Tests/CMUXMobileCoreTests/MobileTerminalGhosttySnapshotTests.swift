@@ -78,6 +78,49 @@ import Testing
     #expect(snapshot.activeScreen == .primary)
 }
 
+@Test func ghosttyTextBuilderAccountsForWideGlyphCells() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-wide",
+        columns: 5,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "ab界d"
+    )
+
+    let cells = snapshot.visibleRows[0].cells
+    #expect(snapshot.renderedVisibleLines == ["ab界d"])
+    #expect(cells.map(\.width) == [.narrow, .narrow, .wide, .spacerTail, .narrow])
+    #expect(snapshot.cursor.column == 4)
+}
+
+@Test func ghosttyTextBuilderAccountsForEmojiGraphemeCells() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-emoji-wide",
+        columns: 7,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "a🇺🇸b♥️c"
+    )
+
+    let cells = snapshot.visibleRows[0].cells
+    #expect(snapshot.renderedVisibleLines == ["a🇺🇸b♥️c"])
+    #expect(cells.map(\.width) == [.narrow, .wide, .spacerTail, .narrow, .wide, .spacerTail, .narrow])
+    #expect(snapshot.cursor.column == 6)
+}
+
+@Test func fixtureBuilderAccountsForWideGlyphCells() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fixture(
+        terminalID: "terminal-fixture-wide",
+        columns: 5,
+        rows: 1,
+        visibleLines: ["ab界d"]
+    )
+
+    let cells = snapshot.visibleRows[0].cells
+    #expect(snapshot.renderedVisibleLines == ["ab界d"])
+    #expect(cells.map(\.width) == [.narrow, .narrow, .wide, .spacerTail, .narrow])
+}
+
 @Test func ghosttyTextBuilderPadsVisibleRowsAndLimitsScrollback() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-2",

@@ -101,6 +101,94 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
     }
 
+    func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
+        let resolver = MobileRouteResolver()
+
+        let snapshot = await resolver.routesResolvingTailscaleDNS(
+            port: 61234,
+            resolveHosts: {
+                [
+                    "work-mac.tailnet.ts.net",
+                    "100.71.210.41",
+                ]
+            }
+        )
+
+        let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
+        XCTAssertEqual(tailscaleRoutes.count, 2)
+        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
+            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected public status route to wait for MagicDNS")
+        }
+    }
+
+    func testMobileRouteResolverRefreshesStalePublicStatusRoutes() async throws {
+        let resolver = MobileRouteResolver()
+        let now = Date()
+
+        _ = await resolver.routesResolvingTailscaleDNS(
+            port: 61234,
+            resolveHosts: {
+                [
+                    "old-mac.tailnet.ts.net",
+                    "100.71.210.41",
+                ]
+            },
+            now: now
+        )
+        let refreshed = await resolver.routesResolvingTailscaleDNS(
+            port: 61234,
+            resolveHosts: {
+                [
+                    "new-mac.tailnet.ts.net",
+                    "100.71.210.42",
+                ]
+            },
+            now: now.addingTimeInterval(31)
+        )
+
+        let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
+        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
+            XCTAssertEqual(host, "new-mac.tailnet.ts.net")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected stale public status routes to refresh")
+        }
+    }
+
+    func testMobileRouteResolverRetriesAfterIPOnlyPublicStatusRoutes() async throws {
+        let resolver = MobileRouteResolver()
+        let now = Date()
+
+        _ = await resolver.routesResolvingTailscaleDNS(
+            port: 61234,
+            resolveHosts: {
+                ["100.71.210.41"]
+            },
+            now: now
+        )
+        let refreshed = await resolver.routesResolvingTailscaleDNS(
+            port: 61234,
+            resolveHosts: {
+                [
+                    "work-mac.tailnet.ts.net",
+                    "100.71.210.41",
+                ]
+            },
+            now: now.addingTimeInterval(1)
+        )
+
+        let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
+        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
+            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected IP-only public status routes to retry MagicDNS resolution")
+        }
+    }
+
     func testMobileAttachTicketCreateRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "attach-ticket-create",
@@ -143,6 +231,67 @@ final class MobileHostAuthorizationTests: XCTestCase {
             params: [
                 "workspace_id": "workspace",
                 "terminalID": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil,
+                stackRefreshToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testTerminalScopedAttachTicketRejectsUnscopedWorkspaceList() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil,
+                stackRefreshToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [
+                "workspace_id": "workspace",
+                "terminal_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil,
+                stackRefreshToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
+    func testTerminalScopedAttachTicketRejectsConflictingTerminalAliases() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal-a")
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal-a",
+                "terminal_id": "terminal-b",
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,

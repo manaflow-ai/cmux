@@ -1569,6 +1569,7 @@ class TerminalController {
         "browser.profiles.clear",
         "browser.profiles.delete",
         "browser.import.cookies",
+        "mobile.attach_ticket.create",
         "system.top",
     ]
 
@@ -1674,6 +1675,10 @@ class TerminalController {
             return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
+            }
+        case "mobile.attach_ticket.create":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobileAttachTicketCreate(params: request.params)
             }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
@@ -2503,8 +2508,6 @@ class TerminalController {
             return v2Ok(id: id, result: v2Capabilities())
         case "mobile.host.status":
             return v2Result(id: id, self.v2MobileHostStatus(params: params))
-        case "mobile.attach_ticket.create":
-            return v2Result(id: id, self.v2MobileAttachTicketCreate(params: params))
         case "mobile.workspace.list":
             return v2Result(id: id, self.v2MobileWorkspaceList(params: params))
         case "mobile.terminal.snapshot":
@@ -4026,6 +4029,35 @@ class TerminalController {
                 message: "unknown vm error"
             )
         }
+    }
+
+    nonisolated func v2AsyncResultCall(
+        id: Any?,
+        timeoutSeconds: TimeInterval,
+        _ work: @escaping () async -> V2CallResult
+    ) -> String {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: V2CallResult?
+        let task = Task {
+            result = await work()
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: id,
+                code: "timeout",
+                message: "Request timed out after \(Int(timeoutSeconds)) seconds"
+            )
+        }
+        guard let result else {
+            return v2Error(
+                id: id,
+                code: "request_error",
+                message: "Request failed before returning a result"
+            )
+        }
+        return v2Result(id: id, result)
     }
 
     nonisolated func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
@@ -15283,7 +15315,10 @@ class TerminalController {
                 window.contentView != nil &&
                 !window.frame.isEmpty
             }
-            let window = candidateWindows.max { lhs, rhs in
+            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
+                .compactMap { $0 }
+                .first { candidateWindows.contains($0) }
+            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
                 (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
             } ?? NSApp.mainWindow ?? NSApp.windows.first
 
@@ -17875,13 +17910,14 @@ class TerminalController {
 
     // MARK: - Mobile Host V2 Methods
 
-    func mobileHostHandleRPC(_ request: MobileHostRPCRequest) -> MobileHostRPCResult {
+    @MainActor
+    func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
         case "mobile.attach_ticket.create":
-            result = v2MobileAttachTicketCreate(params: request.params)
+            result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
         case "workspace.create":
@@ -17933,7 +17969,8 @@ class TerminalController {
         ])
     }
 
-    private func v2MobileAttachTicketCreate(params: [String: Any]) -> V2CallResult {
+    @MainActor
+    private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -17943,7 +17980,7 @@ class TerminalController {
             let terminalID = resolved.surfaceId.flatMap { surfaceID in
                 resolved.workspace.terminalPanel(for: surfaceID)?.id.uuidString
             }
-            let payload = try MobileHostService.shared.createAttachTicket(
+            let payload = try await MobileHostService.shared.createAttachTicket(
                 workspaceID: resolved.workspace.id.uuidString,
                 terminalID: terminalID,
                 ttl: ttl
@@ -17971,6 +18008,17 @@ class TerminalController {
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
+        let requestedTerminalID: UUID?
+        switch mobileTerminalAliasUUID(params: params) {
+        case .missing:
+            requestedTerminalID = nil
+        case let .value(terminalID):
+            requestedTerminalID = terminalID
+        case .invalid:
+            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
+        case .conflict:
+            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
+        }
         let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
             tabManager.tabs.filter { $0.id == workspaceID }
         } ?? tabManager.tabs
@@ -17978,6 +18026,9 @@ class TerminalController {
         let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
             let terminals = orderedPanels(in: workspace).compactMap { panel -> [String: Any]? in
                 guard let terminal = panel as? TerminalPanel else {
+                    return nil
+                }
+                if let requestedTerminalID, terminal.id != requestedTerminalID {
                     return nil
                 }
                 return [
@@ -18014,6 +18065,35 @@ class TerminalController {
         return .ok(payload)
     }
 
+    private enum MobileTerminalAliasUUID {
+        case missing
+        case value(UUID)
+        case invalid
+        case conflict
+    }
+
+    private func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
+        var selected: UUID?
+        var sawAlias = false
+        for key in ["surface_id", "terminal_id", "tab_id"] {
+            guard v2HasNonNullParam(params, key) else {
+                continue
+            }
+            sawAlias = true
+            guard let candidate = v2UUID(params, key) else {
+                return .invalid
+            }
+            if let selected, selected != candidate {
+                return .conflict
+            }
+            selected = selected ?? candidate
+        }
+        if let selected {
+            return .value(selected)
+        }
+        return sawAlias ? .invalid : .missing
+    }
+
     func clearMobileViewportReports(clientIDs: Set<String>) {
         guard !clientIDs.isEmpty else { return }
 
@@ -18048,6 +18128,7 @@ class TerminalController {
                     reason: "mobile.viewport.connectionClosed"
                 )
             }
+            scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         }
     }
 
@@ -18169,7 +18250,7 @@ class TerminalController {
             updatedAt: now
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
-        scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id)
+        scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
 
         guard let minColumns = reports.values.map(\.columns).min(),
               let minRows = reports.values.map(\.rows).min() else {
@@ -18182,11 +18263,21 @@ class TerminalController {
         )
     }
 
-    private func scheduleMobileViewportReportCleanup(surfaceID: UUID) {
+    private func scheduleMobileViewportReportCleanup(
+        surfaceID: UUID,
+        reports: [String: MobileViewportReport]
+    ) {
         mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+        guard let nextExpiry = reports.values
+            .map({ $0.updatedAt.addingTimeInterval(Self.mobileViewportReportTTL) })
+            .min() else {
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+            return
+        }
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(Int((Self.mobileViewportReportTTL + 1) * 1000)))
+        let millisecondsUntilExpiry = max(1, Int((nextExpiry.timeIntervalSinceNow + 1) * 1000))
+        timer.schedule(deadline: .now() + .milliseconds(millisecondsUntilExpiry))
         timer.setEventHandler { [weak self] in
             self?.pruneMobileViewportReports(surfaceID: surfaceID, reason: "mobile.viewport.reportsExpired")
         }
@@ -18223,7 +18314,7 @@ class TerminalController {
                 reason: reason
             )
         }
-        scheduleMobileViewportReportCleanup(surfaceID: surfaceID)
+        scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
     }
 
     private func mobileTerminalSnapshotPayload(
@@ -18233,7 +18324,7 @@ class TerminalController {
         maxScrollbackRows: Int?
     ) -> V2CallResult {
         guard let surface = terminalPanel.surface.surface else {
-            return .err(code: "not_found", message: "Terminal surface is not ready", data: [
+            return .err(code: "not_ready", message: "Terminal surface is not ready", data: [
                 "surface_id": terminalPanel.id.uuidString
             ])
         }

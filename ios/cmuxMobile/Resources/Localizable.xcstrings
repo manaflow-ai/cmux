@@ -221,8 +221,8 @@
     "mobile.pairing.secureRouteRequired" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use your Mac's Tailscale MagicDNS name, or pair with a QR/link from that Mac." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の Tailscale MagicDNS 名を使うか、その Mac の QR/リンクでペアリングしてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use a secure host name for your Mac, or pair with a QR/link from that Mac." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の安全なホスト名を使うか、その Mac の QR/リンクでペアリングしてください。" } }
       }
     },
     "mobile.pairing.unsupportedRoute" : {
