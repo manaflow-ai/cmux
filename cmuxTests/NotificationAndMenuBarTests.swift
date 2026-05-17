@@ -422,7 +422,7 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
             defaults: defaults
         )
 
-        XCTAssertEqual(pending?.fileURL, crashURL)
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), crashURL.resolvingSymlinksInPath())
         XCTAssertEqual(pending?.modifiedAt, crashDate)
     }
 
@@ -446,8 +446,21 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
             defaults: defaults
         )
 
-        XCTAssertEqual(pending?.fileURL, currentCrashURL)
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), currentCrashURL.resolvingSymlinksInPath())
         XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
+    }
+
+    func testPendingCrashReturnsNilForOnlyDifferentExecutableCrash() throws {
+        _ = try writeCrashEnvelope(
+            named: "foreign-only.ghosttycrash",
+            executablePath: "/private/tmp/cmux-tbinput-unit/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            modifiedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        XCTAssertNil(GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        ))
     }
 
     func testDefaultCrashDirectoryUsesCmuxStatePath() throws {
@@ -464,7 +477,7 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
             in: crashDirectoryURL,
             defaults: defaults
         ))
-        XCTAssertEqual(pending.fileURL, crashURL)
+        XCTAssertEqual(pending.fileURL.resolvingSymlinksInPath(), crashURL.resolvingSymlinksInPath())
 
         GhosttyCrashBreadcrumb.markShown(pending, defaults: defaults)
 
