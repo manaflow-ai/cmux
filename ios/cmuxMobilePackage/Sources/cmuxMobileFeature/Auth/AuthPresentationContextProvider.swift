@@ -24,13 +24,13 @@ final class AuthPresentationContextProvider: NSObject, ASWebAuthenticationPresen
         #if os(iOS)
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let activeScene = scenes.first { $0.activationState == .foregroundActive }
-        guard let anchorScene = activeScene ?? scenes.first else {
-            fatalError("AuthPresentationContextProvider: no window scene available")
+        if let anchorScene = activeScene ?? scenes.first {
+            if let window = anchorScene.windows.first(where: { $0.isKeyWindow }) ?? anchorScene.windows.first {
+                return window
+            }
+            return UIWindow(windowScene: anchorScene)
         }
-        if let window = anchorScene.windows.first(where: { $0.isKeyWindow }) ?? anchorScene.windows.first {
-            return window
-        }
-        return UIWindow(windowScene: anchorScene)
+        return UIWindow(frame: UIScreen.main.bounds)
         #elseif os(macOS)
         if let keyWindow = NSApplication.shared.keyWindow {
             return keyWindow
@@ -42,7 +42,7 @@ final class AuthPresentationContextProvider: NSObject, ASWebAuthenticationPresen
         window.makeKey()
         return window
         #else
-        fatalError("AuthPresentationContextProvider: unsupported platform")
+        preconditionFailure("AuthPresentationContextProvider: unsupported platform")
         #endif
     }
 }

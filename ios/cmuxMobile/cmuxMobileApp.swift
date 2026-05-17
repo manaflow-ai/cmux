@@ -10,13 +10,19 @@ struct cmuxMobileApp: App {
         #else
         let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
         #endif
+        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let registrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(
                 kind: kind,
-                factory: CmxNetworkByteTransportFactory(supportedKinds: [kind])
+                factory: networkFactory
             )
         }
-        let transportFactory = try! CmxRouteTransportFactory(registrations)
+        let transportFactory: CmxRouteTransportFactory
+        do {
+            transportFactory = try CmxRouteTransportFactory(registrations)
+        } catch {
+            preconditionFailure("Invalid mobile transport registrations: \(error)")
+        }
         return CMUXMobileRuntime(transportFactory: transportFactory)
     }()
 

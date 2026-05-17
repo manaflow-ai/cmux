@@ -4354,7 +4354,10 @@ enum L10n {
     }
 
     static func terminalCount(_ count: Int) -> String {
-        String(format: string("mobile.workspace.terminalCountFormat", defaultValue: "%d terminals"), count)
+        if count == 1 {
+            return string("mobile.workspace.terminalCountFormat.one", defaultValue: "1 terminal")
+        }
+        return String(format: string("mobile.workspace.terminalCountFormat.other", defaultValue: "%d terminals"), count)
     }
 
     static func workspaceName(index: Int) -> String {

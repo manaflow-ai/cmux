@@ -17896,10 +17896,6 @@ class TerminalController {
     private func v2MobileHostStatus(params: [String: Any]) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
         let tabManager = v2ResolveTabManager(params: params)
-        let selectedWorkspaceID = tabManager?.selectedTabId
-        let selectedWorkspace = selectedWorkspaceID.flatMap { id in
-            tabManager?.tabs.first(where: { $0.id == id })
-        }
         let workspaceCount = tabManager?.tabs.count ?? 0
 
         return .ok([
@@ -17907,8 +17903,6 @@ class TerminalController {
             "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
-            "selected_workspace_id": v2OrNull(selectedWorkspaceID?.uuidString),
-            "selected_terminal_id": v2OrNull(selectedWorkspace?.focusedTerminalPanel?.id.uuidString),
             "snapshot_fidelity": "plain_text"
         ])
     }

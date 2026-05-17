@@ -175,30 +175,85 @@ public enum MobileShellPhase: Equatable, Sendable {
 public struct CMUXMobileRuntime: Sendable {
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
+    public var stackAccessTokenProvider: @Sendable () async throws -> String
     public var rpcRequestTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
+
+    private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
+        {
+            try await AuthManager.shared.getAccessToken()
+        }
+    }
 
     public init(
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
         transportFactory: any CmxByteTransportFactory,
+        stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.now = now
     }
 
     public init(
         transportFactory: any CmxRouteAwareByteTransportFactory,
+        stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.now = now
+    }
+}
+
+private enum MobileShellRouteAuthPolicy {
+    static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if isLoopbackHost(normalizedHost) {
+            return .debugLoopback
+        }
+        return .tailscale
+    }
+
+    static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
+        switch (route.kind, route.endpoint) {
+        case (.debugLoopback, let .hostPort(host, _)):
+            return isLoopbackHost(host)
+        case (.tailscale, let .hostPort(host, _)):
+            return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
+        case (.iroh, .peer):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedHost == "localhost" ||
+            normalizedHost == "::1" ||
+            normalizedHost.hasPrefix("127.")
+    }
+
+    private static func isTailscaleCGNATHost(_ host: String) -> Bool {
+        let octets = host.split(separator: ".").compactMap { Int($0) }
+        guard octets.count == 4 else {
+            return false
+        }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    private static func isTailscaleDNSHost(_ host: String) -> Bool {
+        host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasSuffix(".ts.net")
     }
 }
 
@@ -465,23 +520,15 @@ public final class CMUXMobileShellStore {
         return String(String.UnicodeScalarView(scalars))
     }
 
-    private static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if isLoopbackHost(normalizedHost) {
-            return .debugLoopback
-        }
-        return .tailscale
-    }
-
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
-        let routeKind = Self.manualRouteKind(for: host)
+        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
         let directRoute = try CmxAttachRoute(
             id: routeKind.rawValue,
             kind: routeKind,
             endpoint: .hostPort(host: host, port: port)
         )
         let displayName = name.isEmpty ? host : name
-        if Self.routeAllowsStackAuth(directRoute) {
+        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
             if let ticket = try? await requestManualAttachTicket(
                 route: directRoute,
                 displayName: displayName
@@ -546,7 +593,7 @@ public final class CMUXMobileShellStore {
         let status = try MobileManualHostStatusResponse.decode(resultData)
         let supportedKinds = Set(runtime.supportedRouteKinds)
         let secureRoutes = status.routes.filter { route in
-            supportedKinds.contains(route.kind) && Self.routeAllowsStackAuth(route)
+            supportedKinds.contains(route.kind) && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         }
         guard let route = secureRoutes.sorted(by: Self.routeSortsBefore).first else {
             throw MobileShellConnectionError.insecureManualRoute
@@ -1132,45 +1179,11 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
-        switch (route.kind, route.endpoint) {
-        case (.debugLoopback, let .hostPort(host, _)):
-            return isLoopbackHost(host)
-        case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
-        case (.iroh, .peer):
-            return true
-        default:
-            return false
-        }
-    }
-
     private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
         if left.priority == right.priority {
             return left.id < right.id
         }
         return left.priority < right.priority
-    }
-
-    private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedHost == "localhost" ||
-            normalizedHost == "::1" ||
-            normalizedHost.hasPrefix("127.")
-    }
-
-    private static func isTailscaleCGNATHost(_ host: String) -> Bool {
-        let octets = host.split(separator: ".").compactMap { Int($0) }
-        guard octets.count == 4 else {
-            return false
-        }
-        return octets[0] == 100 && (64...127).contains(octets[1])
-    }
-
-    private static func isTailscaleDNSHost(_ host: String) -> Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .hasSuffix(".ts.net")
     }
 
     private static func previewLine(forRawTerminalInput text: String) -> String {
@@ -1450,13 +1463,19 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         let shouldSendStackAuth = auth["attach_token"] == nil
             ? Self.requestRequiresAuth(request)
             : Self.requestNeedsStackAuthFallback(request, ticket: ticket)
-        if shouldSendStackAuth, Self.routeAllowsStackAuth(route) {
-            if let accessToken = try? await AuthManager.shared.getAccessToken() {
-                auth["stack_access_token"] = accessToken
-            }
-        } else if auth["attach_token"] == nil, Self.requestRequiresAuth(request) {
-            guard Self.routeAllowsStackAuth(route) else {
+        if shouldSendStackAuth {
+            guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
                 throw MobileShellConnectionError.insecureManualRoute
+            }
+            do {
+                auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()
+            } catch {
+                throw MobileShellConnectionError.authorizationFailed(
+                    L10n.string(
+                        "mobile.pairing.stackAuthTokenUnavailable",
+                        defaultValue: "Sign in to cmux on your Mac with the same account, then try again."
+                    )
+                )
             }
         }
         if !auth.isEmpty {
@@ -1544,40 +1563,6 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
             throw MobileShellConnectionError.rpcError(code, message)
         }
         throw MobileShellConnectionError.invalidResponse
-    }
-
-    private static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
-        switch (route.kind, route.endpoint) {
-        case (.debugLoopback, let .hostPort(host, _)):
-            return isLoopbackHost(host)
-        case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
-        case (.iroh, .peer):
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedHost == "localhost" ||
-            normalizedHost == "::1" ||
-            normalizedHost.hasPrefix("127.")
-    }
-
-    private static func isTailscaleCGNATHost(_ host: String) -> Bool {
-        let octets = host.split(separator: ".").compactMap { Int($0) }
-        guard octets.count == 4 else {
-            return false
-        }
-        return octets[0] == 100 && (64...127).contains(octets[1])
-    }
-
-    private static func isTailscaleDNSHost(_ host: String) -> Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .hasSuffix(".ts.net")
     }
 
     private static func withRequestTimeout<T: Sendable>(

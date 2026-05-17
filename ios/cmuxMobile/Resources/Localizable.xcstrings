@@ -197,6 +197,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の cmux に同じアカウントでサインインするか、その Mac の QR/リンクでペアリングしてください。" } }
       }
     },
+    "mobile.pairing.stackAuthTokenUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in to cmux on your Mac with the same account, then try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の cmux に同じアカウントでサインインしてから、もう一度お試しください。" } }
+      }
+    },
     "mobile.pairing.requestTimedOut" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -414,7 +421,7 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "確認コードが正しくありません。もう一度お試しください。" } }
       }
     },
-    "auth.error.invalidCodeShort" : {
+    "auth.error.invalid_code_short" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Invalid code. Please try again." } },
@@ -428,7 +435,7 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーバーに接続できませんでした。インターネット接続を確認してもう一度お試しください。" } }
       }
     },
-    "auth.error.networkError" : {
+    "auth.error.network_error" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Network error. Please check your connection." } },
@@ -456,7 +463,7 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "試行回数が多すぎます。少し待ってからもう一度お試しください。" } }
       }
     },
-    "auth.error.serverError" : {
+    "auth.error.server_error" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Something went wrong. Please try again." } },
@@ -904,7 +911,14 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ワークスペース" } }
       }
     },
-    "mobile.workspace.terminalCountFormat" : {
+    "mobile.workspace.terminalCountFormat.one" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "1 terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "1 個のターミナル" } }
+      }
+    },
+    "mobile.workspace.terminalCountFormat.other" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%d terminals" } },

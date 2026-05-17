@@ -176,7 +176,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             }
             state = .ready
             resumeConnectContinuations()
-        case let .waiting(errorDescription), let .failed(errorDescription):
+        case .waiting:
+            break
+        case let .failed(errorDescription):
             failTransport(.connectionFailed(errorDescription))
         case .cancelled:
             switch state {

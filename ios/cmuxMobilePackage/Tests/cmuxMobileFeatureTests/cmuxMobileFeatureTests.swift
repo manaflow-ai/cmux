@@ -182,7 +182,7 @@ import Testing
             ]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -257,7 +257,7 @@ import Testing
             visibleLines: ["ticket workspace selected"]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -280,7 +280,7 @@ import Testing
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -311,7 +311,7 @@ import Testing
         try rpcAttachTicketFrame(route: advertisedRoute, workspaceID: "lan-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -348,7 +348,7 @@ import Testing
         try rpcAttachTicketFrame(route: advertisedRoute, workspaceID: "dns-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "dns-workspace", title: "DNS Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -375,7 +375,7 @@ import Testing
     let responses = ScriptedTransportResponses([
         try rpcHostStatusFrame(routes: []),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -396,7 +396,7 @@ import Testing
         kind: .tailscale,
         endpoint: .hostPort(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     )
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: HangingTransportFactory(),
         rpcRequestTimeoutNanoseconds: 1_000_000
@@ -419,7 +419,7 @@ import Testing
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -452,7 +452,7 @@ import Testing
         expiresAt: Date().addingTimeInterval(60)
     )
     let responses = ScriptedTransportResponses([])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -475,7 +475,7 @@ import Testing
         try rpcErrorFrame(message: "ticket unavailable"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -506,7 +506,7 @@ import Testing
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -537,17 +537,13 @@ import Testing
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "expired-workspace", title: "Expired Workspace"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-after-ticket-expiry",
         now: { ticketExpiresAt.addingTimeInterval(1) }
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    AuthManager.shared.debugAccessTokenOverride = "stack-token-after-ticket-expiry"
-    defer {
-        AuthManager.shared.debugAccessTokenOverride = nil
-    }
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
@@ -556,6 +552,28 @@ import Testing
     #expect(workspaceList.attachToken == nil)
     #expect(workspaceList.stackAccessToken == "stack-token-after-ticket-expiry")
     #expect(store.selectedWorkspace?.id.rawValue == "expired-workspace")
+}
+
+@MainActor
+@Test func manualHostPairingRequiresStackAuthBeforeAttachTicketRequest() async throws {
+    let attachRoute = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: nil
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "Sign in to cmux on your Mac with the same account, or pair with a QR/link from that Mac.")
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
@@ -613,7 +631,7 @@ import Testing
         ),
         try rpcErrorFrame(message: "Terminal surface is not ready"),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -665,7 +683,7 @@ import Testing
             visibleLines: ["ready terminal"]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -728,7 +746,7 @@ import Testing
             visibleLines: ["ready from another workspace"]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -930,7 +948,7 @@ import Testing
             visibleLines: ["sent"]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -979,7 +997,7 @@ import Testing
             visibleLines: ["raw sent"]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -1030,7 +1048,7 @@ import Testing
             visibleLines: ["resized again"]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -1102,7 +1120,7 @@ import Testing
         )
     }
     let responses = ScriptedTransportResponses(responseFrames)
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -1166,7 +1184,7 @@ import Testing
             ]
         ),
     ])
-    let runtime = CMUXMobileRuntime(
+    let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
@@ -1408,6 +1426,29 @@ import Testing
     #expect(cells.count == 5)
     #expect(cells.first?.text == "|")
     #expect(cells.last?.text == " ")
+}
+
+private struct MissingTestStackAccessToken: Error {}
+
+private func testRuntime(
+    supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
+    transportFactory: any CmxByteTransportFactory,
+    stackAccessToken: String? = "test-stack-token",
+    rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
+    now: @escaping @Sendable () -> Date = Date.init
+) -> CMUXMobileRuntime {
+    CMUXMobileRuntime(
+        supportedRouteKinds: supportedRouteKinds,
+        transportFactory: transportFactory,
+        stackAccessTokenProvider: {
+            guard let stackAccessToken else {
+                throw MissingTestStackAccessToken()
+            }
+            return stackAccessToken
+        },
+        rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
+        now: now
+    )
 }
 
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {

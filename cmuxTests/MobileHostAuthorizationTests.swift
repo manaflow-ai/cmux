@@ -72,6 +72,22 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testMobileAttachTicketCreateRequiresAuthorization() async {
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-create",
+            method: "mobile.attach_ticket.create",
+            params: [:],
+            auth: nil
+        )
+
+        let result = await MobileHostService.shared.debugAuthorizationError(for: request)
+
+        guard case let .failure(error) = result else {
+            return XCTFail("mobile.attach_ticket.create should require mobile authorization")
+        }
+        XCTAssertEqual(error.code, "unauthorized")
+    }
+
     func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(

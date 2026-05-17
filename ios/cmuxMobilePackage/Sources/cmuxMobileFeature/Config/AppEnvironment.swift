@@ -65,9 +65,11 @@ enum AppEnvironment {
 
         var overrides: [String: String] = [:]
         for (key, value) in localConfig {
-            if let stringValue = value as? String,
-               !stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                overrides[key] = stringValue
+            if let stringValue = value as? String {
+                let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    overrides[key] = trimmed
+                }
             }
         }
         return overrides

@@ -239,10 +239,6 @@ final class MobileHostService {
         switch method {
         case "mobile.host.status":
             return false
-        #if DEBUG
-        case "mobile.attach_ticket.create":
-            return false
-        #endif
         default:
             return true
         }
