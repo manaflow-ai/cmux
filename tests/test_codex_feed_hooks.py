@@ -1389,6 +1389,7 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         status_message=None,
     )
     same_file_user_key = f"{hooks_path.resolve()}:pre_tool_use:8:0"
+    escaped_user_key = "/tmp/third-party\\t/hooks.json:pre_tool_use:0:0"
     third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
     config_path = codex_home / "config.toml"
     config_path.write_text(
@@ -1398,6 +1399,9 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         "preserve_loose_config = true\n"
         f'[ hooks . state . "{stale_key}" ] # stale cmux trust\n'
         'trusted_hash = "sha256:stale"\n'
+        "\n"
+        f'[hooks.state."{escaped_user_key}"]\n'
+        'trusted_hash = "sha256:escaped-user"\n'
         "\n"
         f'[hooks.state."{stale_old_cmux_key}"]\n'
         f'trusted_hash = "{stale_old_cmux_hash}"\n'
@@ -1443,6 +1447,8 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
         raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:escaped-user"' not in config_toml:
+        raise AssertionError(f"escaped-key user hook trust was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:stale"' in config_toml:
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
     if stale_old_cmux_key in config_toml:

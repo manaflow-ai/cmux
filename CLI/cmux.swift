@@ -20748,7 +20748,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]) {
                 let tableStart = index
                 index += 1
-                while index < lines.endIndex, !tomlLineIsAnyTableHeader(lines[index]) {
+                while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
                     index += 1
                 }
                 if !codexHookTrustEscapedKeyIsRemoved(
@@ -20772,7 +20772,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let tableStart = index
             index += 1
-            while index < lines.endIndex, !tomlLineIsAnyTableHeader(lines[index]) {
+            while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
                 index += 1
             }
             preserved.append(contentsOf: lines[tableStart..<index])
@@ -20823,9 +20823,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 index += 1
                 continue
             }
-            let endIndex = tomlTableEndIndex(in: lines, after: index)
+            let endIndex = codexHookTrustTableEndIndex(in: lines, after: index)
             lines.removeSubrange(index..<endIndex)
         }
+    }
+
+    private static func codexHookTrustTableEndIndex(in lines: [String], after tableStart: Int) -> Int {
+        var index = tableStart + 1
+        while index < lines.count {
+            if tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                return index
+            }
+            index += 1
+        }
+        return lines.count
     }
 
     private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
@@ -20835,6 +20846,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
         return String(line[keyRange])
+    }
+
+    private static func tomlLineIsCodexHookTrustBlockTableBoundary(_ line: String) -> Bool {
+        codexHookTrustTableEscapedKey(from: line) != nil || tomlLineIsAnyTableHeader(line)
     }
 
     private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {
