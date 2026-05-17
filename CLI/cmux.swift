@@ -17932,9 +17932,11 @@ struct CMUXCLI {
 
         var candidate: CodexHookFailureCandidate?
         var candidateCanPublishBeforeTerminal = false
+        let hasLeaseBoundary = unscopedEventNotBefore != nil
+        let acceptsUnboundedTranscript = turnId == nil && !hasLeaseBoundary
         var sawAssistantMessage = false
         var sawTerminalTurn = false
-        var sawRelevantTurn = turnId == nil
+        var sawRelevantTurn = acceptsUnboundedTranscript
         for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
@@ -17942,10 +17944,10 @@ struct CMUXCLI {
                   let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
                 continue
             }
-            let unscopedEventIsInCurrentTurn = codexTranscriptLineIsAtOrAfter(object, unscopedEventNotBefore)
+            let eventIsAtOrAfterBoundary = codexTranscriptLineIsAtOrAfter(object, unscopedEventNotBefore)
+            let eventIsRelevantWithoutTurnMatch = acceptsUnboundedTranscript || sawRelevantTurn || eventIsAtOrAfterBoundary
 
-            if (turnId == nil || sawRelevantTurn || unscopedEventIsInCurrentTurn)
-                && codexTranscriptLineHasAssistantMessage(object) {
+            if eventIsRelevantWithoutTurnMatch && codexTranscriptLineHasAssistantMessage(object) {
                 sawAssistantMessage = true
                 candidate = nil
                 candidateCanPublishBeforeTerminal = false
@@ -17966,9 +17968,13 @@ struct CMUXCLI {
                             continue
                         }
                     } else {
-                        guard unscopedEventIsInCurrentTurn else {
+                        guard eventIsAtOrAfterBoundary else {
                             continue
                         }
+                    }
+                } else if hasLeaseBoundary {
+                    guard eventIsRelevantWithoutTurnMatch else {
+                        continue
                     }
                 }
                 sawRelevantTurn = true
@@ -17983,11 +17989,16 @@ struct CMUXCLI {
                         }
                         sawRelevantTurn = true
                     } else {
-                        guard unscopedEventIsInCurrentTurn else {
+                        guard eventIsRelevantWithoutTurnMatch else {
                             continue
                         }
                         sawRelevantTurn = true
                     }
+                } else if hasLeaseBoundary {
+                    guard eventIsRelevantWithoutTurnMatch else {
+                        continue
+                    }
+                    sawRelevantTurn = true
                 }
                 if let failure = codexHookFailureCandidate(
                     from: payload,
@@ -17995,7 +18006,7 @@ struct CMUXCLI {
                     requireFailureSignal: false
                 ) {
                     candidate = failure
-                    candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
+                    candidateCanPublishBeforeTerminal = acceptsUnboundedTranscript || payloadTurnId == turnId || sawRelevantTurn
                 }
             case "stream_error":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
@@ -18006,11 +18017,16 @@ struct CMUXCLI {
                         }
                         sawRelevantTurn = true
                     } else {
-                        guard unscopedEventIsInCurrentTurn else {
+                        guard eventIsRelevantWithoutTurnMatch else {
                             continue
                         }
                         sawRelevantTurn = true
                     }
+                } else if hasLeaseBoundary {
+                    guard eventIsRelevantWithoutTurnMatch else {
+                        continue
+                    }
+                    sawRelevantTurn = true
                 }
                 if let failure = codexHookFailureCandidate(
                     from: payload,
@@ -18018,7 +18034,7 @@ struct CMUXCLI {
                     requireFailureSignal: false
                 ) {
                     candidate = failure
-                    candidateCanPublishBeforeTerminal = turnId == nil || payloadTurnId == turnId || sawRelevantTurn
+                    candidateCanPublishBeforeTerminal = acceptsUnboundedTranscript || payloadTurnId == turnId || sawRelevantTurn
                 }
             case "task_complete", "turn_complete":
                 let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
@@ -18028,9 +18044,13 @@ struct CMUXCLI {
                             continue
                         }
                     } else {
-                        guard sawRelevantTurn || unscopedEventIsInCurrentTurn else {
+                        guard eventIsRelevantWithoutTurnMatch else {
                             continue
                         }
+                    }
+                } else if hasLeaseBoundary {
+                    guard eventIsRelevantWithoutTurnMatch else {
+                        continue
                     }
                 }
                 sawRelevantTurn = true
@@ -18060,7 +18080,7 @@ struct CMUXCLI {
         if let candidate, candidateCanPublishBeforeTerminal {
             return .failure(candidate)
         }
-        if candidate != nil, turnId != nil, !sawRelevantTurn {
+        if candidate != nil, !acceptsUnboundedTranscript, !sawRelevantTurn {
             return .pending
         }
         if requireTerminalCompletion, !sawTerminalTurn {
@@ -18100,24 +18120,27 @@ struct CMUXCLI {
             if let number = rawValue as? NSNumber {
                 return codexTranscriptDate(fromUnixTime: number.doubleValue)
             }
-            if let value = rawValue as? Double {
-                return codexTranscriptDate(fromUnixTime: value)
-            }
-            if let value = rawValue as? Int {
-                return codexTranscriptDate(fromUnixTime: Double(value))
-            }
         }
         return nil
     }
 
     private func codexTranscriptISO8601Date(from value: String) -> Date? {
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractionalFormatter.date(from: value) {
+        Self.codexTranscriptISO8601FormatterLock.lock()
+        defer { Self.codexTranscriptISO8601FormatterLock.unlock() }
+        if let date = Self.codexTranscriptFractionalISO8601Formatter.date(from: value) {
             return date
         }
-        return ISO8601DateFormatter().date(from: value)
+        return Self.codexTranscriptBasicISO8601Formatter.date(from: value)
     }
+
+    private static let codexTranscriptFractionalISO8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let codexTranscriptBasicISO8601Formatter = ISO8601DateFormatter()
+    private static let codexTranscriptISO8601FormatterLock = NSLock()
 
     private func codexTranscriptDate(fromUnixTime value: Double) -> Date? {
         guard value.isFinite, value > 0 else { return nil }
@@ -18425,22 +18448,22 @@ struct CMUXCLI {
         case .rateLimit:
             return String(
                 localized: "agent.codex.error.body.rateLimit",
-                defaultValue: "Codex stopped because the account is out of usage."
+                defaultValue: "Codex stopped because the account has no usage remaining. Check usage or billing, then retry."
             )
         case .auth:
             return String(
                 localized: "agent.codex.error.body.auth",
-                defaultValue: "Codex stopped because authentication needs attention."
+                defaultValue: "Codex stopped because sign-in needs attention. Sign in again, then retry."
             )
         case .network:
             return String(
                 localized: "agent.codex.error.body.network",
-                defaultValue: "Codex stopped because the connection failed."
+                defaultValue: "Codex stopped because the connection failed. Check the connection, then retry."
             )
         case .generic:
             return String(
                 localized: "agent.codex.error.body.generic",
-                defaultValue: "Codex stopped before completing the turn."
+                defaultValue: "Codex stopped before completing the turn. Try again, or check the transcript for details."
             )
         }
     }

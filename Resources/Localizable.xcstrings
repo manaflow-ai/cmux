@@ -20797,13 +20797,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex stopped because authentication needs attention."
+            "value": "Codex stopped because sign-in needs attention. Sign in again, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "認証に対応が必要なため、Codex は停止しました。"
+            "value": "サインインに対応が必要なため、Codex は停止しました。再度サインインしてから再試行してください。"
           }
         }
       }
@@ -20814,13 +20814,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex stopped before completing the turn."
+            "value": "Codex stopped before completing the turn. Try again, or check the transcript for details."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターンが完了する前に Codex は停止しました。"
+            "value": "ターンが完了する前に Codex は停止しました。再試行するか、詳細をトランスクリプトで確認してください。"
           }
         }
       }
@@ -20831,13 +20831,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex stopped because the connection failed."
+            "value": "Codex stopped because the connection failed. Check the connection, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続に失敗したため、Codex は停止しました。"
+            "value": "接続に失敗したため、Codex は停止しました。接続を確認してから再試行してください。"
           }
         }
       }
@@ -20848,13 +20848,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex stopped because the account is out of usage."
+            "value": "Codex stopped because the account has no usage remaining. Check usage or billing, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントの使用量が不足したため、Codex は停止しました。"
+            "value": "アカウントの使用量が残っていないため、Codex は停止しました。使用量または請求を確認してから再試行してください。"
           }
         }
       }
