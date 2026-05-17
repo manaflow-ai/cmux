@@ -172,7 +172,10 @@ final class MobileHostService {
                 }
                 return await TerminalController.shared.mobileHostHandleRPC(request)
             },
-            onClose: { id in
+            onClose: { id, viewportClientIDs in
+                await MainActor.run {
+                    TerminalController.shared.clearMobileViewportReports(clientIDs: viewportClientIDs)
+                }
                 await MobileHostService.shared.removeConnection(id: id)
             }
         )
@@ -450,8 +453,9 @@ private actor MobileHostConnection {
     private let callbackQueue: DispatchQueue
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
-    private let onClose: @Sendable (UUID) async -> Void
+    private let onClose: @Sendable (UUID, Set<String>) async -> Void
     private var receiveBuffer = Data()
+    private var viewportClientIDs = Set<String>()
     private var isClosed = false
 
     init(
@@ -459,7 +463,7 @@ private actor MobileHostConnection {
         connection: NWConnection,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID) async -> Void
+        onClose: @escaping @Sendable (UUID, Set<String>) async -> Void
     ) {
         self.id = id
         self.connection = connection
@@ -486,7 +490,8 @@ private actor MobileHostConnection {
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
-        Task { await onClose(id) }
+        let viewportClientIDs = viewportClientIDs
+        Task { await onClose(id, viewportClientIDs) }
     }
 
     private func receiveNext() {
@@ -564,12 +569,23 @@ private actor MobileHostConnection {
                 await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
                 return
             }
+            recordViewportClientIDIfPresent(in: request)
             let result = await handleRequest(request)
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
             close(reason: "invalid rpc envelope")
         }
+    }
+
+    private func recordViewportClientIDIfPresent(in request: MobileHostRPCRequest) {
+        guard request.method == "mobile.terminal.snapshot" || request.method == "terminal.snapshot",
+              request.params["viewport_columns"] != nil || request.params["viewport_rows"] != nil,
+              let clientID = request.params["client_id"] as? String,
+              !clientID.isEmpty else {
+            return
+        }
+        viewportClientIDs.insert(clientID)
     }
 
     private func sendResponse(_ response: Data) async {
