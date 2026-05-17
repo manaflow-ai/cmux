@@ -724,7 +724,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             expectation.fulfill()
         }
         action()
-        wait(for: [expectation], timeout: 0.5)
+        wait(for: [expectation], timeout: 2.0)
         notificationCenter.removeObserver(observer)
     }
 

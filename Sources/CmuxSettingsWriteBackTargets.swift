@@ -17,6 +17,8 @@ extension CmuxSettingsFileStore {
         PreferredEditorSettings.key: .string("app.preferredEditor"),
         CmdClickMarkdownRouteSettings.key: .bool("app.openMarkdownInCmuxViewer"),
         WorkspaceAutoReorderSettings.key: .bool("app.reorderOnNotification"),
+        WorkspaceWorkingDirectoryInheritanceSettings.key: .bool("app.workspaceInheritWorkingDirectory"),
+        AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey: .bool("terminal.autoResumeAgentSessions"),
         IMessageModeSettings.key: .bool("app.iMessageMode"),
         TelemetrySettings.sendAnonymousTelemetryKey: .bool("app.sendAnonymousTelemetry"),
         QuitWarningSettings.warnBeforeQuitKey: .bool("app.warnBeforeQuit"),

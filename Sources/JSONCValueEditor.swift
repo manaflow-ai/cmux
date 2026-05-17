@@ -57,7 +57,7 @@ private struct JSONCValueRangeFinder {
     func valueRange(for jsonPath: String) throws -> Range<String.Index>? {
         let components = try pathComponents(for: jsonPath)
 
-        let rootStart = skipTrivia(from: text.startIndex)
+        let rootStart = try skipTrivia(from: text.startIndex)
         guard rootStart < text.endIndex, text[rootStart] == "{" else {
             throw JSONCValueEditor.EditError.expectedRootObject
         }
@@ -73,7 +73,7 @@ private struct JSONCValueRangeFinder {
                 return memberRange
             }
 
-            let nestedStart = skipTrivia(from: memberRange.lowerBound)
+            let nestedStart = try skipTrivia(from: memberRange.lowerBound)
             guard nestedStart < text.endIndex, text[nestedStart] == "{" else {
                 throw JSONCValueEditor.EditError.expectedObject(traversed.joined(separator: "."))
             }
@@ -85,7 +85,7 @@ private struct JSONCValueRangeFinder {
     func insertingValue(_ literal: String, for jsonPath: String) throws -> String {
         let components = try pathComponents(for: jsonPath)
 
-        let rootStart = skipTrivia(from: text.startIndex)
+        let rootStart = try skipTrivia(from: text.startIndex)
         guard rootStart < text.endIndex, text[rootStart] == "{" else {
             throw JSONCValueEditor.EditError.expectedRootObject
         }
@@ -118,7 +118,7 @@ private struct JSONCValueRangeFinder {
         }
 
         if let memberRange = try memberValueRange(inObjectAt: objectStart, key: key) {
-            let nestedStart = skipTrivia(from: memberRange.lowerBound)
+            let nestedStart = try skipTrivia(from: memberRange.lowerBound)
             guard nestedStart < text.endIndex, text[nestedStart] == "{" else {
                 throw JSONCValueEditor.EditError.expectedObject((traversed + [key]).joined(separator: "."))
             }
@@ -141,25 +141,25 @@ private struct JSONCValueRangeFinder {
 
         var cursor = text.index(after: objectStart)
         while cursor < text.endIndex {
-            cursor = skipTrivia(from: cursor)
+            cursor = try skipTrivia(from: cursor)
             guard cursor < text.endIndex else { break }
             if text[cursor] == "}" {
                 return nil
             }
 
             let parsedKey = try scanString(from: cursor)
-            cursor = skipTrivia(from: parsedKey.end)
+            cursor = try skipTrivia(from: parsedKey.end)
             guard cursor < text.endIndex, text[cursor] == ":" else {
                 throw JSONCValueEditor.EditError.malformedJSONC("expected ':' after object key")
             }
 
-            let valueStart = skipTrivia(from: text.index(after: cursor))
+            let valueStart = try skipTrivia(from: text.index(after: cursor))
             let valueEnd = try scanValueEnd(from: valueStart)
             if parsedKey.value == key {
                 return valueStart..<valueEnd
             }
 
-            cursor = skipTrivia(from: valueEnd)
+            cursor = try skipTrivia(from: valueEnd)
             if cursor < text.endIndex, text[cursor] == "," {
                 cursor = text.index(after: cursor)
                 continue
@@ -177,7 +177,7 @@ private struct JSONCValueRangeFinder {
         valueLiteral: String,
         inObjectAt objectStart: String.Index
     ) throws -> String {
-        let objectEnd = try scanBalanced(from: objectStart, open: "{", close: "}")
+        let objectEnd = try scanBalanced(from: objectStart, open: "{")
         let closingBrace = text.index(before: objectEnd)
         let closeIndent = indentation(containing: closingBrace)
         let childIndent = try childIndentation(
@@ -216,7 +216,7 @@ private struct JSONCValueRangeFinder {
     ) throws -> String {
         var cursor = text.index(after: objectStart)
         while cursor < closingBrace {
-            cursor = skipTrivia(from: cursor)
+            cursor = try skipTrivia(from: cursor)
             guard cursor < closingBrace, text[cursor] != "}" else { break }
             let memberIndent = indentation(containing: cursor)
             if memberIndent.hasPrefix(closeIndent), memberIndent.count > closeIndent.count {
@@ -239,7 +239,7 @@ private struct JSONCValueRangeFinder {
         closingBrace: String.Index
     ) throws -> Bool {
         var cursor = text.index(after: objectStart)
-        cursor = skipTrivia(from: cursor)
+        cursor = try skipTrivia(from: cursor)
         return cursor < closingBrace
     }
 
@@ -259,18 +259,18 @@ private struct JSONCValueRangeFinder {
         var cursor = text.index(after: objectStart)
         var tail: ObjectMemberTail?
         while cursor < closingBrace {
-            cursor = skipTrivia(from: cursor)
+            cursor = try skipTrivia(from: cursor)
             guard cursor < closingBrace, text[cursor] != "}" else { return tail }
 
             let key = try scanString(from: cursor)
-            cursor = skipTrivia(from: key.end)
+            cursor = try skipTrivia(from: key.end)
             guard cursor < text.endIndex, text[cursor] == ":" else {
                 throw JSONCValueEditor.EditError.malformedJSONC("expected ':' after object key")
             }
 
-            let valueStart = skipTrivia(from: text.index(after: cursor))
+            let valueStart = try skipTrivia(from: text.index(after: cursor))
             let valueEnd = try scanValueEnd(from: valueStart)
-            cursor = skipTrivia(from: valueEnd)
+            cursor = try skipTrivia(from: valueEnd)
             let hasComma = cursor < closingBrace && text[cursor] == ","
             tail = ObjectMemberTail(valueEnd: valueEnd, hasTrailingComma: hasComma)
             guard hasComma else {
@@ -330,20 +330,19 @@ private struct JSONCValueRangeFinder {
 
         switch text[start] {
         case "{":
-            return try scanBalanced(from: start, open: "{", close: "}")
+            return try scanBalanced(from: start, open: "{")
         case "[":
-            return try scanBalanced(from: start, open: "[", close: "]")
+            return try scanBalanced(from: start, open: "[")
         case "\"":
             return try scanString(from: start).end
         default:
-            return scanPrimitiveEnd(from: start)
+            return try scanPrimitiveEnd(from: start)
         }
     }
 
     private func scanBalanced(
         from start: String.Index,
-        open: Character,
-        close: Character
+        open: Character
     ) throws -> String.Index {
         guard start < text.endIndex, text[start] == open else {
             throw JSONCValueEditor.EditError.malformedJSONC("expected container")
@@ -372,7 +371,7 @@ private struct JSONCValueRangeFinder {
                 cursor = text.index(after: cursor)
                 continue
             }
-            if character == "/", let skipped = skipComment(fromSlashAt: cursor) {
+            if character == "/", let skipped = try skipComment(fromSlashAt: cursor) {
                 cursor = skipped
                 continue
             }
@@ -398,13 +397,14 @@ private struct JSONCValueRangeFinder {
         open == "{" ? "}" : "]"
     }
 
-    private func scanPrimitiveEnd(from start: String.Index) -> String.Index {
+    private func scanPrimitiveEnd(from start: String.Index) throws -> String.Index {
         var cursor = start
         while cursor < text.endIndex {
             let character = text[cursor]
-            if character == "," || character == "}" || character == "]" ||
-                character.isWhitespace ||
-                (character == "/" && skipComment(fromSlashAt: cursor) != nil) {
+            if character == "," || character == "}" || character == "]" || character.isWhitespace {
+                break
+            }
+            if character == "/", try skipComment(fromSlashAt: cursor) != nil {
                 break
             }
             cursor = text.index(after: cursor)
@@ -445,14 +445,14 @@ private struct JSONCValueRangeFinder {
         throw JSONCValueEditor.EditError.malformedJSONC("unterminated string")
     }
 
-    private func skipTrivia(from start: String.Index) -> String.Index {
+    private func skipTrivia(from start: String.Index) throws -> String.Index {
         var cursor = start
         while cursor < text.endIndex {
             if text[cursor].isWhitespace || text[cursor] == "\u{feff}" {
                 cursor = text.index(after: cursor)
                 continue
             }
-            if text[cursor] == "/", let skipped = skipComment(fromSlashAt: cursor) {
+            if text[cursor] == "/", let skipped = try skipComment(fromSlashAt: cursor) {
                 cursor = skipped
                 continue
             }
@@ -461,7 +461,7 @@ private struct JSONCValueRangeFinder {
         return cursor
     }
 
-    private func skipComment(fromSlashAt start: String.Index) -> String.Index? {
+    private func skipComment(fromSlashAt start: String.Index) throws -> String.Index? {
         let marker = text.index(after: start)
         guard marker < text.endIndex else { return nil }
 
@@ -482,7 +482,7 @@ private struct JSONCValueRangeFinder {
                 }
                 cursor = next
             }
-            return text.endIndex
+            throw JSONCValueEditor.EditError.malformedJSONC("unterminated block comment")
         }
 
         return nil

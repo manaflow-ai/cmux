@@ -4,7 +4,7 @@ import os
 nonisolated private let cmuxSettingsLog = Logger(subsystem: "com.cmuxterm.app", category: "SettingsFile")
 
 func logManagedSettingsWriteBackFailure(_ error: Error) {
-    cmuxSettingsLog.error("Failed to write Settings edit to cmux.json: \(String(describing: error), privacy: .public)")
+    cmuxSettingsLog.error("Failed to write Settings edit to cmux.json: \(String(describing: error), privacy: .private)")
 }
 
 // Snapshots are immutable after capture and contain settings values copied
