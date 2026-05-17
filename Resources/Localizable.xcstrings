@@ -3079,6 +3079,23 @@
         }
       }
     },
+    "sidebar.hiddenWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden Workspace (1)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示のワークスペース（1）"
+          }
+        }
+      }
+    },
     "sidebar.hiddenWorkspaces.title": {
       "extractionState": "manual",
       "localizations": {

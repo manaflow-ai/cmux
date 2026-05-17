@@ -4314,7 +4314,10 @@ class TabManager: ObservableObject {
         if let nextIndex = (startIndex..<tabs.count).first(where: { !tabs[$0].isHidden }) {
             return tabs[nextIndex].id
         }
-        return tabs.first(where: { !$0.isHidden })?.id
+        if let previousIndex = tabs.indices.prefix(startIndex).last(where: { !tabs[$0].isHidden }) {
+            return tabs[previousIndex].id
+        }
+        return nil
     }
 
     /// Detach a workspace from this window without closing its panels.

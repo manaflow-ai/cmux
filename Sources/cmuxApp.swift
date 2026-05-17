@@ -958,7 +958,7 @@ struct cmuxApp: App {
 
     private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
-        let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
+        let workspaceIds = manager.visibleWorkspaceTabs.compactMap { $0.id == workspace.id ? nil : $0.id }
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
@@ -1070,7 +1070,7 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)
         }
-        .disabled(workspace == nil || workspace?.isHidden == true || manager.tabs.count <= 1)
+        .disabled(workspace == nil || workspace?.isHidden == true || manager.visibleWorkspaceTabs.count <= 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeSelectedWorkspacesBelow(in: manager)
