@@ -401,6 +401,11 @@ final class cmuxMobileUITests: XCTestCase {
         guard app.keyboards.firstMatch.exists else {
             return
         }
+        let addDeviceDoneButton = app.buttons["MobileAddDeviceKeyboardDoneButton"]
+        if addDeviceDoneButton.exists {
+            addDeviceDoneButton.tap()
+            return
+        }
         for label in ["Done", "Return", "Next"] {
             let button = app.keyboards.buttons[label]
             if button.exists {
