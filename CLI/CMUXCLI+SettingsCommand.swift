@@ -52,18 +52,18 @@ extension CMUXCLI {
             try runSettingsGet(args: args, store: store, jsonOutput: wantsJSON)
         case "set":
             try runSettingsSet(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         case "unset":
             try runSettingsUnset(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         case "reset":
             try runSettingsReset(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         case "export":
             try runSettingsExport(args: args, store: store)
         case "import":
             try runSettingsImport(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         case "shortcuts":
             try runSettingsShortcuts(args: args, store: store, socketPath: socketPath, explicitPassword: explicitPassword, jsonOutput: wantsJSON)
         default:
@@ -290,13 +290,13 @@ extension CMUXCLI {
             try runSettingsShortcutsGet(args: args, store: store, jsonOutput: jsonOutput)
         case "set":
             try runSettingsShortcutsSet(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         case "unset":
             try runSettingsShortcutsUnset(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         case "reset":
             try runSettingsShortcutsReset(args: args, store: store)
-            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword)
+            try reloadSettingsIfRunning(socketPath: socketPath, explicitPassword: explicitPassword, store: store)
         default:
             throw CLIError(message: "Unknown settings shortcuts subcommand '\(subcommand)'. Run 'cmux settings --help'.")
         }
@@ -414,7 +414,7 @@ extension CMUXCLI {
         print("OK")
     }
 
-    private func reloadSettingsIfRunning(socketPath: String, explicitPassword: String?) throws {
+    private func reloadSettingsIfRunning(socketPath: String, explicitPassword: String?, store: SettingsFileStore) throws {
         guard socketExists(at: socketPath) else { return }
         let client = try connectClient(
             socketPath: socketPath,
@@ -424,7 +424,9 @@ extension CMUXCLI {
         defer { client.close() }
         let response = try client.send(command: "reload_config")
         if response.hasPrefix("ERROR:") {
-            throw CLIError(message: "settings updated, but live reload failed: \(response)")
+            let message = "settings saved to \(store.displayPath) but could not be applied live; " +
+                "restart cmux to pick up the changes"
+            throw CLIError(message: message)
         }
     }
 
