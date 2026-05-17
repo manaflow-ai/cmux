@@ -290,6 +290,11 @@ struct cmuxApp: App {
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
 
+                splitCommandButton(title: String(localized: "menu.notifications.toggleUnread", defaultValue: "Toggle Unread"), shortcut: menuShortcut(for: .toggleUnread)) {
+                    appDelegate.toggleFocusedNotificationUnread()
+                }
+                .disabled(activeTabManager.selectedWorkspace == nil)
+
                 Button(String(localized: "menu.notifications.markAllRead", defaultValue: "Mark All Read")) {
                     notificationStore.markAllRead()
                 }
@@ -855,7 +860,7 @@ struct cmuxApp: App {
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
-        NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
+        notificationStore.notificationMenuSnapshot
     }
 
     var activeTabManager: TabManager {
@@ -4748,9 +4753,17 @@ enum CmdClickSupportedFileRouteSettings {
         return defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
     }
 
-    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
         defaults.set(enabled, forKey: key)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        notifyDidChange(notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
     static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
