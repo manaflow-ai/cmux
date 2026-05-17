@@ -66,6 +66,27 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         XCTAssertTrue(command.contains("--permission-mode default"))
     }
 
+    func testConfiguredResumeDirectoryIgnoresNullAndEmptyAuthFields() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-config-state-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent(".claude", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        let stateURL = configDir.appendingPathComponent(".claude.json", isDirectory: false)
+
+        for payload in [
+            #"{"oauthAccount":null,"primaryApiKey":null,"apiKey":null}"#,
+            #"{"oauthAccount":{},"primaryApiKey":"","apiKey":"   "}"#,
+            #"{"oauthAccount":[],"primaryApiKey":"\n\t","apiKey":""}"#
+        ] {
+            try Data(payload.utf8).write(to: stateURL)
+            XCTAssertNil(ClaudeConfigurationRoot.configuredResumeDirectory(configDir.path))
+        }
+
+        try Data(#"{"primaryApiKey":"sk-ant-api03-example"}"#.utf8).write(to: stateURL)
+        XCTAssertEqual(ClaudeConfigurationRoot.configuredResumeDirectory(configDir.path), configDir.path)
+    }
+
     func testClaudeResumeCommandPreservesConfiguredNonDefaultRoot() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)

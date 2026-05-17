@@ -222,9 +222,25 @@ enum ClaudeConfigurationRoot {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return false
         }
-        return obj["oauthAccount"] != nil
-            || obj["primaryApiKey"] != nil
-            || obj["apiKey"] != nil
+        return hasConfiguredAuthValue(obj["oauthAccount"])
+            || hasConfiguredAuthValue(obj["primaryApiKey"])
+            || hasConfiguredAuthValue(obj["apiKey"])
+    }
+
+    private nonisolated static func hasConfiguredAuthValue(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else {
+            return false
+        }
+        if let string = value as? String {
+            return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if let dictionary = value as? [String: Any] {
+            return !dictionary.isEmpty
+        }
+        if let array = value as? [Any] {
+            return !array.isEmpty
+        }
+        return true
     }
 }
 
