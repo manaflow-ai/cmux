@@ -2953,6 +2953,17 @@ class GhosttyApp {
         previousColorScheme != currentColorScheme
     }
 
+    static func ghosttyRuntimeColorScheme(
+        for colorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> ghostty_color_scheme_e {
+        switch colorScheme {
+        case .light:
+            return GHOSTTY_COLOR_SCHEME_LIGHT
+        case .dark:
+            return GHOSTTY_COLOR_SCHEME_DARK
+        }
+    }
+
     static func shouldCaptureScrollLagEvent(
         samples: Int,
         averageMs: Double,
@@ -3134,6 +3145,7 @@ class GhosttyApp {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
         )
+        synchronizeGhosttyRuntimeColorScheme(currentColorScheme, source: source)
         let shouldReload = Self.shouldReloadConfigurationForAppearanceChange(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
@@ -3159,6 +3171,19 @@ class GhosttyApp {
             source: "appearanceSync:\(source)",
             reloadSettingsFromFile: false
         )
+    }
+
+    private func synchronizeGhosttyRuntimeColorScheme(
+        _ colorScheme: GhosttyConfig.ColorSchemePreference,
+        source: String
+    ) {
+        guard let app else { return }
+        let scheme = Self.ghosttyRuntimeColorScheme(for: colorScheme)
+        ghostty_app_set_color_scheme(app, scheme)
+        if backgroundLogEnabled {
+            let schemeLabel = colorScheme == .dark ? "dark" : "light"
+            logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
+        }
     }
 
     func openConfigurationInTextEdit() {
