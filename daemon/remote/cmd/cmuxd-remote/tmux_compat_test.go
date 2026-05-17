@@ -513,6 +513,33 @@ func TestEnsureClaudeNodeOptionsRestoreModuleUsesHome(t *testing.T) {
 	}
 }
 
+func TestEnsureClaudeNodeOptionsRestoreModuleSkipsHomeWithWhitespace(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home with space")
+	tmp := filepath.Join(root, "tmp")
+	if err := os.MkdirAll(home, 0755); err != nil {
+		t.Fatalf("create home: %v", err)
+	}
+	if err := os.MkdirAll(tmp, 0755); err != nil {
+		t.Fatalf("create tmp: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("TMPDIR", tmp)
+
+	path, err := ensureClaudeNodeOptionsRestoreModule()
+	if err != nil {
+		t.Fatalf("ensureClaudeNodeOptionsRestoreModule() error = %v", err)
+	}
+
+	want := filepath.Join(tmp, "cmux-claude-node-options", "restore-node-options.cjs")
+	if path != want {
+		t.Fatalf("restore module path = %q, want %q", path, want)
+	}
+	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+		t.Fatalf("restore module path should not be under whitespace HOME %q: %q", home, path)
+	}
+}
+
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
 	path := tmuxWaitForSignalPath(name)

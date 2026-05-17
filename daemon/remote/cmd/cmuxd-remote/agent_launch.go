@@ -336,8 +336,13 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 
 func claudeNodeOptionsRestoreDirs() []string {
 	dirs := make([]string, 0, 2)
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		dirs = append(dirs, filepath.Join(home, ".claude", "cmux"))
+	if home, err := os.UserHomeDir(); err == nil {
+		home = strings.TrimSpace(home)
+		// mergeNodeOptions and walkNodeOptions use whitespace tokenization, so
+		// use TMPDIR instead of a HOME path that would require quote-aware parsing.
+		if home != "" && !strings.ContainsAny(home, " \t\n\r") {
+			dirs = append(dirs, filepath.Join(home, ".claude", "cmux"))
+		}
 	}
 	dirs = append(dirs, filepath.Join(os.TempDir(), "cmux-claude-node-options"))
 	return dirs

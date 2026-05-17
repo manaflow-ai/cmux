@@ -13421,7 +13421,10 @@ struct CMUXCLI {
             let trimmedHome = rawHome.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmedHome.isEmpty ? NSHomeDirectory() : trimmedHome
         }()
-        if !homePath.isEmpty {
+        // The NODE_OPTIONS helpers below use whitespace tokenization, so use
+        // the TMPDIR fallback when HOME would require quote-aware parsing.
+        if !homePath.isEmpty,
+           homePath.rangeOfCharacter(from: .whitespacesAndNewlines) == nil {
             candidates.append(
                 URL(fileURLWithPath: homePath, isDirectory: true)
                     .appendingPathComponent(".claude", isDirectory: true)
@@ -18989,10 +18992,21 @@ struct CMUXCLI {
     }
 
     private func cleanedNodeOptions(_ existing: String?) -> String {
+        walkNodeOptions(existing).joined(separator: " ")
+    }
+
+    private func normalizedNodeOptionsForRestore(_ existing: String) -> String? {
+        let joined = walkNodeOptions(existing)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
+    }
+
+    private func walkNodeOptions(_ existing: String?) -> [String] {
         let tokens = (existing ?? "")
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
-        guard !tokens.isEmpty else { return "" }
+        guard !tokens.isEmpty else { return [] }
 
         var filtered: [String] = []
         var index = 0
@@ -19026,50 +19040,7 @@ struct CMUXCLI {
             filtered.append(token)
             index += 1
         }
-        return filtered.joined(separator: " ")
-    }
-
-    private func normalizedNodeOptionsForRestore(_ existing: String) -> String? {
-        let tokens = existing
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
-        guard !tokens.isEmpty else { return nil }
-
-        var normalized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if token == "--max-old-space-size", index + 1 < tokens.count {
-                normalized.append("--max-old-space-size=\(tokens[index + 1])")
-                index += 2
-                continue
-            }
-            normalized.append(token)
-            index += 1
-        }
-        let joined = normalized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
+        return filtered
     }
 
     private func isRequireOption(_ token: String) -> Bool {

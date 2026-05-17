@@ -29,6 +29,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    home: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td:
         tmp = Path(td)
@@ -105,7 +106,7 @@ fs.writeFileSync(
         )
 
         env = base_env.copy()
-        env["HOME"] = str(fake_home)
+        env["HOME"] = home if home is not None else str(fake_home)
         env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
@@ -315,6 +316,69 @@ def main() -> int:
     if child_node_options_value != "--max-old-space-size=2048 --trace-warnings":
         print(
             "FAIL: expected child NODE_OPTIONS to preserve the original max-old-space-size flag, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-space-home-") as td:
+        root = Path(td)
+        space_home = root / "home with space"
+        session_tmpdir = root / "session-tmp"
+        space_home.mkdir()
+        session_tmpdir.mkdir()
+        proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+            cli_path,
+            base_env,
+            "--trace-warnings",
+            tmpdir=str(session_tmpdir),
+            home=str(space_home),
+        )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` should still succeed when HOME contains spaces")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, _, remaining_flags = node_options_value.partition(" ")
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected claude-teams to use a restore preload when HOME contains spaces, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if not require_flag.startswith(f"--require={session_tmpdir}/cmux-claude-node-options/"):
+        print(
+            "FAIL: expected claude-teams to fall back to TMPDIR when HOME contains spaces, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if str(space_home) in require_flag:
+        print(
+            "FAIL: expected claude-teams to skip the HOME restore preload when HOME contains spaces, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected claude-teams to preserve existing NODE_OPTIONS after TMPDIR fallback, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored after TMPDIR fallback, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to inherit restored value after TMPDIR fallback, "
             f"got {child_node_options_value!r}"
         )
         return 1

@@ -295,7 +295,9 @@ node_options_restore_dir_candidates() {
     local home="${HOME:-}"
     home="${home#"${home%%[![:space:]]*}"}"
     home="${home%"${home##*[![:space:]]}"}"
-    if [[ -n "$home" ]]; then
+    # merge_node_options and normalize_node_options_for_restore use whitespace
+    # tokenization, so use TMPDIR when HOME would need quote-aware parsing.
+    if [[ -n "$home" && "$home" != *[[:space:]]* ]]; then
         printf '%s\n' "${home%/}/.claude/cmux"
     fi
     local guard_dir="${TMPDIR:-/tmp}"

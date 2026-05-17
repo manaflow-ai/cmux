@@ -1046,6 +1046,41 @@ def test_live_socket_whitespace_home_falls_back_to_tmpdir(failures: list[str]) -
     expect(child_node_options == "__UNSET__", f"whitespace HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_live_socket_space_containing_home_falls_back_to_tmpdir(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-space-home-") as td:
+        root = Path(td)
+        home = root / "home with space"
+        home.mkdir()
+        session_tmpdir = root / "session-tmp"
+        session_tmpdir.mkdir()
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["--print", "hello"],
+            tmpdir=str(session_tmpdir),
+            home=str(home),
+        )
+    expect(code == 0, f"space HOME fallback: wrapper exited {code}: {stderr}", failures)
+    require_path = restore_module_path_from_node_options(node_options)
+    expect(
+        require_path is not None,
+        f"space HOME fallback: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    if require_path is not None:
+        expect(
+            require_path.startswith(str(session_tmpdir) + os.sep),
+            f"space HOME fallback: expected restore preload under TMPDIR {session_tmpdir}, got {require_path!r}",
+            failures,
+        )
+        expect(
+            not require_path.startswith(str(home) + os.sep),
+            f"space HOME fallback: restore preload should skip HOME {home}, got {require_path!r}",
+            failures,
+        )
+    expect(runtime_node_options == "__UNSET__", f"space HOME fallback: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"space HOME fallback: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
 def test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-stale-tmp-") as td:
         root = Path(td)
@@ -1296,6 +1331,7 @@ def main() -> int:
     test_live_socket_preserves_space_separated_heap_cap(failures)
     test_live_socket_tmpdir_failure_uses_persistent_restore_module(failures)
     test_live_socket_whitespace_home_falls_back_to_tmpdir(failures)
+    test_live_socket_space_containing_home_falls_back_to_tmpdir(failures)
     test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures)
     test_live_socket_strips_inherited_cmux_restore_module(failures)
     test_stale_socket_strips_inherited_cmux_restore_module_before_passthrough(failures)
