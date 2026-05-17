@@ -778,7 +778,8 @@ public final class CMUXMobileShellStore {
 
     private func connect(ticket: CmxAttachTicket) async throws {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let route = ticket.preferredRoute(supportedKinds: supportedKinds) else {
+        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        guard let firstRoute = supportedRoutes.first else {
             connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code uses an unsupported route.")
             connectionState = .disconnected
             clearRemoteConnectionContext()
@@ -786,33 +787,61 @@ public final class CMUXMobileShellStore {
         }
 
         activeTicket = ticket
-        activeRoute = route
+        activeRoute = firstRoute
         connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
-        mobileShellLog.info("pairing selected route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+        remoteClient = nil
 
         guard let runtime else {
-            remoteClient = nil
             connectionError = nil
-            applyPreviewTicket(ticket, route: route)
+            applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             return
         }
 
-        let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(
-                method: "workspace.list",
-                params: Self.initialWorkspaceListParams(for: ticket)
-            )
+        let requestData = try MobileCoreRPCClient.requestData(
+            method: "workspace.list",
+            params: Self.initialWorkspaceListParams(for: ticket)
         )
-        let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-        remoteClient = client
-        startTerminalRefreshPolling()
-        connectionError = nil
-        applyRemoteWorkspaceList(response, preferActiveTicketTarget: true)
-        syncSelectedTerminalForWorkspace()
-        connectionState = .connected
-        await refreshSelectedTerminalSnapshot()
+        var lastError: Error?
+        for route in supportedRoutes {
+            activeRoute = route
+            mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+            let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+            do {
+                let resultData = try await client.sendRequest(requestData)
+                let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+                remoteClient = client
+                startTerminalRefreshPolling()
+                connectionError = nil
+                applyRemoteWorkspaceList(response, preferActiveTicketTarget: true)
+                syncSelectedTerminalForWorkspace()
+                connectionState = .connected
+                await refreshSelectedTerminalSnapshot()
+                return
+            } catch {
+                lastError = error
+                mobileShellLog.error(
+                    "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private): \(String(describing: error), privacy: .private)"
+                )
+            }
+        }
+
+        clearRemoteConnectionContext()
+        throw lastError ?? MobileShellConnectionError.connectionClosed
+    }
+
+    private static func supportedRoutes(
+        for ticket: CmxAttachTicket,
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> [CmxAttachRoute] {
+        let orderedRoutes = ticket.routes.sorted(by: routeSortsBefore)
+        guard !supportedKinds.isEmpty else {
+            return orderedRoutes
+        }
+        let supportedKinds = Set(supportedKinds)
+        return orderedRoutes.filter { route in
+            supportedKinds.contains(route.kind)
+        }
     }
 
     private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {

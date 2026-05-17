@@ -192,12 +192,24 @@ final class cmuxMobileUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let row = terminalRow(index, in: app)
-        XCTAssertTrue(row.waitForExistence(timeout: 6), file: file, line: line)
-        let predicate = NSPredicate(format: "label == %@", expectedLabel)
-        let labelExpectation = XCTNSPredicateExpectation(predicate: predicate, object: row)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+        let labelExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let row = self.terminalRow(index, in: app)
+                return row.exists && row.label == expectedLabel
+            },
+            object: app
+        )
         let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        XCTAssertEqual(result, .completed, file: file, line: line)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
+            file: file,
+            line: line
+        )
+        let row = terminalRow(index, in: app)
         XCTAssertEqual(row.label, expectedLabel, file: file, line: line)
     }
 
@@ -352,6 +364,14 @@ final class cmuxMobileUITests: XCTestCase {
     @MainActor
     private func terminalRow(_ index: Int, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)["MobileTerminalRow-\(index)"]
+    }
+
+    @MainActor
+    private func terminalRowLabels(in app: XCUIApplication) -> [String] {
+        (0..<8).compactMap { index in
+            let row = terminalRow(index, in: app)
+            return row.exists ? "\(index):\(row.label)" : nil
+        }
     }
 
     @MainActor

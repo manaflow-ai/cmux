@@ -604,6 +604,53 @@ import Testing
 }
 
 @MainActor
+@Test func attachTicketFallsBackToNextRouteWhenPreferredRouteFails() async throws {
+    let workspaceID = UUID().uuidString
+    let preferredRoute = try CmxAttachRoute(
+        id: "magicdns",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort),
+        priority: 10
+    )
+    let fallbackRoute = try CmxAttachRoute(
+        id: "numeric",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort),
+        priority: 20
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [fallbackRoute, preferredRoute],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Fallback Workspace"),
+    ])
+    let attempts = RouteAttemptRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: FailingRouteTransportFactory(
+            failingRouteID: preferredRoute.id,
+            responses: responses,
+            attempts: attempts
+        )
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(await attempts.routeIDs() == [preferredRoute.id, fallbackRoute.id])
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.id == fallbackRoute.id)
+    #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
+}
+
+@MainActor
 @Test func expiredAttachTicketFallsBackToStackAuthForScopedWorkspace() async throws {
     let ticketExpiresAt = Date().addingTimeInterval(60)
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
@@ -1971,6 +2018,33 @@ private struct ScriptedTransportFactory: CmxByteTransportFactory {
     }
 }
 
+private struct FailingRouteTransportFactory: CmxByteTransportFactory {
+    let failingRouteID: String
+    let responses: ScriptedTransportResponses
+    let attempts: RouteAttemptRecorder
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        FailingRouteTransport(
+            routeID: route.id,
+            failingRouteID: failingRouteID,
+            responses: responses,
+            attempts: attempts
+        )
+    }
+}
+
+private actor RouteAttemptRecorder {
+    private var recordedRouteIDs: [String] = []
+
+    func record(_ routeID: String) {
+        recordedRouteIDs.append(routeID)
+    }
+
+    func routeIDs() -> [String] {
+        recordedRouteIDs
+    }
+}
+
 private actor ScriptedTransportResponses {
     private var frames: [Data]
     private var sentPayloads: [Data] = []
@@ -2033,6 +2107,46 @@ private actor ScriptedTransport: CmxByteTransport {
     }
 
     func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        await responses.next()
+    }
+
+    func send(_ data: Data) async throws {
+        try await responses.recordSend(data)
+    }
+
+    func close() async {}
+}
+
+private enum FailingRouteTransportError: Error {
+    case connectFailed
+}
+
+private actor FailingRouteTransport: CmxByteTransport {
+    private let routeID: String
+    private let failingRouteID: String
+    private let responses: ScriptedTransportResponses
+    private let attempts: RouteAttemptRecorder
+
+    init(
+        routeID: String,
+        failingRouteID: String,
+        responses: ScriptedTransportResponses,
+        attempts: RouteAttemptRecorder
+    ) {
+        self.routeID = routeID
+        self.failingRouteID = failingRouteID
+        self.responses = responses
+        self.attempts = attempts
+    }
+
+    func connect() async throws {
+        await attempts.record(routeID)
+        if routeID == failingRouteID {
+            throw FailingRouteTransportError.connectFailed
+        }
+    }
 
     func receive() async throws -> Data? {
         await responses.next()
