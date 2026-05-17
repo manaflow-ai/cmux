@@ -30,6 +30,8 @@ Supported agent names are `codex`, `opencode`, `pi`, `amp`, `cursor`, `gemini`, 
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
 
+For Codex, setup writes `~/.codex/hooks.json` and enables Codex's hook runtime with `[features] codex_hooks = true` in `~/.codex/config.toml`.
+
 OpenCode also supports project-local Feed installation:
 
 ```bash
