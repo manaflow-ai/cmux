@@ -4984,9 +4984,9 @@ extension BrowserPanel {
     }
 
     private func webInspectorTitledWindows() -> [NSWindow] {
-        let mainWindow = webView.window
+        guard let mainWindow = webView.window else { return [] }
         return NSApp.windows.filter { candidate in
-            if let mainWindow, candidate === mainWindow {
+            if candidate === mainWindow {
                 return false
             }
             return Self.isWebInspectorWindowTitle(candidate)
@@ -5071,7 +5071,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsPresentation == .attached || hasAttachedDeveloperToolsLayout() else {
             return false
         }
-        if let mainWindow = webView.window, window === mainWindow {
+        guard let mainWindow = webView.window, window !== mainWindow else {
             return false
         }
 #if DEBUG
