@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: Claude AskUserQuestion PreToolUse publishes Needs input."""
+"""Regression: Claude AskUserQuestion PreToolUse publishes Needs input once."""
 
 from __future__ import annotations
 
@@ -238,7 +238,29 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-    print("PASS: Claude AskUserQuestion PreToolUse publishes Needs input")
+        notification_payload = {
+            "session_id": session_id,
+            "hook_event_name": "Notification",
+            "message": "Claude needs your input",
+        }
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            notification_payload,
+            env,
+        )
+
+        notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
+        if len(notify_commands) != 1:
+            print("FAIL: generic Notification hook should not duplicate AskUserQuestion notification")
+            print(f"commands={server.commands!r}")
+            return 1
+
+    print("PASS: Claude AskUserQuestion PreToolUse publishes Needs input once")
     return 0
 
 
