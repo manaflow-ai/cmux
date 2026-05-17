@@ -7288,14 +7288,6 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         lineLimit: Int
     ) -> MobileTerminalSnapshotText? {
-        if let vtOutput = readTerminalTextFromVTExportForSnapshot(
-            terminalPanel: terminalPanel,
-            bindingAction: "write_screen_file:copy,vt",
-            lineLimit: nil
-        ) {
-            return MobileTerminalSnapshotText(text: vtOutput, fidelity: "ansi_vt")
-        }
-
         guard let plainText = readPlainTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
             includeScrollback: false,
@@ -15284,36 +15276,8 @@ class TerminalController {
                 return
             }
 
-            guard let contentView = window.contentView else {
-                captureError = "No window content view available"
-                return
-            }
-
-            let bounds = contentView.bounds
-            guard !bounds.isEmpty,
-                  let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
-                captureError = "Failed to prepare window image"
-                return
-            }
-            bitmap.size = bounds.size
-
-            contentView.displayIfNeeded()
-            if let layer = contentView.layer,
-               let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) {
-                let scale = max(window.backingScaleFactor, 1)
-                let pixelHeight = bounds.height * scale
-
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = graphicsContext
-                graphicsContext.cgContext.translateBy(x: 0, y: pixelHeight)
-                graphicsContext.cgContext.scaleBy(x: scale, y: -scale)
-                layer.render(in: graphicsContext.cgContext)
-                NSGraphicsContext.restoreGraphicsState()
-            } else {
-                contentView.cacheDisplay(in: bounds, to: bitmap)
-            }
-
-            guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            guard let pngData = self.captureCompositedWindowPNGData(window)
+                ?? self.captureAppKitWindowPNGData(window) else {
                 captureError = "Failed to create PNG data"
                 return
             }
@@ -15331,6 +15295,49 @@ class TerminalController {
 
         // Return OK with screenshot ID and path for easy reference
         return "OK \(screenshotId) \(outputPath.path)"
+    }
+
+    private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
+        guard let cgImage = CGWindowListCreateImage(
+            .null,
+            .optionIncludingWindow,
+            CGWindowID(window.windowNumber),
+            [.boundsIgnoreFraming, .nominalResolution]
+        ) else {
+            return nil
+        }
+        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
+    }
+
+    private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
+        guard let contentView = window.contentView else {
+            return nil
+        }
+
+        let bounds = contentView.bounds
+        guard !bounds.isEmpty,
+              let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
+            return nil
+        }
+        bitmap.size = bounds.size
+
+        contentView.displayIfNeeded()
+        if let layer = contentView.layer,
+           let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) {
+            let scale = max(window.backingScaleFactor, 1)
+            let pixelHeight = bounds.height * scale
+
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = graphicsContext
+            graphicsContext.cgContext.translateBy(x: 0, y: pixelHeight)
+            graphicsContext.cgContext.scaleBy(x: scale, y: -scale)
+            layer.render(in: graphicsContext.cgContext)
+            NSGraphicsContext.restoreGraphicsState()
+        } else {
+            contentView.cacheDisplay(in: bounds, to: bitmap)
+        }
+
+        return bitmap.representation(using: .png, properties: [:])
     }
 #endif
 
@@ -17901,8 +17908,8 @@ class TerminalController {
             "host_service": status.payload,
             "workspace_count": workspaceCount,
             "selected_workspace_id": v2OrNull(selectedWorkspaceID?.uuidString),
-            "selected_terminal_id": v2OrNull(selectedWorkspace?.focusedPanelId?.uuidString),
-            "snapshot_fidelity": "ansi_vt_or_plain_text_fallback"
+            "selected_terminal_id": v2OrNull(selectedWorkspace?.focusedTerminalPanel?.id.uuidString),
+            "snapshot_fidelity": "plain_text"
         ])
     }
 
@@ -17913,9 +17920,12 @@ class TerminalController {
         }
 
         do {
+            let terminalID = resolved.surfaceId.flatMap { surfaceID in
+                resolved.workspace.terminalPanel(for: surfaceID)?.id.uuidString
+            }
             let payload = try MobileHostService.shared.createAttachTicket(
                 workspaceID: resolved.workspace.id.uuidString,
-                terminalID: resolved.surfaceId?.uuidString,
+                terminalID: terminalID,
                 ttl: ttl
             )
             return .ok(payload)
@@ -18216,19 +18226,11 @@ class TerminalController {
         let scrollbackText: String?
         let scrollbackFidelity: String?
         if let maxScrollbackRows, maxScrollbackRows > 0,
-           let vtScrollbackText = readTerminalTextFromVTExportForSnapshot(
+           let combinedText = readPlainTerminalTextForSnapshot(
                terminalPanel: terminalPanel,
-               bindingAction: "write_scrollback_file:copy,vt",
-               lineLimit: maxScrollbackRows
+               includeScrollback: true,
+               lineLimit: maxScrollbackRows + rows
            ) {
-            scrollbackText = vtScrollbackText
-            scrollbackFidelity = "ansi_vt"
-        } else if let maxScrollbackRows, maxScrollbackRows > 0,
-                  let combinedText = readPlainTerminalTextForSnapshot(
-                      terminalPanel: terminalPanel,
-                      includeScrollback: true,
-                      lineLimit: maxScrollbackRows + rows
-                  ) {
             scrollbackText = Self.mobileScrollbackText(
                 combinedText: combinedText,
                 viewportText: viewportText.text,
