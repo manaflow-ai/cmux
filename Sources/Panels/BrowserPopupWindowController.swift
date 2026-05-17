@@ -270,6 +270,36 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func ownsLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
+        guard window.title.hasPrefix("Web Inspector") else { return false }
+        if Self.window(window, containsInspectorFrontendFor: webView) {
+            return true
+        }
+        return childPopups.contains { $0.ownsLiveDetachedWebInspectorWindow(window) }
+    }
+
+    private static func window(_ window: NSWindow, containsInspectorFrontendFor webView: WKWebView) -> Bool {
+        guard let inspectorFrontend = webView.cmuxInspectorFrontendWebView() else { return false }
+        if inspectorFrontend.window === window {
+            return true
+        }
+        if let contentView = window.contentView,
+           windowContainsView(contentView, target: inspectorFrontend) {
+            return true
+        }
+        return false
+    }
+
+    private static func windowContainsView(_ root: NSView, target: NSView) -> Bool {
+        if root === target {
+            return true
+        }
+        for subview in root.subviews where windowContainsView(subview, target: target) {
+            return true
+        }
+        return false
+    }
+
     // MARK: - Popup lifecycle
 
     func closePopup() {
