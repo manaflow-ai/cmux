@@ -14042,7 +14042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
-        if browserPanels.contains(where: { $0.hasLiveDetachedWebInspectorWindow(window) }) {
+        if browserPanels.contains(where: { $0.ownsLiveDetachedWebInspectorWindow(window) }) {
             return false
         }
         for panel in browserPanels where panel.orderOutStaleWebInspectorWindowIfNeeded(window, reason: reason) {

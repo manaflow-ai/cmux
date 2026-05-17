@@ -5074,17 +5074,22 @@ extension BrowserPanel {
         }
     }
 
+    func ownsLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
+        guard Self.isWebInspectorWindowTitle(window) else { return false }
+        guard let inspectorFrontend = webView.cmuxInspectorFrontendWebView() else { return false }
+        if inspectorFrontend.window === window {
+            return true
+        }
+        if let contentView = window.contentView,
+           Self.windowContainsView(contentView, target: inspectorFrontend) {
+            return true
+        }
+        return false
+    }
+
     func hasLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
         guard Self.isWebInspectorWindowTitle(window) else { return false }
-        if let inspectorFrontend = webView.cmuxInspectorFrontendWebView() {
-            if inspectorFrontend.window === window {
-                return true
-            }
-            if let contentView = window.contentView,
-               Self.windowContainsView(contentView, target: inspectorFrontend) {
-                return true
-            }
-        }
+        if ownsLiveDetachedWebInspectorWindow(window) { return true }
         return preferredDeveloperToolsPresentation == .detached && Self.isDetachedInspectorWindow(window)
     }
 
