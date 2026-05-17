@@ -100,21 +100,21 @@ extension RestorableAgentSessionIndex {
             candidates: candidates,
             capturedAt: capturedAt
         )
-        for (key, value) in processDetectedOpenCodeSnapshots(
+        for (key, value) in processDetectedCodexSnapshots(
             candidates: candidates,
-            capturedAt: capturedAt,
-            fileManager: fileManager,
-            latestOpenCodeSessionId: latestOpenCodeSessionId
+            capturedAt: capturedAt
         ) {
-            if resolved[key] != nil {
-                if processDetectionShouldPreferOpenCodeOnBuiltinConflict(
+            if let existing = resolved[key] {
+                if processDetectionShouldPreferBuiltin(
+                    .codex,
+                    over: existing.snapshot.kind,
                     panelKey: key,
                     candidates: candidates
                 ) {
                     sentryBreadcrumb(
                         "session.process_detected.builtin_conflict",
                         category: "session.restore",
-                        data: ["kept": "opencode", "dropped": "claude"]
+                        data: ["kept": "codex", "dropped": existing.snapshot.kind.rawValue]
                     )
                     resolved[key] = value
                     continue
@@ -122,7 +122,37 @@ extension RestorableAgentSessionIndex {
                 sentryBreadcrumb(
                     "session.process_detected.builtin_conflict",
                     category: "session.restore",
-                    data: ["kept": "claude", "dropped": "opencode"]
+                    data: ["kept": existing.snapshot.kind.rawValue, "dropped": "codex"]
+                )
+                continue
+            }
+            resolved[key] = value
+        }
+        for (key, value) in processDetectedOpenCodeSnapshots(
+            candidates: candidates,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            latestOpenCodeSessionId: latestOpenCodeSessionId
+        ) {
+            if let existing = resolved[key] {
+                if processDetectionShouldPreferBuiltin(
+                    .opencode,
+                    over: existing.snapshot.kind,
+                    panelKey: key,
+                    candidates: candidates
+                ) {
+                    sentryBreadcrumb(
+                        "session.process_detected.builtin_conflict",
+                        category: "session.restore",
+                        data: ["kept": "opencode", "dropped": existing.snapshot.kind.rawValue]
+                    )
+                    resolved[key] = value
+                    continue
+                }
+                sentryBreadcrumb(
+                    "session.process_detected.builtin_conflict",
+                    category: "session.restore",
+                    data: ["kept": existing.snapshot.kind.rawValue, "dropped": "opencode"]
                 )
                 continue
             }
@@ -238,58 +268,67 @@ extension RestorableAgentSessionIndex {
         return true
     }
 
-    private static func processDetectionShouldPreferOpenCodeOnBuiltinConflict(
+    private static func processDetectionShouldPreferBuiltin(
+        _ candidateKind: RestorableAgentKind,
+        over existingKind: RestorableAgentKind,
         panelKey: PanelKey,
         candidates: [RestorableAgentProcessDetectionCandidate]
     ) -> Bool {
-        var selectedClaude: (
-            source: RestorableAgentProcessDetectionCandidateSource,
-            isForeground: Bool,
-            matchesFallbackScope: Bool
-        )?
-        var selectedOpenCode: (
+        guard let selectedCandidate = processDetectionSelectedBuiltinPriority(
+            kind: candidateKind,
+            panelKey: panelKey,
+            candidates: candidates
+        ) else {
+            return false
+        }
+        guard let selectedExisting = processDetectionSelectedBuiltinPriority(
+            kind: existingKind,
+            panelKey: panelKey,
+            candidates: candidates
+        ) else {
+            return true
+        }
+        if selectedCandidate.source == selectedExisting.source,
+           selectedCandidate.matchesFallbackScope == selectedExisting.matchesFallbackScope,
+           selectedCandidate.isForeground == selectedExisting.isForeground {
+            return false
+        }
+        return processDetectionShouldReplaceCandidate(
+            existing: selectedExisting,
+            candidate: selectedCandidate
+        )
+    }
+
+    private static func processDetectionSelectedBuiltinPriority(
+        kind: RestorableAgentKind,
+        panelKey: PanelKey,
+        candidates: [RestorableAgentProcessDetectionCandidate]
+    ) -> (
+        source: RestorableAgentProcessDetectionCandidateSource,
+        isForeground: Bool,
+        matchesFallbackScope: Bool
+    )? {
+        var selected: (
             source: RestorableAgentProcessDetectionCandidateSource,
             isForeground: Bool,
             matchesFallbackScope: Bool
         )?
         for candidate in candidates where candidate.panelKey == panelKey {
+            guard processDetectionBuiltinKind(candidate) == kind else { continue }
             let priority = (
                 source: candidate.source,
                 isForeground: candidate.process.isForegroundProcess,
                 matchesFallbackScope: candidate.matchesFallbackScope
             )
-            switch processDetectionBuiltinKind(candidate) {
-            case .some(.claude):
-                if let existing = selectedClaude {
-                    if processDetectionShouldReplaceCandidate(existing: existing, candidate: priority) {
-                        selectedClaude = priority
-                    }
-                } else {
-                    selectedClaude = priority
+            if let existing = selected {
+                if processDetectionShouldReplaceCandidate(existing: existing, candidate: priority) {
+                    selected = priority
                 }
-            case .some(.opencode):
-                if let existing = selectedOpenCode {
-                    if processDetectionShouldReplaceCandidate(existing: existing, candidate: priority) {
-                        selectedOpenCode = priority
-                    }
-                } else {
-                    selectedOpenCode = priority
-                }
-            default:
-                break
+            } else {
+                selected = priority
             }
         }
-        guard let selectedOpenCode else { return false }
-        guard let selectedClaude else { return true }
-        if selectedClaude.source == selectedOpenCode.source,
-           selectedClaude.matchesFallbackScope == selectedOpenCode.matchesFallbackScope,
-           selectedClaude.isForeground == selectedOpenCode.isForeground {
-            return false
-        }
-        return processDetectionShouldReplaceCandidate(
-            existing: selectedClaude,
-            candidate: selectedOpenCode
-        )
+        return selected
     }
 
     private static func processDetectionBuiltinKind(
@@ -303,6 +342,9 @@ extension RestorableAgentSessionIndex {
         )
         if observed.isOpenCodeProcess {
             return .opencode
+        }
+        if observed.isCodexProcess {
+            return .codex
         }
         if observed.isClaudeProcess {
             return .claude
@@ -495,6 +537,378 @@ extension RestorableAgentSessionIndex {
         return nil
     }
 
+    static func processLooksLikeCodex(
+        processName: String,
+        processPath: String?,
+        arguments: [String]
+    ) -> Bool {
+        VaultObservedAgentProcess(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: [:]
+        ).isCodexProcess
+    }
+
+    static func codexSessionIdForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String? {
+        codexSessionId(tail: codexLaunchTail(
+            observed: VaultObservedAgentProcess(
+                processName: "",
+                processPath: nil,
+                arguments: arguments,
+                environment: environment
+            )
+        ), environment: environment)
+    }
+
+    static func codexLaunchArgumentsForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> [String]? {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        let executablePath = codexExecutablePath(observed: observed, environment: environment)
+        return codexLaunchArguments(observed: observed, executablePath: executablePath)
+    }
+
+    private static func processDetectedCodexSnapshots(
+        candidates: [RestorableAgentProcessDetectionCandidate],
+        capturedAt: TimeInterval
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var selectedCandidateByPanelKey: [
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+        ] = [:]
+
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard observed.isCodexProcess else { continue }
+
+            let tail = codexLaunchTail(observed: observed)
+            guard let sessionId = codexSessionId(tail: tail, environment: processArguments.environment) else {
+                continue
+            }
+            let executablePath = codexExecutablePath(
+                observed: observed,
+                environment: processArguments.environment
+            )
+            let workingDirectory = normalized(
+                observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
+            )
+            guard let launchCommand = codexLaunchCommand(
+                observed: observed,
+                executablePath: executablePath,
+                tail: tail,
+                workingDirectory: workingDirectory
+            ) else {
+                sentryBreadcrumb(
+                    "session.process_detected.codex.skip",
+                    category: "session.restore",
+                    data: ["pid": process.pid, "reason": "sanitize_failed"]
+                )
+                continue
+            }
+            let isForeground = process.isForegroundProcess
+            if let existing = selectedCandidateByPanelKey[candidate.panelKey] {
+                if !processDetectionShouldReplaceCandidate(
+                    existing: existing,
+                    candidate: (
+                        source: candidate.source,
+                        isForeground: isForeground,
+                        matchesFallbackScope: candidate.matchesFallbackScope
+                    )
+                ) {
+                    continue
+                }
+            }
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionId,
+                workingDirectory: workingDirectory,
+                launchCommand: launchCommand
+            )
+            resolved[candidate.panelKey] = (
+                snapshot: snapshot,
+                updatedAt: capturedAt
+            )
+            selectedCandidateByPanelKey[candidate.panelKey] = (
+                source: candidate.source,
+                isForeground: isForeground,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
+        }
+
+        return resolved
+    }
+
+    private static func codexSessionId(
+        tail: [String],
+        environment: [String: String]
+    ) -> String? {
+        if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
+            return threadId
+        }
+        if let sessionId = normalized(environment["CODEX_SESSION_ID"]) {
+            return sessionId
+        }
+        guard let command = codexSessionCommand(in: tail),
+              command.name == "resume" else {
+            return nil
+        }
+        return command.sessionId
+    }
+
+    private static func codexSessionCommand(in arguments: [String]) -> (name: String, sessionId: String)? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                guard argument == "resume" || argument == "fork" else { return nil }
+                return codexSessionIdValue(afterCommandAt: index, in: arguments).map {
+                    (name: argument, sessionId: $0)
+                }
+            }
+            index += codexOptionWidth(arguments, index: index)
+        }
+        return nil
+    }
+
+    private static func codexSessionIdValue(afterCommandAt commandIndex: Int, in arguments: [String]) -> String? {
+        var index = commandIndex + 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return normalized(argument)
+            }
+            index += codexOptionWidth(arguments, index: index)
+        }
+        return nil
+    }
+
+    private static func codexExecutablePath(
+        observed: VaultObservedAgentProcess,
+        environment: [String: String]
+    ) -> String {
+        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
+            return launchExecutable
+        }
+        let argumentExecutable = observed.codexExecutableArgument
+        if let argumentExecutable,
+           argumentExecutable.contains("/") {
+            return argumentExecutable
+        }
+        if let argumentExecutable,
+           let resolved = executablePath(named: argumentExecutable, environment: environment) {
+            return resolved
+        }
+        if let processPath = observed.processPath,
+           processPath.contains("/"),
+           VaultObservedAgentProcess.argumentLooksLikeCodex(processPath) {
+            return processPath
+        }
+        if let resolved = executablePath(named: "codex", environment: environment) {
+            return resolved
+        }
+        return argumentExecutable ?? "codex"
+    }
+
+    private static func codexLaunchArguments(
+        observed: VaultObservedAgentProcess,
+        executablePath: String,
+        tail: [String]? = nil
+    ) -> [String]? {
+        let tail = tail ?? codexLaunchTail(observed: observed)
+        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail) else {
+            return nil
+        }
+        return [executablePath] + preserved
+    }
+
+    private static func codexLaunchCommand(
+        observed: VaultObservedAgentProcess,
+        executablePath: String,
+        tail: [String],
+        workingDirectory: String?
+    ) -> AgentLaunchCommandSnapshot? {
+        let environment = observed.environment
+        let inheritedLauncher = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+        let inheritedArguments = decodeNULSeparatedBase64(environment["CMUX_AGENT_LAUNCH_ARGV_B64"])
+        let canonicalInheritedLauncher = inheritedLauncher.flatMap(canonicalCodexInheritedLauncher)
+        if inheritedLauncher != nil,
+           canonicalInheritedLauncher == nil {
+            return nil
+        }
+        if let canonicalInheritedLauncher,
+           let inheritedArguments {
+            guard let sanitizedArguments = AgentLaunchSanitizer.sanitizedLaunchArguments(
+                inheritedArguments,
+                launcher: canonicalInheritedLauncher,
+                fallbackKind: "codex"
+            ) else {
+                return nil
+            }
+            let inheritedExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"])
+                ?? inheritedArguments.first
+                ?? executablePath
+            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+            return AgentLaunchCommandSnapshot(
+                launcher: canonicalInheritedLauncher,
+                executablePath: inheritedExecutable,
+                arguments: sanitizedArguments,
+                workingDirectory: workingDirectory,
+                environment: selectedEnvironment.isEmpty ? nil : selectedEnvironment,
+                capturedAt: nil,
+                source: "environment"
+            )
+        }
+
+        if let inheritedLauncher,
+           !codexLaunchKindAllowsProcessFallback(inheritedLauncher) {
+            return nil
+        }
+        guard let launchArguments = codexLaunchArguments(
+            observed: observed,
+            executablePath: executablePath,
+            tail: tail
+        ) else {
+            return nil
+        }
+        return AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "codex",
+            executablePath: executablePath,
+            arguments: launchArguments,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
+    }
+
+    private static func codexLaunchTail(observed: VaultObservedAgentProcess) -> [String] {
+        let arguments = observed.arguments
+        guard !arguments.isEmpty else { return [] }
+        if let executableIndex = observed.codexExecutableArgumentIndex {
+            return Array(arguments.dropFirst(executableIndex + 1))
+        }
+        let processIdentityLooksLikeCodex = observed.executableBasenames.contains { basename in
+            VaultObservedAgentProcess.argumentLooksLikeCodex(basename)
+        }
+        guard processIdentityLooksLikeCodex else { return [] }
+        if arguments[0].hasPrefix("-") {
+            return arguments
+        }
+        return Array(arguments.dropFirst())
+    }
+
+    private static func codexOptionWidth(_ arguments: [String], index: Int) -> Int {
+        guard index < arguments.count else { return 1 }
+        let argument = arguments[index]
+        if argument.contains("=") {
+            return 1
+        }
+        let valueOptions: Set<String> = [
+            "--config",
+            "-c",
+            "--remote",
+            "--remote-auth-token-env",
+            "--image",
+            "-i",
+            "--model",
+            "-m",
+            "--local-provider",
+            "--profile",
+            "-p",
+            "--sandbox",
+            "-s",
+            "--ask-for-approval",
+            "-a",
+            "--cd",
+            "-C",
+            "--add-dir",
+            "--enable",
+            "--disable"
+        ]
+        guard valueOptions.contains(argument),
+              index + 1 < arguments.count else {
+            return 1
+        }
+        return 2
+    }
+
+    private static func codexLaunchKindAllowsProcessFallback(_ launcher: String) -> Bool {
+        switch normalizedLaunchKind(launcher) {
+        case "", "codex":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func canonicalCodexInheritedLauncher(_ launcher: String) -> String? {
+        switch normalizedLaunchKind(launcher) {
+        case "codex":
+            return "codex"
+        case "codexteams":
+            return "codexTeams"
+        default:
+            return nil
+        }
+    }
+
+    private static func normalizedLaunchKind(_ launcher: String) -> String {
+        launcher
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+    }
+
+    private static func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
+        guard let rawValue = normalized(rawValue),
+              let data = Data(base64Encoded: rawValue) else {
+            return nil
+        }
+        var parts: [String] = []
+        var start = data.startIndex
+        var index = data.startIndex
+        while index < data.endIndex {
+            if data[index] == 0 {
+                guard let value = String(data: data[start..<index], encoding: .utf8) else {
+                    return nil
+                }
+                parts.append(value)
+                start = data.index(after: index)
+            }
+            index = data.index(after: index)
+        }
+        if start < data.endIndex {
+            guard let value = String(data: data[start..<data.endIndex], encoding: .utf8) else {
+                return nil
+            }
+            parts.append(value)
+        }
+        return parts.isEmpty ? nil : parts
+    }
+
     private static func processDetectedOpenCodeSnapshots(
         candidates: [RestorableAgentProcessDetectionCandidate],
         capturedAt: TimeInterval,
@@ -520,7 +934,6 @@ extension RestorableAgentSessionIndex {
         var selectedCandidateByPanelKey: [
             PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
-        var processPIDsByWorkingDirectory: [String: Set<Int>] = [:]
 
         for candidate in candidates {
             let process = candidate.process
@@ -548,11 +961,20 @@ extension RestorableAgentSessionIndex {
                 isForeground: process.isForegroundProcess,
                 matchesFallbackScope: candidate.matchesFallbackScope
             ))
-            processPIDsByWorkingDirectory[cwdKey, default: []].insert(process.pid)
+        }
+
+        let fallbackRemappedPIDs = Set(openCodeProcesses.filter { $0.source == .fallbackScope }.map(\.pid))
+        var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
+        for process in openCodeProcesses {
+            if process.source == .cmuxScoped,
+               fallbackRemappedPIDs.contains(process.pid) {
+                continue
+            }
+            panelKeysByWorkingDirectory[process.workingDirectoryKey, default: []].insert(process.panelKey)
         }
 
         for process in openCodeProcesses {
-            let sameWorkingDirectoryPanelCount = processPIDsByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
+            let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
             let hasForkFlag = process.observed.arguments.hasOpenCodeForkFlag
             let forkParentSessionId = process.observed.arguments.openCodeForkParentSessionId
                 ?? (hasForkFlag ? process.observed.arguments.value(afterOption: "--session") : nil)
@@ -891,6 +1313,10 @@ struct VaultObservedAgentProcess: Sendable {
         processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
     }
 
+    var isCodexProcess: Bool {
+        processIdentityLooksLikeCodex || codexExecutableArgumentIndex != nil
+    }
+
     var openCodeExecutableArgument: String? {
         guard let index = openCodeExecutableArgumentIndex,
               arguments.indices.contains(index) else {
@@ -913,6 +1339,28 @@ struct VaultObservedAgentProcess: Sendable {
         return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
     }
 
+    var codexExecutableArgument: String? {
+        guard let index = codexExecutableArgumentIndex,
+              arguments.indices.contains(index) else {
+            return nil
+        }
+        return arguments[index]
+    }
+
+    var codexExecutableArgumentIndex: Int? {
+        if let first = arguments.first,
+           Self.argumentLooksLikeCodex(first) {
+            return 0
+        }
+        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
+            return nil
+        }
+        guard let scriptIndex = Self.nodeScriptArgumentIndex(arguments) else {
+            return nil
+        }
+        return Self.argumentLooksLikeCodex(arguments[scriptIndex]) ? scriptIndex : nil
+    }
+
     private var processIdentityLooksLikeOpenCode: Bool {
         executableBasenames.contains { basename in
             let normalized = basename.lowercased()
@@ -931,6 +1379,21 @@ struct VaultObservedAgentProcess: Sendable {
             basename == ".opencode" ||
             basename == "opencode-ai" ||
             basename == "open-code"
+    }
+
+    private var processIdentityLooksLikeCodex: Bool {
+        executableBasenames.contains { basename in
+            Self.argumentLooksLikeCodex(basename)
+        }
+    }
+
+    static func argumentLooksLikeCodex(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+            .replacingOccurrences(of: "\\", with: "/")
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename == "codex" ||
+            normalized.contains("/@openai/codex/")
     }
 
     static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
