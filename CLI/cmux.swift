@@ -20139,6 +20139,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hooks: hooks,
             hooksFilePath: filePath,
             def: def
+        ) + Self.codexHookTrustEntries(
+            hooks: buildHooksDict(for: def),
+            hooksFilePath: filePath,
+            def: def
         )
         let codexHookTrustEscapedKeyPrefixesToRemove = Self.codexHookTrustEscapedKeyPrefixes(
             hooksFilePath: filePath,
