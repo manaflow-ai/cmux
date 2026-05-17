@@ -4993,6 +4993,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "f",
                 3
             ),
+            (
+                .toggleUnread,
+                [.command, .option],
+                "u",
+                32
+            ),
         ]
 
         for testCase in cases {

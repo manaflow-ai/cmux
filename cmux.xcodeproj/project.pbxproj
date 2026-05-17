@@ -259,6 +259,7 @@
 		D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
+		B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */; };
 		B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -476,7 +477,7 @@
 			containerPortal = A5001070 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A5001050;
-			remoteInfo = GhosttyTabs;
+			remoteInfo = cmux;
 		};
 		B900000DA1B2C3D4E5F60719 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -497,7 +498,7 @@
 			containerPortal = A5001070 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A5001050;
-			remoteInfo = GhosttyTabs;
+			remoteInfo = cmux;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -791,6 +792,7 @@
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
+		B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarAppKitBridge.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -1327,6 +1329,7 @@
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
+				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
@@ -1581,9 +1584,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A5001050 /* GhosttyTabs */ = {
+		A5001050 /* cmux */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */;
+			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "cmux" */;
 			buildPhases = (
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
@@ -1601,7 +1604,7 @@
 				B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */,
 				D1320AA0D1320AA0D1320AB1 /* PBXTargetDependency */,
 			);
-			name = GhosttyTabs;
+			name = cmux;
 			packageProductDependencies = (
 				A5001231 /* Sparkle */,
 				A5001251 /* Sentry */,
@@ -1616,7 +1619,7 @@
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
-			productName = GhosttyTabs;
+			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -1706,7 +1709,7 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 1500;
 			};
-			buildConfigurationList = A5001071 /* Build configuration list for PBXProject "GhosttyTabs" */;
+			buildConfigurationList = A5001071 /* Build configuration list for PBXProject "cmux" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -1750,7 +1753,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A5001050 /* GhosttyTabs */,
+				A5001050 /* cmux */,
 				D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */,
 				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
 				CB450DF0F0B3839599082C4D /* cmuxUITests */,
@@ -2043,6 +2046,7 @@
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
+				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
@@ -2338,7 +2342,7 @@
 /* Begin PBXTargetDependency section */
 		32568B0DCFC8656BA952468E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A5001050 /* GhosttyTabs */;
+			target = A5001050 /* cmux */;
 			targetProxy = 738BF3D3196765B250928A93 /* PBXContainerItemProxy */;
 		};
 		B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */ = {
@@ -2353,7 +2357,7 @@
 		};
 		F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A5001050 /* GhosttyTabs */;
+			target = A5001050 /* cmux */;
 			targetProxy = F1000008A1B2C3D4E5F60718 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -2371,7 +2375,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Release;
 		};
@@ -2570,7 +2574,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Debug;
 		};
@@ -2638,7 +2642,7 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/Contents/MacOS/cmux DEV";
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Debug;
 		};
@@ -2656,14 +2660,14 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux.app/Contents/MacOS/cmux";
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */ = {
+		A5001060 /* Build configuration list for PBXNativeTarget "cmux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A5001082 /* Debug */,
@@ -2672,7 +2676,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A5001071 /* Build configuration list for PBXProject "GhosttyTabs" */ = {
+		A5001071 /* Build configuration list for PBXProject "cmux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A5001080 /* Debug */,

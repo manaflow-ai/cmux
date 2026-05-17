@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Customization"
-  short_description: "Customize cmux actions, settings, and layouts."
-  default_prompt: "Use $cmux-customization to add a project-specific cmux action and validate the config."
+  short_description: "Customize cmux actions, UI, layouts, and presets."
+  default_prompt: "Use $cmux-customization to pick an examples-library preset, wire it into cmux.json, and validate the cmux config."

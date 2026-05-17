@@ -131,6 +131,51 @@ const suggestedSkills = [
   },
 ] as const;
 
+const customizationExamples = [
+  {
+    id: "worktree-agents",
+    nameKey: "exampleWorktreeName",
+    surfaceKey: "exampleWorktreeSurface",
+    useKey: "exampleWorktreeUse",
+  },
+  {
+    id: "full-stack-dev",
+    nameKey: "exampleFullStackName",
+    surfaceKey: "exampleFullStackSurface",
+    useKey: "exampleFullStackUse",
+  },
+  {
+    id: "ssh-devbox",
+    nameKey: "exampleSshName",
+    surfaceKey: "exampleSshSurface",
+    useKey: "exampleSshUse",
+  },
+  {
+    id: "review-pr",
+    nameKey: "exampleReviewName",
+    surfaceKey: "exampleReviewSurface",
+    useKey: "exampleReviewUse",
+  },
+  {
+    id: "docs-workspace",
+    nameKey: "exampleDocsName",
+    surfaceKey: "exampleDocsSurface",
+    useKey: "exampleDocsUse",
+  },
+  {
+    id: "ci-watch",
+    nameKey: "exampleCiName",
+    surfaceKey: "exampleCiSurface",
+    useKey: "exampleCiUse",
+  },
+  {
+    id: "quick-agent-buttons",
+    nameKey: "exampleAgentButtonsName",
+    surfaceKey: "exampleAgentButtonsSurface",
+    useKey: "exampleAgentButtonsUse",
+  },
+] as const;
+
 export async function generateMetadata({
   params,
 }: {
@@ -160,7 +205,7 @@ export default function SkillsPage() {
         })}
       </p>
       <CodeBlock title={t("installWithVercel")} lang="bash">{`# Install all cmux skills
-npx skills add manaflow-ai/cmux --all -g -y
+npx skills add manaflow-ai/cmux -g -y
 
 # Or install just diagnostics
 npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
@@ -235,6 +280,41 @@ npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
           ))}
         </tbody>
       </table>
+
+      <DocsHeading level={2} id="customization-examples-title">{t("customizationExamplesTitle")}</DocsHeading>
+      <p>{t("customizationExamplesIntro")}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("exampleHeader")}</th>
+            <th>{t("exampleSurfaceHeader")}</th>
+            <th>{t("exampleUseHeader")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {customizationExamples.map((example) => (
+            <tr key={example.id}>
+              <td>
+                <strong>{t(example.nameKey)}</strong>
+                <br />
+                <code>{example.id}</code>
+              </td>
+              <td>{t(example.surfaceKey)}</td>
+              <td>{t(example.useKey)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Callout type="info">
+        {t.rich("customizationExamplesCallout", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
+      </Callout>
+      <CodeBlock title={t("customizationExamplePrompts")} lang="text">{[
+        t("customizationPromptWorktree"),
+        t("customizationPromptFullStack"),
+        t("customizationPromptAgentButtons"),
+      ].join("\n")}</CodeBlock>
 
       <DocsHeading level={2} id="help-menu-title">{t("helpMenuTitle")}</DocsHeading>
       <p>

@@ -1212,7 +1212,7 @@ extension Workspace {
             }
         }
         pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-        panel.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
@@ -8055,6 +8055,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
+    private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -8465,7 +8466,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
         backgroundPrimeTerminalPanels.forEach {
-            $0.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+            $0.surface.requestBackgroundSurfaceStartIfNeeded()
         }
     }
     func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
@@ -8484,7 +8485,7 @@ final class Workspace: Identifiable, ObservableObject {
         let isVisibleSelection =
             bonsplitController.focusedPaneId == paneId &&
             bonsplitController.selectedTab(inPane: paneId)?.id == tabId &&
-            terminalPanel.hostedView.window != nil &&
+            terminalPanel.surface.isViewInWindow &&
             terminalPanel.hostedView.superview != nil
 
         if isVisibleSelection {
@@ -10253,11 +10254,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
         // stealing focus from the new panel and creating model/surface divergence.
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.terminalSplitReparent"
+            )
             focusPanel(newPanel.id, previousHostedView: previousHostedView)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10467,11 +10468,11 @@ final class Workspace: Identifiable, ObservableObject {
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.browserSplitReparent"
+            )
             focusPanel(browserPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10655,11 +10656,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.markdownSplitReparent"
+            )
             focusPanel(markdownPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -11804,7 +11805,15 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
-        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+        let targetHostedView = terminalPanel(for: panelId)?.hostedView
+        let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
+            hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
+                pendingReparentFocusSuppressionViews.values.contains { $0 === hostedView }
+        } ?? false
+        let shouldSuppressReentrantRefocus =
+            trigger == .terminalFirstResponder &&
+            selectionAlreadyConverged &&
+            targetHasPendingReparentSuppression
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
@@ -11820,7 +11829,23 @@ final class Workspace: Identifiable, ObservableObject {
             "currentPanel=\(currentPanelShort)"
         )
 #endif
-        if shouldSuppressReentrantRefocus, currentlyFocusedPanelId == panelId { return }
+        if shouldSuppressReentrantRefocus, currentlyFocusedPanelId == panelId {
+            if let targetPaneId, let panel = panels[panelId] {
+                let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
+                applyTabSelection(
+                    tabId: tabId,
+                    inPane: targetPaneId,
+                    reassertAppKitFocus: false,
+                    focusIntent: activationIntent,
+                    previousTerminalHostedView: previousTerminalHostedView
+                )
+            }
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.focusPanel.terminal",
+                terminalFocusPanelId: panelId
+            )
+            return
+        }
 
         if let targetPaneId, !selectionAlreadyConverged {
 #if DEBUG
@@ -12341,6 +12366,69 @@ final class Workspace: Identifiable, ObservableObject {
         scheduleLayoutFollowUpAttempt()
     }
 
+    private func suppressReparentFocusUntilLayoutFollowUp(
+        _ hostedView: GhosttySurfaceScrollView?,
+        reason: String
+    ) {
+        guard let hostedView else { return }
+        hostedView.suppressReparentFocus()
+        pendingReparentFocusSuppressionViews[ObjectIdentifier(hostedView)] = hostedView
+#if DEBUG
+        cmuxDebugLog("focus.reparent.suppressPending reason=\(reason) count=\(pendingReparentFocusSuppressionViews.count)")
+#endif
+
+        guard portalRenderingEnabled else {
+            clearPendingReparentFocusSuppressions(reason: "\(reason).portalDisabled")
+            return
+        }
+
+        beginEventDrivenLayoutFollowUp(reason: reason, includeGeometry: true)
+    }
+
+    private func clearPendingReparentFocusSuppressions(reason: String) {
+        guard !pendingReparentFocusSuppressionViews.isEmpty else { return }
+        let hostedViews = Array(pendingReparentFocusSuppressionViews.values)
+        pendingReparentFocusSuppressionViews.removeAll()
+#if DEBUG
+        cmuxDebugLog("focus.reparent.clearPending reason=\(reason) count=\(hostedViews.count)")
+#endif
+        for hostedView in hostedViews {
+            hostedView.clearSuppressReparentFocus()
+        }
+    }
+
+    private func clearReadyPendingReparentFocusSuppressions(reason: String) {
+        guard !pendingReparentFocusSuppressionViews.isEmpty else { return }
+        let readyKeys = pendingReparentFocusSuppressionViews.compactMap { key, hostedView in
+            hostedView.canClearPendingReparentFocusSuppressionAfterLayoutAttempt() ? key : nil
+        }
+        guard !readyKeys.isEmpty else { return }
+        let hostedViews = readyKeys.compactMap { pendingReparentFocusSuppressionViews[$0] }
+        for key in readyKeys {
+            pendingReparentFocusSuppressionViews.removeValue(forKey: key)
+        }
+#if DEBUG
+        cmuxDebugLog("focus.reparent.clearReady reason=\(reason) count=\(hostedViews.count)")
+#endif
+        for hostedView in hostedViews {
+            hostedView.clearSuppressReparentFocus()
+        }
+    }
+
+#if DEBUG
+    func debugBeginReparentFocusSuppressionForTesting(_ hostedView: GhosttySurfaceScrollView, reason: String) {
+        suppressReparentFocusUntilLayoutFollowUp(hostedView, reason: reason)
+    }
+
+    func debugAttemptEventDrivenLayoutFollowUpForTesting() {
+        attemptEventDrivenLayoutFollowUp()
+    }
+
+    func debugHasPendingReparentFocusSuppressionsForTesting() -> Bool {
+        !pendingReparentFocusSuppressionViews.isEmpty
+    }
+#endif
+
     private func installLayoutFollowUpObservers() {
         guard layoutFollowUpTimeoutWorkItem == nil else { return }
 
@@ -12414,6 +12502,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearLayoutFollowUp() {
+        clearPendingReparentFocusSuppressions(reason: "workspace.layoutFollowUpEnd")
         layoutFollowUpTimeoutWorkItem?.cancel()
         layoutFollowUpTimeoutWorkItem = nil
         layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -12527,6 +12616,7 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
+        let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -12546,6 +12636,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
+        clearReadyPendingReparentFocusSuppressions(reason: "workspace.layoutAttempt")
+        let reparentFocusPending = !pendingReparentFocusSuppressionViews.isEmpty
 
         let reason = layoutFollowUpReason ?? "workspace.layout"
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
@@ -12596,7 +12688,8 @@ final class Workspace: Identifiable, ObservableObject {
             browserVisibilityPending ||
             terminalFocusPending ||
             browserPanelPending ||
-            browserExitPending
+            browserExitPending ||
+            reparentFocusPending
 
         if !needsMoreWork {
             clearLayoutFollowUp()
@@ -12609,7 +12702,8 @@ final class Workspace: Identifiable, ObservableObject {
             (browserVisibilityPendingBefore && !browserVisibilityPending) ||
             (terminalFocusPendingBefore && !terminalFocusPending) ||
             (browserPanelPendingBefore && !browserPanelPending) ||
-            (browserExitPendingBefore && !browserExitPending)
+            (browserExitPendingBefore && !browserExitPending) ||
+            (reparentFocusPendingBefore && !reparentFocusPending)
 
         if didMakeProgress {
             layoutFollowUpStalledAttemptCount = 0
@@ -12636,7 +12730,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
-            let isAttached = hostedView.window != nil && hostedView.superview != nil
+            let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
             // Force one SwiftUI representable update so the portal binding reattaches it.
@@ -12750,7 +12844,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
 
             if shouldBeVisible {
-                if hostedView.isHidden || hostedView.window == nil || hostedView.superview == nil {
+                if hostedView.isHidden || !terminalPanel.surface.isViewInWindow || hostedView.superview == nil {
                     return true
                 }
             } else if !hostedView.isHidden {
@@ -13750,7 +13844,7 @@ extension Workspace: BonsplitDelegate {
 
     private func activationWindow(for panel: any Panel) -> NSWindow? {
         if let terminalPanel = panel as? TerminalPanel {
-            return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            return terminalPanel.surface.uiWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         if let browserPanel = panel as? BrowserPanel {
             return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -14453,7 +14547,7 @@ extension Workspace: BonsplitDelegate {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
-        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
 
