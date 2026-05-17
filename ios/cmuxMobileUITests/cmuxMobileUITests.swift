@@ -380,7 +380,7 @@ final class cmuxMobileUITests: XCTestCase {
     @MainActor
     private func typeText(_ text: String, into element: XCUIElement, in app: XCUIApplication) throws {
         XCTAssertTrue(element.waitForExistence(timeout: 4))
-        element.tap()
+        XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(text)
         dismissKeyboard(in: app)
     }
@@ -388,7 +388,7 @@ final class cmuxMobileUITests: XCTestCase {
     @MainActor
     private func replaceText(_ text: String, in element: XCUIElement, app: XCUIApplication) throws {
         XCTAssertTrue(element.waitForExistence(timeout: 4))
-        element.tap()
+        XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 80))
         element.typeText(text)
         dismissKeyboard(in: app)
@@ -437,6 +437,34 @@ final class cmuxMobileUITests: XCTestCase {
             return frame
         }
         return nil
+    }
+
+    @MainActor
+    private func focusTextInput(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        for _ in 0..<4 {
+            if let frame = waitForUsableFrame(of: element, timeout: 1) {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                    .tap()
+            } else {
+                element.tap()
+            }
+
+            if waitForKeyboardFocus(of: element, timeout: 1) || app.keyboards.firstMatch.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+    }
+
+    @MainActor
+    private func waitForKeyboardFocus(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     @MainActor
