@@ -20065,12 +20065,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     existingContent = ""
                 }
-                let trustClean = Self.codexConfigTomlInstallingHookTrust(
+                let trustClean = Self.codexConfigTomlRemovingHookTrust(
                     in: existingContent,
-                    entries: [],
+                    entries: codexHookTrustEntries,
                     removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes
                 )
-                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean.content)
+                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
                 let trustInstall = Self.codexConfigTomlInstallingHookTrust(
                     in: featureContent,
                     entries: codexHookTrustEntries,
@@ -20331,11 +20331,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) -> String {
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash))
         removeCmuxCodexHooksFeatureBlock(from: &lines)
         if removeCmuxCodexHookTrustBlock(
             from: &lines,
             removingEscapedKeys: escapedKeys,
-            removingEscapedKeyPrefixes: escapedKeyPrefixes
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
         ) == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
@@ -20346,6 +20348,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return tomlContent(from: lines)
     }
 
+    private static func codexConfigTomlRemovingHookTrust(
+        in existingContent: String,
+        entries: [CodexHookTrustEntry],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>
+    ) -> String {
+        var lines = tomlLines(from: existingContent)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash))
+        let removalResult = removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        )
+        if removalResult == .malformed {
+            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
+        }
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
+        return tomlContent(from: lines)
+    }
+
     private static func codexConfigTomlInstallingHookTrust(
         in existingContent: String,
         entries: [CodexHookTrustEntry],
@@ -20353,10 +20376,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash))
         let removalResult = removeCmuxCodexHookTrustBlock(
             from: &lines,
             removingEscapedKeys: escapedKeys,
-            removingEscapedKeyPrefixes: escapedKeyPrefixes
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
         )
         if removalResult == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
@@ -20681,7 +20706,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func removeCmuxCodexHookTrustBlock(
         from lines: inout [String],
         removingEscapedKeys escapedKeys: Set<String> = [],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = []
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes trustedHashes: Set<String> = []
     ) -> CodexHookTrustBlockRemovalResult {
         var replacements: [(range: ClosedRange<Int>, lines: [String])] = []
         var index = 0
@@ -20697,7 +20723,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let preservedLines = codexHookTrustBlockUnownedLines(
                 from: lines[(index + 1)..<endIndex],
                 removingEscapedKeys: escapedKeys,
-                removingEscapedKeyPrefixes: escapedKeyPrefixes
+                removingEscapedKeyPrefixes: escapedKeyPrefixes,
+                removingTrustedHashes: trustedHashes
             )
             replacements.append((index...endIndex, preservedLines))
             index = endIndex + 1
@@ -20712,7 +20739,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func codexHookTrustBlockUnownedLines(
         from lines: ArraySlice<String>,
         removingEscapedKeys escapedKeys: Set<String>,
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes trustedHashes: Set<String>
     ) -> [String] {
         var preserved: [String] = []
         var index = lines.startIndex
@@ -20725,8 +20753,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 if !codexHookTrustEscapedKeyIsRemoved(
                     escapedKey,
+                    trustedHash: codexHookTrustTrustedHash(from: lines[tableStart..<index]),
                     removingEscapedKeys: escapedKeys,
-                    removingEscapedKeyPrefixes: escapedKeyPrefixes
+                    removingEscapedKeyPrefixes: escapedKeyPrefixes,
+                    removingTrustedHashes: trustedHashes
                 ) {
                     preserved.append(contentsOf: lines[tableStart..<index])
                 }
@@ -20752,10 +20782,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func codexHookTrustEscapedKeyIsRemoved(
         _ escapedKey: String,
+        trustedHash: String?,
         removingEscapedKeys escapedKeys: Set<String>,
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes trustedHashes: Set<String>
     ) -> Bool {
-        escapedKeys.contains(escapedKey) || escapedKeyPrefixes.contains { escapedKey.hasPrefix($0) }
+        if escapedKeys.contains(escapedKey) {
+            return true
+        }
+        guard let trustedHash, trustedHashes.contains(trustedHash) else {
+            return false
+        }
+        return escapedKeyPrefixes.contains { escapedKey.hasPrefix($0) }
+    }
+
+    private static func codexHookTrustTrustedHash(from lines: ArraySlice<String>) -> String? {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let equalsIndex = trimmed.firstIndex(of: "=") else { continue }
+            let key = String(trimmed[..<equalsIndex]).trimmingCharacters(in: .whitespaces)
+            guard key == "trusted_hash" else { continue }
+            let valueStart = trimmed.index(after: equalsIndex)
+            let value = String(trimmed[valueStart...]).trimmingCharacters(in: .whitespaces)
+            guard value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 else { continue }
+            return String(value.dropFirst().dropLast())
+        }
+        return nil
     }
 
     private static func stripMalformedCmuxCodexHookTrustMarker(from lines: inout [String]) {

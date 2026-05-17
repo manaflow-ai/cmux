@@ -1381,6 +1381,14 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
     hooks_path = codex_home / "hooks.json"
     stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
     stale_old_cmux_key = f"{hooks_path.resolve()}:pre_tool_use:9:0"
+    stale_old_cmux_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command=cmux_codex_feed_command("PreToolUse"),
+        timeout=120_000,
+        status_message=None,
+    )
+    same_file_user_key = f"{hooks_path.resolve()}:pre_tool_use:8:0"
     third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
     config_path = codex_home / "config.toml"
     config_path.write_text(
@@ -1392,7 +1400,10 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         'trusted_hash = "sha256:stale"\n'
         "\n"
         f'[hooks.state."{stale_old_cmux_key}"]\n'
-        'trusted_hash = "sha256:old-cmux"\n'
+        f'trusted_hash = "{stale_old_cmux_hash}"\n'
+        "\n"
+        f'[hooks.state."{same_file_user_key}"]\n'
+        'trusted_hash = "sha256:same-file-user"\n'
         "\n"
         f'[hooks.state."{third_party_key}"]\n'
         'trusted_hash = "sha256:third-party"\n'
@@ -1430,9 +1441,11 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         raise AssertionError(f"loose config line was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:third-party"' not in config_toml:
         raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
+        raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:stale"' in config_toml:
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
-    if 'trusted_hash = "sha256:old-cmux"' in config_toml:
+    if stale_old_cmux_key in config_toml:
         raise AssertionError(f"old cmux hook trust was preserved: {config_toml!r}")
     trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
@@ -1522,11 +1535,14 @@ def test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(
 
     config_path = codex_home / "config.toml"
     trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    same_file_user_key = f"{(codex_home / 'hooks.json').resolve()}:pre_tool_use:8:0"
     third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
     config_toml = config_path.read_text(encoding="utf-8")
     config_path.write_text(
         config_toml.replace(
             trust_end,
+            f'[hooks.state."{same_file_user_key}"]\n'
+            'trusted_hash = "sha256:same-file-user"\n'
             f'[hooks.state."{third_party_key}"]\n'
             'trusted_hash = "sha256:third-party"\n'
             f"{trust_end}",
@@ -1550,8 +1566,12 @@ def test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(
     config_toml = config_path.read_text(encoding="utf-8")
     if "cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738" in config_toml:
         raise AssertionError(f"cmux hook trust marker was preserved: {config_toml!r}")
-    if str((codex_home / "hooks.json").resolve()) in config_toml:
-        raise AssertionError(f"cmux hook trust was preserved: {config_toml!r}")
+    state = codex_hook_trust_state(config_toml)
+    for key in state:
+        if key.startswith(f"{(codex_home / 'hooks.json').resolve()}:") and key != same_file_user_key:
+            raise AssertionError(f"cmux hook trust was preserved: {config_toml!r}")
+    if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
+        raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:third-party"' not in config_toml:
         raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
 
