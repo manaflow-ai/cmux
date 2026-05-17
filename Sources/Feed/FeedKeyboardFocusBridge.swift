@@ -34,6 +34,7 @@ struct FeedKeyboardFocusBridge: NSViewRepresentable {
         nsView.onFocusFirstItemRequested = onFocusFirstItemRequested
         nsView.onFocusChanged = onFocusChanged
         nsView.onFocusSnapshotChanged = onFocusSnapshotChanged
+        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 
@@ -44,6 +45,7 @@ final class FeedKeyboardFocusView: NSView {
     var onFocusFirstItemRequested: (() -> Void)?
     var onFocusChanged: ((Bool) -> Void)?
     var onFocusSnapshotChanged: ((FeedFocusSnapshot) -> Void)?
+    private weak var registeredWindow: NSWindow?
 
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
@@ -58,8 +60,13 @@ final class FeedKeyboardFocusView: NSView {
     }
 
     func registerWithKeyboardFocusCoordinatorIfNeeded() {
-        guard let window else { return }
+        guard let window else {
+            registeredWindow = nil
+            return
+        }
+        guard registeredWindow !== window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
+        registeredWindow = window
     }
 
     override func layout() {
