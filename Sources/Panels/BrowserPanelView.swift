@@ -5,7 +5,7 @@ import AppKit
 import ObjectiveC
 
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
-nonisolated let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
+let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
 
 private func browserPanelViewObjectID(_ object: AnyObject?) -> String {
     guard let object else { return "nil" }
