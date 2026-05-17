@@ -201,6 +201,46 @@ struct WorkstreamAgentGraphTests {
         #expect(children.map(\.workstreamId) == ["claude-child"])
     }
 
+    @Test("Ambiguous child matches before spawn keep pending spawn")
+    func ambiguousChildMatchesBeforeSpawnKeepPendingSpawn() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child-type",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent","subagent_type":"explorer"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child-task",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent","task_description":"Map settings code paths"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer","prompt":"Map settings code paths"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        #expect(graph.nodeCount == 4)
+        #expect(graph.edgeCount == 3)
+        let children = graph.roots.first?.children ?? []
+        #expect(children.filter { $0.kind == .session }.count == 2)
+        #expect(children.filter { $0.kind == .spawnRequest }.count == 1)
+    }
+
     @Test("Parent child metadata prunes matching pending spawn")
     func parentChildMetadataPrunesMatchingPendingSpawn() {
         let store = WorkstreamStore(ringCapacity: 10)

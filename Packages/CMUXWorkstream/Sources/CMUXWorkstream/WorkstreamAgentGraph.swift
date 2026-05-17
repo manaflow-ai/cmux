@@ -237,27 +237,27 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                 guard !shouldCancel() else { return nil }
                 var score = 0
                 if spawn.source == childSource {
-                    score += 2
+                    score += SpawnResolutionScore.linkedChildSource
                 }
                 if let childWorkspaceId,
                    let workspaceId = spawn.workspaceId,
                    childWorkspaceId == workspaceId {
-                    score += 2
+                    score += SpawnResolutionScore.linkedChildWorkspace
                 }
                 if let subagentType = metadata.subagentType,
                    let spawnSubagentType = spawn.subagentType,
                    subagentType == spawnSubagentType {
-                    score += 4
+                    score += SpawnResolutionScore.subagentType
                 }
                 if let model = metadata.model,
                    let spawnModel = spawn.model,
                    model == spawnModel {
-                    score += 3
+                    score += SpawnResolutionScore.model
                 }
                 if let taskDescription = metadata.taskDescription,
                    let spawnTaskDescription = spawn.taskDescription,
                    taskDescription == spawnTaskDescription {
-                    score += 4
+                    score += SpawnResolutionScore.taskDescription
                 }
                 guard score > 0 else { continue }
                 if score > bestScore {
@@ -367,6 +367,16 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             maxDepth: maxDepth
         )
     }
+}
+
+private enum SpawnResolutionScore {
+    static let linkedChildSource = 2
+    static let linkedChildWorkspace = 2
+    static let existingChildSource = 1
+    static let existingChildWorkspace = 1
+    static let subagentType = 4
+    static let model = 3
+    static let taskDescription = 4
 }
 
 private struct SessionRecord {
@@ -528,29 +538,29 @@ private struct SpawnRecord {
         var score = 0
         var hasMetadataMatch = false
         if source == record.source {
-            score += 1
+            score += SpawnResolutionScore.existingChildSource
         }
         if let workspaceId,
            let recordWorkspaceId = record.workspaceId,
            workspaceId == recordWorkspaceId {
-            score += 1
+            score += SpawnResolutionScore.existingChildWorkspace
         }
         if let subagentType,
            let recordSubagentType = record.subagentType,
            subagentType == recordSubagentType {
-            score += 4
+            score += SpawnResolutionScore.subagentType
             hasMetadataMatch = true
         }
         if let model,
            let recordModel = record.model,
            model == recordModel {
-            score += 3
+            score += SpawnResolutionScore.model
             hasMetadataMatch = true
         }
         if let taskDescription,
            let recordTaskDescription = record.taskDescription,
            taskDescription == recordTaskDescription {
-            score += 5
+            score += SpawnResolutionScore.taskDescription
             hasMetadataMatch = true
         }
         return hasMetadataMatch ? score : 0
