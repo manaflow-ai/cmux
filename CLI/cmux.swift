@@ -17974,7 +17974,10 @@ struct CMUXCLI {
                             continue
                         }
                         sawRelevantTurn = true
-                    } else if unscopedEventIsInCurrentTurn {
+                    } else {
+                        guard unscopedEventIsInCurrentTurn else {
+                            continue
+                        }
                         sawRelevantTurn = true
                     }
                 }
@@ -17994,7 +17997,10 @@ struct CMUXCLI {
                             continue
                         }
                         sawRelevantTurn = true
-                    } else if unscopedEventIsInCurrentTurn {
+                    } else {
+                        guard unscopedEventIsInCurrentTurn else {
+                            continue
+                        }
                         sawRelevantTurn = true
                     }
                 }

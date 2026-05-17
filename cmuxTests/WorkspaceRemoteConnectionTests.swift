@@ -3151,6 +3151,103 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testCodexHookMonitorIgnoresUnscopedAbortBeforeLeaseStart() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-stale-unscoped-abort"
+        let turnId = "turn-monitor-stale-unscoped-abort"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let leaseCreatedAt = Date.now
+        let staleTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(-5))
+        let terminalTimestamp = ISO8601DateFormatter().string(from: leaseCreatedAt.addingTimeInterval(1))
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"\(staleTimestamp)","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"\(staleTimestamp)","type":"event_msg","payload":{"type":"error","message":"Stream disconnected before completion.","codex_error_info":"response_stream_disconnected"}}
+        {"timestamp":"\(terminalTimestamp)","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnId)","last_agent_message":null}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let leaseDirectory = root.appendingPathComponent("codex-monitor-leases", isDirectory: true)
+        try FileManager.default.createDirectory(at: leaseDirectory, withIntermediateDirectories: true)
+        let leaseURL = leaseDirectory.appendingPathComponent("lease-stale-unscoped-abort.json", isDirectory: false)
+        let lease: [String: Any] = [
+            "leaseId": "lease-stale-unscoped-abort",
+            "sessionId": sessionId,
+            "turnId": turnId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "createdAt": leaseCreatedAt.timeIntervalSince1970,
+        ]
+        try JSONSerialization.data(withJSONObject: lease, options: [.prettyPrinted, .sortedKeys])
+            .write(to: leaseURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "codex", "monitor",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--session",
+                sessionId,
+                "--turn",
+                turnId,
+                "--transcript",
+                transcriptURL.path,
+                "--lease",
+                leaseURL.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertFalse(
+            state.commands.contains { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+            },
+            "Did not expect monitor to publish stale pre-lease abort notification, saw \(state.commands)"
+        )
+        XCTAssertFalse(
+            state.commands.contains { command in
+                command.contains("set_status codex Codex network error") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Did not expect monitor to publish stale pre-lease abort status, saw \(state.commands)"
+        )
+    }
+
     func testCodexHookMonitorNotifiesOnRequestUserInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
