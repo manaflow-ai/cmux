@@ -475,6 +475,210 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
+    func testReopenClosedPanelAfterWorkspaceRestoreUsesRestoredWorkspaceId() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Recovered")
+        let originalSecondWorkspaceId = secondWorkspace.id
+        let pane = try XCTUnwrap(secondWorkspace.bonsplitController.allPaneIds.first)
+        let closedPanelId = try XCTUnwrap(secondWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        secondWorkspace.markCloseHistoryEligible(panelId: closedPanelId)
+        XCTAssertTrue(secondWorkspace.closePanel(closedPanelId, force: true))
+        drainMainQueue()
+        XCTAssertNil(secondWorkspace.panels[closedPanelId])
+        XCTAssertEqual(ClosedItemHistoryStore.shared.entries.count, 1)
+
+        manager.closeWorkspace(secondWorkspace)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+        XCTAssertEqual(ClosedItemHistoryStore.shared.entries.count, 2)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        XCTAssertEqual(restoredWorkspace.customTitle, "Recovered")
+        XCTAssertNotEqual(restoredWorkspace.id, originalSecondWorkspaceId)
+        XCTAssertEqual(restoredWorkspace.panels.count, 1)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
+        XCTAssertEqual(restoredWorkspace.panels.count, 2)
+        XCTAssertNotNil(restoredWorkspace.focusedPanelId.flatMap { restoredWorkspace.panels[$0] })
+    }
+
+    func testReopenClosedBrowserSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let splitBrowserId = try XCTUnwrap(manager.newBrowserSplit(
+            tabId: workspace.id,
+            fromPanelId: sourcePanelId,
+            orientation: .horizontal,
+            insertFirst: false,
+            url: URL(string: "https://example.com/unified-history-split")
+        ))
+
+        drainMainQueue()
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+
+        workspace.markCloseHistoryEligible(panelId: splitBrowserId)
+        XCTAssertTrue(workspace.closePanel(splitBrowserId, force: true))
+        drainMainQueue()
+        XCTAssertNil(workspace.panels[splitBrowserId])
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 1)
+        XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertTrue(workspace.focusedPanelId.flatMap { workspace.panels[$0] } is BrowserPanel)
+    }
+
+    func testReopenClosedBrowserSplitAfterWorkspaceRestoreRestoresCollapsedPane() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Recovered Browser Split")
+        let sourcePanelId = try XCTUnwrap(secondWorkspace.focusedPanelId)
+        let splitBrowserId = try XCTUnwrap(manager.newBrowserSplit(
+            tabId: secondWorkspace.id,
+            fromPanelId: sourcePanelId,
+            orientation: .horizontal,
+            insertFirst: false,
+            url: URL(string: "https://example.com/workspace-restored-browser-split")
+        ))
+
+        drainMainQueue()
+        XCTAssertEqual(secondWorkspace.bonsplitController.allPaneIds.count, 2)
+
+        secondWorkspace.markCloseHistoryEligible(panelId: splitBrowserId)
+        XCTAssertTrue(secondWorkspace.closePanel(splitBrowserId, force: true))
+        drainMainQueue()
+        XCTAssertNil(secondWorkspace.panels[splitBrowserId])
+        XCTAssertEqual(secondWorkspace.bonsplitController.allPaneIds.count, 1)
+
+        manager.closeWorkspace(secondWorkspace)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        XCTAssertEqual(restoredWorkspace.customTitle, "Recovered Browser Split")
+        XCTAssertEqual(restoredWorkspace.bonsplitController.allPaneIds.count, 1)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
+        XCTAssertEqual(restoredWorkspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertTrue(restoredWorkspace.focusedPanelId.flatMap { restoredWorkspace.panels[$0] } is BrowserPanel)
+    }
+
+    func testReopenClosedPanelsAfterWorkspaceRestoreRemapsStillClosedAnchors() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Recovered Anchor Chain")
+        let livePanelId = try XCTUnwrap(secondWorkspace.focusedPanelId)
+        secondWorkspace.setPanelCustomTitle(panelId: livePanelId, title: "Live")
+        let livePane = try XCTUnwrap(secondWorkspace.paneId(forPanelId: livePanelId))
+        let wrongPanel = try XCTUnwrap(secondWorkspace.newTerminalSplit(
+            from: livePanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+        secondWorkspace.setPanelCustomTitle(panelId: wrongPanel.id, title: "Wrong")
+        let anchorPanelId = try XCTUnwrap(secondWorkspace.newTerminalSurface(
+            inPane: livePane,
+            focus: true
+        )?.id)
+        secondWorkspace.setPanelCustomTitle(panelId: anchorPanelId, title: "Anchor")
+        let olderPanelId = try XCTUnwrap(secondWorkspace.newTerminalSurface(
+            inPane: livePane,
+            focus: true
+        )?.id)
+        secondWorkspace.setPanelCustomTitle(panelId: olderPanelId, title: "Older")
+
+        secondWorkspace.markCloseHistoryEligible(panelId: olderPanelId)
+        XCTAssertTrue(secondWorkspace.closePanel(olderPanelId, force: true))
+        drainMainQueue()
+        secondWorkspace.markCloseHistoryEligible(panelId: anchorPanelId)
+        XCTAssertTrue(secondWorkspace.closePanel(anchorPanelId, force: true))
+        drainMainQueue()
+        XCTAssertEqual(secondWorkspace.bonsplitController.allPaneIds.count, 2)
+
+        manager.closeWorkspace(secondWorkspace)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        XCTAssertEqual(restoredWorkspace.customTitle, "Recovered Anchor Chain")
+        let restoredLivePanelId = try XCTUnwrap(
+            restoredWorkspace.panelCustomTitles.first(where: { $0.value == "Live" })?.key
+        )
+        let restoredWrongPanelId = try XCTUnwrap(
+            restoredWorkspace.panelCustomTitles.first(where: { $0.value == "Wrong" })?.key
+        )
+        XCTAssertEqual(restoredWorkspace.bonsplitController.allPaneIds.count, 2)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        drainMainQueue()
+        let restoredAnchorPanelId = try XCTUnwrap(
+            restoredWorkspace.panelCustomTitles.first(where: { $0.value == "Anchor" })?.key
+        )
+        let restoredAnchorPane = try XCTUnwrap(restoredWorkspace.paneId(forPanelId: restoredAnchorPanelId))
+        let restoredLivePane = try XCTUnwrap(restoredWorkspace.paneId(forPanelId: restoredLivePanelId))
+        let restoredWrongPane = try XCTUnwrap(restoredWorkspace.paneId(forPanelId: restoredWrongPanelId))
+        XCTAssertEqual(restoredAnchorPane, restoredLivePane)
+        XCTAssertNotEqual(restoredAnchorPane, restoredWrongPane)
+
+        restoredWorkspace.focusPanel(restoredWrongPanelId)
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        drainMainQueue()
+        let restoredOlderPanelId = try XCTUnwrap(
+            restoredWorkspace.panelCustomTitles.first(where: { $0.value == "Older" })?.key
+        )
+
+        XCTAssertEqual(restoredWorkspace.paneId(forPanelId: restoredOlderPanelId), restoredAnchorPane)
+        XCTAssertNotEqual(restoredWorkspace.paneId(forPanelId: restoredOlderPanelId), restoredWrongPane)
+    }
+
+    func testRemapClosedPanelHistoryAfterWindowRestoreUsesRestoredWorkspaceIds() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.setCustomTitle("Recovered Window Workspace")
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let closedPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.setPanelCustomTitle(panelId: closedPanelId, title: "Closed Panel")
+
+        workspace.markCloseHistoryEligible(panelId: closedPanelId)
+        XCTAssertTrue(workspace.closePanel(closedPanelId, force: true))
+        drainMainQueue()
+        XCTAssertNil(workspace.panels[closedPanelId])
+
+        let originalWorkspaceIds = manager.sessionSnapshotWorkspaceIds()
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(originalWorkspaceIds, [workspace.id])
+
+        let restoredManager = TabManager()
+        let restoredPanelIdsByWorkspaceIndex = restoredManager.restoreSessionSnapshot(snapshot)
+        restoredManager.remapClosedPanelHistoryAfterWindowRestore(
+            originalWorkspaceIds: originalWorkspaceIds,
+            restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+        )
+
+        let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
+        XCTAssertNotEqual(restoredWorkspace.id, workspace.id)
+        XCTAssertTrue(restoredManager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Closed Panel"))
+    }
+
     func testReopenClosedItemRestoresClosedWorkspaceSnapshot() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)

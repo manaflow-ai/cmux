@@ -2934,7 +2934,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .window(let windowEntry):
                 _ = createMainWindow(
                     sessionWindowSnapshot: windowEntry.snapshot,
-                    shouldActivate: shouldActivate
+                    shouldActivate: shouldActivate,
+                    closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds
                 )
                 return true
             }
@@ -7294,7 +7295,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
-        sourceWindow preferredSourceWindow: NSWindow? = nil
+        sourceWindow preferredSourceWindow: NSWindow? = nil,
+        closedWindowHistoryWorkspaceIds: [UUID] = []
     ) -> UUID {
         let windowId = UUID()
         let tabManager = TabManager(
@@ -7303,8 +7305,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
+        var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
-            tabManager.restoreSessionSnapshot(tabManagerSnapshot)
+            restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(tabManagerSnapshot)
+        }
+        if !closedWindowHistoryWorkspaceIds.isEmpty {
+            tabManager.remapClosedPanelHistoryAfterWindowRestore(
+                originalWorkspaceIds: closedWindowHistoryWorkspaceIds,
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+            )
         }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
@@ -14327,7 +14336,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               ) else {
             return
         }
-        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(snapshot: snapshot)))
+        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+            snapshot: snapshot,
+            workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
+        )))
     }
 
 #if DEBUG

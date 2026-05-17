@@ -4266,6 +4266,7 @@ class TabManager: ObservableObject {
                 restorableAgentIndex: RestorableAgentSessionIndex.load()
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
@@ -6364,6 +6365,7 @@ class TabManager: ObservableObject {
         }
 
         guard let panelId else { return false }
+        ClosedItemHistoryStore.shared.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
         withFocusHistoryRecordingSuppressed {
             if selectedTabId != workspace.id {
                 selectedTabId = workspace.id
@@ -6384,7 +6386,12 @@ class TabManager: ObservableObject {
             select: false,
             autoWelcomeIfNeeded: false
         )
-        workspace.restoreSessionSnapshot(entry.snapshot)
+        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
+        ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+            from: entry.workspaceId,
+            to: workspace.id,
+            panelIdMap: restoredPanelIds
+        )
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
             let removed = tabs.remove(at: currentIndex)
@@ -7912,6 +7919,15 @@ extension TabManager {
         )
     }
 
+    func sessionSnapshotWorkspaceIds() -> [UUID] {
+        Array(
+            tabs
+                .filter(\.isRestorableInSessionSnapshot)
+                .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+                .map(\.id)
+        )
+    }
+
     private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
@@ -7922,7 +7938,8 @@ extension TabManager {
         workspace.owningTabManager = nil
     }
 
-    func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+    @discardableResult
+    func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) -> [[UUID: UUID]] {
         let previousTabs = tabs
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
@@ -7954,6 +7971,7 @@ extension TabManager {
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
+        var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
@@ -7965,9 +7983,10 @@ extension TabManager {
                 portOrdinal: ordinal
             )
             workspace.owningTabManager = self
-            workspace.restoreSessionSnapshot(workspaceSnapshot)
+            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
+            restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
         }
 
         if newTabs.isEmpty {
@@ -8013,6 +8032,26 @@ extension TabManager {
                 name: .ghosttyDidFocusTab,
                 object: nil,
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
+            )
+        }
+        return restoredPanelIdsByWorkspaceIndex
+    }
+
+    func remapClosedPanelHistoryAfterWindowRestore(
+        originalWorkspaceIds: [UUID],
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+    ) {
+        guard !originalWorkspaceIds.isEmpty else { return }
+        let count = min(originalWorkspaceIds.count, tabs.count)
+        guard count > 0 else { return }
+        for index in 0..<count {
+            let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
+                ? restoredPanelIdsByWorkspaceIndex[index]
+                : [:]
+            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+                from: originalWorkspaceIds[index],
+                to: tabs[index].id,
+                panelIdMap: panelIdMap
             )
         }
     }

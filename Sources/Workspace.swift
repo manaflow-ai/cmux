@@ -240,7 +240,8 @@ extension Workspace {
         )
     }
 
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+    @discardableResult
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -329,6 +330,7 @@ extension Workspace {
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
+        return oldToNewPanelIds
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -556,6 +558,35 @@ extension Workspace {
         guard let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tabId }) else {
             return nil
         }
+        let paneTabs = bonsplitController.tabs(inPane: pane)
+        let paneAnchorPanelId: UUID? = {
+            if tabIndex + 1 < paneTabs.count {
+                return panelIdFromSurfaceId(paneTabs[tabIndex + 1].id)
+            }
+            if tabIndex > 0 {
+                return panelIdFromSurfaceId(paneTabs[tabIndex - 1].id)
+            }
+            return nil
+        }()
+        let fallbackPlan = browserCloseFallbackPlan(
+            forPaneId: pane.id.uuidString,
+            in: bonsplitController.treeSnapshot()
+        )
+        let fallbackAnchorPanelId = fallbackPlan?.anchorPaneId.flatMap { anchorPaneId -> UUID? in
+            guard let anchorPane = bonsplitController.allPaneIds.first(where: { $0.id == anchorPaneId }),
+                  let anchorTab = bonsplitController.selectedTab(inPane: anchorPane)
+                    ?? bonsplitController.tabs(inPane: anchorPane).first else {
+                return nil
+            }
+            return panelIdFromSurfaceId(anchorTab.id)
+        }
+        let fallbackSplitPlacement = fallbackPlan.map {
+            ClosedPanelSplitPlacement(
+                orientation: $0.orientation,
+                insertFirst: $0.insertFirst,
+                anchorPanelId: fallbackAnchorPanelId
+            )
+        }
         let restorableAgentIndex = RestorableAgentSessionIndex.load()
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
@@ -567,8 +598,10 @@ extension Workspace {
         return ClosedPanelHistoryEntry(
             workspaceId: id,
             paneId: pane.id,
+            paneAnchorPanelId: paneAnchorPanelId,
             tabIndex: tabIndex,
-            snapshot: snapshot
+            snapshot: snapshot,
+            fallbackSplitPlacement: fallbackSplitPlacement
         )
     }
 
@@ -592,12 +625,26 @@ extension Workspace {
 
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
-        guard let pane =
-            bonsplitController.allPaneIds.first(where: { $0.id == entry.paneId })
-            ?? bonsplitController.focusedPaneId
-            ?? bonsplitController.allPaneIds.first else {
+        if entry.restoreInOriginalPane,
+           let originalPane = bonsplitController.allPaneIds.first(where: { $0.id == entry.paneId }) {
+            return restoreClosedPanel(entry, inPane: originalPane)
+        }
+        if let paneAnchorPanelId = entry.paneAnchorPanelId,
+           let pane = paneId(forPanelId: paneAnchorPanelId) {
+            return restoreClosedPanel(entry, inPane: pane)
+        }
+        if let splitPanelId = restoreClosedPanelInFallbackSplit(entry) {
+            triggerFocusFlash(panelId: splitPanelId)
+            return splitPanelId
+        }
+        guard let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
             return nil
         }
+        return restoreClosedPanel(entry, inPane: pane)
+    }
+
+    @discardableResult
+    private func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry, inPane pane: PaneID) -> UUID? {
         guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else { return nil }
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
@@ -609,6 +656,32 @@ extension Workspace {
         focusPanel(panelId)
         triggerFocusFlash(panelId: panelId)
         return panelId
+    }
+
+    @discardableResult
+    private func restoreClosedPanelInFallbackSplit(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        guard entry.snapshot.type == .browser,
+              let placement = entry.fallbackSplitPlacement,
+              let anchorPanelId = placement.anchorPanelId,
+              panels[anchorPanelId] != nil else {
+            return nil
+        }
+
+        guard let browserPanel = newBrowserSplit(
+            from: anchorPanelId,
+            orientation: placement.orientation,
+            insertFirst: placement.insertFirst,
+            url: nil,
+            preferredProfileID: entry.snapshot.browser?.profileID,
+            focus: false,
+            creationPolicy: .restoration
+        ) else {
+            return nil
+        }
+
+        applySessionPanelMetadata(entry.snapshot, toPanelId: browserPanel.id)
+        focusPanel(browserPanel.id)
+        return browserPanel.id
     }
 
     nonisolated static func resolvedSnapshotTerminalScrollback(
