@@ -427,7 +427,12 @@ final class CmuxWebView: WKWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            NotificationCenter.default.post(
+                name: .browserDidBecomeFirstResponderWebView,
+                object: self,
+                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+            )
         }
 #if DEBUG
         let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
