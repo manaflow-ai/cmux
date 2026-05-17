@@ -390,6 +390,19 @@ import Testing
     #expect(snapshot.visibleRows[0].cells[0].text == "r")
 }
 
+@Test func ghosttyTextBuilderConsumesCharsetEscapeSequences() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-charset",
+        columns: 20,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "\u{001B}(Bready"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["ready"])
+    #expect(snapshot.visibleRows[0].cells[0].text == "r")
+}
+
 @Test func ghosttyTextBuilderSplitsCRLFRows() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-crlf",

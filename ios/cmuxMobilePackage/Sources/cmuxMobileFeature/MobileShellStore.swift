@@ -1434,7 +1434,10 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
            !authToken.isEmpty {
             auth["attach_token"] = authToken
         }
-        if auth["attach_token"] == nil, Self.requestRequiresAuth(request), Self.routeAllowsStackAuth(route) {
+        let shouldSendStackAuth = auth["attach_token"] == nil
+            ? Self.requestRequiresAuth(request)
+            : Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        if shouldSendStackAuth, Self.routeAllowsStackAuth(route) {
             if let accessToken = try? await AuthManager.shared.getAccessToken() {
                 auth["stack_access_token"] = accessToken
             }
@@ -1449,9 +1452,48 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         return try JSONSerialization.data(withJSONObject: request)
     }
 
+    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+        guard requestRequiresAuth(request) else {
+            return false
+        }
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let params = request["params"] as? [String: Any] ?? [:]
+        let workspaceID = stringParam(params, keys: ["workspace_id", "workspaceID"])
+        let terminalID = stringParam(params, keys: ["surface_id", "terminal_id", "terminalID", "tab_id"])
+
+        switch method {
+        case "mobile.workspace.list", "workspace.list":
+            return workspaceID != ticket.workspaceID
+        case "mobile.terminal.create", "terminal.create",
+             "mobile.terminal.snapshot", "terminal.snapshot",
+             "mobile.terminal.input", "terminal.input":
+            guard workspaceID == ticket.workspaceID else {
+                return true
+            }
+            if let ticketTerminalID = ticket.terminalID {
+                return terminalID != ticketTerminalID
+            }
+            return false
+        default:
+            return true
+        }
+    }
+
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method != "mobile.host.status"
+    }
+
+    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
     }
 
     private func receiveFrame(from transport: any CmxByteTransport) async throws -> Data {

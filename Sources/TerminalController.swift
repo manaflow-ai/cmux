@@ -83,6 +83,7 @@ class TerminalController {
     }
     private static let mobileViewportReportTTL: TimeInterval = 120
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
+    private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -18000,6 +18001,8 @@ class TerminalController {
 
             if reports.isEmpty {
                 mobileViewportReportsBySurfaceID[surfaceID] = nil
+                mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+                mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
                 terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(
                     reason: "mobile.viewport.connectionClosed"
                 )
@@ -18124,6 +18127,7 @@ class TerminalController {
             updatedAt: now
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
+        scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id)
 
         guard let minColumns = reports.values.map(\.columns).min(),
               let minRows = reports.values.map(\.rows).min() else {
@@ -18134,6 +18138,50 @@ class TerminalController {
             rows: minRows,
             reason: "mobile.terminal.snapshot"
         )
+    }
+
+    private func scheduleMobileViewportReportCleanup(surfaceID: UUID) {
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(Int((Self.mobileViewportReportTTL + 1) * 1000)))
+        timer.setEventHandler { [weak self] in
+            self?.pruneMobileViewportReports(surfaceID: surfaceID, reason: "mobile.viewport.reportsExpired")
+        }
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = timer
+        timer.resume()
+    }
+
+    private func pruneMobileViewportReports(surfaceID: UUID, reason: String) {
+        let now = Date()
+        guard var reports = mobileViewportReportsBySurfaceID[surfaceID] else {
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+            return
+        }
+
+        reports = reports.filter { _, report in
+            now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+        }
+
+        guard !reports.isEmpty else {
+            mobileViewportReportsBySurfaceID[surfaceID] = nil
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            return
+        }
+
+        mobileViewportReportsBySurfaceID[surfaceID] = reports
+        if let minColumns = reports.values.map(\.columns).min(),
+           let minRows = reports.values.map(\.rows).min() {
+            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+                columns: minColumns,
+                rows: minRows,
+                reason: reason
+            )
+        }
+        scheduleMobileViewportReportCleanup(surfaceID: surfaceID)
     }
 
     private func mobileTerminalSnapshotPayload(

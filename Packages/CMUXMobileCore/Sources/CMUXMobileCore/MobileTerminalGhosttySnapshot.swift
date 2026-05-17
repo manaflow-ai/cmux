@@ -761,8 +761,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         }
 
         guard text[cursor] == "[" else {
-            index = text.index(after: cursor)
-            return TerminalEscapeAction.none
+            return consumeNonCSISequence(in: text, index: &index, cursor: cursor)
         }
 
         cursor = text.index(after: cursor)
@@ -781,6 +780,23 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             cursor = text.index(after: cursor)
         }
 
+        return nil
+    }
+
+    private static func consumeNonCSISequence(
+        in text: String,
+        index: inout String.Index,
+        cursor: String.Index
+    ) -> TerminalEscapeAction? {
+        var cursor = cursor
+        while cursor < text.endIndex {
+            let scalar = text[cursor].unicodeScalars.first?.value ?? 0
+            if scalar >= 0x30, scalar <= 0x7E {
+                index = text.index(after: cursor)
+                return TerminalEscapeAction.none
+            }
+            cursor = text.index(after: cursor)
+        }
         return nil
     }
 

@@ -9242,6 +9242,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return [
+            "terminalViewportPanelId": terminalPanel.id.uuidString,
+            "terminalViewportPanelWidth": terminalViewportGeometryFormat(hostedSuperviewBounds.width),
+            "terminalViewportPanelHeight": terminalViewportGeometryFormat(hostedSuperviewBounds.height),
             "terminalViewportHostedFrameMinX": terminalViewportGeometryFormat(hostedFrame.minX),
             "terminalViewportHostedFrameMinY": terminalViewportGeometryFormat(hostedFrame.minY),
             "terminalViewportHostedFrameMaxX": terminalViewportGeometryFormat(hostedFrame.maxX),
