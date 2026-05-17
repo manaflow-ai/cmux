@@ -47,7 +47,6 @@ final class MobileHostService {
 
         do {
             let parameters = NWParameters.tcp
-            parameters.allowLocalEndpointReuse = true
             let nextListener = try makeListener(parameters: parameters)
             nextListener.stateUpdateHandler = { state in
                 Task { @MainActor in

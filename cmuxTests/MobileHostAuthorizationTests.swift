@@ -72,6 +72,35 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
+        let resolver = MobileRouteResolver()
+
+        let snapshot = resolver.routes(
+            port: 61234,
+            tailscaleHosts: [
+                "work-mac.tailnet.ts.net",
+                "100.71.210.41",
+            ]
+        )
+
+        let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
+        XCTAssertEqual(tailscaleRoutes.count, 2)
+        XCTAssertEqual(tailscaleRoutes.first?.priority, 10)
+        XCTAssertEqual(tailscaleRoutes.last?.priority, 20)
+        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
+            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected first Tailscale route to use a host/port endpoint")
+        }
+        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
+            XCTAssertEqual(host, "100.71.210.41")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected fallback Tailscale route to use a host/port endpoint")
+        }
+    }
+
     func testMobileAttachTicketCreateRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "attach-ticket-create",

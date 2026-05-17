@@ -835,7 +835,8 @@ import Testing
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     store.createWorkspace()
 
-    for _ in 0..<40 where store.selectedWorkspace?.id.rawValue != "workspace-3" {
+    for _ in 0..<80 where store.selectedWorkspace?.id.rawValue != "workspace-3" ||
+        store.selectedWorkspace?.terminals.first?.lines.contains("workspace: Workspace 3") != true {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
 

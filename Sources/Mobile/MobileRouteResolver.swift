@@ -12,6 +12,10 @@ struct MobileHostRouteSnapshot: Sendable {
 
 struct MobileRouteResolver: Sendable {
     func routes(port: Int) -> MobileHostRouteSnapshot {
+        routes(port: port, tailscaleHosts: Self.tailscaleRouteHosts())
+    }
+
+    func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
         var resolved: [CmxAttachRoute] = []
 
         if let debugRoute = try? CmxAttachRoute(
@@ -23,28 +27,68 @@ struct MobileRouteResolver: Sendable {
             resolved.append(debugRoute)
         }
 
-        if let tailscaleHost = Self.tailscaleIPv4Address(),
-           let tailscaleRoute = try? CmxAttachRoute(
-               id: CmxAttachTransportKind.tailscale.rawValue,
-               kind: .tailscale,
-               endpoint: .hostPort(host: tailscaleHost, port: port),
-               priority: 10
-           ) {
-            resolved.append(tailscaleRoute)
+        for (index, tailscaleHost) in tailscaleHosts.enumerated() {
+            let id = index == 0
+                ? CmxAttachTransportKind.tailscale.rawValue
+                : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
+            if let tailscaleRoute = try? CmxAttachRoute(
+                id: id,
+                kind: .tailscale,
+                endpoint: .hostPort(host: tailscaleHost, port: port),
+                priority: 10 + (index * 10)
+            ) {
+                resolved.append(tailscaleRoute)
+            }
         }
 
         return MobileHostRouteSnapshot(routes: resolved)
     }
 
-    private static func tailscaleIPv4Address() -> String? {
+    private struct TailscaleAddressCandidate {
+        let interfaceName: String
+        let address: String
+        let dnsName: String?
+    }
+
+    private static func tailscaleRouteHosts() -> [String] {
+        guard let candidate = preferredTailscaleAddressCandidate() else {
+            return []
+        }
+
+        var hosts: [String] = []
+        if let dnsName = candidate.dnsName {
+            hosts.append(dnsName)
+        }
+        hosts.append(candidate.address)
+
+        var seen = Set<String>()
+        return hosts.filter { host in
+            let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty, !seen.contains(normalized) else {
+                return false
+            }
+            seen.insert(normalized)
+            return true
+        }
+    }
+
+    private static func preferredTailscaleAddressCandidate() -> TailscaleAddressCandidate? {
+        let candidates = tailscaleAddressCandidates()
+        if let match = candidates.first(where: { isTailscaleDNSName($0.dnsName) }) {
+            return match
+        }
+        return candidates.first
+    }
+
+    private static func tailscaleAddressCandidates() -> [TailscaleAddressCandidate] {
         var interfaces: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaces) == 0, let firstInterface = interfaces else {
-            return nil
+            return []
         }
         defer { freeifaddrs(interfaces) }
 
         var tailscaleInterfaceNames = Set<String>()
-        var cgnatCandidates: [(interfaceName: String, address: String)] = []
+        var cgnatCandidates: [TailscaleAddressCandidate] = []
         var pointer: UnsafeMutablePointer<ifaddrs>? = firstInterface
         while let current = pointer {
             defer { pointer = current.pointee.ifa_next }
@@ -65,7 +109,13 @@ struct MobileRouteResolver: Sendable {
             switch Int32(address.pointee.sa_family) {
             case AF_INET:
                 if isTailscaleCGNAT(candidate) {
-                    cgnatCandidates.append((interfaceName, candidate))
+                    cgnatCandidates.append(
+                        TailscaleAddressCandidate(
+                            interfaceName: interfaceName,
+                            address: candidate,
+                            dnsName: reverseDNSHost(for: address)
+                        )
+                    )
                 }
             case AF_INET6:
                 if isTailscaleIPv6ULA(candidate) || isTailscaleInterfaceName(interfaceName) {
@@ -76,10 +126,11 @@ struct MobileRouteResolver: Sendable {
             }
         }
 
-        if let match = cgnatCandidates.first(where: { tailscaleInterfaceNames.contains($0.interfaceName) }) {
-            return match.address
+        let confirmedCandidates = cgnatCandidates.filter { candidate in
+            tailscaleInterfaceNames.contains(candidate.interfaceName) ||
+                isTailscaleInterfaceName(candidate.interfaceName)
         }
-        return cgnatCandidates.first(where: { isTailscaleInterfaceName($0.interfaceName) })?.address
+        return confirmedCandidates.isEmpty ? cgnatCandidates : confirmedCandidates
     }
 
     private static func numericHost(for address: UnsafeMutablePointer<sockaddr>) -> String? {
@@ -101,6 +152,26 @@ struct MobileRouteResolver: Sendable {
         }
     }
 
+    private static func reverseDNSHost(for address: UnsafeMutablePointer<sockaddr>) -> String? {
+        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        let result = getnameinfo(
+            address,
+            socklen_t(address.pointee.sa_len),
+            &host,
+            socklen_t(host.count),
+            nil,
+            0,
+            NI_NAMEREQD
+        )
+        guard result == 0 else {
+            return nil
+        }
+        let name = String(cString: host)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        return isTailscaleDNSName(name) ? name : nil
+    }
+
     private static func isTailscaleCGNAT(_ ipAddress: String) -> Bool {
         let octets = ipAddress.split(separator: ".").compactMap { Int($0) }
         guard octets.count == 4 else {
@@ -115,6 +186,15 @@ struct MobileRouteResolver: Sendable {
 
     private static func isTailscaleInterfaceName(_ name: String) -> Bool {
         name.localizedCaseInsensitiveContains("tailscale")
+    }
+
+    private static func isTailscaleDNSName(_ name: String?) -> Bool {
+        guard let name else {
+            return false
+        }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasSuffix(".ts.net")
     }
 }
 
