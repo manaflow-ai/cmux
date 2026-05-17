@@ -477,7 +477,7 @@ if should_skip_ghostty_cli_helper_zig_build; then
 fi
 
 XCODEBUILD_ARGS=(
-  -project GhosttyTabs.xcodeproj
+  -project cmux.xcodeproj
   -scheme cmux
   -configuration Debug
   -destination 'platform=macOS'
