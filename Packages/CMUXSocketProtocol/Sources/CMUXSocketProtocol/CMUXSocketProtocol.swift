@@ -310,19 +310,19 @@ nonisolated public enum CMUXSocketProtocol {
         switch resultBox.get() {
         case .success(let payload):
             return ok(id: id, jsonRPC: jsonRPC, result: payload)
-        case .failure(let failure):
+        case .failure:
             return error(
                 id: id,
                 jsonRPC: jsonRPC,
                 code: "vm_error",
-                message: String(describing: failure)
+                message: "The VM request could not be completed."
             )
         case nil:
             return error(
                 id: id,
                 jsonRPC: jsonRPC,
                 code: "vm_error",
-                message: "unknown vm error"
+                message: "The VM request could not be completed."
             )
         }
     }
