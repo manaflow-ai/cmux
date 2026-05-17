@@ -17927,7 +17927,7 @@ class TerminalController {
             return .err(
                 code: "unavailable",
                 message: "Mobile host routes are not available yet",
-                data: ["error": String(describing: error)]
+                data: nil
             )
         }
     }
@@ -18267,9 +18267,7 @@ class TerminalController {
             }
             return .ok(payload)
         } catch {
-            return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: [
-                "error": String(describing: error)
-            ])
+            return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: nil)
         }
     }
 

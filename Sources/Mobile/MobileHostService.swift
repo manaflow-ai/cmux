@@ -303,6 +303,7 @@ private actor MobileHostStackAuthVerifier {
         let cacheKey = accessToken
         let now = Date()
         let remoteUserID: String
+        cache = cache.filter { $0.value.expiresAt > now }
         if let cached = cache[cacheKey], cached.expiresAt > now {
             remoteUserID = cached.userID
         } else {
