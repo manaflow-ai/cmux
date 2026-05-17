@@ -114,7 +114,7 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
 
   if (planId === "free") {
-    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "1", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
   return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "10", "CMUX_VM_PAID_MAX_ACTIVE_VMS");

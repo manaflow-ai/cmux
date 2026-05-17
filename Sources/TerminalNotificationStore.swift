@@ -727,17 +727,22 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             mergeAcceptedDeliverySequences(from: notifications)
-            let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: notifications)
-            if notificationMenuSnapshot != nextMenuSnapshot { notificationMenuSnapshot = nextMenuSnapshot }
-            refreshDockBadge()
+            refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
-    // Workspace-level manual unread drives sidebar workspace badges; pane-level
-    // manual unread remains owned by Workspace.manualUnreadPanelIds.
-    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
-    @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = []
+    // Workspace-level unread drives sidebar workspace badges; pane-level manual
+    // unread remains owned by Workspace.manualUnreadPanelIds.
+    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
+    @Published private(set) var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
+    @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
+        didSet { refreshUnreadPresentation() }
+    }
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
@@ -828,9 +833,28 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     var unreadCount: Int {
-        // Global badges count only notification-backed unread items. Per-workspace
-        // badges use unreadCount(forTabId:) and include manualUnreadWorkspaceIds.
-        indexes.unreadCount
+        indexes.unreadCount + workspaceUnreadIndicatorCount
+    }
+
+    var workspaceUnreadIndicatorIds: Set<UUID> {
+        manualUnreadWorkspaceIds
+            .union(panelDerivedUnreadWorkspaceIds)
+            .union(restoredUnreadWorkspaceIds)
+    }
+
+    private var workspaceUnreadIndicatorCount: Int {
+        workspaceUnreadIndicatorIds.count
+    }
+
+    private func refreshUnreadPresentation() {
+        let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notifications,
+            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount
+        )
+        if notificationMenuSnapshot != nextMenuSnapshot {
+            notificationMenuSnapshot = nextMenuSnapshot
+        }
+        refreshDockBadge()
     }
 
     private func logAuthorization(_ message: String) {
@@ -945,6 +969,38 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     @discardableResult
+    private func setPanelDerivedWorkspaceUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
+        var nextIds = panelDerivedUnreadWorkspaceIds
+        let didChange: Bool
+        if isUnread {
+            didChange = nextIds.insert(tabId).inserted
+        } else {
+            didChange = nextIds.remove(tabId) != nil
+        }
+        guard didChange else { return false }
+        panelDerivedUnreadWorkspaceIds = nextIds
+        return true
+    }
+
+    private func clearPanelDerivedWorkspaceUnread() {
+        guard !panelDerivedUnreadWorkspaceIds.isEmpty else { return }
+        panelDerivedUnreadWorkspaceIds = []
+    }
+
+    private func clearWorkspacePanelUnread(forTabId tabId: UUID) {
+        guard let appDelegate = AppDelegate.shared else { return }
+        let workspace = appDelegate.workspaceFor(tabId: tabId) ??
+            appDelegate.tabManager?.tabs.first(where: { $0.id == tabId })
+        workspace?.clearAllPanelUnreadIndicatorsForWorkspaceRead()
+    }
+
+    private func clearAllWorkspacePanelUnread(forTabIds tabIds: Set<UUID>) {
+        for tabId in tabIds {
+            clearWorkspacePanelUnread(forTabId: tabId)
+        }
+    }
+
+    @discardableResult
     private func setWorkspaceRestoredUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
         var nextIds = restoredUnreadWorkspaceIds
         let didChange: Bool
@@ -967,8 +1023,17 @@ final class TerminalNotificationStore: ObservableObject {
         manualUnreadWorkspaceIds.contains(tabId)
     }
 
+    func hasPanelDerivedUnread(forTabId tabId: UUID) -> Bool {
+        panelDerivedUnreadWorkspaceIds.contains(tabId)
+    }
+
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
         restoredUnreadWorkspaceIds.contains(tabId)
+    }
+
+    @discardableResult
+    func setPanelDerivedUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
+        setPanelDerivedWorkspaceUnread(isUnread, forTabId: tabId)
     }
 
     @discardableResult
@@ -986,10 +1051,11 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceManualUnread(false, forTabId: tabId)
     }
 
-    // Per-workspace badges treat manual/restored workspace IDs as "has unread
-    // activity"; summing these counts can exceed indexes.unreadCount.
+    // Per-workspace badges treat workspace indicators as unread activity;
+    // summing these counts can exceed indexes.unreadCount.
     func unreadCount(forTabId tabId: UUID) -> Int {
         let hasWorkspaceUnreadIndicator = manualUnreadWorkspaceIds.contains(tabId) ||
+            panelDerivedUnreadWorkspaceIds.contains(tabId) ||
             restoredUnreadWorkspaceIds.contains(tabId)
         return (indexes.unreadCountByTabId[tabId] ?? 0) + (hasWorkspaceUnreadIndicator ? 1 : 0)
     }
@@ -1436,10 +1502,14 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
-        setWorkspaceManualUnread(false, forTabId: tabId)
-        setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             notifications = updated
+        }
+        setWorkspaceManualUnread(false, forTabId: tabId)
+        clearWorkspacePanelUnread(forTabId: tabId)
+        setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+        setWorkspaceRestoredUnread(false, forTabId: tabId)
+        if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         }
     }
@@ -1455,11 +1525,15 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        if !idsToClear.isEmpty {
+            notifications = updated
+        }
         if surfaceId == nil {
+            clearWorkspacePanelUnread(forTabId: tabId)
+            setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
         if !idsToClear.isEmpty {
-            notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
@@ -1521,16 +1595,22 @@ final class TerminalNotificationStore: ObservableObject {
     func markAllRead() {
         var updated = notifications
         var idsToClear: [String] = []
+        var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
         for index in updated.indices {
             if !updated[index].isRead {
+                tabIdsToClearPanelUnread.insert(updated[index].tabId)
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
-        clearWorkspaceManualUnread()
-        clearWorkspaceRestoredUnread()
         if !idsToClear.isEmpty {
             notifications = updated
+        }
+        clearWorkspaceManualUnread()
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
+        clearPanelDerivedWorkspaceUnread()
+        clearWorkspaceRestoredUnread()
+        if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
@@ -1556,10 +1636,14 @@ final class TerminalNotificationStore: ObservableObject {
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||
+            !panelDerivedUnreadWorkspaceIds.isEmpty ||
             !restoredUnreadWorkspaceIds.isEmpty else { return }
+        let tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds.union(notifications.map(\.tabId))
         let ids = notifications.map { $0.id.uuidString }
         replaceNotificationsForClear([])
         clearWorkspaceManualUnread()
+        clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
+        clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
@@ -1653,6 +1737,8 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         setWorkspaceManualUnread(false, forTabId: tabId)
+        clearWorkspacePanelUnread(forTabId: tabId)
+        setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         guard !idsToClear.isEmpty || hadFocusedReadIndicator else { return }
         if !idsToClear.isEmpty {
@@ -2068,6 +2154,7 @@ final class TerminalNotificationStore: ObservableObject {
         latestAcceptedDeliverySequenceByTarget = [:]
         self.notifications = notifications
         clearWorkspaceManualUnread()
+        clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
