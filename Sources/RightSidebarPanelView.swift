@@ -50,7 +50,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 enum RightSidebarModeBarMetrics {
     static let baseLabelFontSize: CGFloat = 11
     static let baseBadgeFontSize: CGFloat = 10
-    static let baseCloseIconFontSize: CGFloat = 11
+    static let baseControlIconFontSize: CGFloat = 11
 
     static func labelFontSize(uiScaleFactor: Double) -> CGFloat {
         UIScaleSettings.scaled(baseLabelFontSize, by: uiScaleFactor)
@@ -60,8 +60,8 @@ enum RightSidebarModeBarMetrics {
         UIScaleSettings.scaled(baseBadgeFontSize, by: uiScaleFactor)
     }
 
-    static func closeIconFontSize(uiScaleFactor: Double) -> CGFloat {
-        UIScaleSettings.scaled(baseCloseIconFontSize, by: uiScaleFactor)
+    static func controlIconFontSize(uiScaleFactor: Double) -> CGFloat {
+        UIScaleSettings.scaled(baseControlIconFontSize, by: uiScaleFactor)
     }
 }
 
@@ -291,12 +291,13 @@ struct RightSidebarPanelView: View {
     }
 
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
-        Button {
+        let controlSize = RightSidebarChromeMetrics.controlHeight(uiScaleFactor: uiScaleFactor)
+        return Button {
             onOpenAsPane(mode)
         } label: {
             Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                .font(.system(size: RightSidebarModeBarMetrics.controlIconFontSize(uiScaleFactor: uiScaleFactor), weight: .semibold))
+                .frame(width: controlSize, height: controlSize)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -323,7 +324,7 @@ struct RightSidebarPanelView: View {
         return ZStack {
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: RightSidebarModeBarMetrics.closeIconFontSize(uiScaleFactor: uiScaleFactor), weight: .semibold))
+                    .font(.system(size: RightSidebarModeBarMetrics.controlIconFontSize(uiScaleFactor: uiScaleFactor), weight: .semibold))
                     .frame(width: controlSize, height: controlSize)
                     .contentShape(Rectangle())
             }
