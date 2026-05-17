@@ -1385,6 +1385,7 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         "[features]\n"
         "hooks = true\n"
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
+        "preserve_loose_config = true\n"
         f'[ hooks . state . "{stale_key}" ] # stale cmux trust\n'
         'trusted_hash = "sha256:stale"\n'
         "\n"
@@ -1417,6 +1418,8 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         raise AssertionError(f"documents plugin table was removed: {config_toml!r}")
     if '[plugins."browser@openai-bundled"]' not in config_toml:
         raise AssertionError(f"browser plugin table was removed: {config_toml!r}")
+    if "preserve_loose_config = true" not in config_toml:
+        raise AssertionError(f"loose config line was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:stale"' in config_toml:
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
     trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"

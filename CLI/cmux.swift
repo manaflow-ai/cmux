@@ -20675,6 +20675,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             guard tomlLineIsAnyTableHeader(lines[index]) else {
+                // Marker drift can capture user config lines; only cmux-owned
+                // hook trust tables are safe to discard.
+                preserved.append(lines[index])
                 index += 1
                 continue
             }
