@@ -143,6 +143,11 @@ final class AuthManager {
             return
         }
 
+        let cachedUser = authUserCache.load()
+        let hasAccessToken = await stack.getAccessToken() != nil
+        let hasRefreshToken = await stack.getRefreshToken() != nil
+        let hasStoredTokens = hasAccessToken || hasRefreshToken
+
         #if DEBUG
         if UITestConfig.mockDataEnabled {
             return
@@ -156,11 +161,6 @@ final class AuthManager {
             isAuthenticated = true
             return
         }
-
-        let cachedUser = authUserCache.load()
-        let hasAccessToken = await stack.getAccessToken() != nil
-        let hasRefreshToken = await stack.getRefreshToken() != nil
-        let hasStoredTokens = hasAccessToken || hasRefreshToken
 
         if let credentials = autoLoginCredentials,
            MobileAuthAutoLoginPolicy.shouldStartAutoLogin(

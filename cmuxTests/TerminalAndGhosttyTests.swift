@@ -1206,6 +1206,28 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
         XCTAssertEqual(error.code, "surface_unavailable")
     }
+
+    func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() throws {
+        let response = TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "status",
+                method: "mobile.host.status",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected mobile host status to succeed without auth")
+            return
+        }
+        XCTAssertNotNil(payload["routes"])
+        XCTAssertNil(payload["mac_device_id"])
+        XCTAssertNil(payload["mac_display_name"])
+        XCTAssertNil(payload["host_service"])
+        XCTAssertNil(payload["workspace_count"])
+    }
 }
 
 @MainActor

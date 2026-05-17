@@ -17879,7 +17879,7 @@ class TerminalController {
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
-            result = v2MobileHostStatus(params: request.params)
+            result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
         case "mobile.attach_ticket.create":
             result = v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
@@ -17909,8 +17909,18 @@ class TerminalController {
         }
     }
 
-    private func v2MobileHostStatus(params: [String: Any]) -> V2CallResult {
+    private func v2MobileHostStatus(
+        params: [String: Any],
+        includePrivateMetadata: Bool = true
+    ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
+        guard includePrivateMetadata else {
+            return .ok([
+                "routes": status.routes.map(\.mobileHostJSONObject),
+                "snapshot_fidelity": "plain_text"
+            ])
+        }
+
         let tabManager = v2ResolveTabManager(params: params)
         let workspaceCount = tabManager?.tabs.count ?? 0
 
