@@ -22,7 +22,16 @@ enum CmuxSettingsJSONWriter {
         guard let output = editedText.data(using: sourceText.encoding) else {
             throw JSONCValueEditor.EditError.malformedJSONC("failed to encode edited settings file")
         }
-        try output.write(to: fileURL, options: [.atomic])
+        let temporaryURL = fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(fileURL.lastPathComponent).\(UUID().uuidString).tmp", isDirectory: false)
+        do {
+            try output.write(to: temporaryURL, options: [.atomic])
+            _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL, backupItemName: nil, options: [])
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+            throw error
+        }
         try restoreSecurityAttributes(securityAttributes, to: path, fileManager: fileManager)
     }
 

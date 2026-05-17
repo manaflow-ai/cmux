@@ -251,7 +251,7 @@ final class CmuxSettingsFileStore {
                 managedCustomSettingSources: activeManagedCustomSettingSources
             )
             if primaryConfigExists {
-                snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath, captureStoredValues: false)
+                assignPrimaryWriteBackSources(to: &snapshot, captureStoredValues: false)
             }
             guard !snapshot.managedUserDefaults.isEmpty ||
                 !snapshot.editableUserDefaults.isEmpty ||
@@ -336,7 +336,7 @@ final class CmuxSettingsFileStore {
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot):
             mergeFallbackSettings(into: &snapshot)
-            snapshot.assignEditableWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath)
+            assignPrimaryWriteBackSources(to: &snapshot)
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath)
@@ -347,6 +347,25 @@ final class CmuxSettingsFileStore {
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
         return fallbackSnapshot
+    }
+
+    private func assignPrimaryWriteBackSources(
+        to snapshot: inout ResolvedSettingsSnapshot,
+        captureStoredValues: Bool = true
+    ) {
+        snapshot.assignWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath)
+        snapshot.assignEditableWriteBackSources(
+            Self.userDefaultWriteBackTargets,
+            sourcePath: primaryPath,
+            captureStoredValues: captureStoredValues
+        )
+        if snapshot.managedCustomSettings.socketPassword != nil {
+            snapshot.managedCustomSettingSources[Self.socketPasswordWriteBackIdentifier] =
+                ManagedCustomSettingSource(
+                    sourcePath: primaryPath,
+                    jsonPath: "automation.socketPassword"
+                )
+        }
     }
 
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
