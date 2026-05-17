@@ -242,7 +242,7 @@ private enum MobileShellRouteAuthPolicy {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
+            return isTailscaleDNSHost(host)
         case (.iroh, .peer):
             return true
         default:
@@ -255,14 +255,6 @@ private enum MobileShellRouteAuthPolicy {
         return normalizedHost == "localhost" ||
             normalizedHost == "::1" ||
             normalizedHost.hasPrefix("127.")
-    }
-
-    private static func isTailscaleCGNATHost(_ host: String) -> Bool {
-        let octets = host.split(separator: ".").compactMap { Int($0) }
-        guard octets.count == 4 else {
-            return false
-        }
-        return octets[0] == 100 && (64...127).contains(octets[1])
     }
 
     private static func isTailscaleDNSHost(_ host: String) -> Bool {
@@ -1202,7 +1194,7 @@ public final class CMUXMobileShellStore {
         case .requestTimedOut:
             return L10n.string("mobile.pairing.requestTimedOut", defaultValue: "The Mac did not respond. Check the host and port, then try again.")
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Use your Mac's Tailscale 100.x address, or pair with a QR/link from that Mac.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Use your Mac's Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
         case .authorizationFailed:
             return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in to cmux on your Mac with the same account, or pair with a QR/link from that Mac.")
         case .invalidResponse, .connectionClosed, .rpcError:

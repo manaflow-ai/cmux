@@ -13235,7 +13235,20 @@ class TerminalController {
         guard maxLines > 0 else { return "" }
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         guard lines.count > maxLines else { return text }
-        return lines.suffix(maxLines).joined(separator: "\n")
+        let normalized = terminalTextDroppingFinalLineTerminator(text)
+        let normalizedLines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        guard normalizedLines.count > maxLines else { return normalized }
+        return normalizedLines.suffix(maxLines).joined(separator: "\n")
+    }
+
+    private func terminalTextDroppingFinalLineTerminator(_ text: String) -> String {
+        if text.hasSuffix("\r\n") {
+            return String(text.dropLast(2))
+        }
+        if text.hasSuffix("\n") || text.hasSuffix("\r") {
+            return String(text.dropLast())
+        }
+        return text
     }
 
     private func headTerminalLines(_ text: String, maxLines: Int) -> String {

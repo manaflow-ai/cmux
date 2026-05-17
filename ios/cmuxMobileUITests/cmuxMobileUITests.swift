@@ -716,7 +716,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func snapshot(for terminal: Terminal) -> [String: Any] {
         let visibleRows = Array((terminal.lines + Array(repeating: "", count: 6)).prefix(6))
-            .map(Self.row)
+            .map { Self.row($0) }
         return [
             "schemaVersion": 1,
             "terminalID": terminal.id,
@@ -745,21 +745,34 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
     }
 
-    private static func row(_ text: String) -> [String: Any] {
-        [
-            "cells": [
-                [
-                    "text": text,
-                    "width": "narrow",
-                    "style": [
-                        "bold": false,
-                        "italic": false,
-                        "dim": false,
-                        "inverse": false,
-                        "underline": "none",
-                    ],
-                ] as [String: Any],
+    private static func row(_ text: String, columns: Int = 48) -> [String: Any] {
+        let visibleCells = text.prefix(columns).map { character in
+            [
+                "text": String(character),
+                "width": "narrow",
+                "style": [
+                    "bold": false,
+                    "italic": false,
+                    "dim": false,
+                    "inverse": false,
+                    "underline": "none",
+                ],
+            ] as [String: Any]
+        }
+        let blankCell = [
+            "text": "",
+            "width": "narrow",
+            "style": [
+                "bold": false,
+                "italic": false,
+                "dim": false,
+                "inverse": false,
+                "underline": "none",
             ],
+        ] as [String: Any]
+        let cells = visibleCells + Array(repeating: blankCell, count: max(0, columns - visibleCells.count))
+        return [
+            "cells": cells,
             "isWrapped": false,
         ]
     }

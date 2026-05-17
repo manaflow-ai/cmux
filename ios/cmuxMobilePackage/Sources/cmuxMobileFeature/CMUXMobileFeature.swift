@@ -831,7 +831,7 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter any reachable host, including a Tailscale 100.x IP, LAN IP, or local device name. On your Mac, enable Mobile sync in cmux."))
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale MagicDNS name, LAN IP, or local device name. On your Mac, enable Mobile sync in cmux."))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG

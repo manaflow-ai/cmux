@@ -365,6 +365,12 @@ final class AuthManager {
             return accessToken
         }
 
+        #if DEBUG
+        if UITestConfig.mockDataEnabled {
+            return "cmux-ui-test-stack-token"
+        }
+        #endif
+
         #if CMUX_DEV_AUTH
         if let credentials = debugPasswordCredentials {
             try? await signInWithPassword(
