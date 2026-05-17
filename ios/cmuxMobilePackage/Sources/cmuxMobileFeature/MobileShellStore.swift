@@ -1129,8 +1129,8 @@ public final class CMUXMobileShellStore {
 
     private static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
-        case (.debugLoopback, .hostPort):
-            return true
+        case (.debugLoopback, let .hostPort(host, _)):
+            return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
             return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
         case (.iroh, .peer):
@@ -1542,8 +1542,8 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
 
     private static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
-        case (.debugLoopback, .hostPort):
-            return true
+        case (.debugLoopback, let .hostPort(host, _)):
+            return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
             return isTailscaleCGNATHost(host) || isTailscaleDNSHost(host)
         case (.iroh, .peer):
@@ -1551,6 +1551,13 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedHost == "localhost" ||
+            normalizedHost == "::1" ||
+            normalizedHost.hasPrefix("127.")
     }
 
     private static func isTailscaleCGNATHost(_ host: String) -> Bool {

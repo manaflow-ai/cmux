@@ -182,8 +182,8 @@ final class MobileHostService {
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
-        let workspaceID = stringParam(request.params, keys: ["workspace_id", "workspaceID"])
-        let terminalID = stringParam(request.params, keys: ["surface_id", "terminal_id", "terminalID", "tab_id"])
+        let workspaceID = stringParam(request.params, keys: ["workspace_id"])
+        let terminalID = stringParam(request.params, keys: ["surface_id", "terminal_id", "tab_id"])
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
@@ -207,6 +207,13 @@ final class MobileHostService {
             return scopedTicketError
         }
         return nil
+    }
+
+    static func debugTicketAuthorizationError(
+        ticket: CmxAttachTicket,
+        request: MobileHostRPCRequest
+    ) -> MobileHostRPCError? {
+        ticketAuthorizationError(ticket: ticket, request: request)
     }
 
     private static var scopedTicketError: MobileHostRPCError {

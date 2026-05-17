@@ -72,6 +72,66 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: ["workspaceID": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil,
+                stackRefreshToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testScopedAttachTicketRejectsTerminalAliasIgnoredByHandlers() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-input",
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace",
+                "terminalID": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil,
+                stackRefreshToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testScopedAttachTicketAcceptsHandlerParameterNames() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-input",
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace",
+                "terminal_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil,
+                stackRefreshToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
     func testStackUserAuthorizationRequiresSignedInMacUser() throws {
         XCTAssertThrowsError(
             try MobileHostAuthorizationPolicy.authorizeStackUser(
@@ -94,6 +154,23 @@ final class MobileHostAuthorizationTests: XCTestCase {
                 localUserID: "user_local",
                 remoteUserID: "user_local"
             )
+        )
+    }
+
+    private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        return try CmxAttachTicket(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3600),
+            authToken: "ticket-secret"
         )
     }
 }
