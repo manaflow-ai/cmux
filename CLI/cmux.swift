@@ -20141,11 +20141,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             def: def,
             includeLegacyOwnedCommands: true
         )
-        let codexDefaultHookTrustHashesToRemove = Set(Self.codexHookTrustEntries(
+        let codexStaleHookTrustHashesToRemove = Set(Self.codexHookTrustEntries(
             hooks: buildHooksDict(for: def),
             hooksFilePath: filePath,
             def: def
-        ).map(\.trustedHash))
+        ).map(\.trustedHash)).union(Self.codexLegacyHookTrustHashes(def: def))
         let codexHookTrustEscapedKeyPrefixesToRemove = Self.codexHookTrustEscapedKeyPrefixes(
             hooksFilePath: filePath,
             def: def
@@ -20205,7 +20205,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     from: content,
                     removingHookTrustEntries: codexHookTrustEntriesToRemove,
                     removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixesToRemove,
-                    removingTrustedHashes: codexDefaultHookTrustHashesToRemove
+                    removingTrustedHashes: codexStaleHookTrustHashesToRemove
                 )
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
@@ -20461,6 +20461,54 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) -> Set<String> {
         guard def.name == "codex" else { return [] }
         return [tomlBasicStringContent("\(codexNormalizedHookSourcePath(hooksFilePath)):")]
+    }
+
+    private static func codexLegacyHookTrustHashes(def: AgentHookDef) -> Set<String> {
+        guard def.name == "codex" else { return [] }
+        let hookTimeoutMs: Int
+        if case .nested(let timeoutMs) = def.format {
+            hookTimeoutMs = timeoutMs
+        } else {
+            hookTimeoutMs = 600
+        }
+
+        var hashes = Set<String>()
+        func insertHashes(eventLabel: String, command: String, timeouts: [Int]) {
+            let commands = [
+                command,
+                "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'",
+            ]
+            for command in commands {
+                for timeout in timeouts {
+                    hashes.insert(codexCommandHookHash(
+                        eventLabel: eventLabel,
+                        matcher: nil,
+                        command: command,
+                        timeoutMs: timeout,
+                        statusMessage: nil
+                    ))
+                }
+            }
+        }
+
+        for event in def.events {
+            guard let eventLabel = codexHookEventLabel(event.agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: "cmux codex-hook \(event.cmuxSubcommand)",
+                timeouts: [hookTimeoutMs, 600]
+            )
+        }
+
+        for agentEvent in def.feedHookEvents {
+            guard let eventLabel = codexHookEventLabel(agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: "cmux feed-hook --source \(def.name) --event \(agentEvent)",
+                timeouts: [120_000, 600]
+            )
+        }
+        return hashes
     }
 
     private static func codexNormalizedHookSourcePath(_ path: String) -> String {

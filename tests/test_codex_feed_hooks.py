@@ -1612,6 +1612,14 @@ def test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(
     config_path = codex_home / "config.toml"
     trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
     same_file_user_key = f"{hooks_path.resolve()}:pre_tool_use:8:0"
+    legacy_key = f"{hooks_path.resolve()}:pre_tool_use:9:0"
+    legacy_hash = codex_command_hook_hash(
+        event_label="pre_tool_use",
+        matcher=None,
+        command="cmux feed-hook --source codex --event PreToolUse",
+        timeout=120_000,
+        status_message=None,
+    )
     third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
     config_toml = config_path.read_text(encoding="utf-8")
     config_path.write_text(
@@ -1619,6 +1627,8 @@ def test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(
             trust_end,
             f'[hooks.state."{same_file_user_key}"]\n'
             'trusted_hash = "sha256:same-file-user"\n'
+            f'[hooks.state."{legacy_key}"]\n'
+            f'trusted_hash = "{legacy_hash}"\n'
             f'[hooks.state."{third_party_key}"]\n'
             'trusted_hash = "sha256:third-party"\n'
             f"{trust_end}",
@@ -1647,6 +1657,8 @@ def test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(
     for key, trusted_hash in expected_trust.items():
         if key in config_toml or trusted_hash in config_toml:
             raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+    if legacy_key in config_toml or legacy_hash in config_toml:
+        raise AssertionError(f"legacy cmux hook trust was preserved: {config_toml!r}")
     if 'trusted_hash = "sha256:same-file-user"' not in config_toml:
         raise AssertionError(f"same-file user hook trust was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:third-party"' not in config_toml:
