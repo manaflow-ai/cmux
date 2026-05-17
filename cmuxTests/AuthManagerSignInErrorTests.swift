@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import XCTest
 
 #if canImport(cmux_DEV)
