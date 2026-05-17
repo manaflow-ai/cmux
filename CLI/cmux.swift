@@ -20125,6 +20125,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         var hooks = json["hooks"] as? [String: Any] ?? [:]
+        let codexHookTrustEntriesToRemove = Self.codexHookTrustEntries(
+            hooks: hooks,
+            hooksFilePath: filePath,
+            def: def
+        )
         var removed = 0
 
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
@@ -20176,7 +20181,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } catch {
                     throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
                 }
-                let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
+                let newContent = Self.codexConfigTomlUninstallingHooksFeature(
+                    from: content,
+                    removingHookTrustEntries: codexHookTrustEntriesToRemove
+                )
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
                     print("Removed Codex hooks feature from \(configPath)")
@@ -20240,9 +20248,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
-            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
-        }
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
 
@@ -20304,12 +20309,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return lines
     }
 
-    static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
+    static func codexConfigTomlUninstallingHooksFeature(
+        from existingContent: String,
+        removingHookTrustEntries entries: [CodexHookTrustEntry] = []
+    ) -> String {
         var lines = tomlLines(from: existingContent)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
+        if removeCmuxCodexHookTrustBlock(from: &lines, removingEscapedKeys: escapedKeys) == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
@@ -20321,17 +20331,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         entries: [CodexHookTrustEntry]
     ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
-        let removalResult = removeCmuxCodexHookTrustBlock(from: &lines)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let removalResult = removeCmuxCodexHookTrustBlock(from: &lines, removingEscapedKeys: escapedKeys)
         if removalResult == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         guard !entries.isEmpty else {
             return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
         }
-        removeCodexHookTrustTables(
-            withEscapedKeys: Set(entries.map { tomlBasicStringContent($0.key) }),
-            from: &lines
-        )
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
 
         if !lines.isEmpty, lines.last?.isEmpty == false {
             lines.append("")
@@ -20637,7 +20645,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     @discardableResult
-    private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) -> CodexHookTrustBlockRemovalResult {
+    private static func removeCmuxCodexHookTrustBlock(
+        from lines: inout [String],
+        removingEscapedKeys escapedKeys: Set<String> = []
+    ) -> CodexHookTrustBlockRemovalResult {
         var replacements: [(range: ClosedRange<Int>, lines: [String])] = []
         var index = 0
         while index < lines.count {
@@ -20650,7 +20661,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return .malformed
             }
             let preservedLines = codexHookTrustBlockUnownedLines(
-                from: lines[(index + 1)..<endIndex]
+                from: lines[(index + 1)..<endIndex],
+                removingEscapedKeys: escapedKeys
             )
             replacements.append((index...endIndex, preservedLines))
             index = endIndex + 1
@@ -20662,14 +20674,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return replacements.isEmpty ? .notFound : .removed
     }
 
-    private static func codexHookTrustBlockUnownedLines(from lines: ArraySlice<String>) -> [String] {
+    private static func codexHookTrustBlockUnownedLines(
+        from lines: ArraySlice<String>,
+        removingEscapedKeys escapedKeys: Set<String>
+    ) -> [String] {
         var preserved: [String] = []
         var index = lines.startIndex
         while index < lines.endIndex {
-            if codexHookTrustTableEscapedKey(from: lines[index]) != nil {
+            if let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]) {
+                let tableStart = index
                 index += 1
                 while index < lines.endIndex, !tomlLineIsAnyTableHeader(lines[index]) {
                     index += 1
+                }
+                if !escapedKeys.contains(escapedKey) {
+                    preserved.append(contentsOf: lines[tableStart..<index])
                 }
                 continue
             }

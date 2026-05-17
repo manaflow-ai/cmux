@@ -1380,6 +1380,7 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
     codex_home.mkdir()
     hooks_path = codex_home / "hooks.json"
     stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
     config_path = codex_home / "config.toml"
     config_path.write_text(
         "[features]\n"
@@ -1388,6 +1389,9 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         "preserve_loose_config = true\n"
         f'[ hooks . state . "{stale_key}" ] # stale cmux trust\n'
         'trusted_hash = "sha256:stale"\n'
+        "\n"
+        f'[hooks.state."{third_party_key}"]\n'
+        'trusted_hash = "sha256:third-party"\n'
         "\n"
         '[plugins."documents@openai-primary-runtime"]\n'
         "enabled = true\n"
@@ -1420,6 +1424,8 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         raise AssertionError(f"browser plugin table was removed: {config_toml!r}")
     if "preserve_loose_config = true" not in config_toml:
         raise AssertionError(f"loose config line was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:third-party"' not in config_toml:
+        raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
     if 'trusted_hash = "sha256:stale"' in config_toml:
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
     trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
@@ -1446,6 +1452,63 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
             raise AssertionError(
                 f"missing fresh trusted hash for {key}: expected {trusted_hash!r}, got state {state!r}"
             )
+
+
+def test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-uninstall-stale-third-party-trust"
+    codex_home.mkdir()
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_path = codex_home / "config.toml"
+    trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    third_party_key = "/tmp/third-party/hooks.json:pre_tool_use:0:0"
+    config_toml = config_path.read_text(encoding="utf-8")
+    config_path.write_text(
+        config_toml.replace(
+            trust_end,
+            f'[hooks.state."{third_party_key}"]\n'
+            'trusted_hash = "sha256:third-party"\n'
+            f"{trust_end}",
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if "cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738" in config_toml:
+        raise AssertionError(f"cmux hook trust marker was preserved: {config_toml!r}")
+    if str((codex_home / "hooks.json").resolve()) in config_toml:
+        raise AssertionError(f"cmux hook trust was preserved: {config_toml!r}")
+    if 'trusted_hash = "sha256:third-party"' not in config_toml:
+        raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
 
 
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
@@ -1705,6 +1768,7 @@ def main() -> int:
             test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
             test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
             test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(cli_path, root)
+            test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
