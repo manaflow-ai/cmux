@@ -237,14 +237,14 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     }
 
     public func preferredRoute(supportedKinds: [CmxAttachTransportKind]) -> CmxAttachRoute? {
+        guard !supportedKinds.isEmpty else {
+            return nil
+        }
         let orderedRoutes = routes.sorted { left, right in
             if left.priority == right.priority {
                 return left.id < right.id
             }
             return left.priority < right.priority
-        }
-        guard !supportedKinds.isEmpty else {
-            return orderedRoutes.first
         }
         let supportedKinds = Set(supportedKinds)
         return orderedRoutes.first { supportedKinds.contains($0.kind) }

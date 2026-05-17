@@ -261,25 +261,11 @@ final class AuthManager {
     private struct DebugCredentials {
         let email: String
         let password: String
-
-        func persist() {
-            UserDefaults.standard.set(email, forKey: "cmux.debug.auth.email")
-            UserDefaults.standard.set(password, forKey: "cmux.debug.auth.password")
-        }
-
-        static func load() -> DebugCredentials? {
-            guard let email = UserDefaults.standard.string(forKey: "cmux.debug.auth.email"),
-                  let password = UserDefaults.standard.string(forKey: "cmux.debug.auth.password"),
-                  !email.isEmpty, !password.isEmpty else { return nil }
-            return DebugCredentials(email: email, password: password)
-        }
     }
 
-    private var debugPasswordCredentials: DebugCredentials? = DebugCredentials.load()
+    private var debugPasswordCredentials: DebugCredentials?
 
     private func clearDebugPasswordCredentials() {
-        UserDefaults.standard.removeObject(forKey: "cmux.debug.auth.email")
-        UserDefaults.standard.removeObject(forKey: "cmux.debug.auth.password")
         debugPasswordCredentials = nil
     }
     #endif
@@ -292,7 +278,6 @@ final class AuthManager {
         if email.trimmingCharacters(in: .whitespacesAndNewlines) == "42" {
             let creds = DebugCredentials(email: "l@l.com", password: "abc123")
             try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
-            creds.persist()
             debugPasswordCredentials = creds
             return
         }

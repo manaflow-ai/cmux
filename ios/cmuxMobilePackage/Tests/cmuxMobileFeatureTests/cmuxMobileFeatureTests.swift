@@ -640,6 +640,8 @@ import Testing
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
     #expect(workspaceList.workspaceID == workspaceID)
+    #expect(workspaceList.attachToken == "ticket-secret")
+    #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
@@ -673,6 +675,8 @@ import Testing
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
     #expect(workspaceList.workspaceID == workspaceID)
     #expect(workspaceList.terminalID == terminalID)
+    #expect(workspaceList.attachToken == "ticket-secret")
+    #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
 }
 

@@ -28,6 +28,7 @@ struct MobileHostServiceStatus {
 final class MobileHostService {
     static let shared = MobileHostService()
     static let preferredPort = CmxMobileDefaults.defaultHostPort
+    private static let maximumActiveConnectionCount = 10
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
@@ -81,6 +82,8 @@ final class MobileHostService {
 
     func stop() {
         listenerGeneration = UUID()
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
         listener?.cancel()
         listener = nil
         listenerPort = nil
@@ -147,6 +150,11 @@ final class MobileHostService {
 
     private func accept(_ connection: NWConnection, generation: UUID) {
         guard listener != nil, generation == listenerGeneration else {
+            connection.cancel()
+            return
+        }
+        guard activeConnections.count < Self.maximumActiveConnectionCount else {
+            mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
             connection.cancel()
             return
         }
@@ -311,6 +319,8 @@ final class MobileHostService {
         case let .failed(error):
             lastErrorDescription = String(describing: error)
             mobileHostLog.error("mobile host listener failed: \(String(describing: error), privacy: .public)")
+            listener?.stateUpdateHandler = nil
+            listener?.newConnectionHandler = nil
             listener?.cancel()
             listener = nil
             listenerPort = nil
@@ -433,6 +443,8 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
 }
 
 private actor MobileHostConnection {
+    private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
+
     private let id: UUID
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
@@ -508,6 +520,17 @@ private actor MobileHostConnection {
         }
 
         if let data, !data.isEmpty {
+            guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
+                await sendResponse(
+                    MobileHostRPCEnvelope.error(
+                        id: nil,
+                        code: "frame_decode_error",
+                        message: "Invalid frame"
+                    )
+                )
+                close(reason: "receive buffer exceeded frame limit")
+                return
+            }
             receiveBuffer.append(data)
             do {
                 let frames = try MobileSyncFrameCodec.decodeFrames(from: &receiveBuffer)
@@ -545,6 +568,7 @@ private actor MobileHostConnection {
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
             await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
+            close(reason: "invalid rpc envelope")
         }
     }
 

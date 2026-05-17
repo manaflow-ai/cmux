@@ -32,7 +32,7 @@ import Testing
 
     #expect(ticket.preferredRoute(supportedKinds: [.tailscale, .iroh]) == iroh)
     #expect(ticket.preferredRoute(supportedKinds: [.websocket]) == nil)
-    #expect(ticket.preferredRoute(supportedKinds: []) == iroh)
+    #expect(ticket.preferredRoute(supportedKinds: []) == nil)
 }
 
 @Test func attachTicketUsesDebugLoopbackBeforeTailscaleWhenBothAreSupported() throws {

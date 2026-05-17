@@ -1598,15 +1598,17 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return requestData
         }
+        let requestNeedsAuth = Self.requestRequiresAuth(request)
+        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
         if let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           requestNeedsAuth,
            !authToken.isEmpty,
-           ticket.expiresAt > runtime.now() {
+           ticket.expiresAt > runtime.now(),
+           requestIsCoveredByAttachTicket {
             auth["attach_token"] = authToken
         }
-        let shouldSendStackAuth = auth["attach_token"] == nil
-            ? Self.requestRequiresAuth(request)
-            : Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
         if shouldSendStackAuth {
             guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
                 throw MobileShellConnectionError.insecureManualRoute
