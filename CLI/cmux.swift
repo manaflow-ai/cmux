@@ -20635,7 +20635,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     @discardableResult
     private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) -> CodexHookTrustBlockRemovalResult {
-        var ranges: [ClosedRange<Int>] = []
+        var removedBlock = false
         var index = 0
         while index < lines.count {
             guard lines[index] == cmuxCodexHookTrustBegin else {
@@ -20646,14 +20646,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) else {
                 return .malformed
             }
-            ranges.append(index...endIndex)
-            index = endIndex + 1
+            let preservedLines = codexHookTrustBlockUnownedLines(
+                from: lines[(index + 1)..<endIndex]
+            )
+            lines.replaceSubrange(index...endIndex, with: preservedLines)
+            removedBlock = true
+            index += preservedLines.count
         }
 
-        for range in ranges.reversed() {
-            lines.removeSubrange(range)
+        return removedBlock ? .removed : .notFound
+    }
+
+    private static func codexHookTrustBlockUnownedLines(from lines: ArraySlice<String>) -> [String] {
+        var preserved: [String] = []
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            if codexHookTrustTableEscapedKey(from: lines[index]) != nil {
+                index += 1
+                while index < lines.endIndex, !tomlLineIsAnyTableHeader(lines[index]) {
+                    index += 1
+                }
+                continue
+            }
+            preserved.append(lines[index])
+            index += 1
         }
-        return ranges.isEmpty ? .notFound : .removed
+        return preserved
     }
 
     private static func stripMalformedCmuxCodexHookTrustMarker(from lines: inout [String]) {
