@@ -1035,12 +1035,24 @@ class TabManager: ObservableObject {
 #endif
             selectionSideEffectsGeneration &+= 1
             let generation = selectionSideEffectsGeneration
+            if !shouldRecordFocusHistory {
+                focusHistorySuppressedSelectionSideEffectGenerations.insert(generation)
+            }
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.selectionSideEffectsGeneration == generation else { return }
-                self.focusSelectedTabPanel(previousTabId: previousTabId)
-                self.updateWindowTitleForSelectedTab()
-                if let selectedTabId = self.selectedTabId {
-                    self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
+                guard let self else { return }
+                let suppressFocusHistory = self.focusHistorySuppressedSelectionSideEffectGenerations.remove(generation) != nil
+                guard self.selectionSideEffectsGeneration == generation else { return }
+                let applySelectionSideEffects = {
+                    self.focusSelectedTabPanel(previousTabId: previousTabId)
+                    self.updateWindowTitleForSelectedTab()
+                    if let selectedTabId = self.selectedTabId {
+                        self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
+                    }
+                }
+                if suppressFocusHistory {
+                    self.withFocusHistoryRecordingSuppressed(applySelectionSideEffects)
+                } else {
+                    applySelectionSideEffects()
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -1089,9 +1101,10 @@ class TabManager: ObservableObject {
     // Recent focus history for back/forward navigation across workspaces and panes.
     private var focusHistory: [FocusHistoryEntry] = []
     private var historyIndex: Int = -1
-    private var isNavigatingHistory = false
+    private var focusHistoryRecordingSuppressionDepth = 0
+    private var focusHistorySuppressedSelectionSideEffectGenerations: Set<UInt64> = []
     private var shouldRecordFocusHistory: Bool {
-        !isNavigatingHistory
+        focusHistoryRecordingSuppressionDepth == 0
     }
     private let maxHistorySize = 50
     private var selectionSideEffectsGeneration: UInt64 = 0
@@ -4245,6 +4258,7 @@ class TabManager: ObservableObject {
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
+        invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
@@ -4273,6 +4287,7 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
+        invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
@@ -5640,6 +5655,43 @@ class TabManager: ObservableObject {
         recordFocusInHistory(workspaceId: entry.workspaceId, panelId: entry.panelId)
     }
 
+    private func withFocusHistoryRecordingSuppressed(_ body: () -> Void) {
+        focusHistoryRecordingSuppressionDepth += 1
+        defer {
+            focusHistoryRecordingSuppressionDepth = max(0, focusHistoryRecordingSuppressionDepth - 1)
+        }
+        body()
+    }
+
+    func invalidateFocusHistoryTarget(workspaceId: UUID, panelId: UUID?) {
+        if let panelId {
+            guard focusHistory.contains(where: { $0.workspaceId == workspaceId && $0.panelId == panelId }) else {
+                return
+            }
+            focusHistoryRevision &+= 1
+            return
+        }
+
+        let oldCount = focusHistory.count
+        guard oldCount > 0 else { return }
+
+        let currentIndex = historyIndex
+        let removedBeforeOrAtCurrent = focusHistory
+            .prefix(max(0, min(currentIndex + 1, oldCount)))
+            .filter { $0.workspaceId == workspaceId }
+            .count
+        focusHistory.removeAll { $0.workspaceId == workspaceId }
+        guard focusHistory.count != oldCount else { return }
+
+        historyIndex -= removedBeforeOrAtCurrent
+        if focusHistory.isEmpty {
+            historyIndex = -1
+        } else {
+            historyIndex = min(max(0, historyIndex), focusHistory.count - 1)
+        }
+        focusHistoryRevision &+= 1
+    }
+
     private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
         tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
     }
@@ -5779,16 +5831,18 @@ class TabManager: ObservableObject {
 
     @discardableResult
     private func navigateToFocusHistoryEntry(_ entry: FocusHistoryEntry, targetIndex: Int) -> Bool {
-        isNavigatingHistory = true
         var didNavigate = false
         defer {
-            isNavigatingHistory = false
             if didNavigate {
                 focusHistoryRevision &+= 1
             }
         }
 
-        guard restoreFocusHistoryEntry(entry) else { return false }
+        var didRestore = false
+        withFocusHistoryRecordingSuppressed {
+            didRestore = restoreFocusHistoryEntry(entry)
+        }
+        guard didRestore else { return false }
         historyIndex = targetIndex
         didNavigate = true
         return true
@@ -7727,7 +7781,8 @@ extension TabManager {
         pendingPanelTitleUpdates.removeAll()
         focusHistory.removeAll()
         historyIndex = -1
-        isNavigatingHistory = false
+        focusHistoryRecordingSuppressionDepth = 0
+        focusHistorySuppressedSelectionSideEffectGenerations.removeAll()
         focusHistoryRevision &+= 1
         pendingWorkspaceUnfocusTarget = nil
         workspaceCycleCooldownTask?.cancel()

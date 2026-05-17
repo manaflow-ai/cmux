@@ -73,6 +73,29 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(firstWorkspace.panels[closedPanelId])
     }
 
+    func testFocusHistoryFallbackKeepsForwardStackAfterQueuedSelectionFocus() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let closedPanelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
+        let fallbackPanelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        firstWorkspace.focusPanel(closedPanelId)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        _ = firstWorkspace.closePanel(closedPanelId, force: true)
+
+        manager.navigateBack()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertEqual(firstWorkspace.focusedPanelId, fallbackPanelId)
+        XCTAssertTrue(manager.canNavigateForward)
+
+        manager.navigateForward()
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+    }
+
     func testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -103,6 +126,95 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertEqual(workspace.focusedPanelId, fallbackPanelId)
         XCTAssertEqual(notificationCount, 0)
+    }
+
+    func testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let fallbackPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        workspace.focusPanel(closedPanelId)
+        workspace.focusPanel(fallbackPanelId)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .tabManagerFocusHistoryRevisionDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        let revision = manager.focusHistoryRevision
+
+        _ = workspace.closePanel(closedPanelId, force: true)
+
+        XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
+        XCTAssertGreaterThan(notificationCount, 0)
+        XCTAssertFalse(manager.canNavigateBack)
+    }
+
+    func testFocusHistoryRevisionInvalidatesWhenClosedPaneChangesAvailability() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftPanelId))
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal))
+
+        workspace.focusPanel(leftPanelId)
+        workspace.focusPanel(rightPanel.id)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .tabManagerFocusHistoryRevisionDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        let revision = manager.focusHistoryRevision
+
+        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+
+        XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
+        XCTAssertGreaterThan(notificationCount, 0)
+        XCTAssertFalse(manager.canNavigateBack)
+    }
+
+    func testFocusHistoryRevisionInvalidatesWhenClosedWorkspaceChangesAvailability() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertTrue(manager.canNavigateBack)
+
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .tabManagerFocusHistoryRevisionDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        let revision = manager.focusHistoryRevision
+
+        manager.closeWorkspace(firstWorkspace)
+
+        XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
+        XCTAssertGreaterThan(notificationCount, 0)
+        XCTAssertFalse(manager.canNavigateBack)
     }
 
     func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {

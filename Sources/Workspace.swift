@@ -14141,6 +14141,9 @@ extension Workspace: BonsplitDelegate {
             requestTransferredRemoteCleanup: false,
             cleanupControllerSurfaceState: !isDetaching
         )
+        if !isDetaching {
+            owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
+        }
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
@@ -14300,6 +14303,9 @@ extension Workspace: BonsplitDelegate {
                     requestTransferredRemoteCleanup: true,
                     cleanupControllerSurfaceState: !isDetachingCloseTransaction
                 )
+                if !isDetachingCloseTransaction {
+                    owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
+                }
             }
 
             syncRemotePortScanTTYs()
