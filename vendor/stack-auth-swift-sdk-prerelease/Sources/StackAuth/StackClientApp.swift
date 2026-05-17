@@ -15,6 +15,10 @@ public struct OAuthUrlResult: Sendable {
     public let redirectUrl: String
 }
 
+struct OAuthAuthorizationLocationResponse: Decodable {
+    let location: String
+}
+
 /// Get user options
 public enum GetUserOr: Sendable {
     case returnNull
@@ -171,6 +175,10 @@ public actor StackClientApp {
     }
     
     #if canImport(AuthenticationServices) && !os(watchOS)
+    private final class WebAuthenticationSessionHolder {
+        var session: ASWebAuthenticationSession?
+    }
+
     /// Sign in with OAuth using ASWebAuthenticationSession (or native Apple Sign In for "apple" provider)
     /// - Parameters:
     ///   - provider: The OAuth provider ID (e.g., "google", "github", "apple")
@@ -193,12 +201,16 @@ public actor StackClientApp {
             redirectUrl: callbackScheme + "://success",
             errorRedirectUrl: callbackScheme + "://error"
         )
+        let providerAuthorizationUrl = try await getOAuthProviderAuthorizationUrl(oauth.url)
+        let sessionHolder = WebAuthenticationSessionHolder()
         
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let session = ASWebAuthenticationSession(
-                url: oauth.url,
+                url: providerAuthorizationUrl,
                 callbackURLScheme: callbackScheme
             ) { callbackUrl, error in
+                sessionHolder.session = nil
+
                 if let error = error {
                     if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
                         continuation.resume(throwing: StackAuthError(code: "oauth_cancelled", message: "User cancelled OAuth"))
@@ -231,8 +243,52 @@ public actor StackClientApp {
             }
             #endif
             
-            session.start()
+            sessionHolder.session = session
+            if !session.start() {
+                sessionHolder.session = nil
+                continuation.resume(throwing: OAuthError(code: "oauth_error", message: "Failed to start OAuth session"))
+            }
         }
+    }
+
+    private func getOAuthProviderAuthorizationUrl(_ authorizeUrl: URL) async throws -> URL {
+        guard var components = URLComponents(url: authorizeUrl, resolvingAgainstBaseURL: false) else {
+            throw StackAuthError(code: "invalid_url", message: "Failed to construct OAuth URL")
+        }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "stack_response_mode" }
+        queryItems.append(URLQueryItem(name: "stack_response_mode", value: "json"))
+        components.queryItems = queryItems
+
+        guard let jsonAuthorizeUrl = components.url else {
+            throw StackAuthError(code: "invalid_url", message: "Failed to construct OAuth URL")
+        }
+
+        var request = URLRequest(url: jsonAuthorizeUrl)
+        request.httpMethod = "GET"
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw OAuthError(code: "invalid_response", message: "Invalid HTTP response")
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw OAuthError(code: "oauth_error", message: "OAuth authorization request failed with HTTP \(httpResponse.statusCode)")
+        }
+
+        let decoded: OAuthAuthorizationLocationResponse
+        do {
+            decoded = try JSONDecoder().decode(OAuthAuthorizationLocationResponse.self, from: data)
+        } catch {
+            throw OAuthError(code: "parse_error", message: "Failed to parse OAuth authorization response")
+        }
+
+        guard let providerUrl = URL(string: decoded.location) else {
+            throw OAuthError(code: "invalid_url", message: "OAuth authorization response contained an invalid provider URL")
+        }
+
+        return providerUrl
     }
     
     /// Native Apple Sign In using ASAuthorizationController

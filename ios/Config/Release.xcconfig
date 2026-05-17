@@ -5,3 +5,4 @@
 #include "Shared.xcconfig"
 
 PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta
+DEVELOPMENT_TEAM = 7WLXT3NR37
