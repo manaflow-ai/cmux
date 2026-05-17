@@ -1845,7 +1845,6 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
-    private var synchronizedRuntimeColorScheme: ghostty_color_scheme_e?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -2150,7 +2149,9 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
-        lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+        let initialColorScheme = GhosttyConfig.currentColorSchemePreference()
+        synchronizeGhosttyRuntimeColorScheme(initialColorScheme, source: "initialize")
+        lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
@@ -2954,7 +2955,7 @@ class GhosttyApp {
         previousColorScheme != currentColorScheme
     }
 
-    nonisolated static func ghosttyRuntimeColorScheme(
+    static func ghosttyRuntimeColorScheme(
         for colorScheme: GhosttyConfig.ColorSchemePreference
     ) -> ghostty_color_scheme_e {
         switch colorScheme {
@@ -3146,7 +3147,6 @@ class GhosttyApp {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
         )
-        synchronizeGhosttyRuntimeColorScheme(currentColorScheme, source: source)
         let shouldReload = Self.shouldReloadConfigurationForAppearanceChange(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
@@ -3167,6 +3167,7 @@ class GhosttyApp {
             )
         }
         guard shouldReload else { return }
+        synchronizeGhosttyRuntimeColorScheme(currentColorScheme, source: source)
         lastAppearanceColorScheme = currentColorScheme
         reloadConfiguration(
             source: "appearanceSync:\(source)",
@@ -3180,9 +3181,7 @@ class GhosttyApp {
     ) {
         guard let app else { return }
         let scheme = Self.ghosttyRuntimeColorScheme(for: colorScheme)
-        guard synchronizedRuntimeColorScheme != scheme else { return }
         ghostty_app_set_color_scheme(app, scheme)
-        synchronizedRuntimeColorScheme = scheme
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
             logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
