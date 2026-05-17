@@ -7597,7 +7597,7 @@ struct ContentView: View {
             tabManager.selectWorkspace(workspace)
             selectedTabIds = [workspace.id]
             lastSidebarSelectionIndex = tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspace.id }
-            selection = .tabs
+            sidebarSelectionState.selection = .tabs
             syncSidebarSelectedWorkspaceIds()
         }
         registry.register(commandId: "palette.resetWorkspaceColor") {
@@ -9588,8 +9588,13 @@ struct VerticalTabsSidebar: View {
         let setWorkspaceHidden: (UUID, Bool) -> Bool
         let performPinAction: (WorkspaceActionDispatcher.PinState) -> WorkspaceActionDispatcher.PinResult
         let clearCustomTitle: (UUID) -> Void
+        let setCustomTitle: (UUID, String?) -> Void
         let clearCustomDescription: (UUID) -> Void
         let workspaces: ([UUID]) -> [Workspace]
+        let openBrowserInWorkspace: (_ workspaceId: UUID, _ url: URL) -> Bool
+        let applyWorkspaceColor: (_ color: String?, _ workspaceIds: [UUID]) -> Void
+        let workspaceTerminalScrollBarHidden: (UUID) -> Bool
+        let setWorkspaceTerminalScrollBarHidden: (_ workspaceId: UUID, _ hidden: Bool) -> Void
         let markWorkspacesRead: ([UUID]) -> Void
         let markWorkspacesUnread: ([UUID]) -> Void
         let clearLatestNotifications: ([UUID]) -> Void
@@ -9671,6 +9676,9 @@ struct VerticalTabsSidebar: View {
             clearCustomTitle: { workspaceId in
                 tabManager.clearCustomTitle(tabId: workspaceId)
             },
+            setCustomTitle: { workspaceId, title in
+                tabManager.setCustomTitle(tabId: workspaceId, title: title)
+            },
             clearCustomDescription: { workspaceId in
                 tabManager.clearCustomDescription(tabId: workspaceId)
             },
@@ -9678,6 +9686,23 @@ struct VerticalTabsSidebar: View {
                 workspaceIds.compactMap { workspaceId in
                     tabManager.tabs.first(where: { $0.id == workspaceId })
                 }
+            },
+            openBrowserInWorkspace: { workspaceId, url in
+                tabManager.openBrowser(
+                    inWorkspace: workspaceId,
+                    url: url,
+                    preferSplitRight: true,
+                    insertAtEnd: true
+                ) != nil
+            },
+            applyWorkspaceColor: { color, workspaceIds in
+                tabManager.applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
+            },
+            workspaceTerminalScrollBarHidden: { workspaceId in
+                tabManager.tabs.first(where: { $0.id == workspaceId })?.terminalScrollBarHidden == true
+            },
+            setWorkspaceTerminalScrollBarHidden: { workspaceId, hidden in
+                tabManager.setWorkspaceTerminalScrollBarHidden(tabId: workspaceId, hidden: hidden)
             },
             markWorkspacesRead: { workspaceIds in
                 for workspaceId in workspaceIds {
@@ -14235,12 +14260,7 @@ private struct TabItemView: View, Equatable {
     private func openPullRequestLink(_ url: URL) {
         updateSelection()
         if openSidebarPullRequestLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
+            if !actions.openBrowserInWorkspace(tab.id, url) {
                 NSWorkspace.shared.open(url)
             }
             return
@@ -14252,12 +14272,7 @@ private struct TabItemView: View, Equatable {
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         updateSelection()
         if openSidebarPortLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
+            if !actions.openBrowserInWorkspace(tab.id, url) {
                 NSWorkspace.shared.open(url)
             }
             return
@@ -14415,16 +14430,16 @@ private struct TabItemView: View, Equatable {
     }
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
-        tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
+        actions.applyWorkspaceColor(hex, targetIds)
     }
 
     private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
         let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
-            tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
+            actions.workspaceTerminalScrollBarHidden(targetId)
         }
         let hideScrollBar = !currentlyHidden
         for targetId in targetIds {
-            tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)
+            actions.setWorkspaceTerminalScrollBarHidden(targetId, hideScrollBar)
         }
     }
 
@@ -14489,13 +14504,13 @@ private struct TabItemView: View, Equatable {
         }
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        actions.setCustomTitle(tab.id, input.stringValue)
     }
 
     private func beginWorkspaceDescriptionEditFromContextMenu() {
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = index
-        tabManager.selectTab(tab)
+        actions.selectWorkspace(tab)
         setSelectionToTabs()
         _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
     }
