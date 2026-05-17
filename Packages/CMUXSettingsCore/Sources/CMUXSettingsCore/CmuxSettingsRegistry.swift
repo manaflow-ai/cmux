@@ -313,17 +313,18 @@ public enum CmuxSettingsRegistry {
     public static func normalizeCommandLineValue(_ raw: String, for definition: SettingDefinition) throws -> Any {
         switch definition.kind {
         case .bool:
-            if let jsonValue = parseJSONLiteral(raw) {
-                return try normalizeJSONValue(jsonValue, for: definition)
-            }
             switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "true", "yes", "on", "1":
                 return true
             case "false", "no", "off", "0":
                 return false
             default:
-                throw ValidationError(message: "\(definition.key) expects true or false")
+                break
             }
+            if let jsonValue = parseJSONLiteral(raw) {
+                return try normalizeJSONValue(jsonValue, for: definition)
+            }
+            throw ValidationError(message: "\(definition.key) expects true or false")
         case .int:
             if let jsonValue = parseJSONLiteral(raw) {
                 return try normalizeJSONValue(jsonValue, for: definition)
@@ -399,7 +400,7 @@ public enum CmuxSettingsRegistry {
             }
             return int
         case let .double(min, max):
-            guard let double = numericDouble(value), booleanValue(value) == nil else {
+            guard let double = numericDouble(value), booleanValue(value) == nil, double.isFinite else {
                 throw ValidationError(message: "\(definition.key) expects a number")
             }
             if let min, double < min {

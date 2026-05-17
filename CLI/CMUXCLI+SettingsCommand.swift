@@ -416,17 +416,29 @@ extension CMUXCLI {
 
     private func reloadSettingsIfRunning(socketPath: String, explicitPassword: String?, store: SettingsFileStore) throws {
         guard socketExists(at: socketPath) else { return }
-        let client = try connectClient(
-            socketPath: socketPath,
-            explicitPassword: explicitPassword,
-            launchIfNeeded: false
-        )
-        defer { client.close() }
-        let response = try client.send(command: "reload_config")
-        if response.hasPrefix("ERROR:") {
-            let message = "settings saved to \(store.displayPath) but could not be applied live; " +
+        let liveReloadFailure = CLIError(
+            message: "settings saved to \(store.displayPath) but could not be applied live; " +
                 "restart cmux to pick up the changes"
-            throw CLIError(message: message)
+        )
+        let client: SocketClient
+        do {
+            client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+        } catch {
+            throw liveReloadFailure
+        }
+        defer { client.close() }
+        let response: String
+        do {
+            response = try client.send(command: "reload_config")
+        } catch {
+            throw liveReloadFailure
+        }
+        if response.hasPrefix("ERROR:") {
+            throw liveReloadFailure
         }
     }
 

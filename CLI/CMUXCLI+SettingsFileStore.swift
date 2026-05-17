@@ -464,32 +464,40 @@ extension CMUXCLI {
             }
             var root: [String: Any] = [:]
             var tablePath: [String] = []
+            var assignedPaths: Set<String> = []
+            var lineNumber = 0
             for rawLine in source.components(separatedBy: .newlines) {
+                lineNumber += 1
                 let line = stripTomlComment(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !line.isEmpty, !line.hasPrefix("#") else { continue }
                 if line.hasPrefix("[") {
                     guard line.hasSuffix("]"), !line.hasPrefix("[[") else {
-                        throw CLIError(message: "Unsupported TOML section line: \(rawLine)")
+                        throw CLIError(message: "Unsupported TOML section header on line \(lineNumber)")
                     }
                     let header = String(line.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
-                    tablePath = try parseTomlKeyPath(header, rawLine: rawLine)
+                    tablePath = try parseTomlKeyPath(header, lineNumber: lineNumber)
                     continue
                 }
                 guard let equals = tomlAssignmentEquals(in: line) else {
-                    throw CLIError(message: "Invalid TOML line: \(rawLine)")
+                    throw CLIError(message: "Invalid TOML assignment on line \(lineNumber)")
                 }
                 let key = String(line[..<equals]).trimmingCharacters(in: .whitespacesAndNewlines)
                 let literal = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                let keyPath = tablePath + (try parseTomlKeyPath(key, rawLine: rawLine))
-                let value = try parseTomlLiteral(String(literal))
+                let keyPath = tablePath + (try parseTomlKeyPath(key, lineNumber: lineNumber))
+                let value = try parseTomlLiteral(String(literal), lineNumber: lineNumber)
+                let pathKey = keyPath.joined(separator: "\u{1F}")
+                if !assignedPaths.insert(pathKey).inserted {
+                    throw CLIError(message: "Duplicate TOML key '\(keyPath.joined(separator: "."))' on line \(lineNumber)")
+                }
                 setValue(value, forComponents: keyPath, in: &root)
             }
             return root
         }
 
-        private func parseTomlKeyPath(_ raw: String, rawLine: String) throws -> [String] {
+        private func parseTomlKeyPath(_ raw: String, lineNumber: Int) throws -> [String] {
             var components: [String] = []
             var index = raw.startIndex
+            let invalid = CLIError(message: "Invalid TOML key path on line \(lineNumber)")
 
             func skipWhitespace() {
                 while index < raw.endIndex, raw[index].isWhitespace {
@@ -517,17 +525,17 @@ extension CMUXCLI {
                     if character == quote {
                         let inner = String(raw[contentStart..<contentEnd])
                         index = raw.index(after: contentEnd)
-                        return quote == "\"" ? try unescapeTomlString(inner) : inner
+                        return quote == "\"" ? try unescapeTomlString(inner, lineNumber: lineNumber) : inner
                     }
                     contentEnd = raw.index(after: contentEnd)
                 }
-                throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                throw invalid
             }
 
             while true {
                 skipWhitespace()
                 guard index < raw.endIndex else {
-                    throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                    throw invalid
                 }
 
                 let component: String
@@ -540,12 +548,12 @@ extension CMUXCLI {
                     }
                     component = String(raw[start..<index]).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard isTomlBareKey(component) else {
-                        throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                        throw invalid
                     }
                 }
 
                 guard !component.isEmpty else {
-                    throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                    throw invalid
                 }
                 components.append(component)
                 skipWhitespace()
@@ -553,7 +561,7 @@ extension CMUXCLI {
                     return components
                 }
                 guard raw[index] == "." else {
-                    throw CLIError(message: "Invalid TOML key path: \(rawLine)")
+                    throw invalid
                 }
                 index = raw.index(after: index)
             }
@@ -615,7 +623,7 @@ extension CMUXCLI {
             return rawLine
         }
 
-        private func parseTomlLiteral(_ raw: String) throws -> Any {
+        private func parseTomlLiteral(_ raw: String, lineNumber: Int) throws -> Any {
             if raw == "true" { return true }
             if raw == "false" { return false }
             if raw == "null" { return NSNull() }
@@ -626,39 +634,39 @@ extension CMUXCLI {
                       let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
                     if raw.hasPrefix("{"), raw.contains("=") {
                         throw CLIError(
-                            message: "Unsupported TOML inline table literal: \(raw). Use dotted TOML keys or --format json."
+                            message: "Unsupported TOML inline table literal on line \(lineNumber). Use dotted TOML keys or --format json."
                         )
                     }
                     throw CLIError(
-                        message: "Invalid TOML array/object literal: \(raw). Use JSON-style arrays/objects or --format json."
+                        message: "Invalid TOML array/object literal on line \(lineNumber). Use JSON-style arrays/objects or --format json."
                     )
                 }
                 return value
             }
             if raw.hasPrefix("\"\"\"") {
-                throw CLIError(message: "Unsupported TOML multi-line basic string: \(raw)")
+                throw CLIError(message: "Unsupported TOML multi-line basic string on line \(lineNumber)")
             }
             if raw.hasPrefix("\""), raw.hasSuffix("\"") {
                 let inner = raw.dropFirst().dropLast()
-                return try unescapeTomlString(String(inner))
+                return try unescapeTomlString(String(inner), lineNumber: lineNumber)
             }
             if raw.hasPrefix("'") {
                 guard !raw.hasPrefix("'''") else {
-                    throw CLIError(message: "Unsupported TOML multi-line literal string: \(raw)")
+                    throw CLIError(message: "Unsupported TOML multi-line literal string on line \(lineNumber)")
                 }
                 guard raw.count >= 2, raw.hasSuffix("'") else {
-                    throw CLIError(message: "Invalid TOML literal string: \(raw)")
+                    throw CLIError(message: "Invalid TOML literal string on line \(lineNumber)")
                 }
                 let inner = raw.dropFirst().dropLast()
                 guard !inner.contains("'") else {
-                    throw CLIError(message: "Invalid TOML literal string: \(raw)")
+                    throw CLIError(message: "Invalid TOML literal string on line \(lineNumber)")
                 }
                 return String(inner)
             }
             return raw
         }
 
-        private func unescapeTomlString(_ raw: String) throws -> String {
+        private func unescapeTomlString(_ raw: String, lineNumber: Int? = nil) throws -> String {
             var output = ""
 
             func hexValue(_ character: Character) -> UInt32? {
