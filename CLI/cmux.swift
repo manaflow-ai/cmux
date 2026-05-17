@@ -18061,6 +18061,9 @@ struct CMUXCLI {
         return .healthy
     }
 
+    // Unscoped Codex events have no turn_id, so the monitor lease timestamp is the only
+    // turn boundary available. This relies on prompt-submit writing the lease after
+    // prior-turn output has yielded and before Codex can append rows for the new turn.
     private func codexTranscriptLineIsAtOrAfter(_ object: [String: Any], _ boundary: Date?) -> Bool {
         guard let boundary,
               let timestamp = codexTranscriptLineTimestamp(object) else {
