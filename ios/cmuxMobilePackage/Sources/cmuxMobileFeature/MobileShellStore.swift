@@ -176,24 +176,29 @@ public struct CMUXMobileRuntime: Sendable {
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
     public var rpcRequestTimeoutNanoseconds: UInt64
+    public var now: @Sendable () -> Date
 
     public init(
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
         transportFactory: any CmxByteTransportFactory,
-        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
+        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
+        self.now = now
     }
 
     public init(
         transportFactory: any CmxRouteAwareByteTransportFactory,
-        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
+        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
+        self.now = now
     }
 }
 
@@ -1438,7 +1443,8 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         }
         var auth: [String: Any] = [:]
         if let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !authToken.isEmpty {
+           !authToken.isEmpty,
+           ticket.expiresAt > runtime.now() {
             auth["attach_token"] = authToken
         }
         let shouldSendStackAuth = auth["attach_token"] == nil

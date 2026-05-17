@@ -31,6 +31,10 @@ final class AuthManager {
     private let authSessionCache = AuthSessionCache.shared
     private var pendingNonce: String?
 
+#if DEBUG
+    var debugAccessTokenOverride: String?
+#endif
+
     private init() {
         primeSessionState()
         Task {
@@ -361,6 +365,13 @@ final class AuthManager {
     }
 
     func getAccessToken() async throws -> String {
+#if DEBUG
+        if let debugAccessTokenOverride = debugAccessTokenOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !debugAccessTokenOverride.isEmpty {
+            return debugAccessTokenOverride
+        }
+#endif
+
         if let accessToken = await stack.getAccessToken() {
             return accessToken
         }

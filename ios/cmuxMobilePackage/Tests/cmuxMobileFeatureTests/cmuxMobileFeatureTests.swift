@@ -522,6 +522,43 @@ import Testing
 }
 
 @MainActor
+@Test func expiredAttachTicketFallsBackToStackAuthForScopedWorkspace() async throws {
+    let ticketExpiresAt = Date().addingTimeInterval(60)
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: "expired-workspace",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: ticketExpiresAt,
+        authToken: "expired-ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "expired-workspace", title: "Expired Workspace"),
+    ])
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        now: { ticketExpiresAt.addingTimeInterval(1) }
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    AuthManager.shared.debugAccessTokenOverride = "stack-token-after-ticket-expiry"
+    defer {
+        AuthManager.shared.debugAccessTokenOverride = nil
+    }
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let workspaceList = try #require(await responses.sentRequests().first { $0.method == "workspace.list" })
+    #expect(workspaceList.attachToken == nil)
+    #expect(workspaceList.stackAccessToken == "stack-token-after-ticket-expiry")
+    #expect(store.selectedWorkspace?.id.rawValue == "expired-workspace")
+}
+
+@MainActor
 @Test func manualHostPairingRejectsInvalidHost() async {
     let store = CMUXMobileShellStore.preview()
 
@@ -1528,6 +1565,7 @@ private actor ScriptedTransportResponses {
         try sentPayloads.map { payload in
             let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
             let params = request["params"] as? [String: Any] ?? [:]
+            let auth = request["auth"] as? [String: Any]
             return RecordedRPCRequest(
                 method: request["method"] as? String,
                 workspaceID: params["workspace_id"] as? String,
@@ -1535,7 +1573,9 @@ private actor ScriptedTransportResponses {
                 viewportRows: params["viewport_rows"] as? Int,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
-                hasAuth: request["auth"] != nil
+                hasAuth: auth != nil,
+                attachToken: auth?["attach_token"] as? String,
+                stackAccessToken: auth?["stack_access_token"] as? String
             )
         }
     }
@@ -1549,6 +1589,8 @@ private struct RecordedRPCRequest: Sendable {
     var clientID: String?
     var text: String?
     var hasAuth: Bool
+    var attachToken: String?
+    var stackAccessToken: String?
 }
 
 private actor ScriptedTransport: CmxByteTransport {
