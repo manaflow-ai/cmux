@@ -1293,7 +1293,7 @@ def main() -> int:
     test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures)
     test_live_socket_auto_preserve_accepts_all_documented_truthy_variants(failures)
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
-    test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
+    test_live_socket_preserves_space_separated_heap_cap(failures)
     test_live_socket_tmpdir_failure_uses_persistent_restore_module(failures)
     test_live_socket_whitespace_home_falls_back_to_tmpdir(failures)
     test_live_socket_restore_module_survives_session_tmpdir_cleanup(failures)
