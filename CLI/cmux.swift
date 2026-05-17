@@ -10727,10 +10727,10 @@ struct CMUXCLI {
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
               set <files|find|vault|sessions|goals|feed|dock>
-                                 Show, switch mode, and focus
+                                             Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
               files|find|vault|sessions|goals|feed|dock
-                                 Alias for show + set + focus
+                                             Alias for show + set + focus
 
             Flags:
               --workspace <id|ref|index>     Target the window containing a workspace
