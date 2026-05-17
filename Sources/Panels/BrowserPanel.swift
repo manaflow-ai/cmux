@@ -4800,6 +4800,10 @@ extension BrowserPanel {
         return windowContainsInspectorViews(contentView)
     }
 
+    private static func isWebInspectorWindowTitle(_ window: NSWindow) -> Bool {
+        window.title.hasPrefix("Web Inspector")
+    }
+
     private func detachedDeveloperToolsWindows() -> [NSWindow] {
         let mainWindow = webView.window
         return NSApp.windows.filter { candidate in
@@ -4807,6 +4811,16 @@ extension BrowserPanel {
                 return false
             }
             return Self.isDetachedInspectorWindow(candidate)
+        }
+    }
+
+    private func webInspectorTitledWindows() -> [NSWindow] {
+        let mainWindow = webView.window
+        return NSApp.windows.filter { candidate in
+            if let mainWindow, candidate === mainWindow {
+                return false
+            }
+            return Self.isWebInspectorWindowTitle(candidate)
         }
     }
 
@@ -4875,17 +4889,31 @@ extension BrowserPanel {
 
     private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
-              let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
-                "title=\(window.title) frame=\(NSStringFromRect(window.frame))"
-            )
-#endif
-            window.close()
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        for window in webInspectorTitledWindows() {
+            orderOutStaleWebInspectorWindowIfNeeded(window, reason: "attachedDismissal")
         }
+    }
+
+    @discardableResult
+    func orderOutStaleWebInspectorWindowIfNeeded(_ window: NSWindow, reason: String) -> Bool {
+        guard Self.isWebInspectorWindowTitle(window) else { return false }
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
+        guard preferredDeveloperToolsPresentation == .attached || hasAttachedDeveloperToolsLayout() else {
+            return false
+        }
+        if let mainWindow = webView.window, window === mainWindow {
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools strayWindow.orderOut panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) title=\(window.title) frame=\(NSStringFromRect(window.frame))"
+        )
+#endif
+        window.isExcludedFromWindowsMenu = true
+        window.orderOut(nil)
+        return true
     }
 
     private func scheduleDetachedDeveloperToolsWindowDismissal() {

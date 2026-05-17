@@ -749,6 +749,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
+    private static let didInstallWindowCloseSwizzle: Void = {
+        let targetClass: AnyClass = NSWindow.self
+        let originalSelector = #selector(NSWindow.close)
+        let swizzledSelector = #selector(NSWindow.cmux_close)
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
     private static let didInstallApplicationSendEventSwizzle: Void = {
         let targetClass: AnyClass = NSApplication.self
         let originalSelector = #selector(NSApplication.sendEvent(_:))
@@ -10716,6 +10726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
+        _ = didInstallWindowCloseSwizzle
     }
 
 #if DEBUG
@@ -10736,6 +10747,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
         _ = Self.didInstallWindowSendEventSwizzle
+        _ = Self.didInstallWindowCloseSwizzle
     }
 
     private func installShortcutMonitor() {
@@ -14013,6 +14025,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    @discardableResult
+    func orderOutStaleBrowserWebInspectorWindowIfNeeded(_ window: NSWindow, reason: String) -> Bool {
+        guard !isTerminatingApp else { return false }
+
+        var seenManagers = Set<ObjectIdentifier>()
+        let managers = mainWindowContexts.values.map(\.tabManager) + [tabManager].compactMap { $0 }
+        for manager in managers {
+            guard seenManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values.compactMap({ $0 as? BrowserPanel }) {
+                    if panel.orderOutStaleWebInspectorWindowIfNeeded(window, reason: reason) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
     private func activateMainWindowContext(_ context: MainWindowContext?) {
         guard let context else {
             tabManager = nil
@@ -14526,6 +14557,13 @@ private extension AppDelegate {
 }
 
 private extension NSWindow {
+    @objc func cmux_close() {
+        if AppDelegate.shared?.orderOutStaleBrowserWebInspectorWindowIfNeeded(self, reason: "window.close") == true {
+            return
+        }
+        cmux_close()
+    }
+
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
               textView.isFieldEditor,
@@ -14574,6 +14612,17 @@ private extension NSWindow {
             stack.append(contentsOf: candidate.subviews)
         }
         return nil
+    }
+
+    private static func cmuxEventHitsStandardCloseButton(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              !closeButton.isHidden,
+              closeButton.alphaValue > 0.001,
+              closeButton.isEnabled else {
+            return false
+        }
+        let pointInButton = closeButton.convert(event.locationInWindow, from: nil)
+        return closeButton.bounds.insetBy(dx: -2, dy: -2).contains(pointInButton)
     }
 
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
@@ -14746,6 +14795,11 @@ private extension NSWindow {
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
         if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
+        if event.type == .leftMouseDown,
+           Self.cmuxEventHitsStandardCloseButton(event, in: self),
+           AppDelegate.shared?.orderOutStaleBrowserWebInspectorWindowIfNeeded(self, reason: "closeButtonMouseDown") == true {
+            return
+        }
         if event.type == .leftMouseDown,
            AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
             return
