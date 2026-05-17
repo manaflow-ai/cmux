@@ -568,12 +568,10 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView = hostedTerminal.surfaceView
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
             GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
@@ -588,13 +586,13 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         surfaceView.unmarkText()
         XCTAssertFalse(surfaceView.hasMarkedText())
 
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+        var textInputKeyCodes: [UInt16] = []
+        GhosttyNSView.debugTextInputEventHandler = { candidateView, event in
             guard candidateView === surfaceView,
-                  let event = events.first,
                   Int(event.keyCode) == kVK_Return else {
                 return false
             }
+            textInputKeyCodes.append(event.keyCode)
             return true
         }
 
@@ -621,6 +619,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             surfaceView.keyDown(with: event)
         }
 
+        XCTAssertEqual(textInputKeyCodes, [UInt16(kVK_Return)])
         XCTAssertEqual(forwardedText, [])
         XCTAssertEqual(
             forwardedPressKeyCodes,
