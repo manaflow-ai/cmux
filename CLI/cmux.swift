@@ -20139,11 +20139,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hooks: hooks,
             hooksFilePath: filePath,
             def: def
-        ) + Self.codexHookTrustEntries(
+        )
+        let codexDefaultHookTrustHashesToRemove = Set(Self.codexHookTrustEntries(
             hooks: buildHooksDict(for: def),
             hooksFilePath: filePath,
             def: def
-        )
+        ).map(\.trustedHash))
         let codexHookTrustEscapedKeyPrefixesToRemove = Self.codexHookTrustEscapedKeyPrefixes(
             hooksFilePath: filePath,
             def: def
@@ -20202,7 +20203,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let newContent = Self.codexConfigTomlUninstallingHooksFeature(
                     from: content,
                     removingHookTrustEntries: codexHookTrustEntriesToRemove,
-                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixesToRemove
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixesToRemove,
+                    removingTrustedHashes: codexDefaultHookTrustHashesToRemove
                 )
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
@@ -20331,11 +20333,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexConfigTomlUninstallingHooksFeature(
         from existingContent: String,
         removingHookTrustEntries entries: [CodexHookTrustEntry] = [],
-        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = []
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> String {
         var lines = tomlLines(from: existingContent)
         let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
-        let trustedHashes = Set(entries.map(\.trustedHash))
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
         if removeCmuxCodexHookTrustBlock(
             from: &lines,

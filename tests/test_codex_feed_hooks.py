@@ -1653,6 +1653,77 @@ def test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(
         raise AssertionError(f"third-party hook trust was removed: {config_toml!r}")
 
 
+def test_uninstall_retry_preserves_user_hook_trust_at_default_cmux_key(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-uninstall-retry-user-default-key"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    config_path = codex_home / "config.toml"
+    user_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    user_hooks = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": "printf user", "timeout": 1000}
+                    ]
+                }
+            ]
+        }
+    }
+    hooks_path.write_text(json.dumps(user_hooks, indent=2) + "\n", encoding="utf-8")
+    config_path.write_text(
+        f'[hooks.state."{user_key}"]\n'
+        'trusted_hash = "sha256:user-default-index"\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    installed_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    expected_trust = expected_cmux_codex_hook_trust(installed_hooks, hooks_path)
+    if not expected_trust:
+        raise AssertionError(f"expected cmux Codex trust entries, got {expected_trust!r}")
+    hooks_path.write_text(json.dumps(user_hooks, indent=2) + "\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "uninstall", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex uninstall retry failed exit={result.returncode}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if 'trusted_hash = "sha256:user-default-index"' not in config_toml:
+        raise AssertionError(f"user hook trust at default cmux key was removed: {config_toml!r}")
+    for key, trusted_hash in expected_trust.items():
+        if trusted_hash in config_toml:
+            raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+        if key != user_key and key in config_toml:
+            raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+
+
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-uninstall"
     codex_home.mkdir()
@@ -1913,6 +1984,7 @@ def main() -> int:
             test_install_enables_hooks_when_stale_trust_marker_captures_dotted_feature(cli_path, root)
             test_uninstall_preserves_third_party_hook_trust_inside_cmux_marker(cli_path, root)
             test_uninstall_retry_removes_stale_cmux_hook_trust_after_hooks_are_cleaned(cli_path, root)
+            test_uninstall_retry_preserves_user_hook_trust_at_default_cmux_key(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
