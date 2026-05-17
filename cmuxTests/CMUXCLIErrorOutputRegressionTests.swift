@@ -31,6 +31,39 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("cannot be used with --no-run"), result.stdout)
     }
 
+    func testUseCommandHidesRawGitErrorOutput() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        echo "fatal: internal-host.example token secret --ff-only remote get-url origin" >&2
+        exit 42
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use owner/repo --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Failed to download extension repository (exit 42)"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("fatal:"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("internal-host.example"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("token secret"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("--ff-only"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("remote get-url"), result.stdout)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -49,6 +82,13 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
 
         throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CMUXCLIErrorOutputRegressionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     private func shellSingleQuote(_ value: String) -> String {

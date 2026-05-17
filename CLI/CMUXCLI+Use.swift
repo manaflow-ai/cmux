@@ -347,7 +347,7 @@ extension CMUXCLI {
                 arguments: ["clone", repository.cloneURL, checkoutURL.path]
             )
             guard result.status == 0 else {
-                throw CLIError(message: "git clone failed: \(trimmedProcessError(result))")
+                throw CLIError(message: processFailureMessage("Failed to download extension repository", result: result))
             }
             return CmuxUseCheckoutResult(url: checkoutURL, action: "cloned")
         }
@@ -366,7 +366,7 @@ extension CMUXCLI {
             arguments: ["-C", checkoutURL.path, "remote", "get-url", "origin"]
         )
         guard remoteResult.status == 0 else {
-            throw CLIError(message: "git remote get-url origin failed: \(trimmedProcessError(remoteResult))")
+            throw CLIError(message: processFailureMessage("Failed to inspect existing extension checkout", result: remoteResult))
         }
         let remoteURL = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard CmuxUseSupport.gitRemote(remoteURL, matches: repository) else {
@@ -378,7 +378,7 @@ extension CMUXCLI {
             arguments: ["-C", checkoutURL.path, "pull", "--ff-only"]
         )
         guard pullResult.status == 0 else {
-            throw CLIError(message: "git pull --ff-only failed: \(trimmedProcessError(pullResult))")
+            throw CLIError(message: processFailureMessage("Failed to update extension repository", result: pullResult))
         }
         return CmuxUseCheckoutResult(url: checkoutURL, action: "updated")
     }
@@ -393,16 +393,8 @@ extension CMUXCLI {
         throw CLIError(message: "cmux use requires git in PATH")
     }
 
-    private func trimmedProcessError(_ result: CLIProcessResult) -> String {
-        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !stderr.isEmpty {
-            return stderr
-        }
-        let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !stdout.isEmpty {
-            return stdout
-        }
-        return "exit \(result.status)"
+    private func processFailureMessage(_ message: String, result: CLIProcessResult) -> String {
+        "\(message) (exit \(result.status))"
     }
 
     private func withUseSocketClient<T>(
