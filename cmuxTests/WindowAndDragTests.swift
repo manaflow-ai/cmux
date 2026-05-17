@@ -164,7 +164,10 @@ final class MainWindowFocusRedrawTests: XCTestCase {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         window.contentView = contentView
-        defer { window.close() }
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
 
         contentView.layoutSubtreeIfNeeded()
         splitView.adjustSubviews()
