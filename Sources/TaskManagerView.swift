@@ -78,10 +78,10 @@ struct CmuxTaskManagerView: View {
     private func metric(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .cmuxFont(size: 12, relativeTo: .caption)
+                .cmuxFont(size: 10, relativeTo: .caption)
                 .foregroundStyle(.secondary)
             Text(value)
-                .cmuxFont(size: 13, weight: .semibold, design: .monospaced, relativeTo: .callout)
+                .cmuxFont(size: 13, weight: .semibold, design: .monospaced, relativeTo: .body)
                 .monospacedDigit()
         }
     }
@@ -278,7 +278,7 @@ private struct CmuxTaskManagerMessageView: View {
             Text(title)
                 .cmuxFont(size: 13, weight: .semibold, relativeTo: .headline)
             Text(detail)
-                .cmuxFont(size: 13, relativeTo: .body)
+                .cmuxFont(size: 12, relativeTo: .callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
