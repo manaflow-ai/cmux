@@ -17009,7 +17009,7 @@ struct CMUXCLI {
 
             if let needsInput = claudePreToolNeedsInputSummary(parsedInput.object) {
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
-                _ = try? publishClaudeNeedsInput(
+                _ = try publishClaudeNeedsInput(
                     client: client,
                     sessionStore: sessionStore,
                     sessionId: parsedInput.sessionId,
@@ -17325,12 +17325,12 @@ struct CMUXCLI {
         }
 
         if parts.isEmpty {
-            return String(
+            return redactClaudeSensitiveSpans(String(
                 localized: "agent.claude.input.body.askingQuestion",
                 defaultValue: "Claude is asking a question"
-            )
+            ))
         }
-        return parts.joined(separator: "\n")
+        return redactClaudeSensitiveSpans(parts.joined(separator: "\n"))
     }
 
     private func describeToolUse(_ object: [String: Any]?) -> String? {
