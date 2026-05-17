@@ -628,36 +628,6 @@ struct RecentlyClosedBrowserStack {
     }
 }
 
-struct FocusHistoryEntry: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID?
-}
-
-enum FocusHistoryMenuPosition: Equatable {
-    case older
-    case newer
-}
-
-enum FocusHistoryMenuDirection: Equatable {
-    case back
-    case forward
-}
-
-struct FocusHistoryMenuItem: Equatable {
-    let historyIndex: Int
-    let entry: FocusHistoryEntry
-    let workspaceTitle: String
-    let panelTitle: String?
-    let position: FocusHistoryMenuPosition
-    let isNavigable: Bool
-}
-
-struct FocusHistoryMenuSnapshot: Equatable {
-    let items: [FocusHistoryMenuItem]
-    let totalItemCount: Int
-    let isLimited: Bool
-}
-
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
