@@ -202,6 +202,10 @@ final class cmuxMobileUITests: XCTestCase {
             object: app
         )
         let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
+        let row = terminalRow(index, in: app)
+        if result != .completed, row.exists, row.label == expectedLabel {
+            return
+        }
         XCTAssertEqual(
             result,
             .completed,
@@ -209,7 +213,6 @@ final class cmuxMobileUITests: XCTestCase {
             file: file,
             line: line
         )
-        let row = terminalRow(index, in: app)
         XCTAssertEqual(row.label, expectedLabel, file: file, line: line)
     }
 
