@@ -349,10 +349,6 @@ merge_node_options() {
     local require_flag="--require=$guard_path"
     local memory_flag="--max-old-space-size=4096"
     local existing="${NODE_OPTIONS:-}"
-    local -a filtered=()
-    local -a tokens=()
-    local token
-    local skip_next=0
 
     if [[ -z "$guard_path" ]]; then
         printf '%s' "$existing"
@@ -360,28 +356,12 @@ merge_node_options() {
     fi
 
     existing="$(normalize_node_options_for_restore "$existing")"
-    read -r -a tokens <<<"$existing"
-    for token in "${tokens[@]}"; do
-        if (( skip_next )); then
-            skip_next=0
-            continue
-        fi
-        if [[ "$token" == "--max-old-space-size" ]]; then
-            skip_next=1
-            continue
-        fi
-        if [[ "$token" == --max-old-space-size=* ]]; then
-            continue
-        fi
-        filtered+=("$token")
-    done
-
-    if (( ${#filtered[@]} == 0 )); then
+    if [[ -z "$existing" ]]; then
         printf '%s %s' "$require_flag" "$memory_flag"
         return 0
     fi
     printf '%s %s' "$require_flag" "$memory_flag"
-    printf ' %s' "${filtered[@]}"
+    printf ' %s' "$existing"
 }
 
 encode_launch_argv() {

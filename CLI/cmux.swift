@@ -19018,12 +19018,9 @@ struct CMUXCLI {
                 shouldDropInjectedHeapCap = true
                 continue
             }
-            if token == "--max-old-space-size" {
-                index += min(2, tokens.count - index)
-                continue
-            }
-            if token.hasPrefix("--max-old-space-size=") {
-                index += 1
+            if token == "--max-old-space-size", index + 1 < tokens.count {
+                filtered.append("--max-old-space-size=\(tokens[index + 1])")
+                index += 2
                 continue
             }
             filtered.append(token)

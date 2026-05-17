@@ -958,7 +958,7 @@ def test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failu
     )
 
 
-def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
+def test_live_socket_preserves_space_separated_heap_cap(failures: list[str]) -> None:
     existing = "--max-old-space-size 2048 --trace-warnings"
     restored = "--max-old-space-size=2048 --trace-warnings"
     code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
@@ -974,8 +974,8 @@ def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[s
         failures,
     )
     expect(
-        remaining_flags == "--max-old-space-size=4096 --trace-warnings",
-        "space-separated heap flag: expected wrapper to replace the existing max-old-space-size option after the preload, "
+        remaining_flags == "--max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings",
+        "space-separated heap flag: expected wrapper to preserve the existing max-old-space-size option after the preload, "
         f"got {node_options!r}",
         failures,
     )

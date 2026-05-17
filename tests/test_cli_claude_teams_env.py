@@ -298,9 +298,9 @@ def main() -> int:
         )
         return 1
 
-    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+    if remaining_flags != "--max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings":
         print(
-            "FAIL: expected launcher to replace the existing space-separated NODE_OPTIONS heap cap after the restore preload, "
+            "FAIL: expected launcher to preserve the existing space-separated NODE_OPTIONS heap cap after the restore preload, "
             f"got {node_options_value!r}"
         )
         return 1

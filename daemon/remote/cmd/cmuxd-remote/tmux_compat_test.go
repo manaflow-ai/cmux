@@ -403,13 +403,13 @@ func TestMergeNodeOptions(t *testing.T) {
 	}
 
 	existing := "--max-old-space-size=2048 --trace-warnings"
-	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace existing size flag = %q", got)
+	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve existing size flag = %q", got)
 	}
 
 	spaceSeparated := "--max-old-space-size 2048 --trace-warnings"
-	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
-		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
+	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --max-old-space-size=2048 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should preserve space-separated size flag = %q", got)
 	}
 
 	staleRestore := "--require=/var/folders/session/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings"
@@ -458,7 +458,7 @@ func TestConfigureClaudeNodeOptionsStoresCleanOriginal(t *testing.T) {
 		{
 			name:            "normalizes original heap flag shape",
 			existing:        "--max-old-space-size 2048 --trace-warnings",
-			wantNodeOptions: wantInjected + " --trace-warnings",
+			wantNodeOptions: wantInjected + " --max-old-space-size=2048 --trace-warnings",
 			wantPresent:     "1",
 			wantOriginal:    "--max-old-space-size=2048 --trace-warnings",
 		},

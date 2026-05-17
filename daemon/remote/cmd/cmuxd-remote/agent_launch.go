@@ -417,22 +417,15 @@ func mergeNodeOptions(existing string, restoreModulePath string) string {
 	return requireFlag + " " + memoryFlag + " " + cleaned
 }
 
-type nodeOptionsHeapMode int
-
-const (
-	nodeOptionsStripHeapCap nodeOptionsHeapMode = iota
-	nodeOptionsNormalizeHeapCap
-)
-
 func cleanedNodeOptions(existing string) string {
-	return walkNodeOptions(existing, nodeOptionsStripHeapCap)
+	return walkNodeOptions(existing)
 }
 
 func nodeOptionsForRestore(existing string) string {
-	return walkNodeOptions(existing, nodeOptionsNormalizeHeapCap)
+	return walkNodeOptions(existing)
 }
 
-func walkNodeOptions(existing string, heapMode nodeOptionsHeapMode) string {
+func walkNodeOptions(existing string) string {
 	tokens := strings.Fields(existing)
 	if len(tokens) == 0 {
 		return ""
@@ -458,23 +451,10 @@ func walkNodeOptions(existing string, heapMode nodeOptionsHeapMode) string {
 			dropInjectedHeapCap = true
 			continue
 		}
-		switch heapMode {
-		case nodeOptionsStripHeapCap:
-			if token == "--max-old-space-size" {
-				if i+1 < len(tokens) {
-					i++
-				}
-				continue
-			}
-			if strings.HasPrefix(token, "--max-old-space-size=") {
-				continue
-			}
-		case nodeOptionsNormalizeHeapCap:
-			if token == "--max-old-space-size" && i+1 < len(tokens) {
-				filtered = append(filtered, "--max-old-space-size="+tokens[i+1])
-				i++
-				continue
-			}
+		if token == "--max-old-space-size" && i+1 < len(tokens) {
+			filtered = append(filtered, "--max-old-space-size="+tokens[i+1])
+			i++
+			continue
 		}
 		filtered = append(filtered, token)
 	}
