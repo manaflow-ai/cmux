@@ -426,6 +426,30 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         XCTAssertEqual(pending?.modifiedAt, crashDate)
     }
 
+    func testPendingCrashIgnoresNewerCrashFromDifferentExecutable() throws {
+        let currentCrashDate = Date(timeIntervalSince1970: 200)
+        let foreignCrashDate = Date(timeIntervalSince1970: 300)
+        let currentExecutablePath = try XCTUnwrap(Bundle.main.executableURL?.path)
+        let currentCrashURL = try writeCrashEnvelope(
+            named: "current.ghosttycrash",
+            executablePath: currentExecutablePath,
+            modifiedAt: currentCrashDate
+        )
+        _ = try writeCrashEnvelope(
+            named: "foreign.ghosttycrash",
+            executablePath: "/private/tmp/cmux-tbinput-unit/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            modifiedAt: foreignCrashDate
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL, currentCrashURL)
+        XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
+    }
+
     func testDefaultCrashDirectoryUsesCmuxStatePath() throws {
         XCTAssertTrue(
             GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path.hasSuffix("/.local/state/cmux/crash"),
@@ -453,6 +477,33 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
     private func writeCrashFile(named name: String, modifiedAt: Date) throws -> URL {
         let url = crashDirectoryURL.appendingPathComponent(name)
         try Data("MDMP".utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt],
+            ofItemAtPath: url.path
+        )
+        return url
+    }
+
+    private func writeCrashEnvelope(named name: String, executablePath: String, modifiedAt: Date) throws -> URL {
+        let url = crashDirectoryURL.appendingPathComponent(name)
+        let event = [
+            "debug_meta": [
+                "images": [
+                    [
+                        "code_file": executablePath,
+                    ],
+                ],
+            ],
+        ]
+        let eventData = try JSONSerialization.data(withJSONObject: event)
+        let eventHeader = #"{"type":"event","length":\#(eventData.count)}"#
+        var envelope = Data(#"{"event_id":"00000000-0000-0000-0000-000000000000"}"#.utf8)
+        envelope.append(0x0A)
+        envelope.append(Data(eventHeader.utf8))
+        envelope.append(0x0A)
+        envelope.append(eventData)
+        envelope.append(0x0A)
+        try envelope.write(to: url)
         try FileManager.default.setAttributes(
             [.modificationDate: modifiedAt],
             ofItemAtPath: url.path
