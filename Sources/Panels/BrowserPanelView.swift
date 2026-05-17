@@ -466,7 +466,7 @@ struct BrowserPanelView: View {
     }
 
     private var canInteractWithOmnibarSuggestions: Bool {
-        addressBarFocused && !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty
+        !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty
     }
 
     private var devToolsIconOption: BrowserDevToolsIconOption {
@@ -526,7 +526,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        addressBarFocused && !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty && omnibarPillFrame.width > 0
+        addressBarFocused && canInteractWithOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -1450,7 +1450,6 @@ struct BrowserPanelView: View {
     }
 
     private func canHandleOmnibarSelectionNavigation() -> Bool {
-        guard !omnibarHasMarkedText else { return false }
         if addressBarFocused {
             return true
         }
