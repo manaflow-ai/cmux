@@ -9020,6 +9020,7 @@ final class Workspace: Identifiable, ObservableObject {
         return didMutate
     }
 
+    @MainActor
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)

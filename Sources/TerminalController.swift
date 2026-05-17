@@ -1048,11 +1048,10 @@ class TerminalController {
                 currentUserID: currentUserID
             )
         case "bind" where errnoCode == EACCES || errnoCode == EPERM:
-            guard requestedPath == SocketControlSettings.stableDefaultSocketPath ||
-                    requestedPath == SocketControlSettings.legacyStableDefaultSocketPath else {
-                return nil
-            }
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+            return SocketControlSettings.userScopedFallbackSocketPath(
+                forDefaultPath: requestedPath,
+                currentUserID: currentUserID
+            )
         default:
             return nil
         }
