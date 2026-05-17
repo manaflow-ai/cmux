@@ -1090,6 +1090,11 @@ import Testing
     state.consumeAfterInput()
     #expect(state.activeModifier == nil)
 
+    state.tap(.shift, now: start.addingTimeInterval(0.5))
+    #expect(state.activeModifier == .shift)
+    state.consumeAfterInput()
+    #expect(state.activeModifier == nil)
+
     state.tap(.command, now: start.addingTimeInterval(1))
     state.tap(.command, now: start.addingTimeInterval(1.5))
     #expect(state.activeModifier == nil)

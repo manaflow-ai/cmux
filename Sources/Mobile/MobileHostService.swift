@@ -323,11 +323,21 @@ private actor MobileHostStackAuthVerifier {
             )
         }
 
-        let localUserID = await MainActor.run { AuthManager.shared.currentUser?.id }
+        let localUserID = await currentAuthenticatedLocalUserID()
         try MobileHostAuthorizationPolicy.authorizeStackUser(
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )
+    }
+
+    private func currentAuthenticatedLocalUserID() async -> String? {
+        await AuthManager.shared.awaitBootstrapped()
+        return await MainActor.run {
+            guard AuthManager.shared.isAuthenticated else {
+                return nil
+            }
+            return AuthManager.shared.currentUser?.id
+        }
     }
 }
 

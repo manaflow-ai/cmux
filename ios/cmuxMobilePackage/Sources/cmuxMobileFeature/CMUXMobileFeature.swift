@@ -1744,12 +1744,9 @@ struct WorkspaceDetailView: View {
             terminalFontScale = min(Self.maximumTerminalFontScale, terminalFontScale + Self.terminalFontScaleStep)
             bottomActionModifierState.clear()
         default:
-            let activeModifier = bottomActionModifierState.activeModifier
             if let input = action.inputText(modifier: bottomActionModifierState.activeModifier) {
                 sendTerminalInput(input)
-                if activeModifier != .shift {
-                    bottomActionModifierState.consumeAfterInput()
-                }
+                bottomActionModifierState.consumeAfterInput()
             }
         }
     }
