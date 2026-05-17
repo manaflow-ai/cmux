@@ -82,6 +82,9 @@ class TerminalController {
         var updatedAt: Date
     }
     private static let mobileViewportReportTTL: TimeInterval = 120
+    private static let mobileTerminalSnapshotMaximumScrollbackRows = 120
+    private static let mobileTerminalSnapshotFrameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
+    private static let mobileTerminalSnapshotEstimatedCellByteCount = 128
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
@@ -18215,6 +18218,11 @@ class TerminalController {
         let size = ghostty_surface_size(surface)
         let columns = max(Int(size.columns), 1)
         let rows = max(Int(size.rows), 1)
+        let safeMaxScrollbackRows = Self.mobileTerminalSnapshotScrollbackRows(
+            requestedRows: maxScrollbackRows,
+            columns: columns,
+            visibleRows: rows
+        )
 
         guard let viewportText = readMobileTerminalViewportTextForSnapshot(
             terminalPanel: terminalPanel,
@@ -18231,16 +18239,16 @@ class TerminalController {
 
         let scrollbackText: String?
         let scrollbackFidelity: String?
-        if let maxScrollbackRows, maxScrollbackRows > 0,
+        if let safeMaxScrollbackRows, safeMaxScrollbackRows > 0,
            let combinedText = readPlainTerminalTextForSnapshot(
                terminalPanel: terminalPanel,
                includeScrollback: true,
-               lineLimit: maxScrollbackRows + rows
+               lineLimit: safeMaxScrollbackRows + rows
            ) {
             scrollbackText = Self.mobileScrollbackText(
                 combinedText: combinedText,
                 viewportText: viewportText.text,
-                maxRows: maxScrollbackRows
+                maxRows: safeMaxScrollbackRows
             )
             scrollbackFidelity = "plain_text"
         } else {
@@ -18255,7 +18263,7 @@ class TerminalController {
                 rows: rows,
                 scrollbackText: scrollbackText,
                 viewportText: viewportText.text,
-                maxScrollbackRows: maxScrollbackRows,
+                maxScrollbackRows: safeMaxScrollbackRows,
                 activeScreen: .primary,
                 modes: MobileTerminalGhosttyModes(),
                 cursor: cursor,
@@ -18281,6 +18289,22 @@ class TerminalController {
         } catch {
             return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: nil)
         }
+    }
+
+    private static func mobileTerminalSnapshotScrollbackRows(
+        requestedRows: Int?,
+        columns: Int,
+        visibleRows: Int
+    ) -> Int? {
+        guard let requestedRows else { return nil }
+
+        let requested = max(0, min(requestedRows, mobileTerminalSnapshotMaximumScrollbackRows))
+        let safeColumns = max(columns, 1)
+        let safeVisibleRows = max(visibleRows, 1)
+        let bytesPerRow = max(safeColumns * mobileTerminalSnapshotEstimatedCellByteCount, 1)
+        let totalRowsByBudget = max(safeVisibleRows, mobileTerminalSnapshotFrameSafetyBudget / bytesPerRow)
+        let scrollbackRowsByBudget = max(0, totalRowsByBudget - safeVisibleRows)
+        return min(requested, scrollbackRowsByBudget)
     }
 
     private func mobileTerminalCursor(

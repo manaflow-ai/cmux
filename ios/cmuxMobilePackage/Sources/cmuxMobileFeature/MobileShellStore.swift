@@ -138,6 +138,21 @@ public struct MobileTerminalViewportFit: Codable, Equatable, Sendable {
     }
 }
 
+enum MobileTerminalSnapshotRequestPolicy {
+    private static let maximumScrollbackRows = 120
+    private static let frameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
+    private static let estimatedCellByteCount = 128
+
+    static func maxScrollbackRows(viewportSize: MobileTerminalViewportSize?) -> Int {
+        let columns = max(viewportSize?.columns ?? 80, 1)
+        let visibleRows = max(viewportSize?.rows ?? 24, 1)
+        let bytesPerRow = max(columns * estimatedCellByteCount, 1)
+        let totalRowsByBudget = max(visibleRows, frameSafetyBudget / bytesPerRow)
+        let scrollbackRowsByBudget = max(0, totalRowsByBudget - visibleRows)
+        return min(maximumScrollbackRows, scrollbackRowsByBudget)
+    }
+}
+
 struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     private(set) var pendingText = ""
     private(set) var isDraining = false
@@ -787,7 +802,7 @@ public final class CMUXMobileShellStore {
         remoteClient = client
         startTerminalRefreshPolling()
         connectionError = nil
-        applyRemoteWorkspaceList(response)
+        applyRemoteWorkspaceList(response, preferActiveTicketTarget: true)
         syncSelectedTerminalForWorkspace()
         connectionState = .connected
         await refreshSelectedTerminalSnapshot()
@@ -994,13 +1009,17 @@ public final class CMUXMobileShellStore {
         workspaceID: String,
         terminalID: String
     ) -> [String: Any] {
+        let terminalID = MobileTerminalPreview.ID(rawValue: terminalID)
+        let viewportSize = reportedViewportSizesByTerminalID[terminalID]
         var params: [String: Any] = [
             "workspace_id": workspaceID,
-            "surface_id": terminalID,
-            "max_scrollback_rows": 500,
+            "surface_id": terminalID.rawValue,
+            "max_scrollback_rows": MobileTerminalSnapshotRequestPolicy.maxScrollbackRows(
+                viewportSize: viewportSize
+            ),
             "client_id": clientID,
         ]
-        if let viewportSize = reportedViewportSizesByTerminalID[MobileTerminalPreview.ID(rawValue: terminalID)] {
+        if let viewportSize {
             params["viewport_columns"] = viewportSize.columns
             params["viewport_rows"] = viewportSize.rows
         }
@@ -1107,9 +1126,12 @@ public final class CMUXMobileShellStore {
         isSuppressingSelectedWorkspaceRefresh = false
     }
 
-    private func applyRemoteWorkspaceList(_ response: MobileSyncWorkspaceListResponse) {
+    private func applyRemoteWorkspaceList(
+        _ response: MobileSyncWorkspaceListResponse,
+        preferActiveTicketTarget: Bool = false
+    ) {
         workspaces = response.workspaces.map(MobileWorkspacePreview.init(remote:))
-        if selectActiveTicketTargetIfAvailable() {
+        if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
         if let selectedWorkspaceID,
@@ -1734,7 +1756,9 @@ private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
     static func decode(_ data: Data) throws -> MobileSyncTerminalSnapshotResponse {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(Self.self, from: data)
+        let response = try decoder.decode(Self.self, from: data)
+        try response.snapshot.validate()
+        return response
     }
 }
 
