@@ -98,6 +98,12 @@ def write_marker(home: str, marker_name: str, socket_path: str) -> None:
         f.write(f"{socket_path}\n")
 
 
+def temporary_socket_home(prefix: str) -> tempfile.TemporaryDirectory:
+    # Darwin caps Unix socket paths at a little over 100 bytes. Keep fake HOME
+    # roots short because stable sockets live under ~/Library/Application Support.
+    return tempfile.TemporaryDirectory(prefix=prefix, dir="/tmp")
+
+
 def copy_runtime_frameworks(cli_path: str, fixture_contents: str) -> None:
     frameworks_dir = os.path.join(fixture_contents, "Frameworks")
     os.makedirs(frameworks_dir, exist_ok=True)
@@ -391,7 +397,7 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
     tag = f"python-stale-stable-{os.getpid()}"
     expected_socket = f"/tmp/cmux-debug-{tag}.sock"
 
-    with tempfile.TemporaryDirectory(prefix="cmux-python-client-home-") as home:
+    with temporary_socket_home("cmux-py-") as home:
         app_support = os.path.join(home, "Library", "Application Support", "cmux")
         os.makedirs(app_support, exist_ok=True)
         stable_socket = os.path.join(app_support, "cmux.sock")
@@ -438,7 +444,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
     rogue_dev_agent_socket = f"/tmp/cmux-debug-rogue-dev-agent-{pid}.sock"
     rogue_dev_agent_tag = f"rogue-dev-agent-{pid}"
 
-    with tempfile.TemporaryDirectory(prefix="cmux-cli-variant-home-") as home, \
+    with temporary_socket_home("cmux-home-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-variant-apps-") as apps:
         stable_cli = bundled_cli_for_variant(
             cli_path,
