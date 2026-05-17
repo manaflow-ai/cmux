@@ -1167,6 +1167,24 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionRestoreSkipsRemoteDisplayDirectoryWithPortWhenTerminalLocationIsOmitted() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        snapshot.panels[panelIndex].directory = "deploy:2222:/home/george/cmux"
+        snapshot.panels[panelIndex].terminal?.workingDirectory = "deploy:2222:/home/george/cmux"
+        snapshot.panels[panelIndex].terminalLocation = nil
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        XCTAssertNotEqual(restored.panelDirectories[restoredPanelId], "deploy:2222:/home/george/cmux")
+        XCTAssertNil(restored.terminalLocation(for: restoredPanelId))
+    }
+
+    @MainActor
     func testSessionRestorePreservesLocalFileURLDirectoryWhenTerminalLocationIsOmitted() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
