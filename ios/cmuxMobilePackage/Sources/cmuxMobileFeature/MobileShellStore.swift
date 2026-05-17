@@ -1091,10 +1091,7 @@ public final class CMUXMobileShellStore {
             return
         }
         viewportSettlingRefreshesByTerminalID[terminalID] = remaining - 1
-        Task {
-            await Task.yield()
-            await refreshSelectedTerminalSnapshot()
-        }
+        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     private func setSelectedWorkspaceID(
