@@ -1373,6 +1373,68 @@ def test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(
             )
 
 
+def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-home-stale-trust-with-plugins"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    stale_key = f"{hooks_path.resolve()}:pre_tool_use:0:0"
+    config_path = codex_home / "config.toml"
+    config_path.write_text(
+        "[features]\n"
+        "hooks = true\n"
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
+        f'[hooks.state."{stale_key}"]\n'
+        'trusted_hash = "sha256:stale"\n'
+        "\n"
+        '[plugins."documents@openai-primary-runtime"]\n'
+        "enabled = true\n"
+        "\n"
+        '[plugins."browser@openai-bundled"]\n'
+        "enabled = true\n"
+        "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CODEX_HOME"] = str(codex_home)
+
+    result = subprocess.run(
+        [cli_path, "hooks", "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=20,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
+        )
+
+    config_toml = config_path.read_text(encoding="utf-8")
+    if '[plugins."documents@openai-primary-runtime"]' not in config_toml:
+        raise AssertionError(f"documents plugin table was removed: {config_toml!r}")
+    if '[plugins."browser@openai-bundled"]' not in config_toml:
+        raise AssertionError(f"browser plugin table was removed: {config_toml!r}")
+    if 'trusted_hash = "sha256:stale"' in config_toml:
+        raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
+    trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
+    if config_toml.count(trust_begin) != 1:
+        raise AssertionError(f"install did not write one fresh cmux hook trust marker: {config_toml!r}")
+    if config_toml.index('[plugins."browser@openai-bundled"]') > config_toml.index(trust_begin):
+        raise AssertionError(f"plugin tables should stay outside the fresh cmux trust block: {config_toml!r}")
+
+    hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    state = codex_hook_trust_state(config_toml)
+    expected_trust = expected_cmux_codex_hook_trust(hooks, hooks_path)
+    for key, trusted_hash in expected_trust.items():
+        if state.get(key, {}).get("trusted_hash") != trusted_hash:
+            raise AssertionError(
+                f"missing fresh trusted hash for {key}: expected {trusted_hash!r}, got state {state!r}"
+            )
+
+
 def test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path: str, root: Path) -> None:
     codex_home = root / "codex-home-legacy-uninstall"
     codex_home.mkdir()
@@ -1629,6 +1691,7 @@ def main() -> int:
             test_uninstall_removes_cmux_owned_codex_hooks_feature(cli_path, root)
             test_uninstall_preserves_unowned_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
             test_install_recovers_hook_trust_when_cmux_marker_is_unclosed(cli_path, root)
+            test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(cli_path, root)
             test_uninstall_codex_hooks_removes_legacy_managed_block(cli_path, root)
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
