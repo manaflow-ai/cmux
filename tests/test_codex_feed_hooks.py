@@ -1385,7 +1385,7 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
         "[features]\n"
         "hooks = true\n"
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin\n"
-        f'[hooks.state."{stale_key}"]\n'
+        f'[ hooks . state . "{stale_key}" ] # stale cmux trust\n'
         'trusted_hash = "sha256:stale"\n'
         "\n"
         '[plugins."documents@openai-primary-runtime"]\n'
@@ -1420,10 +1420,20 @@ def test_install_preserves_plugin_tables_inside_stale_cmux_hook_trust_marker(
     if 'trusted_hash = "sha256:stale"' in config_toml:
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
     trust_begin = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
+    trust_end = "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
     if config_toml.count(trust_begin) != 1:
         raise AssertionError(f"install did not write one fresh cmux hook trust marker: {config_toml!r}")
-    if config_toml.index('[plugins."browser@openai-bundled"]') > config_toml.index(trust_begin):
-        raise AssertionError(f"plugin tables should stay outside the fresh cmux trust block: {config_toml!r}")
+    if config_toml.count(trust_end) != 1:
+        raise AssertionError(f"install did not close the fresh cmux trust block: {config_toml!r}")
+    trust_begin_index = config_toml.index(trust_begin)
+    trust_end_index = config_toml.index(trust_end)
+    for plugin_header in (
+        '[plugins."documents@openai-primary-runtime"]',
+        '[plugins."browser@openai-bundled"]',
+    ):
+        plugin_index = config_toml.index(plugin_header)
+        if trust_begin_index < plugin_index < trust_end_index:
+            raise AssertionError(f"plugin table remained inside fresh cmux trust block: {config_toml!r}")
 
     hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
     state = codex_hook_trust_state(config_toml)

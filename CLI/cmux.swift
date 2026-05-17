@@ -20635,7 +20635,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     @discardableResult
     private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) -> CodexHookTrustBlockRemovalResult {
-        var removedBlock = false
+        var replacements: [(range: ClosedRange<Int>, lines: [String])] = []
         var index = 0
         while index < lines.count {
             guard lines[index] == cmuxCodexHookTrustBegin else {
@@ -20649,12 +20649,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let preservedLines = codexHookTrustBlockUnownedLines(
                 from: lines[(index + 1)..<endIndex]
             )
-            lines.replaceSubrange(index...endIndex, with: preservedLines)
-            removedBlock = true
-            index += preservedLines.count
+            replacements.append((index...endIndex, preservedLines))
+            index = endIndex + 1
         }
 
-        return removedBlock ? .removed : .notFound
+        for replacement in replacements.reversed() {
+            lines.replaceSubrange(replacement.range, with: replacement.lines)
+        }
+        return replacements.isEmpty ? .notFound : .removed
     }
 
     private static func codexHookTrustBlockUnownedLines(from lines: ArraySlice<String>) -> [String] {
@@ -20668,8 +20670,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 continue
             }
-            preserved.append(lines[index])
+
+            guard tomlLineIsAnyTableHeader(lines[index]) else {
+                index += 1
+                continue
+            }
+            let tableStart = index
             index += 1
+            while index < lines.endIndex, !tomlLineIsAnyTableHeader(lines[index]) {
+                index += 1
+            }
+            preserved.append(contentsOf: lines[tableStart..<index])
         }
         return preserved
     }
@@ -20693,13 +20704,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let prefix = "[hooks.state.\""
-        let suffix = "\"]"
-        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(suffix) else {
+        let pattern = #"^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\\n]|\\.)*)"\s*\]\s*(#.*)?$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return nil
         }
-        return String(trimmed.dropFirst(prefix.count).dropLast(suffix.count))
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = regex.firstMatch(in: line, range: range),
+              let keyRange = Range(match.range(at: 1), in: line) else {
+            return nil
+        }
+        return String(line[keyRange])
     }
 
     private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {
