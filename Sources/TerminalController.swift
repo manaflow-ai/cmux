@@ -17972,6 +17972,9 @@ class TerminalController {
     @MainActor
     private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
@@ -18094,6 +18097,17 @@ class TerminalController {
         return sawAlias ? .invalid : .missing
     }
 
+    private func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
+        switch mobileTerminalAliasUUID(params: params) {
+        case .missing, .value:
+            return nil
+        case .invalid:
+            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
+        case .conflict:
+            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
+        }
+    }
+
     func clearMobileViewportReports(clientIDs: Set<String>) {
         guard !clientIDs.isEmpty else { return }
 
@@ -18176,6 +18190,9 @@ class TerminalController {
     }
 
     private func v2MobileTerminalSnapshot(params: [String: Any]) -> V2CallResult {
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
@@ -18200,6 +18217,9 @@ class TerminalController {
     private func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
