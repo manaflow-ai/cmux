@@ -470,6 +470,33 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
     }
 
+    func testPendingCrashIgnoresForeignCrashWhenEventIsNotFirstEnvelopeItem() throws {
+        let currentCrashDate = Date(timeIntervalSince1970: 200)
+        let foreignCrashDate = Date(timeIntervalSince1970: 300)
+        let currentExecutablePath = try XCTUnwrap(Bundle.main.executableURL?.path)
+        let currentCrashURL = try writeCrashEnvelope(
+            named: "current-before-foreign-leading-item.ghosttycrash",
+            executablePath: currentExecutablePath,
+            modifiedAt: currentCrashDate
+        )
+        _ = try writeCrashEnvelope(
+            named: "foreign-leading-item.ghosttycrash",
+            executablePath: "/private/tmp/cmux-tbinput-unit/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            modifiedAt: foreignCrashDate,
+            leadingItems: [
+                (type: "attachment", payload: Data(#"{"filename":"metadata.txt"}"#.utf8)),
+            ]
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), currentCrashURL.resolvingSymlinksInPath())
+        XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
+    }
+
     func testPendingCrashReturnsNilForOnlyDifferentExecutableCrash() throws {
         _ = try writeCrashEnvelope(
             named: "foreign-only.ghosttycrash",
@@ -517,7 +544,12 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         return url
     }
 
-    private func writeCrashEnvelope(named name: String, executablePath: String, modifiedAt: Date) throws -> URL {
+    private func writeCrashEnvelope(
+        named name: String,
+        executablePath: String,
+        modifiedAt: Date,
+        leadingItems: [(type: String, payload: Data)] = []
+    ) throws -> URL {
         let url = crashDirectoryURL.appendingPathComponent(name)
         let event = [
             "debug_meta": [
@@ -532,6 +564,13 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         let eventHeader = #"{"type":"event","length":\#(eventData.count)}"#
         var envelope = Data(#"{"event_id":"00000000-0000-0000-0000-000000000000"}"#.utf8)
         envelope.append(0x0A)
+        for item in leadingItems {
+            let itemHeader = #"{"type":"\#(item.type)","length":\#(item.payload.count)}"#
+            envelope.append(Data(itemHeader.utf8))
+            envelope.append(0x0A)
+            envelope.append(item.payload)
+            envelope.append(0x0A)
+        }
         envelope.append(Data(eventHeader.utf8))
         envelope.append(0x0A)
         envelope.append(eventData)

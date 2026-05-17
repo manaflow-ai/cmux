@@ -30,28 +30,42 @@ nonisolated enum GhosttyCrashReportMetadata {
         guard let envelopeHeaderRange = lineRange(after: data.startIndex, in: data) else {
             return nil
         }
-        let itemHeaderStart = data.index(after: envelopeHeaderRange.upperBound)
-        guard let itemHeaderRange = lineRange(after: itemHeaderStart, in: data),
-              let itemHeader = jsonObject(in: itemHeaderRange, from: data),
-              itemHeader["type"] as? String == "event"
-        else {
-            return nil
-        }
 
-        let payloadStart = data.index(after: itemHeaderRange.upperBound)
-        if let length = itemHeader["length"] as? Int {
-            guard length >= 0,
-                  let payloadEnd = data.index(payloadStart, offsetBy: length, limitedBy: data.endIndex)
+        var itemHeaderStart = data.index(after: envelopeHeaderRange.upperBound)
+        while itemHeaderStart < data.endIndex {
+            guard let itemHeaderRange = lineRange(after: itemHeaderStart, in: data),
+                  let itemHeader = jsonObject(in: itemHeaderRange, from: data)
             else {
                 return nil
             }
-            return jsonObject(in: payloadStart..<payloadEnd, from: data)
+
+            let payloadStart = data.index(after: itemHeaderRange.upperBound)
+            let payloadRange: Range<Data.Index>
+            if let length = itemHeader["length"] as? Int {
+                guard length >= 0,
+                      let payloadEnd = data.index(payloadStart, offsetBy: length, limitedBy: data.endIndex)
+                else {
+                    return nil
+                }
+                payloadRange = payloadStart..<payloadEnd
+                itemHeaderStart = payloadEnd
+                if itemHeaderStart < data.endIndex, data[itemHeaderStart] == 0x0A {
+                    itemHeaderStart = data.index(after: itemHeaderStart)
+                }
+            } else {
+                guard let lineRange = lineRange(after: payloadStart, in: data) else {
+                    return nil
+                }
+                payloadRange = lineRange
+                itemHeaderStart = data.index(after: lineRange.upperBound)
+            }
+
+            if itemHeader["type"] as? String == "event" {
+                return jsonObject(in: payloadRange, from: data)
+            }
         }
 
-        guard let payloadRange = lineRange(after: payloadStart, in: data) else {
-            return nil
-        }
-        return jsonObject(in: payloadRange, from: data)
+        return nil
     }
 
     private static func lineRange(after startIndex: Data.Index, in data: Data) -> Range<Data.Index>? {
