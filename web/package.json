@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
-    "build": "next build",
+    "build": "next build && bun tools/build-docs-search.mjs",
+    "search:index": "bun tools/build-docs-search.mjs",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
@@ -71,6 +72,7 @@
     "drizzle-kit": "^1.0.0-beta.23",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
+    "pagefind": "^1.5.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
