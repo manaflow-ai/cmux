@@ -263,7 +263,7 @@ public final class CMUXMobileShellStore {
     private static let viewportSettlingRefreshCount = 8
     private static let workspaceOpenSettlingRefreshCount = 2
     private static let inputSettlingRefreshCount = 4
-    private static let terminalRefreshPollInterval: TimeInterval = 0.75
+    private static let terminalRefreshPollIntervalNanoseconds: UInt64 = 750_000_000
 
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
@@ -285,15 +285,16 @@ public final class CMUXMobileShellStore {
 
     private let runtime: CMUXMobileRuntime?
     private let clientID: String
-    private let terminalRefreshPollQueue = DispatchQueue(label: "dev.cmux.mobile.terminal-refresh-poll")
     private var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
+                cancelSelectedTerminalSnapshotRefresh()
             }
         }
     }
-    private var terminalRefreshPollTimer: DispatchSourceTimer?
+    private var terminalRefreshPollTask: Task<Void, Never>?
+    private var selectedTerminalSnapshotRefreshTask: Task<Void, Never>?
     private var isSuppressingSelectedWorkspaceRefresh: Bool
     private var isRefreshingSelectedTerminalSnapshot: Bool
     private var needsSelectedTerminalSnapshotRefresh: Bool
@@ -393,6 +394,7 @@ public final class CMUXMobileShellStore {
         remoteClient = nil
         isRefreshingSelectedTerminalSnapshot = false
         needsSelectedTerminalSnapshotRefresh = false
+        cancelSelectedTerminalSnapshotRefresh()
         reportedViewportSizesByTerminalID = [:]
         viewportSettlingRefreshesByTerminalID = [:]
         workspaces = PreviewMobileHost.workspaces
@@ -1041,35 +1043,45 @@ public final class CMUXMobileShellStore {
 
     private func scheduleSelectedTerminalSnapshotRefresh() {
         guard remoteClient != nil else { return }
-        Task { await refreshSelectedTerminalSnapshot() }
+        guard selectedTerminalSnapshotRefreshTask == nil else { return }
+        selectedTerminalSnapshotRefreshTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.selectedTerminalSnapshotRefreshTask = nil
+            guard !Task.isCancelled else { return }
+            await self.refreshSelectedTerminalSnapshot()
+        }
     }
 
     private func startTerminalRefreshPolling() {
-        guard remoteClient != nil, terminalRefreshPollTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: terminalRefreshPollQueue)
-        let intervalMilliseconds = Int(Self.terminalRefreshPollInterval * 1000)
-        timer.schedule(
-            deadline: .now() + .milliseconds(intervalMilliseconds),
-            repeating: .milliseconds(intervalMilliseconds),
-            leeway: .milliseconds(150)
-        )
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        guard remoteClient != nil, terminalRefreshPollTask == nil else { return }
+        terminalRefreshPollTask = Task { @MainActor [weak self] in
+            defer {
+                self?.terminalRefreshPollTask = nil
+            }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: Self.terminalRefreshPollIntervalNanoseconds)
+                } catch {
+                    break
+                }
+                guard let self else { break }
                 guard self.remoteClient != nil, self.connectionState == .connected else {
-                    self.stopTerminalRefreshPolling()
-                    return
+                    break
                 }
                 await self.refreshSelectedTerminalSnapshot()
             }
         }
-        terminalRefreshPollTimer = timer
-        timer.resume()
     }
 
     private func stopTerminalRefreshPolling() {
-        terminalRefreshPollTimer?.cancel()
-        terminalRefreshPollTimer = nil
+        terminalRefreshPollTask?.cancel()
+        terminalRefreshPollTask = nil
+    }
+
+    private func cancelSelectedTerminalSnapshotRefresh() {
+        selectedTerminalSnapshotRefreshTask?.cancel()
+        selectedTerminalSnapshotRefreshTask = nil
     }
 
     private func scheduleViewportSettlingRefreshIfNeeded(terminalID: MobileTerminalPreview.ID) {
