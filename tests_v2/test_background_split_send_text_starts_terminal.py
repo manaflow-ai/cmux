@@ -99,8 +99,7 @@ def main() -> int:
                 f"surface.send_text returned unexpected surface_id: {send_payload}",
             )
 
-            text = _wait_for_file_text(marker_path, token)
-            _must(token in text, f"Background split terminal did not execute queued text: {text!r}")
+            _wait_for_file_text(marker_path, token)
             _must(
                 c.current_workspace() == baseline_workspace,
                 "surface.send_text should start the background terminal without selecting its workspace",
