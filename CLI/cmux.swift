@@ -555,13 +555,12 @@ private final class ClaudeHookSessionStore {
     }
 
     func markPreToolNeedsInputNotificationPublished(sessionId: String?, signature: String) throws {
-        guard let normalizedSessionId = normalizeOptional(sessionId),
-              let normalizedSignature = normalizeOptional(signature) else {
+        guard let normalizedSessionId = normalizeOptional(sessionId) else {
             return
         }
         try withLockedState { state in
             guard var record = state.sessions[normalizedSessionId] else { return }
-            record.lastPreToolNeedsInputNotificationSignature = normalizedSignature
+            record.lastPreToolNeedsInputNotificationSignature = signature
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
