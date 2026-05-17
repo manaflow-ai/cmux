@@ -87,7 +87,8 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         fallbackScope: RestorableAgentProcessDetectionScope? = nil,
         processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false),
-        processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment
+        processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment,
+        latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
         let candidates = processDetectionCandidates(
@@ -102,7 +103,8 @@ extension RestorableAgentSessionIndex {
         for (key, value) in processDetectedOpenCodeSnapshots(
             candidates: candidates,
             capturedAt: capturedAt,
-            fileManager: fileManager
+            fileManager: fileManager,
+            latestOpenCodeSessionId: latestOpenCodeSessionId
         ) {
             if resolved[key] != nil {
                 if processDetectionShouldPreferOpenCodeOnBuiltinConflict(
@@ -476,7 +478,8 @@ extension RestorableAgentSessionIndex {
     private static func processDetectedOpenCodeSnapshots(
         candidates: [RestorableAgentProcessDetectionCandidate],
         capturedAt: TimeInterval,
-        fileManager: FileManager
+        fileManager: FileManager,
+        latestOpenCodeSessionId: (String?, String?, FileManager) -> String?
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -484,6 +487,7 @@ extension RestorableAgentSessionIndex {
         var openCodeProcesses: [
             (
                 panelKey: PanelKey,
+                pid: Int,
                 observed: VaultObservedAgentProcess,
                 environment: [String: String],
                 workingDirectory: String?,
@@ -496,7 +500,7 @@ extension RestorableAgentSessionIndex {
         var selectedCandidateByPanelKey: [
             PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
-        var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
+        var processPIDsByWorkingDirectory: [String: Set<Int>] = [:]
 
         for candidate in candidates {
             let process = candidate.process
@@ -515,6 +519,7 @@ extension RestorableAgentSessionIndex {
             let panelKey = candidate.panelKey
             openCodeProcesses.append((
                 panelKey: panelKey,
+                pid: process.pid,
                 observed: observed,
                 environment: processArguments.environment,
                 workingDirectory: cwd,
@@ -523,11 +528,11 @@ extension RestorableAgentSessionIndex {
                 isForeground: process.isForegroundProcess,
                 matchesFallbackScope: candidate.matchesFallbackScope
             ))
-            panelKeysByWorkingDirectory[cwdKey, default: []].insert(panelKey)
+            processPIDsByWorkingDirectory[cwdKey, default: []].insert(process.pid)
         }
 
         for process in openCodeProcesses {
-            let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
+            let sameWorkingDirectoryPanelCount = processPIDsByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
             let hasForkFlag = process.observed.arguments.hasOpenCodeForkFlag
             let forkParentSessionId = process.observed.arguments.openCodeForkParentSessionId
                 ?? (hasForkFlag ? process.observed.arguments.value(afterOption: "--session") : nil)
@@ -540,11 +545,7 @@ extension RestorableAgentSessionIndex {
             } else if sessionMissesByWorkingDirectoryAndParent.contains(sessionCacheKey) {
                 latestSessionId = nil
             } else {
-                latestSessionId = latestOpenCodeSessionId(
-                    workingDirectory: process.workingDirectory,
-                    parentSessionId: forkParentSessionId,
-                    fileManager: fileManager
-                )
+                latestSessionId = latestOpenCodeSessionId(process.workingDirectory, forkParentSessionId, fileManager)
                 if let latestSessionId {
                     sessionByWorkingDirectoryAndParent[sessionCacheKey] = latestSessionId
                 } else {

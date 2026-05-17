@@ -3508,6 +3508,63 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved opencode repo")
     }
 
+    func testProcessDetectionRemapsMovedCMUXScopedOpenCodeForkByFocusedTTYFallback() throws {
+        let oldWorkspaceId = UUID()
+        let oldPanelId = UUID()
+        let newWorkspaceId = UUID()
+        let newPanelId = UUID()
+        let ttyDevice: Int64 = 44_026
+        let scopedOpenCode = makeTopProcess(
+            pid: 10_026,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: ttyDevice,
+            workspaceId: oldWorkspaceId,
+            panelId: oldPanelId
+        )
+        var latestLookups: [(workingDirectory: String?, parentSessionId: String?)] = []
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: newWorkspaceId,
+                panelId: newPanelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == scopedOpenCode.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/opt/homebrew/bin/opencode",
+                        "--session",
+                        "opencode-parent-session",
+                        "--fork"
+                    ],
+                    environment: ["PWD": "/tmp/moved opencode fork repo"]
+                )
+            },
+            latestOpenCodeSessionId: { workingDirectory, parentSessionId, _ in
+                latestLookups.append((workingDirectory, parentSessionId))
+                return "opencode-child-session"
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
+        )
+        XCTAssertEqual(latestLookups.count, 1)
+        XCTAssertEqual(latestLookups.first?.workingDirectory, "/tmp/moved opencode fork repo")
+        XCTAssertEqual(latestLookups.first?.parentSessionId, "opencode-parent-session")
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-child-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved opencode fork repo")
+    }
+
     func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {
         let workspaceId = UUID()
         let panelId = UUID()
