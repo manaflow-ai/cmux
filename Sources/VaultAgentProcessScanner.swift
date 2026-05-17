@@ -34,6 +34,7 @@ struct RestorableAgentProcessDetectionCandidate {
     let process: CmuxTopProcessInfo
     let arguments: CmuxTopProcessArguments
     let source: RestorableAgentProcessDetectionCandidateSource
+    let matchesFallbackScope: Bool
 }
 
 extension CmuxTopProcessInfo {
@@ -144,7 +145,7 @@ extension RestorableAgentSessionIndex {
         }
 
         var selectedRegisteredCandidateByPanelKey: [
-            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
         for candidate in candidates {
             let process = candidate.process
@@ -185,23 +186,28 @@ extension RestorableAgentSessionIndex {
             if let existing = selectedRegisteredCandidateByPanelKey[candidate.panelKey],
                !processDetectionShouldReplaceCandidate(
                    existing: existing,
-                   candidate: (source: candidate.source, isForeground: process.isForegroundProcess)
+                   candidate: (
+                       source: candidate.source,
+                       isForeground: process.isForegroundProcess,
+                       matchesFallbackScope: candidate.matchesFallbackScope
+                   )
                ) {
                 continue
             }
             resolved[candidate.panelKey] = (snapshot: snapshot, updatedAt: capturedAt)
             selectedRegisteredCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
-                isForeground: process.isForegroundProcess
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
             )
         }
 
         return resolved
     }
 
-    private static func processDetectionShouldReplaceCandidate(
-        existing: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool),
-        candidate: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+    static func processDetectionShouldReplaceCandidate(
+        existing: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool),
+        candidate: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
     ) -> Bool {
         if existing.source == .cmuxScoped,
            candidate.source != .cmuxScoped {
@@ -211,9 +217,21 @@ extension RestorableAgentSessionIndex {
            candidate.source == .cmuxScoped {
             return true
         }
+        if existing.matchesFallbackScope,
+           !candidate.matchesFallbackScope {
+            return false
+        }
+        if !existing.matchesFallbackScope,
+           candidate.matchesFallbackScope {
+            return true
+        }
         if existing.isForeground,
            !candidate.isForeground {
             return false
+        }
+        if !existing.isForeground,
+           candidate.isForeground {
+            return true
         }
         return true
     }
@@ -296,20 +314,14 @@ extension RestorableAgentSessionIndex {
                   let arguments = processArguments(process.pid) else {
                 continue
             }
-            if let fallbackScope,
-               fallbackScope.workspaceId == workspaceId,
-               fallbackScope.panelId == panelId,
-               let fallbackScopedPIDs,
-               !fallbackScopedPIDs.contains(process.pid) {
-                continue
-            }
             seenPIDs.insert(process.pid)
             candidates.append(
                 RestorableAgentProcessDetectionCandidate(
                     panelKey: PanelKey(workspaceId: workspaceId, panelId: panelId),
                     process: process,
                     arguments: arguments,
-                    source: .cmuxScoped
+                    source: .cmuxScoped,
+                    matchesFallbackScope: fallbackScopedPIDs?.contains(process.pid) ?? false
                 )
             )
         }
@@ -330,7 +342,8 @@ extension RestorableAgentSessionIndex {
                     panelKey: PanelKey(workspaceId: fallbackScope.workspaceId, panelId: fallbackScope.panelId),
                     process: process,
                     arguments: arguments,
-                    source: .fallbackScope
+                    source: .fallbackScope,
+                    matchesFallbackScope: true
                 )
             )
         }
@@ -462,11 +475,12 @@ extension RestorableAgentSessionIndex {
                 workingDirectory: String?,
                 workingDirectoryKey: String,
                 source: RestorableAgentProcessDetectionCandidateSource,
-                isForeground: Bool
+                isForeground: Bool,
+                matchesFallbackScope: Bool
             )
         ] = []
         var selectedCandidateByPanelKey: [
-            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
         var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
 
@@ -492,7 +506,8 @@ extension RestorableAgentSessionIndex {
                 workingDirectory: cwd,
                 workingDirectoryKey: cwdKey,
                 source: candidate.source,
-                isForeground: process.isForegroundProcess
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
             ))
             panelKeysByWorkingDirectory[cwdKey, default: []].insert(panelKey)
         }
@@ -551,7 +566,11 @@ extension RestorableAgentSessionIndex {
             if let existing = selectedCandidateByPanelKey[process.panelKey] {
                 if !processDetectionShouldReplaceCandidate(
                     existing: existing,
-                    candidate: (source: process.source, isForeground: process.isForeground)
+                    candidate: (
+                        source: process.source,
+                        isForeground: process.isForeground,
+                        matchesFallbackScope: process.matchesFallbackScope
+                    )
                 ) {
                     continue
                 }
@@ -562,7 +581,8 @@ extension RestorableAgentSessionIndex {
             )
             selectedCandidateByPanelKey[process.panelKey] = (
                 source: process.source,
-                isForeground: process.isForeground
+                isForeground: process.isForeground,
+                matchesFallbackScope: process.matchesFallbackScope
             )
         }
 

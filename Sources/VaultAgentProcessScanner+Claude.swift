@@ -68,7 +68,7 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var selectedCandidateByPanelKey: [
-            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool)
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
 
         for candidate in candidates {
@@ -110,13 +110,14 @@ extension RestorableAgentSessionIndex {
             }
             let isForeground = process.isForegroundProcess
             if let existing = selectedCandidateByPanelKey[candidate.panelKey] {
-                if existing.source == .cmuxScoped,
-                   candidate.source != .cmuxScoped {
-                    continue
-                }
-                if existing.source == candidate.source,
-                   existing.isForeground,
-                   !isForeground {
+                if !processDetectionShouldReplaceCandidate(
+                    existing: existing,
+                    candidate: (
+                        source: candidate.source,
+                        isForeground: isForeground,
+                        matchesFallbackScope: candidate.matchesFallbackScope
+                    )
+                ) {
                     continue
                 }
             }
@@ -132,7 +133,8 @@ extension RestorableAgentSessionIndex {
             )
             selectedCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
-                isForeground: isForeground
+                isForeground: isForeground,
+                matchesFallbackScope: candidate.matchesFallbackScope
             )
         }
 

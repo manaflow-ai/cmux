@@ -3299,6 +3299,74 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/focused tty claude repo")
     }
 
+    func testProcessDetectionKeepsNestedTTYCMUXScopedClaudeOverFocusedTTYFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let scopedSessionId = "4a7594e8-067f-47d6-9d5e-bf78c22f7a20"
+        let fallbackSessionId = "9b493c70-aae8-48cb-bbb4-4669e4474969"
+        let focusedTTYDevice: Int64 = 44_020
+        let nestedTTYDevice: Int64 = 44_021
+        let scopedNestedClaude = makeTopProcess(
+            pid: 10_020,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: nestedTTYDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallbackClaude = makeTopProcess(
+            pid: 10_021,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: focusedTTYDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: focusedTTYDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedNestedClaude, fallbackClaude],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case scopedNestedClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            scopedSessionId
+                        ],
+                        environment: ["PWD": "/tmp/scoped nested claude repo"]
+                    )
+                case fallbackClaude.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            fallbackSessionId
+                        ],
+                        environment: ["PWD": "/tmp/focused fallback claude repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, scopedSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped nested claude repo")
+    }
+
     func testProcessDetectionKeepsCMUXScopedClaudeWhenFallbackTTYIsStale() throws {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -3476,6 +3544,72 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.kind, .opencode)
         XCTAssertEqual(snapshot.sessionId, "opencode-scoped-session")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped opencode repo")
+    }
+
+    func testProcessDetectionKeepsNestedTTYCMUXScopedOpenCodeOverFocusedTTYFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let focusedTTYDevice: Int64 = 44_022
+        let nestedTTYDevice: Int64 = 44_023
+        let scopedNestedOpenCode = makeTopProcess(
+            pid: 10_022,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: nestedTTYDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallbackOpenCode = makeTopProcess(
+            pid: 10_023,
+            name: "opencode",
+            path: "/opt/homebrew/bin/opencode",
+            ttyDevice: focusedTTYDevice
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                ttyDevice: focusedTTYDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [scopedNestedOpenCode, fallbackOpenCode],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case scopedNestedOpenCode.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "opencode-scoped-nested-session"
+                        ],
+                        environment: ["PWD": "/tmp/scoped nested opencode repo"]
+                    )
+                case fallbackOpenCode.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/opt/homebrew/bin/opencode",
+                            "--session",
+                            "opencode-focused-fallback-session"
+                        ],
+                        environment: ["PWD": "/tmp/focused fallback opencode repo"]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .opencode)
+        XCTAssertEqual(snapshot.sessionId, "opencode-scoped-nested-session")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/scoped nested opencode repo")
     }
 
     func testProcessDetectionKeepsCMUXScopedRegisteredAgentOverFocusedTTYFallback() throws {
