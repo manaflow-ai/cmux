@@ -610,8 +610,22 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 supportedTTYNamesByPanelKey: [supportedKey: "ttys001"],
+                supportedTTYFreshByPanelKey: [supportedKey: true],
                 fallbackSnapshot: nil,
-                ttyName: "ttys001"
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedTTYNamesByPanelKey: [supportedKey: "ttys001"],
+                supportedTTYFreshByPanelKey: [supportedKey: true],
+                fallbackSnapshot: nil,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: false
             )
         )
         XCTAssertFalse(
@@ -652,16 +666,22 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             panelId: UUID()
         )
         let completedAt: TimeInterval = 10
+        let supportedRemoteContextsByPanelKey = [panelKey: false]
+        let supportedTTYNamesByPanelKey = [panelKey: "ttys001"]
+        let supportedTTYFreshByPanelKey = [panelKey: true]
+        let probeCompletedAtByPanelKey = [panelKey: completedAt]
 
         XCTAssertTrue(
             ContentView.commandPaletteForkableAgentProbeCacheIsFresh(
                 panelKey: panelKey,
                 supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                supportedTTYNamesByPanelKey: [panelKey: "ttys001"],
-                probeCompletedAtByPanelKey: [panelKey: completedAt],
+                supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                supportedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                supportedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
                 isRemoteTerminal: false,
                 ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
                 now: completedAt + 1,
                 maximumAge: 2
             )
@@ -670,11 +690,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPaletteForkableAgentProbeCacheIsFresh(
                 panelKey: panelKey,
                 supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                supportedTTYNamesByPanelKey: [panelKey: "ttys001"],
-                probeCompletedAtByPanelKey: [panelKey: completedAt],
+                supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                supportedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                supportedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
                 isRemoteTerminal: false,
                 ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
                 now: completedAt + 2,
                 maximumAge: 2
             )
@@ -683,11 +705,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPaletteForkableAgentProbeCacheIsFresh(
                 panelKey: panelKey,
                 supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                supportedTTYNamesByPanelKey: [panelKey: "ttys001"],
-                probeCompletedAtByPanelKey: [panelKey: completedAt],
+                supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                supportedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                supportedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
                 isRemoteTerminal: true,
                 ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
                 now: completedAt + 1,
                 maximumAge: 2
             )
@@ -696,11 +720,43 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPaletteForkableAgentProbeCacheIsFresh(
                 panelKey: panelKey,
                 supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                supportedTTYNamesByPanelKey: [panelKey: "ttys001"],
-                probeCompletedAtByPanelKey: [panelKey: completedAt],
+                supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                supportedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                supportedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
                 isRemoteTerminal: false,
                 ttyName: "ttys002",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentProbeCacheIsFresh(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                supportedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                supportedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: false,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentProbeCacheIsFresh(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                supportedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                supportedTTYFreshByPanelKey: [:],
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
                 now: completedAt + 1,
                 maximumAge: 2
             )

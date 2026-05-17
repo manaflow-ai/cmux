@@ -69,6 +69,7 @@ extension ContentView {
                 commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
                 NSSound.beep()
                 return
@@ -78,10 +79,18 @@ extension ContentView {
                 snapshot: snapshot,
                 isRemoteContext: isRemoteContext
             ) else {
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
                 NSSound.beep()
                 return
             }
             guard let postProbeContext = focusedPanelContext,
+                  postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
                   Self.commandPaletteForkPostProbeContextStillMatches(
                     expectedWorkspaceId: workspaceId,
                     expectedPanelId: panelId,
@@ -103,6 +112,7 @@ extension ContentView {
             commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkSnapshotFingerprint(snapshot)
             commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
             commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyCacheValue
+            commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyWasReportedInCurrentSession
 
             let didFork: Bool
             switch destination {
