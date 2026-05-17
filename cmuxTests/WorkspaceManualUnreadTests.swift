@@ -263,6 +263,75 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1)
     }
 
+    func testToggleFocusedNotificationUnreadTogglesCurrentWorkspaceWithoutJumping() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let window = appDelegate.windowForMainWindowId(windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and tab manager")
+            return
+        }
+        guard let currentWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+        let laterWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let currentNotificationId = UUID()
+        let laterNotificationId = UUID()
+        let now = Date()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: currentNotificationId,
+                tabId: currentWorkspace.id,
+                surfaceId: nil,
+                title: "Current",
+                subtitle: "",
+                body: "",
+                createdAt: now,
+                isRead: true
+            ),
+            TerminalNotification(
+                id: laterNotificationId,
+                tabId: laterWorkspace.id,
+                surfaceId: nil,
+                title: "Later",
+                subtitle: "",
+                body: "",
+                createdAt: now.addingTimeInterval(-1),
+                isRead: true
+            ),
+        ])
+        store.markUnread(forTabId: laterWorkspace.id)
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, laterNotificationId])
+        XCTAssertEqual(store.notifications.map(\.isRead), [true, true])
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: currentWorkspace.id))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
+    }
+
     func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()
