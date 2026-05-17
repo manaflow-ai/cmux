@@ -1434,7 +1434,7 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
            !authToken.isEmpty {
             auth["attach_token"] = authToken
         }
-        if Self.requestRequiresAuth(request), Self.routeAllowsStackAuth(route) {
+        if auth["attach_token"] == nil, Self.requestRequiresAuth(request), Self.routeAllowsStackAuth(route) {
             if let accessToken = try? await AuthManager.shared.getAccessToken() {
                 auth["stack_access_token"] = accessToken
             }

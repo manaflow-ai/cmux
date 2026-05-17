@@ -17937,6 +17937,9 @@ class TerminalController {
         }
 
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
             tabManager.tabs.filter { $0.id == workspaceID }
         } ?? tabManager.tabs
