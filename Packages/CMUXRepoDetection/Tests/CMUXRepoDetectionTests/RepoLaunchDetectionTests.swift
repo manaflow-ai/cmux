@@ -93,6 +93,8 @@ struct RepoLaunchDetectionTests {
         """
 
         #expect(CMUXRepoDetection.makefile(contents, hasTarget: "start"))
+        #expect(CMUXRepoDetection.makefile("start:dep\n\t./start\n", hasTarget: "start"))
+        #expect(!CMUXRepoDetection.makefile("start:=not-a-target\n", hasTarget: "start"))
         #expect(!CMUXRepoDetection.makefile("# run:\n\tuse:\n", hasTarget: "run"))
         #expect(!CMUXRepoDetection.makefile("all:\n\tuse:\n", hasTarget: "use"))
     }

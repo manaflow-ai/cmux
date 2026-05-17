@@ -64,6 +64,74 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("remote get-url"), result.stdout)
     }
 
+    func testUseCommandRejectsOptionLikeCommandValueBeforeCheckout() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runShell(
+            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use owner/repo --command --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("--command requires a command, not another flag"), result.stdout)
+    }
+
+    func testUseCommandInvalidRepositoryDoesNotEchoRawInput() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runShell(
+            "CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use \(shellSingleQuote("https://credential-secret@github.com/bad*/repo")) --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Invalid GitHub repository"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("credential-secret"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("bad*/repo"), result.stdout)
+    }
+
+    func testUseCommandRejectsSymlinkedSensitiveInstallPath() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: homeURL.appendingPathComponent(".ssh", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: homeURL.appendingPathComponent("safe-link", isDirectory: true).path,
+            withDestinationPath: ".ssh"
+        )
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/cmux.extension.json" <<'JSON'
+        {"id":"owner.repo","name":"Repo","publisher":"owner","version":"0.0.1","install":{"path":"~/safe-link"}}
+        JSON
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) use owner/repo --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("install.path must not target sensitive home directory ~/.ssh"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("OK "), result.stdout)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)

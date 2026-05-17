@@ -86,11 +86,34 @@ extension CmuxUseSupport {
             resolved.appendPathComponent(part, isDirectory: true)
         }
         let standardized = resolved.standardizedFileURL.resolvingSymlinksInPath()
-        let homePrefix = home.path.hasSuffix("/") ? home.path : "\(home.path)/"
-        guard standardized.path.hasPrefix(homePrefix) else {
+        guard let resolvedParts = relativeHomePathComponents(for: standardized, home: home) else {
             throw CLIError(message: "cmux.extension.json install.path must resolve inside the user's home directory")
         }
+        guard !resolvedParts.isEmpty else {
+            throw CLIError(message: "cmux.extension.json install.path must resolve to a subdirectory inside the user's home directory")
+        }
+        if let sensitivePrefix = sensitiveHomeInstallPathPrefix(in: resolvedParts) {
+            throw CLIError(message: "cmux.extension.json install.path must not target sensitive home directory ~/\(sensitivePrefix)")
+        }
         return standardized
+    }
+
+    private static func relativeHomePathComponents(for url: URL, home: URL) -> [String]? {
+        let path = url.path
+        let homePath = home.path
+        if path == homePath {
+            return []
+        }
+
+        let homePrefix = homePath.hasSuffix("/") ? homePath : "\(homePath)/"
+        guard path.hasPrefix(homePrefix) else {
+            return nil
+        }
+
+        let relativePath = String(path.dropFirst(homePrefix.count))
+        return relativePath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
     }
 
     private static func sensitiveHomeInstallPathPrefix(in parts: [String]) -> String? {

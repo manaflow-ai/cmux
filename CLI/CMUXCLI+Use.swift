@@ -49,6 +49,9 @@ extension CMUXCLI {
                 guard !command.isEmpty else {
                     throw CLIError(message: "cmux use: --command requires a non-empty value")
                 }
+                guard !command.hasPrefix("--") else {
+                    throw CLIError(message: "cmux use: --command requires a command, not another flag")
+                }
                 if case .none = commandMode {
                     throw CLIError(message: "cmux use: --command cannot be used with --no-run")
                 }
@@ -370,7 +373,7 @@ extension CMUXCLI {
         }
         let remoteURL = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard CmuxUseSupport.gitRemote(remoteURL, matches: repository) else {
-            throw CLIError(message: "Existing checkout origin '\(remoteURL)' does not match \(repository.cloneURL)")
+            throw CLIError(message: "Existing extension checkout origin does not match the requested repository")
         }
 
         let pullResult = CLIProcessRunner.runProcess(

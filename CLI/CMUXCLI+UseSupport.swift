@@ -246,7 +246,7 @@ nonisolated enum CmuxUseSupport {
         let owner = parts[0]
         let name = parts[1]
         guard isValidGitHubPathComponent(owner), isValidGitHubPathComponent(name) else {
-            throw CLIError(message: "Invalid GitHub repository: \(rawPath)")
+            throw CLIError(message: "Invalid GitHub repository. Use owner/repo or a github.com URL.")
         }
 
         return CmuxUseRepository(owner: owner, name: name, cloneURL: cloneURL)

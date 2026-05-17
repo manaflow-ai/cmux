@@ -85,7 +85,7 @@ public enum CMUXRepoDetection {
             }
 
             let suffix = trimmed.dropFirst(targetPrefix.count)
-            return suffix.isEmpty || suffix.first?.isWhitespace == true
+            return suffix.first != "="
         }
     }
 }
