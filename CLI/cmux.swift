@@ -16906,33 +16906,17 @@ struct CMUXCLI {
                 client: client
             )
 
-            let title = String(
-                localized: "cli.claude-hook.notification.title",
-                defaultValue: "Claude Code"
-            )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
-
-            if let sessionId = parsedInput.sessionId {
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
-                )
-            }
-
-            _ = try? setClaudeStatus(
+            let response = try publishClaudeNeedsInput(
                 client: client,
+                sessionStore: sessionStore,
+                sessionId: parsedInput.sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
+                cwd: parsedInput.cwd,
+                transcriptPath: parsedInput.transcriptPath,
+                subtitle: summary.subtitle,
+                body: summary.body
             )
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
         case "session-end":
@@ -17023,27 +17007,19 @@ struct CMUXCLI {
                 return
             }
 
-            // AskUserQuestion means Claude is about to ask the user something.
-            // Save question text in session so the Notification handler can use it
-            // instead of the generic "Claude Code needs your attention".
-            if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion",
-               let question = describeAskUserQuestion(parsedInput.object),
-               let sessionId = parsedInput.sessionId {
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
+            if let needsInput = claudePreToolNeedsInputSummary(parsedInput.object) {
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
+                _ = try? publishClaudeNeedsInput(
+                    client: client,
+                    sessionStore: sessionStore,
+                    sessionId: parsedInput.sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
+                    subtitle: needsInput.subtitle,
+                    body: needsInput.body
                 )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
                 print("OK")
                 return
             }
@@ -17130,6 +17106,61 @@ struct CMUXCLI {
             cmd += " --pid=\(pid)"
         }
         _ = try client.send(command: cmd)
+    }
+
+    private func claudePreToolNeedsInputSummary(_ object: [String: Any]?) -> (subtitle: String, body: String)? {
+        guard let toolName = object?["tool_name"] as? String,
+              toolName == "AskUserQuestion" else {
+            return nil
+        }
+        let subtitle = String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting")
+        let body = describeAskUserQuestion(object) ?? String(
+            localized: "agent.claude.input.body.askingQuestion",
+            defaultValue: "Claude is asking a question"
+        )
+        return (subtitle, body)
+    }
+
+    @discardableResult
+    private func publishClaudeNeedsInput(
+        client: SocketClient,
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        subtitle: String,
+        body: String
+    ) throws -> String {
+        let title = String(
+            localized: "cli.claude-hook.notification.title",
+            defaultValue: "Claude Code"
+        )
+        let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+
+        if let sessionId {
+            try? sessionStore.upsert(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                lastSubtitle: subtitle,
+                lastBody: body
+            )
+        }
+
+        let statusValue = String(localized: "agent.claude.input.status.needsInput", defaultValue: "Needs input")
+        _ = try? setClaudeStatus(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            value: statusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF"
+        )
+        return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
     }
 
     private func shouldApplyClaudeHookVisibleMutation(
@@ -17293,7 +17324,12 @@ struct CMUXCLI {
             }
         }
 
-        if parts.isEmpty { return "Asking a question" }
+        if parts.isEmpty {
+            return String(
+                localized: "agent.claude.input.body.askingQuestion",
+                defaultValue: "Claude is asking a question"
+            )
+        }
         return parts.joined(separator: "\n")
     }
 
