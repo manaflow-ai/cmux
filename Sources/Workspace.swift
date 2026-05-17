@@ -992,7 +992,7 @@ extension Workspace {
     }
 
     private static func looksLikeRemoteDisplayDirectory(_ directory: String) -> Bool {
-        guard let colonIndex = directory.firstIndex(of: ":") else { return false }
+        guard let colonIndex = directory.lastIndex(of: ":") else { return false }
         let prefix = directory[..<colonIndex]
         guard !prefix.isEmpty,
               !prefix.contains("/"),
