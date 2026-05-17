@@ -88,7 +88,8 @@ extension RestorableAgentSessionIndex {
         fallbackScope: RestorableAgentProcessDetectionScope? = nil,
         processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false),
         processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment,
-        latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId
+        latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId,
+        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
         let candidates = processDetectionCandidates(
@@ -102,7 +103,9 @@ extension RestorableAgentSessionIndex {
         )
         for (key, value) in processDetectedCodexSnapshots(
             candidates: candidates,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            latestCodexForkSessionId: latestCodexForkSessionId
         ) {
             if let existing = resolved[key] {
                 if processDetectionShouldPreferBuiltin(
@@ -580,7 +583,9 @@ extension RestorableAgentSessionIndex {
 
     private static func processDetectedCodexSnapshots(
         candidates: [RestorableAgentProcessDetectionCandidate],
-        capturedAt: TimeInterval
+        capturedAt: TimeInterval,
+        fileManager: FileManager,
+        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var selectedCandidateByPanelKey: [
@@ -600,9 +605,6 @@ extension RestorableAgentSessionIndex {
             guard observed.isCodexProcess else { continue }
 
             let tail = codexLaunchTail(observed: observed)
-            guard let sessionId = codexSessionId(tail: tail, environment: processArguments.environment) else {
-                continue
-            }
             let executablePath = codexExecutablePath(
                 observed: observed,
                 environment: processArguments.environment
@@ -610,6 +612,15 @@ extension RestorableAgentSessionIndex {
             let workingDirectory = normalized(
                 observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
             )
+            guard let sessionId = codexSessionId(
+                tail: tail,
+                environment: processArguments.environment,
+                workingDirectory: workingDirectory,
+                fileManager: fileManager,
+                latestCodexForkSessionId: latestCodexForkSessionId
+            ) else {
+                continue
+            }
             guard let launchCommand = codexLaunchCommand(
                 observed: observed,
                 executablePath: executablePath,
@@ -660,6 +671,22 @@ extension RestorableAgentSessionIndex {
         tail: [String],
         environment: [String: String]
     ) -> String? {
+        codexSessionId(
+            tail: tail,
+            environment: environment,
+            workingDirectory: normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]),
+            fileManager: .default,
+            latestCodexForkSessionId: RestorableAgentSessionIndex.latestCodexForkSessionId
+        )
+    }
+
+    private static func codexSessionId(
+        tail: [String],
+        environment: [String: String],
+        workingDirectory: String?,
+        fileManager: FileManager,
+        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?
+    ) -> String? {
         if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
             return threadId
         }
@@ -667,12 +694,121 @@ extension RestorableAgentSessionIndex {
             return sessionId
         }
         // Codex fork processes do not always publish CODEX_THREAD_ID, so keep
-        // the command session as a fallback instead of dropping the pane.
+        // the command session as a fallback instead of dropping the pane. When
+        // local metadata has the child fork id, prefer that so forked panes can
+        // be forked again instead of always re-forking the original parent.
         guard let command = codexSessionCommand(in: tail),
               command.name == "resume" || command.name == "fork" else {
             return nil
         }
+        if command.name == "fork",
+           let forkSessionId = latestCodexForkSessionId(
+               workingDirectory,
+               command.sessionId,
+               environment,
+               fileManager
+           ) {
+            return forkSessionId
+        }
         return command.sessionId
+    }
+
+    private struct CodexSessionMetaLine: Decodable {
+        struct Payload: Decodable {
+            let id: String?
+            let cwd: String?
+            let forkedFromId: String?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case cwd
+                case forkedFromId = "forked_from_id"
+            }
+        }
+
+        let timestamp: String?
+        let type: String?
+        let payload: Payload?
+    }
+
+    private static let codexSessionMetaReadLimit = 2 * 1024 * 1024
+
+    static func latestCodexForkSessionId(
+        workingDirectory: String?,
+        parentSessionId: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        guard let parentSessionId = normalized(parentSessionId) else { return nil }
+        let codexHome = codexHomeDirectory(environment: environment, fileManager: fileManager)
+        let sessionsURL = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: sessionsURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        let standardizedWorkingDirectory = standardizedPath(workingDirectory)
+        var selected: (sessionId: String, createdAt: Date)?
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "jsonl" else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile != false,
+                  let meta = codexSessionMetaLine(fileURL: fileURL),
+                  meta.type == nil || meta.type == "session_meta",
+                  let payload = meta.payload,
+                  normalized(payload.forkedFromId) == parentSessionId,
+                  let sessionId = normalized(payload.id),
+                  sessionId != parentSessionId else {
+                continue
+            }
+            if let standardizedWorkingDirectory,
+               standardizedPath(payload.cwd) != standardizedWorkingDirectory {
+                continue
+            }
+            let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
+            if selected == nil || createdAt > selected!.createdAt {
+                selected = (sessionId: sessionId, createdAt: createdAt)
+            }
+        }
+
+        return selected?.sessionId
+    }
+
+    private static func codexHomeDirectory(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> URL {
+        if let codexHome = normalized(environment["CODEX_HOME"]) {
+            return URL(fileURLWithPath: (codexHome as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        return fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private static func codexSessionMetaLine(fileURL: URL) -> CodexSessionMetaLine? {
+        guard let firstLine = firstLineData(fileURL: fileURL) else { return nil }
+        return try? JSONDecoder().decode(CodexSessionMetaLine.self, from: firstLine)
+    }
+
+    private static func codexSessionCreatedAt(meta: CodexSessionMetaLine) -> Date? {
+        guard let timestamp = normalized(meta.timestamp) else { return nil }
+        return ISO8601DateFormatter().date(from: timestamp)
+    }
+
+    private static func firstLineData(fileURL: URL) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer {
+            try? handle.close()
+        }
+        guard var data = try? handle.read(upToCount: codexSessionMetaReadLimit), !data.isEmpty else {
+            return nil
+        }
+        if let newline = data.firstIndex(of: 0x0A) {
+            data = data[..<newline]
+        }
+        return data
     }
 
     private static func codexSessionCommand(in arguments: [String]) -> (name: String, sessionId: String)? {
@@ -1293,6 +1429,10 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         return rawValue
+    }
+
+    private static func standardizedPath(_ rawValue: String?) -> String? {
+        normalized(rawValue).map { ($0 as NSString).standardizingPath }
     }
 }
 
