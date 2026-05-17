@@ -2872,6 +2872,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2914,6 +2915,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -2975,6 +2977,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -3058,6 +3061,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -3145,7 +3149,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 }
 
 
-final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForArrowNavigation(
@@ -3198,35 +3202,33 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
+    func testControlNavigationDeltaRequiresFocusedAddressBarAndControlOnly() {
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: false,
+                flags: [.control],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
+                hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "n"
             )
         )
 
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
-                hasFocusedAddressBar: true,
-                flags: [.command],
-                chars: "n"
-            ),
-            1
-        )
-
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command],
                 chars: "p"
-            ),
-            -1
+            )
         )
 
         XCTAssertNil(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .shift],
                 chars: "n"
@@ -3234,7 +3236,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "p"
@@ -3243,7 +3245,7 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control],
                 chars: "n"
@@ -3252,23 +3254,31 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
-    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+    func testControlNavigationDeltaIgnoresCapsLockModifier() {
         XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.control, .capsLock],
                 chars: "n"
             ),
             1
         )
-        XCTAssertEqual(
-            browserOmnibarSelectionDeltaForCommandNavigation(
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForControlNavigation(
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
-            ),
-            -1
+            )
         )
+    }
+
+    func testControlNavigationRepeatLifecycleRequiresControlOnly() {
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .command]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .option]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .shift]))
+        XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: []))
     }
 
     func testSubmitOnReturnIgnoresCapsLockModifier() {
@@ -3972,6 +3982,33 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+    }
+
+    func testCustomAppSchemesRouteExternallyFromSubframes() throws {
+        let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
+
+        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
+        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
+    }
+
+    func testEmbeddedSubframeNavigationStaysInWebView() throws {
+        let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
+
+        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
+    }
+
+    func testIntentBrowserFallbackURLExtraction() throws {
+        let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
+        let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
+
+        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
+        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
+    }
+
+    func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {
+        let intent = try XCTUnwrap(URL(string: "intent://open#Intent;S.browser_fallback_url=slack%3A%2F%2Fopen;end"))
+
+        XCTAssertNil(browserIntentFallbackURL(for: intent))
     }
 }
 
