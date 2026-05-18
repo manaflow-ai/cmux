@@ -598,6 +598,58 @@ struct BrowserPanelView: View {
         return currentPaneId.id == paneId.id
     }
 
+    private var currentEventIsCommandPointerActivation: Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .leftMouseUp:
+            break
+        default:
+            return false
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.command)
+    }
+
+    private func handleReloadOrStopButtonAction() {
+        if panel.isLoading {
+#if DEBUG
+            cmuxDebugLog("browser.stop panel=\(panel.id.uuidString.prefix(5))")
+#endif
+            panel.stopLoading()
+            return
+        }
+
+        if currentEventIsCommandPointerActivation {
+#if DEBUG
+            cmuxDebugLog("browser.reload.commandClickDuplicate panel=\(panel.id.uuidString.prefix(5))")
+#endif
+            guard let workspace = owningWorkspace else {
+#if DEBUG
+                cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=workspaceMissing")
+#endif
+                return
+            }
+            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panel.id) else {
+#if DEBUG
+                cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=newPanelFailed")
+#endif
+                return
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "browser.reload.commandClickDuplicate.done panel=\(panel.id.uuidString.prefix(5)) " +
+                "newPanel=\(newPanel.id.uuidString.prefix(5))"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.reload()
+    }
+
     var body: some View {
         // Layering contract: browser find UI is mounted in the portal-hosted AppKit
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
@@ -973,19 +1025,7 @@ struct BrowserPanelView: View {
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
-            Button(action: {
-                if panel.isLoading {
-                    #if DEBUG
-                    cmuxDebugLog("browser.stop panel=\(panel.id.uuidString.prefix(5))")
-                    #endif
-                    panel.stopLoading()
-                } else {
-                    #if DEBUG
-                    cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
-                    #endif
-                    panel.reload()
-                }
-            }) {
+            Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
