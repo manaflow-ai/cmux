@@ -2197,7 +2197,8 @@ class TabManager: ObservableObject {
             }
             if !keysToRemove.isEmpty {
                 for key in keysToRemove {
-                    tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
+                    tab.statusEntries.removeValue(forKey: key)
+                    tab.agentPIDs.removeValue(forKey: key)
                 }
                 let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
                 PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
@@ -5753,7 +5754,38 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        triggerWsResetIfSlotted(workspace: workspace)
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    // If the closed workspace matches a ws-managed slot (wkN.json), run `ws reset wkN`
+    // to clean up the devbox worktree. Match is on customTitle == json["name"] since
+    // both are set to the same string by `ws restart`/`ws new` via `cmux rename-workspace`.
+    private func triggerWsResetIfSlotted(workspace: Workspace) {
+        guard let customTitle = workspace.customTitle, !customTitle.isEmpty else { return }
+        let worktreesDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/workon/worktrees")
+        let wsScriptPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("bin/ws").path
+        Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            guard let files = try? fm.contentsOfDirectory(atPath: worktreesDir.path) else { return }
+            for file in files where file.hasPrefix("wk") && file.hasSuffix(".json") {
+                guard let data = fm.contents(atPath: worktreesDir.appendingPathComponent(file).path),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let name = json["name"] as? String,
+                      name == customTitle else { continue }
+                let slot = String(file.dropLast(5)) // "wk3.json" → "wk3"
+                #if DEBUG
+                cmuxDebugLog("ws reset \(slot) triggered by UI close of '\(customTitle)'")
+                #endif
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: wsScriptPath)
+                proc.arguments = ["reset", slot]
+                try? proc.run()
+                return
+            }
+        }
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -6066,7 +6098,7 @@ class TabManager: ObservableObject {
                 continue
             }
             targetPanelIds.append(panelId)
-            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
+            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
         }
 
         guard !targetPanelIds.isEmpty else { return nil }
@@ -6075,6 +6107,17 @@ class TabManager: ObservableObject {
             panelIds: targetPanelIds,
             titles: targetTitles
         )
+    }
+
+    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
+        let collapsed = title?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let collapsed, !collapsed.isEmpty {
+            return collapsed
+        }
+        return "Untitled Tab"
     }
 
     private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
@@ -9193,7 +9236,7 @@ extension TabManager {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
-            .filter(\.isRestorableInSessionSnapshot)
+            .filter { !$0.isRemoteWorkspace }
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
             .map {

@@ -1264,7 +1264,7 @@ struct ContentView: View {
     }
 
     static func tmuxWorkspacePaneExactRect(
-        for panel: Panel,
+        for panel: any Panel,
         in contentView: NSView
     ) -> CGRect? {
         let targetView: NSView?
@@ -9559,8 +9559,11 @@ struct VerticalTabsSidebar: View {
 
         ZStack(alignment: .bottomLeading) {
             workspaceScrollArea(renderContext: renderContext)
-            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 0) {
+                SidebarPromptLauncher()
+                SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -10878,6 +10881,309 @@ final class WindowScopedShortcutHintModifierMonitor {
             NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
             self.hostWindowDidResignKeyObserver = nil
         }
+    }
+}
+
+private struct PromptTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    var isEditable: Bool = true
+    var onSubmit: (() -> Void)?
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        guard let tv = scrollView.documentView as? NSTextView else { return scrollView }
+        tv.delegate = context.coordinator
+        tv.font = .systemFont(ofSize: 12)
+        tv.isRichText = false
+        tv.drawsBackground = false
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.textContainerInset = NSSize(width: 4, height: 4)
+        tv.textContainer?.lineFragmentPadding = 4
+        tv.textContainer?.widthTracksTextView = true
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let tv = scrollView.documentView as? NSTextView else { return }
+        if tv.string != text { tv.string = text }
+        if tv.isEditable != isEditable { tv.isEditable = isEditable }
+        let targetColor: NSColor = isEditable ? .labelColor : .placeholderTextColor
+        if tv.textColor != targetColor { tv.textColor = targetColor }
+        context.coordinator.parent = self
+        let isEmpty = tv.string.isEmpty
+        if isEmpty != context.coordinator.showingPlaceholder {
+            context.coordinator.showingPlaceholder = isEmpty
+            tv.needsDisplay = true
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: PromptTextEditor
+        var showingPlaceholder: Bool = true
+
+        init(parent: PromptTextEditor) { self.parent = parent }
+
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            parent.text = tv.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSTextView.insertNewline(_:)) {
+                parent.onSubmit?()
+                return true
+            }
+            return false
+        }
+    }
+}
+
+private struct PromptTextEditorContainer: View {
+    @Binding var text: String
+    let placeholder: String
+    var isEditable: Bool = true
+    var onSubmit: (() -> Void)?
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(NSColor.placeholderTextColor))
+                    .padding(.leading, 9)
+                    .padding(.top, 7)
+                    .allowsHitTesting(false)
+            }
+            PromptTextEditor(text: $text, placeholder: placeholder,
+                             isEditable: isEditable, onSubmit: onSubmit)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+        )
+    }
+}
+
+private final class PromptLauncherModel: ObservableObject {
+    static let targets: [(id: String, label: String)] = [
+        ("local",    "local"),
+        ("devbox",   "devbox"),
+        ("devbox-1", "devbox-1"),
+        ("devbox-2", "devbox-2"),
+    ]
+
+    @Published var promptText: String = ""
+    @Published var selectedTarget: String? = nil
+    @Published var isLoading: Bool = false
+
+    private var lastLogLine: String = ""
+    private var dotPhase: Int = 0
+    private var dotCancellable: AnyCancellable?
+
+    func launch() {
+        let prompt = promptText.trimmingCharacters(in: .whitespaces)
+        guard !prompt.isEmpty, !isLoading else { return }
+        isLoading = true
+        lastLogLine = ""
+        promptText = ""
+        startDotAnimation()
+        let target: String? = selectedTarget
+        Task {
+            await runWS(target: target, prompt: prompt)
+            stopDotAnimation()
+            isLoading = false
+            promptText = ""
+        }
+    }
+
+    private func startDotAnimation() {
+        dotPhase = 0
+        dotCancellable = Timer.publish(every: 0.4, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.dotPhase = (self.dotPhase + 1) % 4
+                self.refreshPromptText()
+            }
+    }
+
+    private func stopDotAnimation() {
+        dotCancellable?.cancel()
+        dotCancellable = nil
+    }
+
+    private func refreshPromptText() {
+        let dots = String(repeating: ".", count: dotPhase)
+        promptText = lastLogLine.isEmpty ? dots : "\(lastLogLine)\(dots)"
+    }
+
+    private func setLastLogLine(_ line: String) {
+        lastLogLine = line
+        refreshPromptText()
+    }
+
+    private func runWS(target: String?, prompt: String) async {
+        guard let wsPath = Self.resolveWSBin() else { return }
+        let args: [String] = target.map { [$0, prompt] } ?? [prompt]
+        let escapedArgs = args.map { "'\($0.replacingOccurrences(of: "'", with: "'\\''"))'" }.joined(separator: " ")
+        let shellCmd = "WS_VERBOSE=1 \(wsPath) \(escapedArgs)"
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.arguments = ["-l", "-c", shellCmd]
+
+        var env = ProcessInfo.processInfo.environment
+        env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+        proc.environment = env
+
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = pipe
+        proc.standardInput = FileHandle.nullDevice
+
+        await withCheckedContinuation { [weak self] (cont: CheckedContinuation<Void, Never>) in
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty,
+                      let str = String(data: data, encoding: .utf8) else { return }
+                let newLines = Self.stripAnsi(str)
+                    .components(separatedBy: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                guard let last = newLines.last else { return }
+                Task { @MainActor [weak self] in self?.setLastLogLine(last) }
+            }
+            proc.terminationHandler = { _ in
+                pipe.fileHandleForReading.readabilityHandler = nil
+                cont.resume()
+            }
+            do { try proc.run() } catch { cont.resume() }
+        }
+    }
+
+    nonisolated static func stripAnsi(_ s: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"\x1B\[[0-9;]*[A-Za-z]|\r"#) else { return s }
+        return regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+    }
+
+    static func resolveWSBin() -> String? {
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? ""
+        for path in ["\(home)/bin/ws", "\(home)/.local/bin/ws", "/usr/local/bin/ws"]
+            where FileManager.default.isExecutableFile(atPath: path) { return path }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        proc.arguments = ["ws"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        try? proc.run()
+        proc.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return out?.isEmpty == false ? out : nil
+    }
+}
+
+private struct PromptLauncherArrowCursorArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> ArrowCursorView { ArrowCursorView() }
+    func updateNSView(_ nsView: ArrowCursorView, context: Context) {}
+
+    class ArrowCursorView: NSView {
+        override func resetCursorRects() {
+            discardCursorRects()
+            addCursorRect(bounds, cursor: .arrow)
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+private struct SpinningCircleButton: View {
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.accentColor.opacity(0.25), lineWidth: 2)
+                .frame(width: 24, height: 24)
+            Circle()
+                .trim(from: 0, to: 0.65)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 24, height: 24)
+                .rotationEffect(.degrees(rotation))
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+        }
+    }
+}
+
+private struct SidebarPromptLauncher: View {
+    @StateObject private var model = PromptLauncherModel()
+    @EnvironmentObject var tabManager: TabManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            PromptTextEditorContainer(
+                text: $model.promptText,
+                placeholder: String(localized: "sidebar.prompt_launcher.placeholder",
+                                    defaultValue: "Prompt\u{2026}"),
+                isEditable: !model.isLoading,
+                onSubmit: model.launch
+            )
+            .frame(height: 120)
+
+            HStack(spacing: 6) {
+                ForEach(PromptLauncherModel.targets, id: \.id) { t in
+                    Toggle(isOn: Binding(
+                        get: { model.selectedTarget == t.id },
+                        set: { if $0 { model.selectedTarget = t.id } else if model.selectedTarget == t.id { model.selectedTarget = nil } }
+                    )) {
+                        Text(t.label)
+                            .font(.system(size: 10))
+                    }
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                }
+
+                Spacer()
+
+                if model.isLoading {
+                    SpinningCircleButton()
+                } else {
+                    Button(action: model.launch) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 24, height: 24)
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: [.command])
+                    .accessibilityLabel(String(localized: "sidebar.prompt_launcher.send",
+                                               defaultValue: "Send"))
+                }
+            }
+            .overlay(PromptLauncherArrowCursorArea())
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Divider() }
     }
 }
 

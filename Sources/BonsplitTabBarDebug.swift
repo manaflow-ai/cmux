@@ -121,10 +121,6 @@ extension Workspace {
             fadeWidth: CGFloat(BonsplitTabBarDebugSettings.backdropFadeWidth),
             contentFadeWidth: CGFloat(BonsplitTabBarDebugSettings.contentFadeWidth(defaults: defaults)),
             solidWidth: 23.875,
-            solidSurfaceWidthAdjustment: CGFloat(
-                BonsplitTabBarDebugSettings.solidSurfaceWidthAdjustment(defaults: defaults)
-            ),
-            separatorFadeWidth: CGFloat(BonsplitTabBarDebugSettings.separatorFadeWidth(defaults: defaults)),
             fadeRampStartFraction: bonsplitSplitButtonBackdropSoftness,
             leadingOpacity: 0,
             trailingOpacity: 0.8625,
@@ -150,8 +146,7 @@ struct TabBarBackdropLabVariant: Identifiable {
     let opacity: CGFloat
 
     var renderIdentity: String {
-        let separatorFadeWidth = effect.separatorFadeWidth.map { String(format: "%.1f", $0) } ?? "nil"
-        return "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.1f", effect.solidSurfaceWidthAdjustment))-\(separatorFadeWidth)-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(String(format: "%.2f", effect.contentOcclusionFraction))-\(effect.masksTabContent ? 1 : 0)"
+        return "\(id)-\(chromeHex)-\(tabBarHex)-\(splitButtonBackdropHex)-\(paneHex)-\(borderHex)-\(String(format: "%.3f", opacity))-\(String(format: "%.1f", effect.fadeWidth))-\(String(format: "%.1f", effect.contentFadeWidth))-\(String(format: "%.1f", effect.solidWidth))-\(String(format: "%.2f", effect.fadeRampStartFraction))-\(String(format: "%.2f", effect.leadingOpacity))-\(String(format: "%.2f", effect.trailingOpacity))-\(String(format: "%.2f", effect.contentOcclusionFraction))-\(effect.masksTabContent ? 1 : 0)"
     }
 }
 

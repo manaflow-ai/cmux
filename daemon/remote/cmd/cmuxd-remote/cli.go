@@ -88,6 +88,7 @@ var commands = []commandSpec{
 	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
 	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
 	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
+	{name: "set-status", proto: protoV2, v2Method: "sidebar.set_status", flagKeys: []string{"key", "value", "icon", "color", "priority"}},
 }
 
 var browserCommands = map[string]browserCommandSpec{
@@ -282,6 +283,16 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		// First positional arg is used as initial_command if --command wasn't given
 		if _, ok := params["initial_command"]; !ok && len(parsed.positional) > 0 {
 			params["initial_command"] = parsed.positional[0]
+		}
+
+		// sidebar.set_status: positional[0] → key, positional[1:] joined → value
+		if spec.v2Method == "sidebar.set_status" {
+			if _, ok := params["key"]; !ok && len(parsed.positional) > 0 {
+				params["key"] = parsed.positional[0]
+			}
+			if _, ok := params["value"]; !ok && len(parsed.positional) > 1 {
+				params["value"] = strings.Join(parsed.positional[1:], " ")
+			}
 		}
 
 		applyWorkspaceEnvFallback(params)

@@ -3108,6 +3108,8 @@
         }
       }
     },
+    "sidebar.prompt_launcher.placeholder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Prompt…" } }, "ja": { "stringUnit": { "state": "translated", "value": "プロンプト…" } } } },
+    "sidebar.prompt_launcher.send": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Send" } }, "ja": { "stringUnit": { "state": "translated", "value": "送信" } } } },
     "sidebar.help.button": {
       "extractionState": "manual",
       "localizations": {
