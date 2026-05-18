@@ -6563,6 +6563,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.layoutSubtreeIfNeeded()
     }
 
+    private func schedulePortalLifecycleVisibilityUpdate(
+        coordinator: Coordinator,
+        generation: Int,
+        visibleInUI: Bool,
+        reason: String,
+        requireDesiredVisibilityMatch: Bool = true
+    ) {
+        let browserPanel = panel
+        Task { @MainActor [weak coordinator] in
+            guard let coordinator else { return }
+            guard coordinator.attachGeneration == generation else { return }
+            guard !requireDesiredVisibilityMatch ||
+                coordinator.desiredPortalVisibleInUI == visibleInUI else { return }
+            browserPanel.noteWebViewVisibility(visibleInUI, reason: reason)
+        }
+    }
+
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
@@ -6824,7 +6841,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         if portalHostAccepted || didReleasePortalHost {
             let lifecycleVisibleInUI = portalHostAccepted && coordinator.desiredPortalVisibleInUI
             let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
-            panel.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
+            schedulePortalLifecycleVisibilityUpdate(
+                coordinator: coordinator,
+                generation: generation,
+                visibleInUI: lifecycleVisibleInUI,
+                reason: lifecycleReason,
+                requireDesiredVisibilityMatch: portalHostAccepted
+            )
         }
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
