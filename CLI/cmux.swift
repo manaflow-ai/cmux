@@ -24021,18 +24021,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func currentExecutablePath() -> String? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !path.isEmpty {
-                    return path
-                }
-            }
+        if let path = CLIExecutableLocator.currentExecutableURL()?.path
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            return path
         }
-        return Bundle.main.executableURL?.path ?? args.first
+        return args.first
     }
 
     func resolvedExecutableURL() -> URL? {
