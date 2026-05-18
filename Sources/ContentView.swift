@@ -6212,7 +6212,6 @@ struct ContentView: View {
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteTerminal: isRemoteTerminal,
-                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession,
                     ttyName: normalizedTTYName
                 )
             )

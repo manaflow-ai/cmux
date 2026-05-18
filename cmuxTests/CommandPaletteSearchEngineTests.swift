@@ -804,7 +804,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
-                ttyWasReportedInCurrentSession: true,
                 ttyName: " ttys001 "
             )
         )
@@ -817,7 +816,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
-                ttyWasReportedInCurrentSession: false,
                 ttyName: "ttys002"
             )
         )
@@ -829,7 +827,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: true,
-                ttyWasReportedInCurrentSession: true,
                 ttyName: "ttys001"
             )
         )
@@ -838,7 +835,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
-                ttyWasReportedInCurrentSession: true,
                 ttyName: nil
             )
         )
