@@ -341,7 +341,7 @@ html { scroll-behavior: smooth; }
 
   function isSafeDataImageURL(value) {
     var raw = String(value || '').trim();
-    return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=\s]+$/i.test(raw);
+    return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=]+$/i.test(raw);
   }
 
   function cmuxLocalImageURL(value) {

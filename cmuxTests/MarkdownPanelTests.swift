@@ -309,7 +309,13 @@ final class MarkdownPanelTests: XCTestCase {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
-        return lastSnapshot
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for markdown image to load. Last snapshot: \(lastSnapshot)"
+            ]
+        )
     }
 
     private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
