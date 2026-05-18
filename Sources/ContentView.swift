@@ -12600,6 +12600,30 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 }
 
+private extension View {
+    @ViewBuilder
+    func sidebarWorkspaceDragSource(
+        enabled: Bool,
+        tab: Tab,
+        draggedTabId: Binding<UUID?>,
+        dropIndicator: Binding<SidebarDropIndicator?>
+    ) -> some View {
+        if enabled {
+            onDrag {
+                #if DEBUG
+                cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
+                #endif
+                draggedTabId.wrappedValue = tab.id
+                dropIndicator.wrappedValue = nil
+                return SidebarTabDragPayload.provider(for: tab.id)
+            }
+            .internalOnlyTabDrag()
+        } else {
+            self
+        }
+    }
+}
+
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -13345,15 +13369,12 @@ private struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag {
-            #if DEBUG
-            cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
-            #endif
-            draggedTabId = tab.id
-            dropIndicator = nil
-            return SidebarTabDragPayload.provider(for: tab.id)
-        }
-        .internalOnlyTabDrag()
+        .sidebarWorkspaceDragSource(
+            enabled: !isHiddenWorkspace,
+            tab: tab,
+            draggedTabId: $draggedTabId,
+            dropIndicator: $dropIndicator
+        )
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: actions.makeSidebarTabDropDelegate(
             tab.id,
             $draggedTabId,
