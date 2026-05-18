@@ -551,7 +551,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let row = try XCTUnwrap(rows.first)
         XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(row["sample_count"] as? Int, 1)
-        XCTAssertEqual(row["peak_rss_bytes"] as? Int, 314_572_800)
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 314_572_800)
         XCTAssertEqual(row["peak_memory_percent"] as? Double, 1.8)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
@@ -624,7 +624,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let row = try XCTUnwrap(rows.first)
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(row["workspace_id"] as? String, steadyWorkspace)
-        XCTAssertEqual(row["peak_rss_bytes"] as? Int, 900)
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 900)
     }
 
     func testMemoryTopPrunesExpiredRowsOnRead() throws {
