@@ -411,7 +411,7 @@ final class cmuxMobileUITests: XCTestCase {
         XCTAssertTrue(element.waitForExistence(timeout: 4))
         XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(text)
-        dismissKeyboard(in: app)
+        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
     }
 
     @MainActor
@@ -420,7 +420,12 @@ final class cmuxMobileUITests: XCTestCase {
         XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
         element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 80))
         element.typeText(text)
-        dismissKeyboard(in: app)
+        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+    }
+
+    @MainActor
+    private func isAddDeviceField(_ element: XCUIElement) -> Bool {
+        element.identifier.hasPrefix("MobileAddDevice")
     }
 
     @MainActor
@@ -497,12 +502,16 @@ final class cmuxMobileUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissKeyboard(in app: XCUIApplication) {
+    private func dismissKeyboard(
+        in app: XCUIApplication,
+        preferAddDeviceAccessoryDoneButton: Bool = false
+    ) {
         guard app.keyboards.firstMatch.exists else {
             return
         }
-        let addDeviceDoneButton = app.buttons["MobileAddDeviceKeyboardDoneButton"]
-        if addDeviceDoneButton.exists {
+        if preferAddDeviceAccessoryDoneButton,
+           app.buttons["MobileAddDeviceKeyboardDoneButton"].exists {
+            let addDeviceDoneButton = app.buttons["MobileAddDeviceKeyboardDoneButton"]
             addDeviceDoneButton.tap()
             return
         }
