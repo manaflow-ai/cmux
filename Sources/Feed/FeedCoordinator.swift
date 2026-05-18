@@ -550,22 +550,14 @@ private extension FeedCoordinator {
               effects.desktop || effects.sound || effects.command
         else { return }
 
-        func runFallbackEffectsIfStillAwaiting() {
-            guard self.isAwaitingDecision(requestId: requestId) else { return }
-            if effects.sound {
-                NotificationSoundSettings.playSelectedSound()
-            }
-            if effects.command {
-                NotificationSoundSettings.runCustomCommand(
-                    title: title,
-                    subtitle: subtitle,
-                    body: body
-                )
-            }
-        }
-
         if !effects.desktop {
-            runFallbackEffectsIfStillAwaiting()
+            runFallbackEffectsIfStillAwaiting(
+                requestId: requestId,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: effects
+            )
             return
         }
 
@@ -611,10 +603,22 @@ private extension FeedCoordinator {
                             effects: effects
                         )
                     } else {
-                        runFallbackEffectsIfStillAwaiting()
+                        self.runFallbackEffectsIfStillAwaiting(
+                            requestId: requestId,
+                            title: title,
+                            subtitle: subtitle,
+                            body: body,
+                            effects: effects
+                        )
                     }
                 default:
-                    runFallbackEffectsIfStillAwaiting()
+                    self.runFallbackEffectsIfStillAwaiting(
+                        requestId: requestId,
+                        title: title,
+                        subtitle: subtitle,
+                        body: body,
+                        effects: effects
+                    )
                 }
             }
         }
@@ -628,21 +632,56 @@ private extension FeedCoordinator {
         effects: TerminalNotificationPolicyEffects
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        center.add(request) { _ in
+        let title = request.content.title
+        let subtitle = request.content.subtitle
+        let body = request.content.body
+        center.add(request) { error in
+            let didFail = error != nil
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if !self.isAwaitingDecision(requestId: requestId) {
                     self.cancelNotification(requestId: requestId)
                     return
                 }
+                if didFail {
+                    self.runFallbackEffectsIfStillAwaiting(
+                        requestId: requestId,
+                        title: title,
+                        subtitle: subtitle,
+                        body: body,
+                        effects: effects
+                    )
+                    return
+                }
                 if effects.command {
                     NotificationSoundSettings.runCustomCommand(
-                        title: request.content.title,
-                        subtitle: request.content.subtitle,
-                        body: request.content.body
+                        title: title,
+                        subtitle: subtitle,
+                        body: body
                     )
                 }
             }
+        }
+    }
+
+    @MainActor
+    func runFallbackEffectsIfStillAwaiting(
+        requestId: String,
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard isAwaitingDecision(requestId: requestId) else { return }
+        if effects.sound {
+            NotificationSoundSettings.playSelectedSound()
+        }
+        if effects.command {
+            NotificationSoundSettings.runCustomCommand(
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
         }
     }
 
