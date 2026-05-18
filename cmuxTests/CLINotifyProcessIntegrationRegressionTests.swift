@@ -1258,7 +1258,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
-        XCTAssertNil(request["checkpoint_id"])
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
     }
 
     func testGenericAgentSessionEndClearsMatchingSurfaceResumeBinding() throws {

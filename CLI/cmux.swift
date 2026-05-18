@@ -19120,7 +19120,7 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                sessionId: nil
+                sessionId: sessionId
             )
             return
         }
