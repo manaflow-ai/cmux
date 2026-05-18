@@ -1271,54 +1271,146 @@ struct EmptyPanelView: View {
         self.controller = controller
     }
 
+    private enum LauncherLayout: Equatable {
+        case sideStack
+        case bottomStrip
+        case grid
+        case iconGrid
+
+        static func resolving(size: CGSize) -> LauncherLayout {
+            if size.height <= 150 {
+                return .bottomStrip
+            }
+            if size.width <= 140 {
+                return .iconGrid
+            }
+            if size.width <= 260 {
+                return .sideStack
+            }
+            return .grid
+        }
+
+        var showsText: Bool {
+            switch self {
+            case .iconGrid:
+                return false
+            case .sideStack, .bottomStrip, .grid:
+                return true
+            }
+        }
+
+        var showsShortcut: Bool {
+            switch self {
+            case .bottomStrip, .grid:
+                return true
+            case .sideStack, .iconGrid:
+                return false
+            }
+        }
+    }
+
     private struct ShortcutHint: View {
         let text: String
 
         var body: some View {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(.white.opacity(0.18), in: Capsule())
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.tertiary)
         }
     }
 
-    private var actionColumns: [GridItem] {
-        [
-            GridItem(
-                .adaptive(minimum: 108, maximum: 156),
-                spacing: 10,
-                alignment: .center
+    private struct ActionButton: View {
+        let action: EmptyPaneCreationAction
+        let layout: LauncherLayout
+        let shortcut: StoredShortcut?
+        let perform: () -> Void
+        @State private var isHovering = false
+
+        private var minHeight: CGFloat {
+            switch layout {
+            case .bottomStrip:
+                return 28
+            case .grid, .sideStack:
+                return 30
+            case .iconGrid:
+                return 28
+            }
+        }
+
+        private var horizontalPadding: CGFloat {
+            switch layout {
+            case .bottomStrip, .grid:
+                return 9
+            case .sideStack:
+                return 7
+            case .iconGrid:
+                return 0
+            }
+        }
+
+        private var contentAlignment: Alignment {
+            switch layout {
+            case .sideStack:
+                return .leading
+            case .bottomStrip, .grid, .iconGrid:
+                return .center
+            }
+        }
+
+        var body: some View {
+            Button(action: perform) {
+                HStack(spacing: layout.showsText ? 6 : 0) {
+                    Image(systemName: action.systemImage)
+                        .font(.system(size: 13, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                    if layout.showsText {
+                        Text(action.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
+                        if layout.showsShortcut, let shortcut {
+                            Spacer(minLength: 4)
+                            ShortcutHint(text: shortcut.displayString)
+                        }
+                    }
+                }
+                .frame(
+                    maxWidth: layout == .bottomStrip ? nil : .infinity,
+                    minHeight: minHeight,
+                    alignment: contentAlignment
+                )
+                .padding(.horizontal, horizontalPadding)
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isHovering ? .primary : .secondary)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? Color.primary.opacity(0.07) : Color.clear)
             )
-        ]
+            .accessibilityIdentifier("EmptyPanel.action.\(action.id)")
+            .accessibilityLabel(action.title)
+            .safeHelp(action.title)
+            .onHover { hovering in
+                isHovering = hovering
+            }
+        }
     }
 
     @ViewBuilder
     private func emptyPaneActionButton(
-        for action: EmptyPaneCreationAction
+        for action: EmptyPaneCreationAction,
+        layout: LauncherLayout
     ) -> some View {
         let shortcut = action.shortcut(settingsRevision: keyboardShortcutSettingsObserver.revision)
-        let button = Button {
+        let button = ActionButton(action: action, layout: layout, shortcut: shortcut) {
             #if DEBUG
             cmuxDebugLog("emptyPane.\(action.debugName) pane=\(paneId.id.uuidString.prefix(5))")
             #endif
             if !action.perform(workspace: workspace, paneId: paneId, controller: controller) {
                 NSSound.beep()
             }
-        } label: {
-            HStack(spacing: 8) {
-                Label(action.title, systemImage: action.systemImage)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                if let shortcut {
-                    ShortcutHint(text: shortcut.displayString)
-                }
-            }
         }
-        .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("EmptyPanel.action.\(action.id)")
-        .safeHelp(action.title)
 
         if let shortcut, let key = shortcut.keyEquivalent {
             button
@@ -1328,22 +1420,62 @@ struct EmptyPanelView: View {
         }
     }
 
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-
-            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            LazyVGrid(columns: actionColumns, spacing: 10) {
+    @ViewBuilder
+    private func launcherContent(layout: LauncherLayout) -> some View {
+        switch layout {
+        case .bottomStrip:
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(EmptyPaneCreationAction.all) { action in
+                        emptyPaneActionButton(for: action, layout: layout)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+        case .sideStack:
+            VStack(spacing: 4) {
                 ForEach(EmptyPaneCreationAction.all) { action in
-                    emptyPaneActionButton(for: action)
+                    emptyPaneActionButton(for: action, layout: layout)
                 }
             }
-            .frame(maxWidth: 620)
+            .frame(maxWidth: 168)
+            .padding(8)
+        case .grid:
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 96, maximum: 132), spacing: 8, alignment: .center),
+                ],
+                spacing: 6
+            ) {
+                ForEach(EmptyPaneCreationAction.all) { action in
+                    emptyPaneActionButton(for: action, layout: layout)
+                }
+            }
+            .frame(maxWidth: 500)
+            .padding(12)
+        case .iconGrid:
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 30, maximum: 36), spacing: 4, alignment: .center),
+                ],
+                spacing: 4
+            ) {
+                ForEach(EmptyPaneCreationAction.all) { action in
+                    emptyPaneActionButton(for: action, layout: layout)
+                        .frame(width: 30)
+                }
+            }
+            .frame(maxWidth: 92)
+            .padding(6)
+        }
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let layout = LauncherLayout.resolving(size: proxy.size)
+            launcherContent(layout: layout)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
