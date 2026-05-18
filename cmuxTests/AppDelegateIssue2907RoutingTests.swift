@@ -121,6 +121,61 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         try assertWorkspaceListContains(try workspaceListPayload(surfaceId: surfaceId), workspaceId: workspace.id)
     }
 
+    func testSurfaceResumeSetRejectsSurfaceOutsideExplicitWindow() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeMainWindow(id: firstWindowId)
+        let secondWindow = makeMainWindow(id: secondWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(firstManager)
+
+        let secondWorkspace = try XCTUnwrap(secondManager.selectedWorkspace)
+        let secondPanelId = try XCTUnwrap(secondWorkspace.focusedPanelId)
+        let (raw, envelope) = try v2Envelope(
+            method: "surface.resume.set",
+            params: [
+                "window_id": firstWindowId.uuidString,
+                "surface_id": secondPanelId.uuidString,
+                "command": "echo wrong-window"
+            ]
+        )
+
+        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+        XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanelId))
+    }
+
     func testIssue2907TabManagerDependentSocketCommandsRecoverLiveSurfaceContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
