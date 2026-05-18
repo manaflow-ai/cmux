@@ -179,6 +179,7 @@ final class BrowserHiddenWebViewDiscardManager {
         discardedAt = nil
         lastDiscardReason = nil
         lastRestoreReason = nil
+        updateRestoredSessionRenderIntent(nil)
     }
 
     private func handlePolicyDefaultsChanged() {
