@@ -5920,6 +5920,14 @@ struct ContentView: View {
         fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
     }
 
+    static func commandPaletteForkSnapshotMatchesProcessDetection(
+        _ snapshot: SessionRestorableAgentSnapshot?,
+        processDetectedSnapshot: SessionRestorableAgentSnapshot?
+    ) -> Bool {
+        guard let snapshot, let processDetectedSnapshot else { return false }
+        return commandPaletteForkSnapshotFingerprint(snapshot) == commandPaletteForkSnapshotFingerprint(processDetectedSnapshot)
+    }
+
     static func commandPalettePanelHasForkableAgent(
         workspaceId: UUID,
         panelId: UUID,
@@ -6207,7 +6215,7 @@ struct ContentView: View {
         commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
 
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
-            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
+            let loadResult = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotSources(
                 fallbackScope: Self.commandPaletteProcessDetectionFallbackScope(
                     workspaceId: workspaceId,
                     panelId: panelId,
@@ -6217,9 +6225,12 @@ struct ContentView: View {
                 )
             )
             guard !Task.isCancelled else { return }
-            let detectedSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
-            let snapshot = detectedSnapshot ?? fallbackSnapshot
-            let snapshotWasProcessDetected = detectedSnapshot != nil
+            let processDetectedSnapshot = loadResult.processDetectedSnapshot(workspaceId: workspaceId, panelId: panelId)
+            let snapshot = loadResult.index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
+            let snapshotWasProcessDetected = Self.commandPaletteForkSnapshotMatchesProcessDetection(
+                snapshot,
+                processDetectedSnapshot: processDetectedSnapshot
+            )
             let supportsFork: Bool
             if let snapshot {
                 supportsFork = await AgentForkSupport.supportsFork(

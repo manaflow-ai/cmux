@@ -1636,6 +1636,56 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkProbeOnlyTreatsMatchingSnapshotAsProcessDetected() {
+        let hookSnapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "hook-codex-session",
+            workingDirectory: "/tmp/codex repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/homebrew/bin/codex",
+                arguments: ["/opt/homebrew/bin/codex", "resume", "hook-codex-session"],
+                workingDirectory: "/tmp/codex repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "hook"
+            )
+        )
+        let liveProcessSnapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "live-codex-session",
+            workingDirectory: "/tmp/codex repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/homebrew/bin/codex",
+                arguments: ["/opt/homebrew/bin/codex", "resume", "live-codex-session"],
+                workingDirectory: "/tmp/codex repo",
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+
+        XCTAssertFalse(
+            ContentView.commandPaletteForkSnapshotMatchesProcessDetection(
+                hookSnapshot,
+                processDetectedSnapshot: nil
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkSnapshotMatchesProcessDetection(
+                hookSnapshot,
+                processDetectedSnapshot: liveProcessSnapshot
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkSnapshotMatchesProcessDetection(
+                liveProcessSnapshot,
+                processDetectedSnapshot: liveProcessSnapshot
+            )
+        )
+    }
+
     func testCommandPreviewSearchUsesFullCommandCorpus() {
         let entries = [
             FixtureEntry(

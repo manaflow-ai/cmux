@@ -779,6 +779,15 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
 
+    struct ProcessDetectedLoadResult: Sendable {
+        let index: RestorableAgentSessionIndex
+        let processDetectedSnapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+
+        func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+            processDetectedSnapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        }
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
     }
@@ -801,6 +810,18 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default,
         fallbackScope: RestorableAgentProcessDetectionScope? = nil
     ) async -> RestorableAgentSessionIndex {
+        await loadIncludingProcessDetectedSnapshotSources(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            fallbackScope: fallbackScope
+        ).index
+    }
+
+    static func loadIncludingProcessDetectedSnapshotSources(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil
+    ) async -> ProcessDetectedLoadResult {
         let fileManagerBox = FileManagerBox(fileManager)
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
@@ -817,7 +838,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     registry: registry,
                     detectedSnapshots: detectedSnapshots
                 )
-                continuation.resume(returning: index)
+                continuation.resume(
+                    returning: ProcessDetectedLoadResult(
+                        index: index,
+                        processDetectedSnapshotsByPanel: detectedSnapshots.mapValues(\.snapshot)
+                    )
+                )
             }
         }
     }
