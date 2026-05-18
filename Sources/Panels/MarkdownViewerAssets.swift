@@ -13,6 +13,7 @@ final class MarkdownViewerAssets {
     private let highlightDarkCSS: String
     private let githubMarkdownCSS: String
     private let shellTemplate: String
+    private let localizedStringsJSON: String
 
     private var lazyCache: [String: String] = [:]
 
@@ -23,6 +24,7 @@ final class MarkdownViewerAssets {
         highlightDarkCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github-dark", ext: "css")
         githubMarkdownCSS = MarkdownViewerAssets.loadAsset(name: "github-markdown", ext: "css")
         shellTemplate = MarkdownViewerAssets.loadAsset(name: "shell", ext: "html")
+        localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
 
     func shellHTML(isDark: Bool) -> String {
@@ -33,6 +35,7 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{highlightDarkCSS}}", with: highlightDarkCSS)
             .replacingOccurrences(of: "{{markedJS}}", with: markedJS)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
+            .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
     }
 
     /// Load and cache a bundled JS asset on demand.
@@ -75,6 +78,36 @@ final class MarkdownViewerAssets {
         NSLog("MarkdownViewerAssets: missing bundled asset \(name).\(ext)")
 #endif
         preconditionFailure("Missing bundled markdown viewer asset \(name).\(ext)")
+    }
+
+    private static func localizedStringsJSON() -> String {
+        let strings = [
+            "remoteImageBlocked": String(
+                localized: "markdown.web.remoteImageBlocked",
+                defaultValue: "Remote image blocked"
+            ),
+            "remoteImageHostMessage": String(
+                localized: "markdown.web.remoteImageHostMessage",
+                defaultValue: "cmux will not contact {host} until you load images from this host."
+            ),
+            "remoteImageLoadHost": String(
+                localized: "markdown.web.remoteImageLoadHost",
+                defaultValue: "Load images from {host}"
+            ),
+            "remoteImageHTTPSOnly": String(
+                localized: "markdown.web.remoteImageHTTPSOnly",
+                defaultValue: "Only HTTPS remote images can be loaded."
+            ),
+            "remoteImageNotAllowed": String(
+                localized: "markdown.web.remoteImageNotAllowed",
+                defaultValue: "This remote image URL cannot be loaded."
+            )
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: strings),
+              let json = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return json
     }
 
     private static func loadDeflatedTextAsset(url: URL) -> String? {

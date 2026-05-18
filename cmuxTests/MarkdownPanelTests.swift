@@ -300,6 +300,391 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue((image["src"] as? String ?? "").hasPrefix("data:image/png;base64,"))
     }
 
+    func testMarkdownRenderBlocksRemoteImagesUntilUserAction() async throws {
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-remote-image-\(UUID().uuidString).md")
+
+        let frame = NSRect(x: 0, y: 0, width: 420, height: 260)
+        let configuration = WKWebViewConfiguration()
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let remoteImageHandler = MarkdownRemoteImageHoldingSchemeHandler()
+        coordinator.filePath = markdownURL.path
+        configuration.setURLSchemeHandler(coordinator, forURLScheme: MarkdownWebRenderer.localImageURLScheme)
+        configuration.setURLSchemeHandler(remoteImageHandler, forURLScheme: MarkdownWebRenderer.remoteImageURLScheme)
+        let webView = WKWebView(frame: frame, configuration: configuration)
+        coordinator.webView = webView
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            coordinator.webView = nil
+            coordinator.cancelImageLoads()
+            remoteImageHandler.cancelOpenTasks()
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        let remoteImageHost = "images.example.com"
+        let expectedBlockedTitle = String(
+            localized: "markdown.web.remoteImageBlocked",
+            defaultValue: "Remote image blocked"
+        )
+        let expectedHostMessage = String(
+            localized: "markdown.web.remoteImageHostMessage",
+            defaultValue: "cmux will not contact {host} until you load images from this host."
+        ).replacingOccurrences(of: "{host}", with: remoteImageHost)
+        let expectedLoadButton = String(
+            localized: "markdown.web.remoteImageLoadHost",
+            defaultValue: "Load images from {host}"
+        ).replacingOccurrences(of: "{host}", with: remoteImageHost)
+        let expectedHTTPSOnlyMessage = String(
+            localized: "markdown.web.remoteImageHTTPSOnly",
+            defaultValue: "Only HTTPS remote images can be loaded."
+        )
+        let expectedNotAllowedMessage = String(
+            localized: "markdown.web.remoteImageNotAllowed",
+            defaultValue: "This remote image URL cannot be loaded."
+        )
+
+        try await renderMarkdown(
+            """
+            Inline markdown file marker: `README.md`
+
+            ```
+            README.md
+            ```
+
+            <style>body { background-image: url(https://images.example.com/style.png); }</style>
+
+            <table background="https://images.example.com/background.png"><tr><td background="https://images.example.com/cell.png">legacy background</td></tr></table>
+
+            <details><summary>Visible details summary</summary>Hidden details text</details>
+
+            ![HTTPS remote](https://images.example.com/pixel.png)
+            [![Linked remote](https://images.example.com/linked.png)](README.md)
+            ![HTTP remote](http://images.example.com/pixel.png)
+            ![Localhost remote](https://localhost/pixel.png)
+            ![Credential remote](https://user:pass@images.example.com/secret.png)
+            <img alt="Spoofed internal" data-cmux-remote-src="https%3A%2F%2Fspoof.example%2Fpixel.png">
+            """,
+            in: webView
+        )
+
+        let before = try await remoteImageSnapshot(in: webView)
+        let beforeImages = try XCTUnwrap(before["images"] as? [[String: Any]])
+        let beforePlaceholders = try XCTUnwrap(before["placeholders"] as? [String])
+        let beforeButtons = try XCTUnwrap(before["buttons"] as? [String])
+        let beforeCodeFiles = try XCTUnwrap(before["codeFiles"] as? [String])
+        let beforeStyleCount = try XCTUnwrap(before["styleCount"] as? Int)
+        let beforeBackgroundAttrCount = try XCTUnwrap(before["backgroundAttrCount"] as? Int)
+        let beforeRenderedText = try XCTUnwrap(before["renderedText"] as? String)
+        XCTAssertEqual(beforeImages.count, 6)
+        XCTAssertEqual(beforePlaceholders.count, 5)
+        XCTAssertEqual(beforeButtons, [
+            expectedLoadButton,
+            expectedLoadButton
+        ])
+        XCTAssertEqual(beforeCodeFiles, ["README.md"])
+        XCTAssertEqual(beforeStyleCount, 0)
+        XCTAssertEqual(beforeBackgroundAttrCount, 0)
+        XCTAssertFalse(beforeRenderedText.contains(expectedBlockedTitle))
+        XCTAssertFalse(beforeRenderedText.contains(expectedLoadButton))
+        XCTAssertTrue(beforeRenderedText.contains("Visible details summary"))
+        XCTAssertFalse(beforeRenderedText.contains("Hidden details text"))
+        let remoteManagedImages = beforeImages.filter { !((($0["remoteSrc"] as? String) ?? "").isEmpty) }
+        XCTAssertEqual(remoteManagedImages.count, 5)
+        for image in remoteManagedImages {
+            XCTAssertEqual(image["src"] as? String, "")
+            XCTAssertEqual(image["currentSrc"] as? String, "")
+            XCTAssertEqual(image["hidden"] as? Bool, true)
+            XCTAssertNotNil(image["remoteSrc"] as? String)
+        }
+        let spoofedImage = try XCTUnwrap(beforeImages.first { $0["alt"] as? String == "Spoofed internal" })
+        XCTAssertEqual(spoofedImage["remoteSrc"] as? String, "")
+        XCTAssertEqual(spoofedImage["hidden"] as? Bool, false)
+        XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHostMessage) })
+        XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
+        XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
+        let linkedPlaceholderClickResult = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="Linked remote"]');
+              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+              var target = placeholder && (placeholder.querySelector('strong') || placeholder);
+              if (!target) { return null; }
+              return target.dispatchEvent(new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true
+              }));
+            })();
+            """
+        )
+        let linkedPlaceholderClickAllowed = try XCTUnwrap(linkedPlaceholderClickResult as? Bool)
+        XCTAssertFalse(linkedPlaceholderClickAllowed)
+
+        _ = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="Linked remote"]');
+              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+              var button = placeholder && placeholder.querySelector('button');
+              if (button) { button.click(); }
+            })();
+            """
+        )
+        let loading = try await remoteImageSnapshot(in: webView)
+        let loadingImages = try XCTUnwrap(loading["images"] as? [[String: Any]])
+        let loadingPlaceholders = try XCTUnwrap(loading["placeholders"] as? [String])
+        let loadingButtons = try XCTUnwrap(loading["buttons"] as? [String])
+        let loadingHTTPSImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "HTTPS remote" })
+        let loadingLinkedImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Linked remote" })
+        XCTAssertTrue((loadingHTTPSImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(loadingHTTPSImage["hidden"] as? Bool, true)
+        XCTAssertTrue((loadingLinkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(loadingLinkedImage["hidden"] as? Bool, true)
+        XCTAssertEqual(loadingPlaceholders.count, 5)
+        XCTAssertEqual(loadingButtons, [
+            expectedLoadButton,
+            expectedLoadButton
+        ])
+
+        _ = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              Array.prototype.slice.call(document.querySelectorAll('img[src^="cmux-remote-image://"]')).forEach(function(img) {
+                img.dispatchEvent(new Event('load'));
+              });
+            })();
+            """
+        )
+        let after = try await remoteImageSnapshot(in: webView)
+        let afterImages = try XCTUnwrap(after["images"] as? [[String: Any]])
+        let afterPlaceholders = try XCTUnwrap(after["placeholders"] as? [String])
+        let afterButtons = try XCTUnwrap(after["buttons"] as? [String])
+        let httpsImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "HTTPS remote" })
+        let linkedImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Linked remote" })
+        let httpImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "HTTP remote" })
+        let localhostImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Localhost remote" })
+        let credentialImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Credential remote" })
+
+        XCTAssertTrue((httpsImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(httpsImage["hidden"] as? Bool, false)
+        XCTAssertTrue((linkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(linkedImage["hidden"] as? Bool, false)
+        XCTAssertEqual(httpImage["src"] as? String, "")
+        XCTAssertEqual(httpImage["hidden"] as? Bool, true)
+        XCTAssertEqual(localhostImage["src"] as? String, "")
+        XCTAssertEqual(localhostImage["hidden"] as? Bool, true)
+        XCTAssertEqual(credentialImage["src"] as? String, "")
+        XCTAssertEqual(credentialImage["hidden"] as? Bool, true)
+        XCTAssertEqual(afterPlaceholders.count, 3)
+        XCTAssertEqual(afterButtons, [])
+        XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
+        XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
+
+        try await renderMarkdown(
+            "![Auto approved remote](https://images.example.com/auto.png)\n",
+            in: webView
+        )
+        let autoLoading = try await remoteImageSnapshot(in: webView)
+        let autoLoadingImages = try XCTUnwrap(autoLoading["images"] as? [[String: Any]])
+        let autoLoadingPlaceholders = try XCTUnwrap(autoLoading["placeholders"] as? [String])
+        let autoLoadingButtons = try XCTUnwrap(autoLoading["buttons"] as? [String])
+        let autoLoadingImage = try XCTUnwrap(autoLoadingImages.first)
+        XCTAssertTrue((autoLoadingImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(autoLoadingImage["hidden"] as? Bool, true)
+        XCTAssertEqual(autoLoadingPlaceholders.count, 1)
+        XCTAssertEqual(autoLoadingButtons, [expectedLoadButton])
+
+        _ = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="Auto approved remote"]');
+              if (img) { img.dispatchEvent(new Event('error')); }
+            })();
+            """
+        )
+        let autoFailed = try await remoteImageSnapshot(in: webView)
+        let autoFailedImages = try XCTUnwrap(autoFailed["images"] as? [[String: Any]])
+        let autoFailedPlaceholders = try XCTUnwrap(autoFailed["placeholders"] as? [String])
+        let autoFailedButtons = try XCTUnwrap(autoFailed["buttons"] as? [String])
+        let autoFailedImage = try XCTUnwrap(autoFailedImages.first)
+        XCTAssertEqual(autoFailedImage["src"] as? String, "")
+        XCTAssertEqual(autoFailedImage["hidden"] as? Bool, true)
+        XCTAssertEqual(autoFailedPlaceholders.count, 1)
+        XCTAssertEqual(autoFailedButtons, [expectedLoadButton])
+    }
+
+    func testMarkdownRemoteImageSecurityRejectsUnsafeTargets() throws {
+        func url(_ string: String) throws -> URL {
+            try XCTUnwrap(URL(string: string))
+        }
+
+        XCTAssertTrue(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://example.com/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("http://example.com/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://user:pass@example.com/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://example.com:8443/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://localhost/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://127.0.0.1/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://10.0.0.2/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://172.16.0.1/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://192.168.1.1/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://169.254.169.254/latest/meta-data")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://[::1]/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://[fe80::1]/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://[fec0::1]/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://[fc00::1]/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+                try url("https://[::127.0.0.1]/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+                try url("https://2130706433/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+                try url("https://0x7f000001/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+                try url("https://127.1/image.png")
+            )
+        )
+        XCTAssertFalse(
+            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+                try url("https://10.1/image.png")
+            )
+        )
+        let pinnedTargets = MarkdownRemoteImageSecurity.pinnedFetchTargets(
+            for: try url("https://1.1.1.1/image.png")
+        )
+        XCTAssertEqual(pinnedTargets.count, 1)
+        XCTAssertEqual(pinnedTargets.first?.serverName, "1.1.1.1")
+        let approvedHost = try XCTUnwrap(
+            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+                for: try url("https://images.example.com/pixel.png")
+            )
+        )
+        XCTAssertEqual(
+            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+                for: try url("https://images.example.com/redirected.png")
+            ),
+            approvedHost
+        )
+        XCTAssertNotEqual(
+            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+                for: try url("https://cdn.example.com/redirected.png")
+            ),
+            approvedHost
+        )
+        XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/png"), "image/png")
+        XCTAssertNil(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml"))
+        let ipv6RequestBytes = try XCTUnwrap(
+            MarkdownRemoteImageSecurity.requestBytes(
+                for: try url("https://[2606:4700:4700::1111]/image.png"),
+                host: "2606:4700:4700::1111"
+            )
+        )
+        let ipv6Request = try XCTUnwrap(String(data: ipv6RequestBytes, encoding: .utf8))
+        XCTAssertTrue(ipv6Request.contains("\r\nHost: [2606:4700:4700::1111]\r\n"))
+    }
+
+    func testMarkdownRemoteImageChunkedDecoderRejectsOversizedChunks() {
+        XCTAssertEqual(
+            MarkdownHTTPChunkedBodyDecoder.decode(
+                Data("3\r\nabc\r\n0\r\n\r\n".utf8),
+                maximumBytes: 8
+            ),
+            Data("abc".utf8)
+        )
+        XCTAssertNil(
+            MarkdownHTTPChunkedBodyDecoder.decode(
+                Data("9\r\nabcdefghi\r\n0\r\n\r\n".utf8),
+                maximumBytes: 8
+            )
+        )
+        XCTAssertNil(
+            MarkdownHTTPChunkedBodyDecoder.decode(
+                Data("7fffffffffffffff\r\n".utf8),
+                maximumBytes: 8
+            )
+        )
+    }
+
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
@@ -339,7 +724,9 @@ final class MarkdownPanelTests: XCTestCase {
                       naturalWidth: img.naturalWidth || 0,
                       naturalHeight: img.naturalHeight || 0,
                       src: img.getAttribute('src') || '',
-                      currentSrc: img.currentSrc || ''
+                      currentSrc: img.currentSrc || '',
+                      hidden: !!img.hidden,
+                      remoteSrc: img.getAttribute('data-cmux-remote-src') || ''
                     };
                   });
                 })();
@@ -360,6 +747,39 @@ final class MarkdownPanelTests: XCTestCase {
                 NSLocalizedDescriptionKey: "Timed out waiting for markdown image to load. Last snapshot: \(lastSnapshot)"
             ]
         )
+    }
+
+    private func remoteImageSnapshot(in webView: WKWebView) async throws -> [String: Any] {
+        let result = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              return {
+                images: Array.prototype.slice.call(document.querySelectorAll('img')).map(function(img) {
+                  return {
+                    alt: img.getAttribute('alt') || '',
+                    src: img.getAttribute('src') || '',
+                    currentSrc: img.currentSrc || '',
+                    hidden: !!img.hidden,
+                    remoteSrc: img.getAttribute('data-cmux-remote-src') || ''
+                  };
+                }),
+                placeholders: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-placeholder')).map(function(el) {
+                  return el.textContent || '';
+                }),
+                buttons: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-placeholder button')).map(function(el) {
+                  return el.textContent || '';
+                }),
+                codeFiles: Array.prototype.slice.call(document.querySelectorAll('code[data-cmux-file]')).map(function(el) {
+                  return decodeURIComponent(el.getAttribute('data-cmux-file') || '');
+                }),
+                styleCount: document.getElementById('content').querySelectorAll('style').length,
+                backgroundAttrCount: document.getElementById('content').querySelectorAll('[background]').length,
+                renderedText: window.__cmuxRenderedText ? window.__cmuxRenderedText() : ''
+              };
+            })();
+            """
+        )
+        return try XCTUnwrap(result as? [String: Any])
     }
 
     private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
@@ -442,5 +862,26 @@ private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
         expectation.fulfill()
+    }
+}
+
+private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSchemeHandler {
+    private var tasks: [ObjectIdentifier: WKURLSchemeTask] = [:]
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = urlSchemeTask
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        tasks[ObjectIdentifier(urlSchemeTask as AnyObject)] = nil
+    }
+
+    func cancelOpenTasks() {
+        let openTasks = Array(tasks.values)
+        tasks.removeAll()
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        for task in openTasks {
+            task.didFailWithError(error)
+        }
     }
 }
