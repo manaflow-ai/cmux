@@ -839,6 +839,61 @@ enum BrowserInsecureHTTPSettings {
     }
 }
 
+class BrowserSSLErrorBypassStore {
+    static let shared = BrowserSSLErrorBypassStore()
+    private var bypassedHosts: Set<String> = []
+    private var pendingTokens: [String: (host: String, expires: Date)] = [:]
+    private let lock = NSLock()
+    // Generous lifetime so a user who leaves the SSL error page open
+    // (over lunch, overnight, switched workspaces, etc.) can still click
+    // "Proceed Anyway" when they return without the click silently failing.
+    // Security is provided by the token being a random UUID, single-use,
+    // host-bound, and only minted by our own error page renderer; the time
+    // bound is defense-in-depth plus a memory cap.
+    let tokenLifetime: TimeInterval = 24 * 60 * 60 // 24 hours
+
+    func addBypass(for host: String) {
+        lock.lock()
+        bypassedHosts.insert(host.lowercased())
+        lock.unlock()
+    }
+
+    func isBypassed(host: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return bypassedHosts.contains(host.lowercased())
+    }
+
+    /// Create a one-time token authorising a bypass for `host`. The token
+    /// expires after `tokenLifetime` seconds and is consumed on first use.
+    /// This prevents arbitrary `cmux-browser-action://bypass-ssl` URLs
+    /// (e.g. triggered by JavaScript on an unrelated page) from silently
+    /// bypassing SSL for hosts the user never approved.
+    func createPendingToken(for host: String) -> String {
+        let token = UUID().uuidString
+        let expires = Date().addingTimeInterval(tokenLifetime)
+        lock.lock()
+        // Opportunistically purge expired tokens to bound memory growth.
+        let now = Date()
+        pendingTokens = pendingTokens.filter { $0.value.expires > now }
+        pendingTokens[token] = (host: host.lowercased(), expires: expires)
+        lock.unlock()
+        return token
+    }
+
+    /// Consume a pending token. Returns true only when the token exists,
+    /// has not expired, and was issued for `host`.
+    func consumePendingToken(_ token: String, for host: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = pendingTokens.removeValue(forKey: token) else {
+            return false
+        }
+        guard entry.expires > Date() else { return false }
+        return entry.host == host.lowercased()
+    }
+}
+
 func browserShouldBlockInsecureHTTPURL(
     _ url: URL,
     defaults: UserDefaults = .standard
@@ -6289,6 +6344,15 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust,
+           let host = challenge.protectionSpace.host as String? {
+            if BrowserSSLErrorBypassStore.shared.isBypassed(host: host) {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
+            }
+        }
+
         // WKWebView rejects all authentication challenges by default when this
         // delegate method is not implemented (.rejectProtectionSpace). This
         // breaks TLS client-certificate flows such as Microsoft Entra ID
@@ -6313,6 +6377,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let title: String
         let message: String
 
+        let isSSLError: Bool
         switch (error.domain, error.code) {
         case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
              (NSURLErrorDomain, NSURLErrorCannotFindHost),
@@ -6323,10 +6388,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             } else {
                 message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
             }
+            isSSLError = false
         case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
              (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
             title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
             message = String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again.")
+            isSSLError = false
         case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
              (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
              (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
@@ -6334,9 +6401,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
              (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
             title = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
             message = String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
+            isSSLError = true
         default:
             title = String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page")
             message = error.localizedDescription
+            isSSLError = false
         }
 
         let escapeHTML: (String) -> String = { value in
@@ -6351,6 +6420,30 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let escapedMessage = escapeHTML(message)
         let escapedURL = escapeHTML(failedURL)
         let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
+        let escapedBypassLabel = escapeHTML(String(localized: "browser.error.bypass", defaultValue: "Proceed Anyway (Unsafe)"))
+
+        let bypassButtonHTML: String
+        let autoReloadScriptHTML: String
+        if isSSLError,
+           let failedHost = URL(string: failedURL)?.host {
+            let store = BrowserSSLErrorBypassStore.shared
+            let token = store.createPendingToken(for: failedHost)
+            let escapedToken = escapeHTML(token)
+            bypassButtonHTML = """
+                <button class="bypass" onclick="window.location.href='cmux-browser-action://bypass-ssl?token=\(escapedToken)&url=' + encodeURIComponent('\(escapedURL)')">\(escapedBypassLabel)</button>
+            """
+            // Auto-reload the page before the token expires so a user who
+            // leaves the SSL error page open for days never returns to a
+            // page backed by an expired token. The reload re-renders this
+            // page with a fresh token via the didFail handler.
+            let reloadAfterMs = Int(store.tokenLifetime * 0.9 * 1000)
+            autoReloadScriptHTML = """
+                <script>setTimeout(function(){location.reload();}, \(reloadAfterMs));</script>
+            """
+        } else {
+            bypassButtonHTML = ""
+            autoReloadScriptHTML = ""
+        }
 
         let html = """
         <!DOCTYPE html>
@@ -6375,12 +6468,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             border-radius: 6px; font-size: 13px; cursor: pointer;
         }
         button:hover { background: #444; }
+        button.bypass {
+            background: transparent; border: 1px solid #c0392b; color: #c0392b; margin-left: 10px;
+        }
+        button.bypass:hover { background: rgba(192, 57, 43, 0.1); }
         @media (prefers-color-scheme: light) {
             body { background: #fafafa; color: #222; }
             p { color: #666; }
             .url { color: #999; }
             button { background: #eee; color: #222; border-color: #ccc; }
             button:hover { background: #ddd; }
+            button.bypass { border-color: #c0392b; color: #c0392b; }
+            button.bypass:hover { background: rgba(192, 57, 43, 0.1); }
         }
         </style>
         </head>
@@ -6389,8 +6488,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             <h1>\(escapedTitle)</h1>
             <p>\(escapedMessage)</p>
             <div class="url">\(escapedURL)</div>
-            <button onclick="location.reload()">\(escapedReloadLabel)</button>
+            <button onclick="location.reload()">\(escapedReloadLabel)</button>\(bypassButtonHTML)
         </div>
+        \(autoReloadScriptHTML)
         </body>
         </html>
         """
@@ -6402,6 +6502,38 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        if let url = navigationAction.request.url,
+           url.scheme == "cmux-browser-action",
+           url.host == "bypass-ssl" {
+            // Always cancel the navigation for this custom scheme. Only honour
+            // the bypass when the request carries a valid, single-use token
+            // issued by our SSL error page for the exact target host – this
+            // prevents arbitrary pages from silently approving SSL bypasses
+            // via JavaScript-driven navigations.
+            decisionHandler(.cancel)
+            guard
+                let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                let targetURLString = components.queryItems?.first(where: { $0.name == "url" })?.value,
+                let targetURL = URL(string: targetURLString),
+                let host = targetURL.host
+            else {
+                return
+            }
+            let token = components.queryItems?.first(where: { $0.name == "token" })?.value
+            if let token,
+               BrowserSSLErrorBypassStore.shared.consumePendingToken(token, for: host) {
+                BrowserSSLErrorBypassStore.shared.addBypass(for: host)
+                webView.load(URLRequest(url: targetURL))
+            } else {
+                // Token missing/expired/mismatched. Reloading the target URL
+                // will either succeed or re-render the SSL error page with a
+                // fresh token so the user can click "Proceed Anyway" again
+                // instead of seeing a silent no-op.
+                webView.load(URLRequest(url: targetURL))
+            }
+            return
+        }
+
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             if let requestNavigation {
                 requestNavigation(request, .newTab)
