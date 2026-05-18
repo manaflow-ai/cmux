@@ -45,6 +45,64 @@ private enum CLISocketEnvironment {
     }
 }
 
+private enum CLIExecutableContext {
+    static func currentExecutableURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = Array<CChar>(repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+            }
+        }
+        return Bundle.main.executableURL?.standardizedFileURL
+    }
+
+    static func containingAppBundle() -> Bundle? {
+        guard let executableURL = currentExecutableURL() else {
+            return nil
+        }
+        return containingAppBundle(for: executableURL)
+    }
+
+    static func containingAppBundleIdentifier() -> String? {
+        normalized(containingAppBundle()?.bundleIdentifier)
+    }
+
+    private static func containingAppBundle(for executableURL: URL) -> Bundle? {
+        var current = executableURL.standardizedFileURL
+        while true {
+            if current.pathExtension == "app", let bundle = Bundle(url: current) {
+                return bundle
+            }
+
+            guard let parent = parentURL(for: current) else {
+                return nil
+            }
+            current = parent
+        }
+    }
+
+    private static func parentURL(for url: URL) -> URL? {
+        let standardized = url.standardizedFileURL
+        let path = standardized.path
+        guard !path.isEmpty, path != "/" else {
+            return nil
+        }
+
+        let parent = standardized.deletingLastPathComponent().standardizedFileURL
+        guard parent.path != path else {
+            return nil
+        }
+        return parent
+    }
+
+    private static func normalized(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 private final class CLISocketSentryTelemetry {
     private struct PendingBreadcrumb {
         let message: String
@@ -108,57 +166,7 @@ private final class CLISocketSentryTelemetry {
             return Bundle.main
         }
 
-        guard let executableURL = currentExecutableURL() else {
-            return Bundle.main
-        }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.pathExtension == "app", let bundle = Bundle(url: current) {
-                return bundle
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
-                    return bundle
-                }
-            }
-
-            guard let parent = parentSearchURL(for: current) else {
-                break
-            }
-            current = parent
-        }
-
-        return Bundle.main
-    }
-
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-            }
-        }
-
-        return Bundle.main.executableURL?.standardizedFileURL
-    }
-
-    private static func parentSearchURL(for url: URL) -> URL? {
-        let standardized = url.standardizedFileURL
-        let path = standardized.path
-        guard !path.isEmpty, path != "/" else {
-            return nil
-        }
-
-        let parent = standardized.deletingLastPathComponent().standardizedFileURL
-        guard parent.path != path else {
-            return nil
-        }
-        return parent
+        return CLIExecutableContext.containingAppBundle() ?? Bundle.main
     }
 #endif
 
@@ -975,52 +983,10 @@ private enum CLISocketPathResolver {
     }
 
     private static func bundledTaggedDebugSocketPath() -> String? {
-        guard let executableURL = currentExecutableURL(),
-              let appBundleURL = containingAppBundleURL(for: executableURL),
-              let bundleIdentifier = bundleIdentifier(from: appBundleURL) else {
+        guard let bundleIdentifier = CLIExecutableContext.containingAppBundleIdentifier() else {
             return nil
         }
         return taggedDebugSocketPath(bundleIdentifier: bundleIdentifier)
-    }
-
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-            }
-        }
-        return Bundle.main.executableURL?.standardizedFileURL
-    }
-
-    private static func containingAppBundleURL(for executableURL: URL) -> URL? {
-        var current = executableURL.standardizedFileURL
-        while true {
-            if current.pathExtension == "app" {
-                return current
-            }
-            let parent = current.deletingLastPathComponent().standardizedFileURL
-            guard parent.path != current.path else {
-                return nil
-            }
-            current = parent
-        }
-    }
-
-    private static func bundleIdentifier(from appBundleURL: URL) -> String? {
-        let infoURL = appBundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Info.plist", isDirectory: false)
-        guard let data = try? Data(contentsOf: infoURL),
-              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-              let info = plist as? [String: Any],
-              let rawIdentifier = info["CFBundleIdentifier"] as? String else {
-            return nil
-        }
-        let identifier = rawIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        return identifier.isEmpty ? nil : identifier
     }
 
     private static func taggedDebugSocketPath(bundleIdentifier: String) -> String? {
@@ -2233,49 +2199,9 @@ struct CMUXCLI {
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        guard size > 0 else {
-            return Bundle.main.executableURL?.standardizedFileURL
-        }
-
-        var buffer = Array<CChar>(repeating: 0, count: Int(size))
-        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
-            return Bundle.main.executableURL?.standardizedFileURL
-        }
-        return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-    }
-
-    private static func containingAppBundleIdentifier() -> String? {
-        guard let executableURL = currentExecutableURL() else { return nil }
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while current.path != "/" {
-            if current.pathExtension == "app",
-               let bundle = Bundle(url: current),
-               let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                return bundleIdentifier
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app",
-                   let bundle = Bundle(url: appURL),
-                   let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                    return bundleIdentifier
-                }
-            }
-
-            let parent = current.deletingLastPathComponent().standardizedFileURL
-            guard parent.path != current.path else { break }
-            current = parent
-        }
-        return nil
-    }
-
     private static func browserSettingsDomain(environment: [String: String]) -> String {
         normalizedEnvValue(environment["CMUX_BUNDLE_ID"])
-        ?? containingAppBundleIdentifier()
+        ?? CLIExecutableContext.containingAppBundleIdentifier()
         ?? defaultBrowserSettingsDomain
     }
 
@@ -24134,18 +24060,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func currentExecutablePath() -> String? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !path.isEmpty {
-                    return path
-                }
-            }
+        if let path = CLIExecutableContext.currentExecutableURL()?.path
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            return path
         }
-        return Bundle.main.executableURL?.path ?? args.first
+        return args.first
     }
 
     func resolvedExecutableURL() -> URL? {
