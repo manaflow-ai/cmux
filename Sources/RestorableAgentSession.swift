@@ -780,7 +780,7 @@ struct RestorableAgentSessionIndex: Sendable {
             resolved[key] = detected
         }
 
-        return RestorableAgentSessionIndex(snapshotsByPanel: resolved.mapValues(\.snapshot))
+        return RestorableAgentSessionIndex(snapshotsByPanel: resolved)
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -1023,13 +1023,16 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
-        self.snapshotsByPanel = snapshotsByPanel
-        var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
-        for (key, snapshot) in snapshotsByPanel {
-            snapshotsByPanelId[key.panelId] = snapshot
+    private init(snapshotsByPanel: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]) {
+        self.snapshotsByPanel = snapshotsByPanel.mapValues(\.snapshot)
+        var snapshotsByPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        for (key, value) in snapshotsByPanel {
+            let existing = snapshotsByPanelId[key.panelId]
+            if existing == nil || value.updatedAt >= (existing?.updatedAt ?? 0) {
+                snapshotsByPanelId[key.panelId] = value
+            }
         }
-        self.snapshotsByPanelId = snapshotsByPanelId
+        self.snapshotsByPanelId = snapshotsByPanelId.mapValues(\.snapshot)
     }
 }
 

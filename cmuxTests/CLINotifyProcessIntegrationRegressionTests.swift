@@ -1414,7 +1414,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
 
         let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceRef = "surface:7"
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -1430,6 +1430,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             case "window.focus":
                 return self.v2Response(id: id, ok: true, result: ["window_id": windowId])
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, "window:1")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": "ignored-id", "ref": surfaceRef, "index": 0]]]
+                )
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
             default:
@@ -1443,7 +1451,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["--window", "0", "surface", "resume", "clear", "--surface", surfaceId],
+            arguments: ["--window", "0", "surface", "resume", "clear", "--surface", "0"],
             environment: environment,
             timeout: 5
         )
@@ -1463,7 +1471,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let request = try XCTUnwrap(clearRequests.first)
         XCTAssertEqual(request["window_id"] as? String, "window:1")
         XCTAssertNotEqual(request["window_id"] as? String, "0")
-        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceRef)
     }
 
     private struct ClaudeHookContext {

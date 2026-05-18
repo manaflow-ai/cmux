@@ -4291,6 +4291,7 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
+        windowHandle: String? = nil,
         allowFocused: Bool = false
     ) throws -> String? {
         guard let raw else {
@@ -4310,6 +4311,9 @@ struct CMUXCLI {
         }
 
         var params: [String: Any] = [:]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
@@ -4549,7 +4553,12 @@ struct CMUXCLI {
         if let windowHandle { params["window_id"] = windowHandle }
         let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
         if let workspaceId { params["workspace_id"] = workspaceId }
-        let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId)
+        let surfaceId = try normalizeSurfaceHandle(
+            surfaceRaw,
+            client: client,
+            workspaceHandle: workspaceId,
+            windowHandle: windowHandle
+        )
         if let surfaceId { params["surface_id"] = surfaceId }
         return SurfaceResumeTarget(params: params, remaining: remaining)
     }
