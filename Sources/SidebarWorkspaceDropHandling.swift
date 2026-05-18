@@ -108,7 +108,6 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
         selectedTabIds = [targetWorkspaceId]
         syncSidebarSelection(targetWorkspaceId)
-        lastSidebarSelectionIndex = nil
         return true
     }
 }
@@ -215,7 +214,6 @@ struct SidebarTabDropDelegate: DropDelegate {
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
             syncSidebarSelection(nil)
-            lastSidebarSelectionIndex = nil
             return true
         }
 
@@ -238,7 +236,6 @@ struct SidebarTabDropDelegate: DropDelegate {
             selectedTabIds = []
             syncSidebarSelection(nil)
         }
-        lastSidebarSelectionIndex = nil
         return true
     }
 
