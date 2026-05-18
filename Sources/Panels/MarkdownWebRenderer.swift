@@ -220,7 +220,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func update(markdown: String, theme: MarkdownWebTheme) {
             let themeChanged = lastTheme != theme
             let contentChanged = lastMarkdown != markdown
-            guard themeChanged || contentChanged else { return }
+            let shellNeedsReload = !isLoaded && !isShellLoading
+            guard themeChanged || contentChanged || shellNeedsReload else { return }
 
             pendingMarkdown = markdown
             pendingTheme = theme
@@ -245,9 +246,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 lastMarkdown = markdown
                 if isLoaded {
                     pushMarkdown(markdown)
-                } else if !isShellLoading {
+                } else if shellNeedsReload {
                     loadShell(theme: theme, initialMarkdown: markdown)
                 }
+            } else if shellNeedsReload {
+                loadShell(theme: theme, initialMarkdown: markdown)
             }
         }
 

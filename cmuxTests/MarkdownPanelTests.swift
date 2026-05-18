@@ -336,6 +336,28 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererNavigationFailureReloadsSameContentUpdate() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFail: nil, withError: error)
+
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Existing\n", theme: theme)
+
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
