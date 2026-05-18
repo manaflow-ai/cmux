@@ -21,7 +21,8 @@ struct WorkstreamAgentGraphTests {
             source: "claude",
             workspaceId: "workspace-1",
             toolName: "Task",
-            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer","prompt":"Map settings code paths"}"#
+            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer","subagent_model":"child-sonnet","prompt":"Map settings code paths"}"#,
+            extraFieldsJSON: #"{"model":"parent-opus"}"#
         ))
 
         let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
@@ -31,6 +32,7 @@ struct WorkstreamAgentGraphTests {
         let child = graph.roots.first?.children.first
         #expect(child?.kind == .spawnRequest)
         #expect(child?.subagentType == "explorer")
+        #expect(child?.model == "child-sonnet")
         #expect(child?.taskDescription == "Map settings code paths")
         #expect(child?.focusWorkstreamId == "claude-parent")
     }
