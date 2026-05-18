@@ -9038,7 +9038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         ),
                         Int64(index)
                     )
-                    CmuxSurfaceTabBarButton.actionReference(
+                    return CmuxSurfaceTabBarButton.actionReference(
                         "cmux-ui-test-action-\(index)",
                         title: actionTitle,
                         icon: .symbol("circle.fill"),
