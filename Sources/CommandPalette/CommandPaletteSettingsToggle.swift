@@ -169,6 +169,38 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: PaneFirstClickFocusSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "openSupportedFilesInCmux",
+                settingsKey: "app.openSupportedFilesInCmux",
+                title: {
+                    String(
+                        localized: "settings.app.openSupportedFilesInCmux",
+                        defaultValue: "Open Supported Files in cmux"
+                    )
+                },
+                sectionTitle: app,
+                keywords: [
+                    "app.openSupportedFilesInCmux",
+                    "cmd",
+                    "click",
+                    "file",
+                    "preview",
+                    "pdf",
+                    "image",
+                    "audio",
+                    "video",
+                    "quicklook",
+                    "quick",
+                    "look",
+                    "editor",
+                    "external",
+                ],
+                defaultValue: CmdClickSupportedFileRouteSettings.defaultValue,
+                defaultsKey: CmdClickSupportedFileRouteSettings.key,
+                didSet: { _, _, notificationCenter in
+                    CmdClickSupportedFileRouteSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "openMarkdownInCmuxViewer",
                 settingsKey: "app.openMarkdownInCmuxViewer",
                 title: {
