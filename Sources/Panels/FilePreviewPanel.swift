@@ -1274,7 +1274,7 @@ struct FilePreviewPanelView: View {
                             let fileURL = panel.fileURL
                             guard let workspace = panel.owningWorkspace(),
                                   workspace.openOrFocusMarkdownSplit(from: panel.id, filePath: panel.filePath) != nil else {
-                                NSWorkspace.shared.open(fileURL)
+                                FileExternalOpenAction.openDefault(fileURL: fileURL)
                                 return
                             }
                         }

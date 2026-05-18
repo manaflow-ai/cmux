@@ -49,8 +49,8 @@ enum SyntaxLanguageDetector {
 
     static func language(for url: URL) -> CodeLanguage? {
         let ext = url.pathExtension.lowercased()
-        let filename = url.lastPathComponent
-        guard supportedExtensions.contains(ext) || filename == "Dockerfile" else { return nil }
+        let filename = url.lastPathComponent.lowercased()
+        guard supportedExtensions.contains(ext) || filename == "dockerfile" else { return nil }
         if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
            size > maxHighlightBytes {
             return nil

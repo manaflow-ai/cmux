@@ -62,6 +62,7 @@ struct HighlightedFilePreviewRouter: View {
                 isVisibleInUI: isVisibleInUI,
                 themeBackgroundColor: themeBackgroundColor,
                 themeForegroundColor: themeForegroundColor,
+                drawsBackground: drawsBackground,
                 language: language
             )
         } else {
@@ -90,7 +91,7 @@ struct HighlightedFilePreviewRouter: View {
 // FilePreviewFocusCoordinator (keyboard focus) and manage the zoom event monitor.
 
 @MainActor
-final class HighlightedEditorBridge: NSObject, NSTextStorageDelegate, ObservableObject {
+final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDelegate, ObservableObject {
     static let defaultFontSize: CGFloat = 13
     static let minFontSize: CGFloat = 8
     static let maxFontSize: CGFloat = 36
@@ -99,6 +100,7 @@ final class HighlightedEditorBridge: NSObject, NSTextStorageDelegate, Observable
     @Published private(set) var fontSize: CGFloat = defaultFontSize
     @Published private(set) var themeBackground: NSColor = .textBackgroundColor
     @Published private(set) var themeForeground: NSColor = .textColor
+    @Published private(set) var drawsBackground: Bool = true
     private(set) var isApplyingExternalUpdate = false
 
     weak var panel: FilePreviewPanel? {
@@ -122,9 +124,10 @@ final class HighlightedEditorBridge: NSObject, NSTextStorageDelegate, Observable
         isApplyingExternalUpdate = false
     }
 
-    func updateThemeIfNeeded(background: NSColor, foreground: NSColor) {
+    func updateThemeIfNeeded(background: NSColor, foreground: NSColor, drawsBackground draws: Bool) {
         if !themeBackground.approximatelyEquals(background) { themeBackground = background }
         if !themeForeground.approximatelyEquals(foreground) { themeForeground = foreground }
+        if self.drawsBackground != draws { self.drawsBackground = draws }
     }
 
     func adjustFontSize(by factor: CGFloat) {
@@ -200,6 +203,9 @@ final class HighlightedEditorBridge: NSObject, NSTextStorageDelegate, Observable
 
     private func registerFocusIfReady() {
         guard let panel, let textView = textController?.textView else { return }
+        // CodeEditTextView's TextView is not NSTextView so panel.attachTextView(_:NSTextView) cannot
+        // be called here. Focus registration uses attachPreviewFocus; handleDroppedFileURLsAsText is
+        // not available in the highlighted path (it requires NSTextView APIs).
         panel.attachPreviewFocus(root: textView, primaryResponder: textView, intent: .textEditor)
         panel.retryPendingFocus()
     }
@@ -228,10 +234,9 @@ extension HighlightedEditorBridge: TextViewCoordinator {
     // Called after every user edit — correct hook since CodeEditTextView replaces
     // textStorage.delegate and our NSTextStorageDelegate callback would not fire.
     nonisolated func textViewDidChangeText(controller: TextViewController) {
-        let text = controller.textView.string
-        Task { @MainActor [weak self] in
-            guard let self, !self.isApplyingExternalUpdate else { return }
-            self.panel?.updateTextContent(text)
+        Task { @MainActor [weak self, weak controller] in
+            guard let self, let controller, !self.isApplyingExternalUpdate else { return }
+            self.panel?.updateTextContent(controller.textView.string)
         }
     }
 
@@ -327,8 +332,8 @@ struct HighlightedSourceEditorCore: View {
 
     private func makeSyntaxTheme() -> EditorTheme {
         let fg = bridge.themeForeground
-        let bg = bridge.themeBackground
-        let isDark = backgroundIsDark(bg)
+        let bg = bridge.drawsBackground ? bridge.themeBackground : .clear
+        let isDark = bridge.drawsBackground ? backgroundIsDark(bridge.themeBackground) : false
         if isDark {
             return EditorTheme(
                 text: .init(color: fg),
@@ -384,13 +389,14 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
+    let drawsBackground: Bool
     let language: CodeLanguage
 
     func makeCoordinator() -> HighlightedEditorBridge { HighlightedEditorBridge() }
 
     func makeNSView(context: Context) -> HighlightedEditorContainerView {
         let bridge = context.coordinator
-        bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor)
+        bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
 
         let container = HighlightedEditorContainerView(bridge: bridge)
         container.isHidden = !isVisibleInUI
@@ -409,7 +415,7 @@ struct HighlightedFilePreviewEditor: NSViewRepresentable {
         container.panel = panel
         bridge.panel = panel
         bridge.setContent(panel.textContent)
-        bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor)
+        bridge.updateThemeIfNeeded(background: themeBackgroundColor, foreground: themeForegroundColor, drawsBackground: drawsBackground)
         if isVisibleInUI {
             bridge.reinstallZoomMonitorIfNeeded()
         } else {
