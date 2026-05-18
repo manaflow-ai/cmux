@@ -339,6 +339,7 @@ func shouldForwardTerminalMouseEventToGhostty(window: NSWindow?) -> Bool {
     windowMoveTerminalInputSuppressionDepth(window: window) == 0
 }
 
+@discardableResult
 @MainActor
 func withWindowMoveTerminalInputSuppression<T>(window: NSWindow?, _ body: () -> T) -> T {
     _ = beginWindowMoveTerminalInputSuppression(window: window)
