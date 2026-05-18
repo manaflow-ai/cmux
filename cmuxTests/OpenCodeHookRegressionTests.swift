@@ -242,10 +242,10 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let shadowOmoConfig = root
             .appendingPathComponent(".cmuxterm/omo-config", isDirectory: true)
             .appendingPathComponent("oh-my-opencode.json", isDirectory: false)
-        if FileManager.default.fileExists(atPath: shadowOmoConfig.path) {
-            let shadowContents = try String(contentsOf: shadowOmoConfig, encoding: .utf8)
-            XCTAssertEqual(shadowContents, "{")
-        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: shadowOmoConfig.path),
+            "shadow oh-my-opencode config should not be written on parse failure"
+        )
     }
 
     private func bundledCLIPath() throws -> String {
