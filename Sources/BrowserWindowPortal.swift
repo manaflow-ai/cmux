@@ -8,6 +8,7 @@ private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
+private var cmuxBrowserPortalNeedsNavigationRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
 #if DEBUG
@@ -90,8 +91,47 @@ private extension WKWebView {
         }
     }
 
+    private var browserPortalNeedsNavigationRenderingStateReattach: Bool {
+        get {
+            (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsNavigationRenderingStateReattachKey) as? NSNumber)?
+                .boolValue ?? false
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserPortalNeedsNavigationRenderingStateReattachKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     var browserPortalRequiresRenderingStateReattach: Bool {
         browserPortalNeedsRenderingStateReattach
+    }
+
+    func browserPortalScheduleNavigationRenderingStateReattach(reason: String) {
+        browserPortalNeedsNavigationRenderingStateReattach = true
+#if DEBUG
+        cmuxDebugLog(
+            "browser.portal.webview.navigationReattach.schedule web=\(browserPortalDebugToken(self)) " +
+            "reason=\(reason)"
+        )
+#endif
+    }
+
+    func browserPortalConsumeNavigationRenderingStateReattach(reason: String) -> Bool {
+        let shouldReattach = browserPortalNeedsNavigationRenderingStateReattach
+        browserPortalNeedsNavigationRenderingStateReattach = false
+#if DEBUG
+        if shouldReattach {
+            cmuxDebugLog(
+                "browser.portal.webview.navigationReattach.consume web=\(browserPortalDebugToken(self)) " +
+                "reason=\(reason)"
+            )
+        }
+#endif
+        return shouldReattach
     }
 
     func browserPortalNotifyHidden(reason: String) {
@@ -3104,13 +3144,20 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setPaneTopChromeHeight(resolvedHeight)
     }
 
-    func forceRefreshWebView(withId webViewId: ObjectIdentifier, reason: String) {
+    func forceRefreshWebView(
+        withId webViewId: ObjectIdentifier,
+        reason: String,
+        forceRenderingStateReattach: Bool = true,
+        scheduleNavigationRenderingStateReattach: Bool = true
+    ) {
         guard ensureInstalled() else { return }
         let refreshSource = "forceRefresh:\(reason)"
         synchronizeWebView(
             withId: webViewId,
             source: refreshSource,
-            forcePresentationRefresh: true
+            forcePresentationRefresh: true,
+            forceRenderingStateReattach: forceRenderingStateReattach,
+            scheduleNavigationRenderingStateReattach: scheduleNavigationRenderingStateReattach
         )
         guard let entry = entriesByWebViewId[webViewId],
               let webView = entry.webView,
@@ -3118,13 +3165,13 @@ final class WindowBrowserPortal: NSObject {
               !containerView.isPortalHidden else {
             return
         }
-        // Portal-host replacement/fullscreen churn relies on forceRefresh to kick
-        // WebKit even when synchronizeWebView short-circuits or skips its refresh path.
+        // Some callers only need a visible-presentation repaint; attach/reveal
+        // repair paths also request one delayed WebKit render-state reattach.
         refreshHostedWebViewPresentation(
             webView,
             in: containerView,
             reason: refreshSource,
-            forceRenderingStateReattach: true
+            forceRenderingStateReattach: forceRenderingStateReattach
         )
     }
 
@@ -3359,7 +3406,9 @@ final class WindowBrowserPortal: NSObject {
     private func synchronizeWebView(
         withId webViewId: ObjectIdentifier,
         source: String,
-        forcePresentationRefresh: Bool = false
+        forcePresentationRefresh: Bool = false,
+        forceRenderingStateReattach: Bool = false,
+        scheduleNavigationRenderingStateReattach: Bool = true
     ) {
         guard ensureInstalled() else { return }
         guard var entry = entriesByWebViewId[webViewId] else { return }
@@ -3821,10 +3870,15 @@ final class WindowBrowserPortal: NSObject {
             (
                 revealedForDisplay ||
                     recoveredFromTransientGeometry ||
-                    forcePresentationRefresh ||
+                    forceRenderingStateReattach ||
                     refreshReasons.contains("syncAttachContainer") ||
                     refreshReasons.contains("syncAttachWebView")
             )
+        if shouldForceRenderingStateReattach, scheduleNavigationRenderingStateReattach {
+            webView.browserPortalScheduleNavigationRenderingStateReattach(
+                reason: "\(source):\(refreshReasons.joined(separator: ","))"
+            )
+        }
         let shouldReapplyHostedInspectorPostRefresh =
             presentationUpdateKind == .refresh &&
             (requiresRenderingStateReattach || shouldForceRenderingStateReattach)
@@ -4227,12 +4281,34 @@ enum BrowserWindowPortalRegistry {
         return portal.browserPaneDropTargetAtWindowPoint(windowPoint)
     }
 
-    static func refresh(webView: WKWebView, reason: String) {
+    static func refresh(
+        webView: WKWebView,
+        reason: String,
+        forceRenderingStateReattach: Bool = true,
+        scheduleNavigationRenderingStateReattach: Bool = true
+    ) {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.forceRefreshWebView(withId: webViewId, reason: reason)
+        portal.forceRefreshWebView(
+            withId: webViewId,
+            reason: reason,
+            forceRenderingStateReattach: forceRenderingStateReattach,
+            scheduleNavigationRenderingStateReattach: scheduleNavigationRenderingStateReattach
+        )
         postRegistryDidChange(for: webView)
+    }
+
+    static func refreshAfterNavigationDidFinish(webView: WKWebView) {
+        let forceRenderingStateReattach = webView.browserPortalConsumeNavigationRenderingStateReattach(
+            reason: "navigation.didFinish"
+        )
+        refresh(
+            webView: webView,
+            reason: "navigation.didFinish",
+            forceRenderingStateReattach: forceRenderingStateReattach,
+            scheduleNavigationRenderingStateReattach: false
+        )
     }
 
     static func debugSnapshot(for webView: WKWebView) -> DebugSnapshot? {

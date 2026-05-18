@@ -3384,6 +3384,114 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot)
     }
 
+    func testRegistryNavigationRefreshDoesNotForceVisiblePortalRenderingReattach() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isPortalHidden)
+
+        let displayCount = webView.displayIfNeededCount
+        let reattachCount = webView.reattachRenderingStateCount
+
+        BrowserWindowPortalRegistry.refresh(
+            webView: webView,
+            reason: "navigation.didFinish",
+            forceRenderingStateReattach: false
+        )
+        advanceAnimations()
+
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            displayCount,
+            "Navigation completion should still repaint the visible portal-hosted browser"
+        )
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            reattachCount,
+            "Navigation completion should not force private WebKit reattach selectors on an already-visible browser"
+        )
+    }
+
+    func testRegistryNavigationRefreshConsumesPendingPortalReattachOnce() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        let afterBindDisplayCount = webView.displayIfNeededCount
+        let afterBindReattachCount = webView.reattachRenderingStateCount
+
+        BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
+        advanceAnimations()
+        let afterFirstNavigationDisplayCount = webView.displayIfNeededCount
+        let afterFirstNavigationReattachCount = webView.reattachRenderingStateCount
+
+        XCTAssertGreaterThan(
+            afterFirstNavigationDisplayCount,
+            afterBindDisplayCount,
+            "First navigation after portal attach should refresh the visible browser presentation"
+        )
+        XCTAssertEqual(
+            afterFirstNavigationReattachCount,
+            afterBindReattachCount + 3,
+            "First navigation after portal attach should consume one pending WebKit reattach repair"
+        )
+
+        BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
+        advanceAnimations()
+
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            afterFirstNavigationDisplayCount,
+            "Later navigation completions should still repaint the visible portal-hosted browser"
+        )
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            afterFirstNavigationReattachCount,
+            "Later navigation completions should not keep firing private WebKit reattach selectors"
+        )
+    }
+
     func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
