@@ -720,6 +720,11 @@ final class SessionIndexStore: ObservableObject {
             texts.append(contentsOf: subagent.searchableTerms)
             texts.append("subagent")
         }
+        if let fork = entry.fork {
+            texts.append(contentsOf: fork.searchableTerms)
+            texts.append("fork")
+            texts.append("branch")
+        }
         return texts
     }
 
@@ -794,6 +799,22 @@ final class SessionIndexStore: ObservableObject {
     private struct ClaudeSubagentMeta: Sendable {
         let agentType: String?
         let description: String?
+    }
+
+    private struct OpenCodeSessionRecord: Sendable {
+        let sessionId: String
+        let title: String
+        let directory: String?
+        let updatedMs: Int64
+        let parentSessionId: String?
+        let lastAssistantJSON: String?
+        let firstMessageJSON: String?
+    }
+
+    private struct OpenCodeMessageMetadata: Sendable {
+        let providerModel: String?
+        let agentName: String?
+        let hasToolControls: Bool
     }
 
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
@@ -1273,14 +1294,123 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: OpenCode
 
-    nonisolated private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
+    nonisolated private static func openCodeEntry(from record: OpenCodeSessionRecord) -> SessionEntry {
+        let lastMessage = parseOpenCodeMessage(record.lastAssistantJSON)
+        let firstMessage = parseOpenCodeMessage(record.firstMessageJSON)
+        let providerModel = lastMessage.providerModel ?? firstMessage.providerModel
+        let agentName = lastMessage.agentName ?? firstMessage.agentName
+        let subagent = openCodeSubagentMetadata(from: record, firstMessage: firstMessage)
+        let fork = subagent == nil ? openCodeForkMetadata(from: record) : nil
+
+        return SessionEntry(
+            id: "opencode:" + record.sessionId,
+            agent: .opencode,
+            sessionId: record.sessionId,
+            title: record.title,
+            cwd: record.directory,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: TimeInterval(record.updatedMs) / 1000.0),
+            fileURL: nil,
+            specifics: .opencode(providerModel: providerModel, agentName: agentName),
+            subagent: subagent,
+            fork: fork
+        )
+    }
+
+    nonisolated private static func openCodeRecordMatchesMetadata(
+        _ record: OpenCodeSessionRecord,
+        needle: String
+    ) -> Bool {
+        func fieldMatches(_ field: String?) -> Bool {
+            guard let field else { return false }
+            return field.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+        }
+
+        if fieldMatches(record.sessionId) { return true }
+        if fieldMatches(record.title) { return true }
+        if fieldMatches(record.directory) { return true }
+        if fieldMatches(record.parentSessionId) { return true }
+        if fieldMatches(record.firstMessageJSON) { return true }
+        if fieldMatches(record.lastAssistantJSON) { return true }
+
+        let firstMessage = parseOpenCodeMessage(record.firstMessageJSON)
+        let subagent = openCodeSubagentMetadata(from: record, firstMessage: firstMessage)
+        if let subagent {
+            if needle == "subagent" || needle == "subagents" { return true }
+            if subagent.searchableTerms.contains(where: { fieldMatches($0) }) { return true }
+        }
+        if subagent == nil, let fork = openCodeForkMetadata(from: record) {
+            if needle == "fork" || needle == "forks" || needle == "branch" || needle == "branches" {
+                return true
+            }
+            if fork.searchableTerms.contains(where: { fieldMatches($0) }) { return true }
+        }
+        return false
+    }
+
+    nonisolated private static func openCodeSubagentMetadata(
+        from record: OpenCodeSessionRecord,
+        firstMessage: OpenCodeMessageMetadata
+    ) -> SessionSubagentMetadata? {
+        guard let parentSessionId = normalizedOptionalString(record.parentSessionId) else { return nil }
+        let roleFromTitle = openCodeSubagentRole(fromTitle: record.title)
+        let isSubagent = roleFromTitle != nil || firstMessage.hasToolControls
+        guard isSubagent else { return nil }
+        let role = roleFromTitle ?? firstMessage.agentName
+        return SessionSubagentMetadata(
+            provider: .opencode,
+            parentSessionId: parentSessionId,
+            subagentId: record.sessionId,
+            depth: nil,
+            status: nil,
+            name: nil,
+            role: role,
+            parentFileURL: nil
+        )
+    }
+
+    nonisolated private static func openCodeForkMetadata(
+        from record: OpenCodeSessionRecord
+    ) -> SessionForkMetadata? {
+        guard let parentSessionId = normalizedOptionalString(record.parentSessionId) else { return nil }
+        return SessionForkMetadata(
+            provider: .opencode,
+            parentSessionId: parentSessionId,
+            parentFileURL: nil
+        )
+    }
+
+    nonisolated private static func openCodeRelationshipNeedle(_ needle: String) -> Bool {
+        switch needle {
+        case "fork", "forks", "branch", "branches", "branched", "lineage",
+             "subagent", "subagents":
+            return true
+        default:
+            return false
+        }
+    }
+
+    nonisolated private static func openCodeSubagentRole(fromTitle title: String) -> String? {
+        guard let start = title.range(of: "(@"),
+              let end = title[start.upperBound...].range(of: " subagent)") else {
+            return nil
+        }
+        let role = title[start.upperBound..<end.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return role.isEmpty ? nil : role
+    }
+
+    nonisolated private static func parseOpenCodeMessage(_ raw: String?) -> OpenCodeMessageMetadata {
         guard let raw, let data = raw.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return (nil, nil)
+            return OpenCodeMessageMetadata(providerModel: nil, agentName: nil, hasToolControls: false)
         }
-        let modelID = obj["modelID"] as? String
-        let providerID = obj["providerID"] as? String
+        let model = obj["model"] as? [String: Any]
+        let modelID = (obj["modelID"] as? String) ?? (model?["modelID"] as? String)
+        let providerID = (obj["providerID"] as? String) ?? (model?["providerID"] as? String)
         let agentName = obj["agent"] as? String
+        let hasToolControls = obj["tools"] as? [String: Any] != nil
         let providerModel: String? = {
             switch (providerID, modelID) {
             case let (p?, m?) where !p.isEmpty && !m.isEmpty: return "\(p)/\(m)"
@@ -1288,7 +1418,11 @@ final class SessionIndexStore: ObservableObject {
             default: return nil
             }
         }()
-        return (providerModel, agentName?.isEmpty == false ? agentName : nil)
+        return OpenCodeMessageMetadata(
+            providerModel: providerModel,
+            agentName: agentName?.isEmpty == false ? agentName : nil,
+            hasToolControls: hasToolControls
+        )
     }
 
     nonisolated static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
@@ -2001,6 +2135,7 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) -> [SessionEntry] {
+        guard limit > 0 else { return [] }
         let snapshot: OpenCodeDatabaseSnapshot.Snapshot
         do {
             guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-search") else {
@@ -2017,25 +2152,70 @@ final class SessionIndexStore: ObservableObject {
         }
         defer { snapshot.remove() }
 
+        return loadOpenCodeEntriesFromDatabase(
+            databaseURL: snapshot.databaseURL,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag
+        )
+    }
+
+    #if DEBUG
+    nonisolated static func loadOpenCodeEntriesForTesting(
+        dbPath: String,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) -> SearchOutcome {
+        let bag = ErrorBag()
+        let entries = loadOpenCodeEntriesFromDatabase(
+            databaseURL: URL(fileURLWithPath: dbPath),
+            needle: needle.lowercased(),
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: bag
+        )
+        return SearchOutcome(entries: entries, errors: bag.snapshot())
+    }
+    #endif
+
+    nonisolated private static func loadOpenCodeEntriesFromDatabase(
+        databaseURL: URL,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag
+    ) -> [SessionEntry] {
+        guard limit > 0 else { return [] }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+        guard sqlite3_open_v2(databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             errorBag.add("OpenCode: cannot open opencode.db (\(sqliteMessage(db) ?? "unknown error"))")
             sqlite3_close(db)
             return []
         }
         defer { sqlite3_close(db) }
 
+        let shouldFilterInSQL = !needle.isEmpty && !openCodeRelationshipNeedle(needle)
         var sql = """
-            SELECT s.id, s.title, s.directory, s.time_updated, (
+            SELECT s.id, s.title, s.directory, s.time_updated, s.parent_id, (
                 SELECT data FROM message
                 WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
                 ORDER BY time_created DESC LIMIT 1
-            ) AS last_assistant
+            ) AS last_assistant, (
+                SELECT data FROM message
+                WHERE session_id = s.id
+                ORDER BY time_created ASC LIMIT 1
+            ) AS first_message
             FROM session s
             """
         var conditions: [String] = []
-        if !needle.isEmpty {
-            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)")
+        if shouldFilterInSQL {
+            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ? OR LOWER(s.parent_id) LIKE ?)")
         }
         if cwdFilter != nil {
             conditions.append("s.directory = ?")
@@ -2043,7 +2223,11 @@ final class SessionIndexStore: ObservableObject {
         if !conditions.isEmpty {
             sql += " WHERE " + conditions.joined(separator: " AND ")
         }
-        sql += " ORDER BY s.time_updated DESC LIMIT \(limit) OFFSET \(offset)"
+        if needle.isEmpty {
+            sql += " ORDER BY s.time_updated DESC LIMIT \(limit) OFFSET \(offset)"
+        } else {
+            sql += " ORDER BY s.time_updated DESC LIMIT \(searchMaxFiles)"
+        }
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
@@ -2055,8 +2239,9 @@ final class SessionIndexStore: ObservableObject {
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         var bindIndex: Int32 = 1
-        if !needle.isEmpty {
+        if shouldFilterInSQL {
             let likePattern = "%\(needle)%"
+            sqlite3_bind_text(stmt, bindIndex, likePattern, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
             sqlite3_bind_text(stmt, bindIndex, likePattern, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
             sqlite3_bind_text(stmt, bindIndex, likePattern, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
         }
@@ -2064,27 +2249,31 @@ final class SessionIndexStore: ObservableObject {
             sqlite3_bind_text(stmt, bindIndex, cwdFilter, -1, SQLITE_TRANSIENT_FN); bindIndex += 1
         }
 
-        var results: [SessionEntry] = []
+        var records: [OpenCodeSessionRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let sid = sqliteText(stmt, 0) ?? ""
-            let title = sqliteText(stmt, 1) ?? ""
-            let directory = sqliteText(stmt, 2)
-            let updatedMs = sqlite3_column_int64(stmt, 3)
-            let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
-            let lastJSON = sqliteText(stmt, 4)
-            let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
-            results.append(SessionEntry(
-                id: "opencode:" + sid,
-                agent: .opencode,
-                sessionId: sid,
-                title: title,
-                cwd: directory,
-                gitBranch: nil,
-                pullRequest: nil,
-                modified: modified,
-                fileURL: nil,
-                specifics: .opencode(providerModel: providerModel, agentName: agentName)
+            records.append(OpenCodeSessionRecord(
+                sessionId: sqliteText(stmt, 0) ?? "",
+                title: sqliteText(stmt, 1) ?? "",
+                directory: sqliteText(stmt, 2),
+                updatedMs: sqlite3_column_int64(stmt, 3),
+                parentSessionId: sqliteText(stmt, 4),
+                lastAssistantJSON: sqliteText(stmt, 5),
+                firstMessageJSON: sqliteText(stmt, 6)
             ))
+        }
+        guard !needle.isEmpty else {
+            return records.map(openCodeEntry(from:))
+        }
+
+        var matchedCount = 0
+        var results: [SessionEntry] = []
+        results.reserveCapacity(min(limit, records.count))
+        for record in records where openCodeRecordMatchesMetadata(record, needle: needle) {
+            if matchedCount >= offset {
+                results.append(openCodeEntry(from: record))
+                if results.count >= limit { break }
+            }
+            matchedCount += 1
         }
         return results
     }

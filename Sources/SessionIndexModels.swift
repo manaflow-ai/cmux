@@ -201,6 +201,7 @@ struct SessionSubagentMetadata: Hashable, Sendable {
     enum Provider: String, Hashable, Sendable {
         case claude
         case codex
+        case opencode
     }
 
     let provider: Provider
@@ -247,6 +248,37 @@ struct SessionSubagentMetadata: Hashable, Sendable {
     }
 }
 
+struct SessionForkMetadata: Hashable, Sendable {
+    enum Provider: String, Hashable, Sendable {
+        case codex
+        case opencode
+    }
+
+    let provider: Provider
+    let parentSessionId: String?
+    let parentFileURL: URL?
+
+    init(
+        provider: Provider,
+        parentSessionId: String?,
+        parentFileURL: URL?
+    ) {
+        self.provider = provider
+        self.parentSessionId = Self.normalized(parentSessionId)
+        self.parentFileURL = parentFileURL
+    }
+
+    var searchableTerms: [String] {
+        [parentSessionId, provider.rawValue]
+            .compactMap(Self.normalized)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+}
+
 struct SessionEntry: Identifiable, Hashable, Sendable {
     let id: String
     let agent: SessionAgent
@@ -260,6 +292,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     let fileURL: URL?
     let specifics: AgentSpecifics
     let subagent: SessionSubagentMetadata?
+    let fork: SessionForkMetadata?
 
     init(
         id: String,
@@ -272,7 +305,8 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         modified: Date,
         fileURL: URL?,
         specifics: AgentSpecifics,
-        subagent: SessionSubagentMetadata? = nil
+        subagent: SessionSubagentMetadata? = nil,
+        fork: SessionForkMetadata? = nil
     ) {
         self.id = id
         self.agent = agent
@@ -285,6 +319,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         self.fileURL = fileURL
         self.specifics = specifics
         self.subagent = subagent
+        self.fork = fork
     }
 
     var resumeWorkingDirectory: String? {

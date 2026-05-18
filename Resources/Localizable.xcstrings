@@ -107163,6 +107163,40 @@
         }
       }
     },
+    "sessionIndex.fork.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーク"
+          }
+        }
+      }
+    },
+    "sessionIndex.fork.parent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forked from: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーク元: %@"
+          }
+        }
+      }
+    },
     "sessionIndex.group.directory": {
       "extractionState": "manual",
       "localizations": {

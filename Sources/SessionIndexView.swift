@@ -392,6 +392,9 @@ enum SessionTreeLayout {
                 if entry.subagent != nil, level == 0 {
                     return clampedLevel(entry.subagent?.depth ?? 1)
                 }
+                if entry.fork != nil, level == 0 {
+                    return 1
+                }
                 return clampedLevel(level)
             }()
             output.append(SessionTreeRow(entry: entry, level: rowLevel, hasChildren: !children.isEmpty))
@@ -407,7 +410,8 @@ enum SessionTreeLayout {
             append(root, level: 0, visiting: [])
         }
         for entry in entries where !emitted.contains(entry.id) {
-            append(entry, level: clampedLevel(entry.subagent?.depth ?? 0), visiting: [])
+            let fallbackLevel = entry.subagent?.depth ?? (entry.fork == nil ? 0 : 1)
+            append(entry, level: clampedLevel(fallbackLevel), visiting: [])
         }
 
         return output
@@ -429,7 +433,7 @@ enum SessionTreeLayout {
     }
 
     private static func parentKey(for entry: SessionEntry) -> ParentKey? {
-        let parentSessionId = normalized(entry.subagent?.parentSessionId)
+        let parentSessionId = normalized(entry.subagent?.parentSessionId ?? entry.fork?.parentSessionId)
         guard !parentSessionId.isEmpty else { return nil }
         return ParentKey(agent: entry.agent.rawValue, sessionId: parentSessionId)
     }
@@ -442,8 +446,10 @@ enum SessionTreeLayout {
         candidates
             .filter { $0.id != child.id }
             .sorted {
-                if ($0.subagent == nil) != ($1.subagent == nil) {
-                    return $0.subagent == nil
+                let lhsIsRelationship = $0.subagent != nil || $0.fork != nil
+                let rhsIsRelationship = $1.subagent != nil || $1.fork != nil
+                if lhsIsRelationship != rhsIsRelationship {
+                    return !lhsIsRelationship
                 }
                 return (originalIndex[$0.id] ?? Int.max) < (originalIndex[$1.id] ?? Int.max)
             }
@@ -556,7 +562,7 @@ private struct IndexSectionView: View, Equatable {
                     SessionRow(
                         entry: row.entry,
                         treeLevel: row.level,
-                        hasSubagentChildren: row.hasChildren,
+                        hasChildRelationships: row.hasChildren,
                         isPreviewPresented: previewEntryId == row.entry.id,
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
@@ -738,7 +744,7 @@ private struct SectionGapDropDelegate: DropDelegate {
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let treeLevel: Int
-    let hasSubagentChildren: Bool
+    let hasChildRelationships: Bool
     let isPreviewPresented: Bool
     let onPreviewPresentationChange: (Bool) -> Void
     let onResume: ((SessionEntry) -> Void)?
@@ -749,7 +755,7 @@ private struct SessionRow: View, Equatable {
         // The closure isn't compared (it comes from stable parent state).
         lhs.entry == rhs.entry &&
             lhs.treeLevel == rhs.treeLevel &&
-            lhs.hasSubagentChildren == rhs.hasSubagentChildren &&
+            lhs.hasChildRelationships == rhs.hasChildRelationships &&
             lhs.isPreviewPresented == rhs.isPreviewPresented
     }
 
@@ -759,8 +765,10 @@ private struct SessionRow: View, Equatable {
             AgentIconImage(agent: entry.agent, size: 12)
             if let subagent = entry.subagent {
                 SubagentIndicator(metadata: subagent, size: 11)
-            } else if hasSubagentChildren {
-                SubagentParentIndicator(size: 11)
+            } else if let fork = entry.fork {
+                ForkIndicator(metadata: fork, size: 11)
+            } else if hasChildRelationships {
+                RelationshipParentIndicator(size: 11)
             }
             Text(entry.displayTitle)
                 .font(.system(size: 13))
@@ -838,6 +846,9 @@ private struct SessionRow: View, Equatable {
         if let subagent = entry.subagent {
             lines.append(contentsOf: subagentHelpLines(subagent))
         }
+        if let fork = entry.fork {
+            lines.append(contentsOf: forkHelpLines(fork))
+        }
         if let cwd = entry.cwdLabel {
             lines.append(cwd)
         }
@@ -886,7 +897,20 @@ private struct SubagentIndicator: View, Equatable {
     }
 }
 
-private struct SubagentParentIndicator: View, Equatable {
+private struct ForkIndicator: View, Equatable {
+    let metadata: SessionForkMetadata
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundColor(.blue.opacity(0.78))
+            .frame(width: size + 3, height: size + 3)
+            .help(forkHelpLines(metadata).joined(separator: "\n"))
+    }
+}
+
+private struct RelationshipParentIndicator: View, Equatable {
     let size: CGFloat
 
     var body: some View {
@@ -915,6 +939,17 @@ private func subagentHelpLines(_ metadata: SessionSubagentMetadata) -> [String] 
     }
     if let parentSessionId = metadata.parentSessionId {
         let format = String(localized: "sessionIndex.subagent.parent", defaultValue: "Parent: %@")
+        lines.append(String(format: format, parentSessionId))
+    }
+    return lines
+}
+
+private func forkHelpLines(_ metadata: SessionForkMetadata) -> [String] {
+    var lines = [
+        String(localized: "sessionIndex.fork.tooltip", defaultValue: "Fork")
+    ]
+    if let parentSessionId = metadata.parentSessionId {
+        let format = String(localized: "sessionIndex.fork.parent", defaultValue: "Forked from: %@")
         lines.append(String(format: format, parentSessionId))
     }
     return lines
@@ -979,7 +1014,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
         }
     }
-    if let parentURL = entry.subagent?.parentFileURL {
+    if let parentURL = entry.subagent?.parentFileURL ?? entry.fork?.parentFileURL {
         Divider()
         Button {
             NSWorkspace.shared.open(parentURL)
@@ -1026,6 +1061,8 @@ private struct SessionTranscriptPreviewView: View {
             AgentIconImage(agent: entry.agent, size: 14)
             if let subagent = entry.subagent {
                 SubagentIndicator(metadata: subagent, size: 12)
+            } else if let fork = entry.fork {
+                ForkIndicator(metadata: fork, size: 12)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
@@ -2276,7 +2313,7 @@ private struct SectionPopoverView: View {
                             PopoverRow(
                                 entry: row.entry,
                                 treeLevel: row.level,
-                                hasSubagentChildren: row.hasChildren
+                                hasChildRelationships: row.hasChildren
                             ) {
                                 onResume?(row.entry)
                                 onDismiss()
@@ -2527,7 +2564,7 @@ private struct SectionPopoverView: View {
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
     let treeLevel: Int
-    let hasSubagentChildren: Bool
+    let hasChildRelationships: Bool
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2535,7 +2572,7 @@ private struct PopoverRow: View, Equatable {
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
         lhs.entry == rhs.entry
             && lhs.treeLevel == rhs.treeLevel
-            && lhs.hasSubagentChildren == rhs.hasSubagentChildren
+            && lhs.hasChildRelationships == rhs.hasChildRelationships
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2570,8 +2607,10 @@ private struct PopoverRow: View, Equatable {
             AgentIconImage(agent: entry.agent, size: 12)
             if let subagent = entry.subagent {
                 SubagentIndicator(metadata: subagent, size: 11)
-            } else if hasSubagentChildren {
-                SubagentParentIndicator(size: 11)
+            } else if let fork = entry.fork {
+                ForkIndicator(metadata: fork, size: 11)
+            } else if hasChildRelationships {
+                RelationshipParentIndicator(size: 11)
             }
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
@@ -2605,6 +2644,9 @@ private struct PopoverRow: View, Equatable {
         var lines: [String] = [entry.cwdLabel ?? entry.displayTitle]
         if let subagent = entry.subagent {
             lines.append(contentsOf: subagentHelpLines(subagent))
+        }
+        if let fork = entry.fork {
+            lines.append(contentsOf: forkHelpLines(fork))
         }
         return lines.joined(separator: "\n")
     }

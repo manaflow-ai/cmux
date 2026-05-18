@@ -174,6 +174,100 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(subagent.parentFileURL, parentRolloutURL)
     }
 
+    func testCodexSQLSearchMatchesForkMetadata() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let parentRolloutURL = tempDir.appendingPathComponent("parent.jsonl")
+        let childRolloutURL = tempDir.appendingPathComponent("child.jsonl")
+        try #"{"type":"session_meta","payload":{"id":"codex-parent","cwd":"/tmp/project"}}"#
+            .write(to: parentRolloutURL, atomically: true, encoding: .utf8)
+        try #"{"type":"session_meta","payload":{"id":"codex-child","cwd":"/tmp/project"}}"#
+            .write(to: childRolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexForkStateDatabase(
+            at: stateDB,
+            parentRolloutURL: parentRolloutURL,
+            childRolloutURL: childRolloutURL
+        )
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: stateDB.path,
+            needle: "fork",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: tempDir.path
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-child"])
+        let fork = try XCTUnwrap(outcome.entries.first?.fork)
+        XCTAssertEqual(fork.provider, .codex)
+        XCTAssertEqual(fork.parentSessionId, "codex-parent")
+        XCTAssertNil(outcome.entries.first?.subagent)
+    }
+
+    func testOpenCodeSQLSearchMatchesForkParentID() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("opencode.db")
+        try makeOpenCodeSessionDatabase(
+            at: dbURL,
+            childTitle: "Alternative plan",
+            childFirstMessage: #"{"role":"user","agent":"build","model":{"providerID":"openai","modelID":"gpt-5.4"},"summary":{"diffs":[]}}"#
+        )
+
+        let outcome = SessionIndexStore.loadOpenCodeEntriesForTesting(
+            dbPath: dbURL.path,
+            needle: "branch",
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.sessionId), ["opencode-child"])
+        let fork = try XCTUnwrap(outcome.entries.first?.fork)
+        XCTAssertEqual(fork.provider, .opencode)
+        XCTAssertEqual(fork.parentSessionId, "opencode-parent")
+        XCTAssertNil(outcome.entries.first?.subagent)
+    }
+
+    func testOpenCodeSQLSearchClassifiesParentIDSubagent() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("opencode.db")
+        try makeOpenCodeSessionDatabase(
+            at: dbURL,
+            childTitle: "Review uninstall scope (@oracle subagent)",
+            childFirstMessage: #"{"role":"user","agent":"oracle","tools":{"task":false},"model":{"providerID":"openai","modelID":"gpt-5.4"}}"#
+        )
+
+        let outcome = SessionIndexStore.loadOpenCodeEntriesForTesting(
+            dbPath: dbURL.path,
+            needle: "subagent",
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.sessionId), ["opencode-child"])
+        let subagent = try XCTUnwrap(outcome.entries.first?.subagent)
+        XCTAssertEqual(subagent.provider, .opencode)
+        XCTAssertEqual(subagent.parentSessionId, "opencode-parent")
+        XCTAssertEqual(subagent.subagentId, "opencode-child")
+        XCTAssertEqual(subagent.role, "oracle")
+        XCTAssertNil(outcome.entries.first?.fork)
+    }
+
     func testClaudeLoaderIncludesNestedSubagentSidechains() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
@@ -314,6 +408,34 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(rows.map(\.hasChildren), [false])
     }
 
+    func testSessionTreeLayoutNestsForkUnderParent() {
+        let parent = makeEntry(
+            id: "opencode-parent-row",
+            agent: .opencode,
+            sessionId: "opencode-parent",
+            title: "Original OpenCode conversation"
+        )
+        let child = makeEntry(
+            id: "opencode-child-row",
+            agent: .opencode,
+            sessionId: "opencode-child",
+            title: "Alternative OpenCode conversation",
+            fork: SessionForkMetadata(
+                provider: .opencode,
+                parentSessionId: "opencode-parent",
+                parentFileURL: nil
+            )
+        )
+
+        let rows = SessionTreeLayout.rows(from: [child, parent])
+
+        XCTAssertEqual(rows.map { $0.entry.id }, ["opencode-parent-row", "opencode-child-row"])
+        XCTAssertEqual(rows.map(\.level), [0, 1])
+        XCTAssertEqual(rows.map(\.hasChildren), [true, false])
+        XCTAssertNil(rows[1].entry.subagent)
+        XCTAssertNotNil(rows[1].entry.fork)
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -418,7 +540,8 @@ final class SessionIndexViewTests: XCTestCase {
         cwd: String? = nil,
         gitBranch: String? = nil,
         fileURL: URL? = nil,
-        subagent: SessionSubagentMetadata? = nil
+        subagent: SessionSubagentMetadata? = nil,
+        fork: SessionForkMetadata? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: id,
@@ -431,7 +554,8 @@ final class SessionIndexViewTests: XCTestCase {
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
             specifics: agent.defaultSpecificsForTesting,
-            subagent: subagent
+            subagent: subagent,
+            fork: fork
         )
     }
 
@@ -574,6 +698,65 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    private func makeCodexForkStateDatabase(
+        at url: URL,
+        parentRolloutURL: URL,
+        childRolloutURL: URL
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            throw SQLiteTestError(message: "open failed")
+        }
+        defer { sqlite3_close(db) }
+
+        try executeSQL(
+            """
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                model TEXT,
+                git_branch TEXT,
+                approval_mode TEXT NOT NULL,
+                sandbox_policy TEXT NOT NULL,
+                reasoning_effort TEXT,
+                first_user_message TEXT NOT NULL,
+                updated_at_ms INTEGER,
+                archived INTEGER NOT NULL DEFAULT 0,
+                source TEXT,
+                thread_source TEXT,
+                agent_nickname TEXT,
+                agent_role TEXT
+            );
+            """,
+            db: db
+        )
+
+        try insertCodexThread(
+            db: db,
+            sessionId: "codex-parent",
+            rolloutPath: parentRolloutURL.path,
+            title: "Parent",
+            updatedMs: 1_777_624_800_000,
+            source: nil,
+            threadSource: nil,
+            agentNickname: nil,
+            agentRole: nil
+        )
+        try insertCodexThread(
+            db: db,
+            sessionId: "codex-child",
+            rolloutPath: childRolloutURL.path,
+            title: "Alternative",
+            updatedMs: 1_777_624_900_000,
+            source: #"{"fork":{"parent_thread_id":"codex-parent"}}"#,
+            threadSource: "fork",
+            agentNickname: nil,
+            agentRole: nil
+        )
+    }
+
     private func insertCodexThread(
         db: OpaquePointer,
         sessionId: String,
@@ -627,6 +810,55 @@ final class SessionIndexViewTests: XCTestCase {
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw SQLiteTestError(message: sqliteMessage(db) ?? "insert failed")
         }
+    }
+
+    private func makeOpenCodeSessionDatabase(
+        at url: URL,
+        childTitle: String,
+        childFirstMessage: String
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            throw SQLiteTestError(message: "open failed")
+        }
+        defer { sqlite3_close(db) }
+
+        try executeSQL(
+            """
+            CREATE TABLE session (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                time_updated INTEGER NOT NULL,
+                parent_id TEXT
+            );
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                data TEXT NOT NULL
+            );
+            """,
+            db: db
+        )
+
+        try executeSQL(
+            """
+            INSERT INTO session (id, title, directory, time_updated, parent_id)
+            VALUES
+                ('opencode-parent', 'Parent OpenCode session', '/tmp/project', 1777624800000, NULL),
+                ('opencode-child', '\(escapeSQL(childTitle))', '/tmp/project', 1777624900000, 'opencode-parent');
+            INSERT INTO message (id, session_id, time_created, data)
+            VALUES
+                ('message-parent', 'opencode-parent', 1777624800000, '{"role":"user","agent":"build"}'),
+                ('message-child', 'opencode-child', 1777624900000, '\(escapeSQL(childFirstMessage))');
+            """,
+            db: db
+        )
+    }
+
+    private func escapeSQL(_ value: String) -> String {
+        value.replacingOccurrences(of: "'", with: "''")
     }
 
     private func executeSQL(_ sql: String, db: OpaquePointer) throws {

@@ -43,6 +43,10 @@ extension SessionIndexStore {
         let legacyRole: String?
     }
 
+    private struct CodexForkSource: Sendable {
+        let parentSessionId: String?
+    }
+
     /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
     /// so the caller can fall back to the disk scan.
     nonisolated static func loadCodexEntriesViaSQL(
@@ -220,6 +224,7 @@ extension SessionIndexStore {
 
         let fileURL = record.normalizedRolloutPath.map { URL(fileURLWithPath: $0) }
         let subagent = codexSubagentMetadata(from: record)
+        let fork = subagent == nil ? codexForkMetadata(from: record) : nil
         return SessionEntry(
             id: "codex:" + (fileURL?.path ?? record.sessionId),
             agent: .codex,
@@ -236,7 +241,8 @@ extension SessionIndexStore {
                 sandboxMode: sandboxMode,
                 effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil
             ),
-            subagent: subagent
+            subagent: subagent,
+            fork: fork
         )
     }
 
@@ -265,6 +271,14 @@ extension SessionIndexStore {
         if codexSubagentMetadata(from: record)?.searchableTerms.contains(where: { fieldMatches($0) }) == true {
             return true
         }
+        if let fork = codexForkMetadata(from: record) {
+            if needle == "fork" || needle == "forks" || needle == "branch" || needle == "branches" {
+                return true
+            }
+            if fork.searchableTerms.contains(where: { fieldMatches($0) }) {
+                return true
+            }
+        }
         return false
     }
 
@@ -288,6 +302,21 @@ extension SessionIndexStore {
             status: record.spawnStatus,
             name: nickname,
             role: role,
+            parentFileURL: record.normalizedParentRolloutPath.map { URL(fileURLWithPath: $0) }
+        )
+    }
+
+    nonisolated private static func codexForkMetadata(
+        from record: CodexThreadRecord
+    ) -> SessionForkMetadata? {
+        let source = codexForkSource(record.sourceJSON)
+        let threadSource = normalizedOptional(record.threadSource)
+        let isFork = source != nil || threadSource == "fork" || threadSource == "branch"
+        guard isFork else { return nil }
+
+        return SessionForkMetadata(
+            provider: .codex,
+            parentSessionId: source?.parentSessionId,
             parentFileURL: record.normalizedParentRolloutPath.map { URL(fileURLWithPath: $0) }
         )
     }
@@ -327,6 +356,34 @@ extension SessionIndexStore {
             agentRole: normalizedOptional(subagentObject["agent_role"] as? String),
             legacyRole: nil
         )
+    }
+
+    nonisolated private static func codexForkSource(_ sourceJSON: String?) -> CodexForkSource? {
+        guard let data = sourceJSON?.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let fork = object["fork"] as? [String: Any],
+           let parentSessionId = codexParentSessionId(in: fork) {
+            return CodexForkSource(parentSessionId: parentSessionId)
+        }
+        if let branch = object["branch"] as? [String: Any],
+           let parentSessionId = codexParentSessionId(in: branch) {
+            return CodexForkSource(parentSessionId: parentSessionId)
+        }
+
+        let type = normalizedOptional(object["type"] as? String)
+        guard type == "fork" || type == "branch" else { return nil }
+        return CodexForkSource(parentSessionId: codexParentSessionId(in: object))
+    }
+
+    nonisolated private static func codexParentSessionId(in object: [String: Any]) -> String? {
+        normalizedOptional(object["parent_thread_id"] as? String)
+            ?? normalizedOptional(object["parent_session_id"] as? String)
+            ?? normalizedOptional(object["parent_id"] as? String)
+            ?? normalizedOptional(object["source_thread_id"] as? String)
+            ?? normalizedOptional(object["source_session_id"] as? String)
     }
 
     nonisolated private static func normalizedOptional(_ value: String?) -> String? {
