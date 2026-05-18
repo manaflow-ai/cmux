@@ -19237,7 +19237,7 @@ struct CMUXCLI {
         case "codex":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             return AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail).map {
-                [original.executable, "resume"] + $0 + [sessionId]
+                [original.executable, "resume", sessionId] + $0
             }
         case "pi":
             return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "pi", option: "--session", sessionId: sessionId)
