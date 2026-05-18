@@ -294,7 +294,7 @@ final class PaneDropTargetView: NSView {
                 panelId: panelId,
                 hostedView: terminalPanel.hostedView,
                 urls: urls,
-                window: window ?? terminalPanel.hostedView.window
+                window: window ?? terminalPanel.surface.uiWindow
             )
         }
         if let filePreviewPanel = panel as? FilePreviewPanel {
@@ -337,6 +337,8 @@ final class PaneDropTargetView: NSView {
             }
             return .editor
         case .markdown:
+            return nil
+        case .rightSidebarTool:
             return nil
         }
     }

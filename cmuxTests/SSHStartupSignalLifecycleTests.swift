@@ -469,6 +469,70 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
     }
 
+    func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
+        // Regression test for cmux ssh sessions where output flowed back from
+        // the remote (prompt rendered) but typed keystrokes never reached the
+        // remote shell after PR #3786 backgrounded `ssh` inside the startup
+        // wrapper. POSIX sh redirects stdin of an async command to /dev/null
+        // when job control is off, so without an explicit `<&0` on the `&`'d
+        // ssh invocation, the local PTY stdin is dropped and the user types
+        // into a dead pipe.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-stdin-forward-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let sessionEndLog = root.appendingPathComponent("ssh-session-end.log")
+        let stdinCapture = root.appendingPathComponent("ssh-stdin.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        // Fake ssh reads one line from stdin and records it so the test can
+        // verify the wrapper's stdin reached the backgrounded ssh process.
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "IFS= read -r line || line='<EOF>'",
+            "printf '%s\\n' \"$line\" > \"${CMUX_TEST_STDIN_LOG}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = sessionEndLog.path
+        environment["CMUX_TEST_STDIN_LOG"] = stdinCapture.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            standardInput: "FORWARDED_KEYSTROKE\n",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let recorded = (try? String(contentsOf: stdinCapture, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        XCTAssertEqual(
+            recorded,
+            "FORWARDED_KEYSTROKE",
+            "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? "<empty>" : recorded)"
+        )
+    }
+
     private func generatedSSHStartupCommand(
         sshOptions: [String] = [
             "ControlMaster no",
