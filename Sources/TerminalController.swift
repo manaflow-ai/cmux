@@ -4391,8 +4391,11 @@ class TerminalController {
             "workspaces": workspaces
         ])
     }
-    private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
+    private func v2WorkspaceCreate(
+        params: [String: Any],
+        tabManager resolvedTabManager: TabManager? = nil
+    ) -> V2CallResult {
+        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
@@ -18184,14 +18187,18 @@ class TerminalController {
     }
 
     private func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
         var createParams = params
         createParams["focus"] = false
-        let createResult = v2WorkspaceCreate(params: createParams)
+        let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
         switch createResult {
         case let .ok(payload):
             let createdWorkspaceID = (payload as? [String: Any])?["workspace_id"] as? String
             return v2MobileWorkspaceList(
                 params: createParams,
+                tabManager: tabManager,
                 createdWorkspaceID: createdWorkspaceID
             )
         case .err:

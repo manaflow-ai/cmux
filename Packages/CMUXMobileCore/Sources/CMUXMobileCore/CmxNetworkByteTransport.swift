@@ -64,9 +64,12 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private let maximumReceiveLength: Int
     private let connectTimeoutNanoseconds: UInt64
     private var state: TransportState = .idle
-    private var connectContinuations: [CheckedContinuation<Void, Error>] = []
-    private var receiveContinuation: CheckedContinuation<Data?, Error>?
-    private var sendContinuation: CheckedContinuation<Void, Error>?
+    private var connectContinuations: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, Error>)?
+    private var receiveInFlightOperationID: UUID?
+    private var receiveBuffer: [Data] = []
+    private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, Error>)?
+    private var cancelledOperationIDs: Set<UUID> = []
     private var connectTimeoutTimer: DispatchSourceTimer?
     private var remoteDidClose = false
 
@@ -120,22 +123,26 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     }
 
     public func connect() async throws {
+        try Task.checkCancellation()
+        let operationID = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                startConnect(continuation)
+                startConnect(operationID: operationID, continuation: continuation)
             }
         } onCancel: {
-            Task { await self.cancelForTaskCancellation() }
+            Task { await self.cancelConnect(operationID: operationID) }
         }
     }
 
     public func receive() async throws -> Data? {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                startReceive(continuation)
+        try Task.checkCancellation()
+        let operationID = UUID()
+        return try await withTaskCancellationHandler {
+            return try await withCheckedThrowingContinuation { continuation in
+                startReceive(operationID: operationID, continuation: continuation)
             }
         } onCancel: {
-            Task { await self.cancelForTaskCancellation() }
+            Task { await self.cancelReceive(operationID: operationID) }
         }
     }
 
@@ -143,12 +150,14 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         guard !data.isEmpty else {
             return
         }
+        try Task.checkCancellation()
+        let operationID = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                startSend(data, continuation: continuation)
+                startSend(data, operationID: operationID, continuation: continuation)
             }
         } onCancel: {
-            Task { await self.cancelForTaskCancellation() }
+            Task { await self.cancelSend(operationID: operationID) }
         }
     }
 
@@ -159,10 +168,17 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
     }
 
-    private func startConnect(_ continuation: CheckedContinuation<Void, Error>) {
+    private func startConnect(
+        operationID: UUID,
+        continuation: CheckedContinuation<Void, Error>
+    ) {
+        guard !consumeCancelledOperation(operationID) else {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
         switch state {
         case .idle:
-            connectContinuations.append(continuation)
+            connectContinuations[operationID] = continuation
             state = .connecting
             scheduleConnectTimeout()
             connection.stateUpdateHandler = { [weak self] state in
@@ -174,7 +190,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             }
             connection.start(queue: callbackQueue)
         case .connecting:
-            connectContinuations.append(continuation)
+            connectContinuations[operationID] = continuation
         case .ready:
             continuation.resume()
         case let .failed(error):
@@ -212,7 +228,14 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
-    private func startReceive(_ continuation: CheckedContinuation<Data?, Error>) {
+    private func startReceive(
+        operationID: UUID,
+        continuation: CheckedContinuation<Data?, Error>
+    ) {
+        guard !consumeCancelledOperation(operationID) else {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
         switch state {
         case .ready:
             break
@@ -227,6 +250,10 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
 
+        if !receiveBuffer.isEmpty {
+            continuation.resume(returning: receiveBuffer.removeFirst())
+            return
+        }
         guard !remoteDidClose else {
             continuation.resume(returning: nil)
             return
@@ -236,11 +263,14 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
 
-        receiveContinuation = continuation
-        issueReceive()
+        receiveContinuation = (operationID, continuation)
+        if receiveInFlightOperationID == nil {
+            issueReceive(operationID: operationID)
+        }
     }
 
-    private func issueReceive() {
+    private func issueReceive(operationID: UUID) {
+        receiveInFlightOperationID = operationID
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: maximumReceiveLength
@@ -251,6 +281,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             }
             Task {
                 await self.handleReceive(
+                    operationID: operationID,
                     data: data,
                     isComplete: isComplete,
                     errorDescription: errorDescription
@@ -260,43 +291,68 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     }
 
     private func handleReceive(
+        operationID: UUID,
         data: Data?,
         isComplete: Bool,
         errorDescription: String?
     ) {
-        guard let continuation = receiveContinuation else {
+        _ = consumeCancelledOperation(operationID)
+        if receiveInFlightOperationID == operationID {
+            receiveInFlightOperationID = nil
+        }
+        guard !isTerminal else {
             return
         }
 
         if let errorDescription {
-            receiveContinuation = nil
             let error = CmxNetworkByteTransportError.receiveFailed(errorDescription)
             failTransport(error)
-            continuation.resume(throwing: error)
             return
         }
 
         if let data, !data.isEmpty {
-            receiveContinuation = nil
             remoteDidClose = isComplete
-            continuation.resume(returning: data)
+            deliverReceivedData(data)
             return
         }
 
         if isComplete {
-            receiveContinuation = nil
             remoteDidClose = true
-            continuation.resume(returning: nil)
+            deliverEndOfStream()
             return
         }
 
-        issueReceive()
+        if let pending = receiveContinuation {
+            issueReceive(operationID: pending.id)
+        }
+    }
+
+    private func deliverReceivedData(_ data: Data) {
+        guard let pending = receiveContinuation else {
+            receiveBuffer.append(data)
+            return
+        }
+        receiveContinuation = nil
+        pending.continuation.resume(returning: data)
+    }
+
+    private func deliverEndOfStream() {
+        guard let pending = receiveContinuation else {
+            return
+        }
+        receiveContinuation = nil
+        pending.continuation.resume(returning: nil)
     }
 
     private func startSend(
         _ data: Data,
+        operationID: UUID,
         continuation: CheckedContinuation<Void, Error>
     ) {
+        guard !consumeCancelledOperation(operationID) else {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
         switch state {
         case .ready:
             break
@@ -316,7 +372,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
 
-        sendContinuation = continuation
+        sendContinuation = (operationID, continuation)
         connection.send(
             content: data,
             contentContext: .defaultMessage,
@@ -326,13 +382,22 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
                 guard let self else {
                     return
                 }
-                Task { await self.handleSend(errorDescription: errorDescription) }
+                Task {
+                    await self.handleSend(
+                        operationID: operationID,
+                        errorDescription: errorDescription
+                    )
+                }
             }
         )
     }
 
-    private func handleSend(errorDescription: String?) {
-        guard let continuation = sendContinuation else {
+    private func handleSend(operationID: UUID, errorDescription: String?) {
+        _ = consumeCancelledOperation(operationID)
+        guard let pending = sendContinuation, pending.id == operationID else {
+            if let errorDescription {
+                failTransport(.sendFailed(errorDescription))
+            }
             return
         }
         sendContinuation = nil
@@ -340,11 +405,11 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         if let errorDescription {
             let error = CmxNetworkByteTransportError.sendFailed(errorDescription)
             failTransport(error)
-            continuation.resume(throwing: error)
+            pending.continuation.resume(throwing: error)
             return
         }
 
-        continuation.resume()
+        pending.continuation.resume()
     }
 
     private func failTransport(_ error: CmxNetworkByteTransportError) {
@@ -353,6 +418,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
         cancelConnectTimeout()
         state = .failed(error)
+        cancelledOperationIDs.removeAll()
+        receiveBuffer.removeAll()
+        receiveInFlightOperationID = nil
         connection.cancel()
         resumeConnectContinuations(throwing: error)
         resumeReceiveContinuation(throwing: error)
@@ -365,6 +433,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
         cancelConnectTimeout()
         state = .closed
+        cancelledOperationIDs.removeAll()
+        receiveBuffer.removeAll()
+        receiveInFlightOperationID = nil
         connection.stateUpdateHandler = nil
         connection.cancel()
         resumeConnectContinuations(throwing: pendingError)
@@ -376,8 +447,35 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         resumeSendContinuation(throwing: pendingError)
     }
 
-    private func cancelForTaskCancellation() {
-        close(pendingError: CancellationError(), resumeReceiveWithError: true)
+    private func cancelConnect(operationID: UUID) {
+        if let continuation = connectContinuations.removeValue(forKey: operationID) {
+            continuation.resume(throwing: CancellationError())
+        } else {
+            cancelledOperationIDs.insert(operationID)
+        }
+    }
+
+    private func cancelReceive(operationID: UUID) {
+        if let pending = receiveContinuation, pending.id == operationID {
+            receiveContinuation = nil
+            pending.continuation.resume(throwing: CancellationError())
+        } else {
+            cancelledOperationIDs.insert(operationID)
+        }
+    }
+
+    private func cancelSend(operationID: UUID) {
+        if let pending = sendContinuation, pending.id == operationID {
+            sendContinuation = nil
+            pending.continuation.resume(throwing: CancellationError())
+            close(pendingError: CancellationError(), resumeReceiveWithError: true)
+        } else {
+            cancelledOperationIDs.insert(operationID)
+        }
+    }
+
+    private func consumeCancelledOperation(_ operationID: UUID) -> Bool {
+        cancelledOperationIDs.remove(operationID) != nil
     }
 
     private func scheduleConnectTimeout() {
@@ -425,7 +523,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     }
 
     private func resumeConnectContinuations(throwing error: Error? = nil) {
-        let continuations = connectContinuations
+        let continuations = connectContinuations.values
         connectContinuations.removeAll()
         for continuation in continuations {
             if let error {
@@ -440,23 +538,23 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         returning data: Data? = nil,
         throwing error: Error? = nil
     ) {
-        guard let continuation = receiveContinuation else {
+        guard let pending = receiveContinuation else {
             return
         }
         receiveContinuation = nil
         if let error {
-            continuation.resume(throwing: error)
+            pending.continuation.resume(throwing: error)
         } else {
-            continuation.resume(returning: data)
+            pending.continuation.resume(returning: data)
         }
     }
 
     private func resumeSendContinuation(throwing error: Error) {
-        guard let continuation = sendContinuation else {
+        guard let pending = sendContinuation else {
             return
         }
         sendContinuation = nil
-        continuation.resume(throwing: error)
+        pending.continuation.resume(throwing: error)
     }
 }
 
