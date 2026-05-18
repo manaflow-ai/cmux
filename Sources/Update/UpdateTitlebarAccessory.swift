@@ -1637,14 +1637,14 @@ private struct NotificationsPopoverView: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("notificationsPopover.clearAll")
-                .disabled(notificationStore.notifications.isEmpty)
+                .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
             Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
                         .font(.system(size: 28))
@@ -1654,6 +1654,15 @@ private struct NotificationsPopoverView: View {
                     Text(String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here."))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                }
+                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
+            } else if notificationStore.notifications.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell.badge")
+                        .font(.system(size: 28))
+                        .foregroundColor(.secondary)
+                    Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                        .font(.headline)
                 }
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
@@ -1686,7 +1695,7 @@ private struct NotificationsPopoverView: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 
     private func jumpToLatestUnread() {
