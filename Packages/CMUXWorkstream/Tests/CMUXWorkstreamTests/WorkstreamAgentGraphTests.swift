@@ -65,6 +65,36 @@ struct WorkstreamAgentGraphTests {
         #expect(child?.focusWorkstreamId == "claude-child")
     }
 
+    @Test("Sanitized extra prompt metadata supplies graph task description")
+    func sanitizedExtraPromptMetadataSuppliesGraphTaskDescription() throws {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent","prompt":"Map settings code paths","secret":"do not persist"}"#
+        ))
+
+        let extraData = try #require(store.items.last?.extraFieldsJSON?.data(using: .utf8))
+        let extra = try #require(
+            try JSONSerialization.jsonObject(with: extraData) as? [String: Any]
+        )
+        #expect(extra["prompt"] as? String == "Map settings code paths")
+        #expect(extra["secret"] == nil)
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        let child = graph.roots.first?.children.first
+        #expect(child?.workstreamId == "claude-child")
+        #expect(child?.taskDescription == "Map settings code paths")
+    }
+
     @Test("Session metadata on non-tool events appears on root nodes")
     func sessionMetadataOnNonToolEventsAppearsOnRootNodes() {
         let store = WorkstreamStore(ringCapacity: 10)
