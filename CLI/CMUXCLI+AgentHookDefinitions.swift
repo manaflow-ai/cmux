@@ -263,10 +263,11 @@ extension CMUXCLI {
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
-        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
-        guard def.name == "codex" else {
-            return false
-        }
+        // Legacy `cmux <agent>-hook` and `cmux feed-hook --source <agent>`
+        // commands were removed in commit 6beb3dbe1 ("Namespace agent hook
+        // commands") for every agent that had them, not only Codex. Detect
+        // them across all agents so reinstall purges stale entries from
+        // user hook config files.
         let tokens = legacyCmuxCommandTokens(from: command, for: def)
         guard !tokens.isEmpty,
               URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
@@ -274,7 +275,7 @@ extension CMUXCLI {
             return false
         }
 
-        if tokens.count >= 2, tokens[1] == "codex-hook" {
+        if tokens.count >= 2, tokens[1] == "\(def.name)-hook" {
             return true
         }
         if tokens.count >= 4, tokens[1] == "feed-hook", tokens[2] == "--source", tokens[3] == def.name {
@@ -284,6 +285,26 @@ extension CMUXCLI {
             return true
         }
         return false
+    }
+
+    /// If `command` looks like a legacy `<agent>-hook` CLI command name
+    /// (e.g. `cursor-hook`, `gemini-hook`), returns the canonical agent
+    /// name. Used to forward legacy invocations to the current
+    /// `cmux hooks <agent> <subcommand>` dispatcher so stale entries in
+    /// user hook config files keep returning valid JSON instead of
+    /// printing the CLI usage on unknown command.
+    static func legacyAgentNameFromHookCommand(_ command: String) -> String? {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.hasSuffix("-hook"), normalized.count > "-hook".count else {
+            return nil
+        }
+        let candidate = String(normalized.dropLast("-hook".count))
+        if candidate == "claude" || candidate == "feed" {
+            // claude-hook and feed-hook have their own dispatcher paths and
+            // are not aliases of `hooks <agent>`.
+            return nil
+        }
+        return agentDef(named: candidate)?.name
     }
 
     private static func legacyCmuxCommandTokens(from command: String, for def: AgentHookDef) -> [Substring] {
@@ -303,20 +324,12 @@ extension CMUXCLI {
     }
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = [def.hookMarker]
-        if def.name == "codex" {
-            markers.append("cmux codex-hook")
-        }
-        return markers
+        [def.hookMarker, "cmux \(def.name)-hook"]
     }
 
     /// Marker substrings used when removing / upgrading our own Feed bridge
     /// entries on reinstall or uninstall.
     static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = ["cmux hooks feed --source"]
-        if def.name == "codex" {
-            markers.append("cmux feed-hook --source")
-        }
-        return markers
+        ["cmux hooks feed --source", "cmux feed-hook --source"]
     }
 }
