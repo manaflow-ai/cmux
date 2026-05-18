@@ -284,11 +284,18 @@ extension CMUXCLI {
     }
 
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
+        agentHookShellCommand("cmux hooks \(def.name) \(event.cmuxSubcommand)", for: def)
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
+        agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+    }
+
+    private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+        if def.name == "grok" {
+            return "printenv \(def.disableEnvVar) | grep -qx 1 && echo '{}' || { command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'; }"
+        }
+        return "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'"
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
@@ -301,9 +308,12 @@ extension CMUXCLI {
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
-        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
-        guard def.name == "codex" else {
-            return false
+        // Codex also had older top-level codex-hook/feed-hook commands.
+        // Other generic agents can have stale `cmux hooks ...` files from
+        // earlier integration attempts, and setup should be able to prune them.
+        if command.contains("cmux hooks \(def.name) ")
+            || command.contains("cmux hooks feed --source \(def.name) ") {
+            return true
         }
         let tokens = legacyCmuxCommandTokens(from: command, for: def)
         guard !tokens.isEmpty,
@@ -312,24 +322,39 @@ extension CMUXCLI {
             return false
         }
 
-        if tokens.count >= 2, tokens[1] == "codex-hook" {
+        if def.name == "codex", tokens.count >= 2, tokens[1] == "codex-hook" {
             return true
         }
-        if tokens.count >= 4, tokens[1] == "feed-hook", tokens[2] == "--source", tokens[3] == def.name {
+        if def.name == "codex",
+           tokens.count >= 4,
+           tokens[1] == "feed-hook",
+           tokens[2] == "--source",
+           tokens[3] == def.name {
             return true
         }
-        if tokens.count >= 5, tokens[1] == "hooks", tokens[2] == "feed", tokens[3] == "--source", tokens[4] == def.name {
+        if tokens.count >= 3, tokens[1] == "hooks", String(tokens[2]) == def.name {
+            return true
+        }
+        if tokens.count >= 5,
+           tokens[1] == "hooks",
+           tokens[2] == "feed",
+           tokens[3] == "--source",
+           String(tokens[4]) == def.name {
             return true
         }
         return false
     }
 
     private static func legacyCmuxCommandTokens(from command: String, for def: AgentHookDef) -> [Substring] {
-        let guardedPrefix = "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && "
+        let guardedPrefixes = [
+            "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && ",
+            "[ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && ",
+        ]
         let fallbackSuffix = " || echo '{}'"
         var body = command
-        if body.hasPrefix(guardedPrefix) {
+        for guardedPrefix in guardedPrefixes where body.hasPrefix(guardedPrefix) {
             body.removeFirst(guardedPrefix.count)
+            break
         }
         if body.hasSuffix(fallbackSuffix) {
             body.removeLast(fallbackSuffix.count)

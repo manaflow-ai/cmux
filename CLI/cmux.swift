@@ -17179,6 +17179,68 @@ struct CMUXCLI {
         guard let ttyName = resolveCallerTTYName() else {
             return nil
         }
+        return resolveTerminalBinding(ttyName: ttyName, client: client)
+    }
+
+    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+        guard let pid else { return nil }
+        guard let payload = try? client.sendV2(
+            method: "system.top",
+            params: ["all_windows": true, "include_processes": true],
+            responseTimeout: 2.0
+        ) else {
+            return nil
+        }
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                guard let workspaceId = normalizedHandleValue(workspace["id"] as? String)
+                    ?? normalizedHandleValue(workspace["ref"] as? String) else {
+                    continue
+                }
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for surface in surfaces {
+                        guard let surfaceId = normalizedHandleValue(surface["id"] as? String)
+                            ?? normalizedHandleValue(surface["ref"] as? String) else {
+                            continue
+                        }
+                        let topLevelPIDs = (surface["top_level_pids"] as? [Any] ?? [])
+                            .compactMap { Self.intValue($0) }
+                        if topLevelPIDs.contains(pid) {
+                            return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
+                        }
+                        let processes = surface["processes"] as? [[String: Any]] ?? []
+                        if topProcessTreeContainsPID(processes, pid: pid) {
+                            return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
+                        }
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private func topProcessTreeContainsPID(_ processes: [[String: Any]], pid: Int) -> Bool {
+        for process in processes {
+            if Self.intValue(process["pid"]) == pid {
+                return true
+            }
+            if let resources = process["resources"] as? [String: Any],
+               (resources["pids"] as? [Any] ?? []).compactMap({ Self.intValue($0) }).contains(pid) {
+                return true
+            }
+            if let children = process["children"] as? [[String: Any]],
+               topProcessTreeContainsPID(children, pid: pid) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func resolveTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
         guard let payload = try? client.sendV2(method: "debug.terminals") else {
             return nil
         }
@@ -18621,7 +18683,9 @@ struct CMUXCLI {
 
     private func summarizeAgentHookNotification(
         def: AgentHookDef,
-        parsedInput: ClaudeHookParsedInput
+        parsedInput: ClaudeHookParsedInput,
+        cwd: String?,
+        env: [String: String]
     ) -> AgentHookNotificationSummary {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
@@ -18655,12 +18719,197 @@ struct CMUXCLI {
         )
         let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
+        let normalizedMessage = normalizedSingleLine(message)
+        if let grokSummary = summarizeGrokGenericCompletionNotification(
+            def: def,
+            message: normalizedMessage,
+            parsedInput: parsedInput,
+            cwd: cwd,
+            env: env
+        ) {
+            return grokSummary
+        }
+        if let grokSummary = summarizeGrokHookExecutionNotification(
+            def: def,
+            message: normalizedMessage,
+            parsedInput: parsedInput,
+            cwd: cwd,
+            env: env
+        ) {
+            return grokSummary
+        }
         return classifyAgentHookNotification(
             def: def,
             signal: signal,
-            message: normalizedSingleLine(message),
+            message: normalizedMessage,
             isFallback: message == fallbackBody
         )
+    }
+
+    private func summarizeGrokGenericCompletionNotification(
+        def: AgentHookDef,
+        message: String,
+        parsedInput: ClaudeHookParsedInput,
+        cwd: String?,
+        env: [String: String]
+    ) -> AgentHookNotificationSummary? {
+        guard def.name == "grok",
+              isGrokGenericTurnCompletion(message),
+              let body = latestGrokAssistantMessage(
+                cwd: cwd,
+                sessionId: parsedInput.sessionId,
+                env: env
+              ) else {
+            return nil
+        }
+        return AgentHookNotificationSummary(
+            subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+            body: truncate(normalizedSingleLine(body), maxLength: 180),
+            status: .idle,
+            isFallback: false
+        )
+    }
+
+    private func summarizeGrokHookExecutionNotification(
+        def: AgentHookDef,
+        message: String,
+        parsedInput: ClaudeHookParsedInput,
+        cwd: String?,
+        env: [String: String]
+    ) -> AgentHookNotificationSummary? {
+        guard def.name == "grok",
+              isGrokHookExecutionNotification(message),
+              let body = latestGrokAssistantMessage(
+                cwd: cwd,
+                sessionId: parsedInput.sessionId,
+                env: env
+              ) else {
+            return nil
+        }
+        return AgentHookNotificationSummary(
+            subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+            body: truncate(normalizedSingleLine(body), maxLength: 180),
+            status: .idle,
+            isFallback: false
+        )
+    }
+
+    private func isGrokHookExecutionNotification(_ message: String) -> Bool {
+        message.hasPrefix("SessionNotification {")
+            && message.contains("HookExecution")
+    }
+
+    private func isGrokGenericTurnCompletion(_ message: String) -> Bool {
+        message.range(
+            of: #"^turn complete(?:d)? in \d+(?:\.\d+)?s\.?$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func latestGrokAssistantMessage(
+        cwd: String?,
+        sessionId: String?,
+        env: [String: String]
+    ) -> String? {
+        guard let sessionURL = grokSessionDirectory(cwd: cwd, sessionId: sessionId, env: env) else {
+            return nil
+        }
+        let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        guard let tail = readTextFileTail(path: historyURL.path, maxBytes: 256 * 1024) else {
+            return nil
+        }
+
+        for line in tail.split(separator: "\n", omittingEmptySubsequences: true).reversed() {
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (object["type"] as? String) == "assistant",
+                  let text = extractMessageText(from: object) else {
+                continue
+            }
+            let normalized = normalizedSingleLine(text)
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+        return nil
+    }
+
+    private func grokSessionDirectory(
+        cwd: String?,
+        sessionId: String?,
+        env: [String: String]
+    ) -> URL? {
+        guard let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cwd.isEmpty else {
+            return nil
+        }
+        let projectURL = grokSessionsRoot(env: env)
+            .appendingPathComponent(grokEncodedSessionCWD(cwd), isDirectory: true)
+        let fileManager = FileManager.default
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: projectURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+
+        if let sessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sessionId.isEmpty {
+            let sessionURL = projectURL.appendingPathComponent(sessionId, isDirectory: true)
+            if fileManager.fileExists(atPath: sessionURL.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return sessionURL
+            }
+        }
+
+        guard let sessionURLs = try? fileManager.contentsOfDirectory(
+            at: projectURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        return sessionURLs
+            .filter { url in
+                ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                    && fileManager.fileExists(atPath: url.appendingPathComponent("chat_history.jsonl").path)
+            }
+            .max { lhs, rhs in
+                let leftDate = (try? lhs
+                    .appendingPathComponent("chat_history.jsonl")
+                    .resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+                let rightDate = (try? rhs
+                    .appendingPathComponent("chat_history.jsonl")
+                    .resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+                return leftDate < rightDate
+            }
+    }
+
+    private func grokSessionsRoot(env: [String: String]) -> URL {
+        let rawHome = normalizedHookValue(env["GROK_HOME"]) ?? "~/.grok"
+        return URL(fileURLWithPath: NSString(string: rawHome).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+    }
+
+    private func grokEncodedSessionCWD(_ cwd: String) -> String {
+        var encoded = ""
+        for byte in cwd.utf8 {
+            let isUnreserved = (byte >= 0x41 && byte <= 0x5A)
+                || (byte >= 0x61 && byte <= 0x7A)
+                || (byte >= 0x30 && byte <= 0x39)
+                || byte == 0x2D
+                || byte == 0x2E
+                || byte == 0x5F
+                || byte == 0x7E
+            if isUnreserved {
+                encoded.append(Character(UnicodeScalar(byte)))
+            } else {
+                encoded.append(String(format: "%%%02X", byte))
+            }
+        }
+        return encoded
     }
 
     private func classifyAgentHookNotification(
@@ -19105,17 +19354,19 @@ struct CMUXCLI {
                 result[event.agentEvent] = entries
             case .nested(let timeoutMs):
                 var groups = result[event.agentEvent] as? [[String: Any]] ?? []
+                let timeout = nestedHookTimeout(timeoutMs, for: def)
                 groups.append([
-                    "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
+                    "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
-        // Layer in Feed bridge entries with a long (120000 ms = 120s)
-        // timeout so blocking user decisions don't trip the agent's
-        // default per-event timeout.
+        // Layer in Feed bridge entries with a long timeout so blocking
+        // user decisions don't trip the agent's default per-event timeout.
+        // Most nested agents use milliseconds; Grok's current hook schema
+        // uses seconds, so `nestedHookTimeout` normalizes before writing.
         let feedTimeoutMs = 120_000
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
@@ -19126,8 +19377,9 @@ struct CMUXCLI {
                 result[agentEvent] = entries
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
+                let timeout = nestedHookTimeout(feedTimeoutMs, for: def)
                 groups.append([
-                    "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
+                    "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
             case .rovoDevYAML, .hermesAgentYAML:
@@ -19135,6 +19387,11 @@ struct CMUXCLI {
             }
         }
         return result
+    }
+
+    private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
+        guard def.name == "grok" else { return timeoutMs }
+        return max(10, timeoutMs / 1000)
     }
 
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
@@ -19932,6 +20189,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             print("\(def.displayName) hooks installed at \(filePath)")
         }
 
+        try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+
         // Post-install actions
         if let action = def.postInstallAction {
             switch action {
@@ -19980,6 +20239,64 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
         }
+    }
+
+    private func pruneLegacyGrokHookFileIfNeeded(
+        def: AgentHookDef,
+        configDir: String,
+        primaryFilePath: String
+    ) throws {
+        guard def.name == "grok" else { return }
+        let legacyURL = URL(fileURLWithPath: configDir, isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        guard legacyURL.path != primaryFilePath,
+              FileManager.default.fileExists(atPath: legacyURL.path),
+              let data = FileManager.default.contents(atPath: legacyURL.path),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var hooks = json["hooks"] as? [String: Any] else {
+            return
+        }
+
+        let isCmuxOwnedCommand: (String) -> Bool = { cmd in
+            Self.isCmuxOwnedHookCommand(cmd, for: def)
+        }
+        var removed = 0
+        for (event, value) in hooks {
+            guard var entries = value as? [[String: Any]] else { continue }
+            let containsNestedGroups = entries.contains { $0["hooks"] is [[String: Any]] }
+            if !containsNestedGroups {
+                let before = entries.count
+                entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                removed += before - entries.count
+                hooks[event] = entries.isEmpty ? nil : entries
+                continue
+            }
+            var rewrittenGroups: [[String: Any]] = []
+            for var group in entries {
+                guard var hookList = group["hooks"] as? [[String: Any]] else {
+                    rewrittenGroups.append(group)
+                    continue
+                }
+                let before = hookList.count
+                hookList.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                removed += before - hookList.count
+                guard !hookList.isEmpty else { continue }
+                group["hooks"] = hookList
+                rewrittenGroups.append(group)
+            }
+            hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
+        }
+
+        guard removed > 0 else { return }
+        if hooks.isEmpty {
+            try FileManager.default.removeItem(at: legacyURL)
+            print("Removed legacy \(def.displayName) hooks at \(legacyURL.path)")
+            return
+        }
+        json["hooks"] = hooks
+        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try newData.write(to: legacyURL, options: .atomic)
+        print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
@@ -20867,10 +21184,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
-        // Workspace/surface resolution: prefer --workspace/--surface flags, then session store, then env
+        // Workspace/surface resolution: prefer --workspace/--surface flags,
+        // then env, then the caller process. Grok strips CMUX_* from hook
+        // subprocesses, so PID attribution is the only reliable live binding.
+        let inferredPID = inferredAgentPID()
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
-        let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
-        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
+        let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
+        let directSurfaceArg = optionValue(hookArgs, name: "--surface")
+            ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
+        let processBinding: CallerTerminalBinding? = {
+            guard directWorkspaceArg == nil || directSurfaceArg == nil else { return nil }
+            return resolveCallerTerminalBindingByTTY(client: client)
+                ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+        }()
+        let workspaceArg = directWorkspaceArg ?? processBinding?.workspaceId
+        let surfaceArg = directSurfaceArg ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil)
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
@@ -20899,6 +21227,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg
             )
         }
+        func shouldSkipUnboundGrokHook(mapped: ClaudeHookSessionRecord?) -> Bool {
+            def.name == "grok"
+                && workspaceArg == nil
+                && surfaceArg == nil
+                && mapped?.workspaceId.isEmpty != false
+        }
         defer {
             if !didSendFeedTelemetry {
                 sendAgentFeedTelemetry()
@@ -20908,10 +21242,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         switch action {
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            if shouldSkipUnboundGrokHook(mapped: mapped) {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: nil, fallback: workspaceArg, client: client)
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: nil, fallback: surfaceArg, workspaceId: workspaceId, client: client)
             sendAgentFeedTelemetry(workspaceId: workspaceId)
-            let pid = inferredAgentPID()
+            let pid = inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -20937,6 +21276,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            if shouldSkipUnboundGrokHook(mapped: mapped) {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                 preferred: surfaceArg,
@@ -20945,7 +21289,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             sendAgentFeedTelemetry(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredAgentPID()
+            let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -21016,10 +21360,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+                if shouldSkipUnboundGrokHook(mapped: mapped) {
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
-                let pid = mapped?.pid ?? inferredAgentPID()
+                let pid = mapped?.pid ?? inferredPID
                 let codexFailure: CodexHookFailureSummary?
                 if def.name == "codex" {
                     codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
@@ -21030,6 +21379,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let lastMsg = input.object?["last_assistant_message"] as? String
                     ?? input.object?["lastAssistantMessage"] as? String
                 let cwd = hookCwd ?? mapped?.cwd
+                let grokStopMessage = def.name == "grok"
+                    ? latestGrokAssistantMessage(cwd: cwd, sessionId: input.sessionId ?? sessionId, env: env)
+                    : nil
                 let projectName: String? = {
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
@@ -21049,6 +21401,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 let body = codexFailure?.body
                     ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                    ?? grokStopMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                     ?? String.localizedStringWithFormat(
                         String(
                             localized: "agent.codex.completion.body.sessionCompleted",
@@ -21079,7 +21432,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
 
-                if def.publishesStopNotification {
+                let shouldPublishStopNotification = def.publishesStopNotification
+                    || (def.name == "grok" && grokStopMessage != nil)
+                if shouldPublishStopNotification {
                     let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -21106,11 +21461,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case .notification:
             do {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+                if shouldSkipUnboundGrokHook(mapped: mapped) {
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
 
-                var summary = summarizeAgentHookNotification(def: def, parsedInput: input)
+                var summary = summarizeAgentHookNotification(
+                    def: def,
+                    parsedInput: input,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    env: env
+                )
                 if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
                     summary = AgentHookNotificationSummary(
                         subtitle: mapped?.lastSubtitle ?? summary.subtitle,
@@ -21121,7 +21486,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
 
                 if !sessionId.isEmpty {
-                    let pid = mapped?.pid ?? inferredAgentPID()
+                    let pid = mapped?.pid ?? inferredPID
                     let launchCommand = agentLaunchCommandFromEnvironment(
                         env,
                         fallbackPID: pid,

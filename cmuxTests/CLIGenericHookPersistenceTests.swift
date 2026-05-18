@@ -238,6 +238,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "grok-session-123"
+        let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -255,6 +256,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
+            "GROK_HOME": grokHome.path,
         ]
 
         func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
@@ -340,6 +342,109 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
         XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+
+        let assistantMessage = "**42.** That's the answer, according to Deep Thought."
+        try writeGrokAssistantTranscript(
+            grokHome: grokHome,
+            cwd: root.path,
+            sessionId: sessionId,
+            text: assistantMessage
+        )
+        let enrichedStopCommandStart = state.commands.count
+        let enrichedStop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(enrichedStop.timedOut, enrichedStop.stderr)
+        XCTAssertEqual(enrichedStop.status, 0, enrichedStop.stderr)
+        XCTAssertEqual(enrichedStop.stdout, "{}\n")
+
+        let enrichedStopCommands = Array(state.commands.dropFirst(enrichedStopCommandStart))
+        XCTAssertTrue(
+            enrichedStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains(assistantMessage)
+            },
+            "Expected Grok Stop to publish the cwd-scoped assistant response when Grok does not emit a Notification event, saw \(enrichedStopCommands)"
+        )
+        XCTAssertTrue(
+            enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
+            "Expected enriched Grok Stop to leave Grok idle, saw \(enrichedStopCommands)"
+        )
+
+        let genericCompletionCommandStart = state.commands.count
+        let genericCompletion = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 3.8s."}"#
+        )
+        XCTAssertFalse(genericCompletion.timedOut, genericCompletion.stderr)
+        XCTAssertEqual(genericCompletion.status, 0, genericCompletion.stderr)
+        XCTAssertEqual(genericCompletion.stdout, "{}\n")
+
+        let genericCompletionCommands = Array(state.commands.dropFirst(genericCompletionCommandStart))
+        XCTAssertTrue(
+            genericCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(assistantMessage)")
+            },
+            "Expected generic Grok completion notification to use the cwd-scoped assistant response, saw \(genericCompletionCommands)"
+        )
+        XCTAssertTrue(
+            genericCompletionCommands.contains { $0.contains("set_status grok Idle") },
+            "Expected enriched completion notification to leave Grok idle, saw \(genericCompletionCommands)"
+        )
+
+        let hookExecutionCommandStart = state.commands.count
+        let hookExecution = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: stop } }"}"#
+        )
+        XCTAssertFalse(hookExecution.timedOut, hookExecution.stderr)
+        XCTAssertEqual(hookExecution.status, 0, hookExecution.stderr)
+        XCTAssertEqual(hookExecution.stdout, "{}\n")
+
+        let hookExecutionCommands = Array(state.commands.dropFirst(hookExecutionCommandStart))
+        XCTAssertTrue(
+            hookExecutionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(assistantMessage)")
+            },
+            "Expected Grok HookExecution notification to use the cwd-scoped assistant response, saw \(hookExecutionCommands)"
+        )
+        XCTAssertFalse(
+            hookExecutionCommands.contains { $0.contains("SessionNotification {") },
+            "Hook execution status should not become the user-visible Grok notification body, saw \(hookExecutionCommands)"
+        )
+
+        let otherCwd = root.appendingPathComponent("other-project", isDirectory: true)
+        let missingCwd = root.appendingPathComponent("missing-project", isDirectory: true)
+        let otherProjectMessage = "This message belongs to a different project."
+        try FileManager.default.createDirectory(at: missingCwd, withIntermediateDirectories: true)
+        try writeGrokAssistantTranscript(
+            grokHome: grokHome,
+            cwd: otherCwd.path,
+            sessionId: "other-grok-session",
+            text: otherProjectMessage
+        )
+        let scopedMissSessionId = "grok-session-without-project-history"
+        let scopedMissCommandStart = state.commands.count
+        let scopedMiss = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(scopedMissSessionId)","cwd":"\#(missingCwd.path)","hookEventName":"Notification","message":"Turn complete in 4.0s."}"#
+        )
+        XCTAssertFalse(scopedMiss.timedOut, scopedMiss.stderr)
+        XCTAssertEqual(scopedMiss.status, 0, scopedMiss.stderr)
+        XCTAssertEqual(scopedMiss.stdout, "{}\n")
+
+        let scopedMissCommands = Array(state.commands.dropFirst(scopedMissCommandStart))
+        XCTAssertTrue(
+            scopedMissCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Turn complete in 4.0s.")
+            },
+            "Expected Grok completion without a cwd-scoped transcript to keep the hook payload, saw \(scopedMissCommands)"
+        )
+        XCTAssertFalse(
+            scopedMissCommands.contains { $0.contains(otherProjectMessage) },
+            "Grok completion notifications must not read another cwd's latest session, saw \(scopedMissCommands)"
+        )
 
         let waitingMessage = "Choose docs section"
         let waitingCommandStart = state.commands.count
@@ -442,12 +547,86 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func writeGrokAssistantTranscript(
+        grokHome: URL,
+        cwd: String,
+        sessionId: String,
+        text: String
+    ) throws {
+        let sessionURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(grokEncodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionURL, withIntermediateDirectories: true)
+        let payload: [String: Any] = ["type": "assistant", "content": text]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let line = String(decoding: data, as: UTF8.self) + "\n"
+        try line.write(
+            to: sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    func grokEncodedSessionCWD(_ cwd: String) -> String {
+        var encoded = ""
+        for byte in cwd.utf8 {
+            let isUnreserved = (byte >= 0x41 && byte <= 0x5A)
+                || (byte >= 0x61 && byte <= 0x7A)
+                || (byte >= 0x30 && byte <= 0x39)
+                || byte == 0x2D
+                || byte == 0x2E
+                || byte == 0x5F
+                || byte == 0x7E
+            if isUnreserved {
+                encoded.append(Character(UnicodeScalar(byte)))
+            } else {
+                encoded.append(String(format: "%%%02X", byte))
+            }
+        }
+        return encoded
+    }
+
     func testGrokHookInstallRoutesNotificationEventToNotificationSubcommand() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-hook-install-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyHookURL = root
+            .appendingPathComponent(".grok", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: legacyHookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let legacyHookJSON: [String: Any] = [
+            "hooks": [
+                "PostToolUse": [
+                    [
+                        "hooks": [
+                            [
+                                "command": "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_GROK_HOOKS_DISABLED\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source grok --event PostToolUse || echo '{}'",
+                                "timeout": 120,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+                "Stop": [
+                    [
+                        "hooks": [
+                            [
+                                "command": "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_GROK_HOOKS_DISABLED\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks grok stop || echo '{}'",
+                                "timeout": 5,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: legacyHookURL, options: .atomic)
 
         let result = runProcess(
             executablePath: cliPath,
@@ -474,6 +653,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
+        let notificationTimeouts = notificationGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["timeout"] as? Int }
+        let preToolUseGroups = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
+        let preToolUseTimeouts = preToolUseGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["timeout"] as? Int }
+        let allCommands = hooks.values
+            .compactMap { $0 as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
             notificationCommands.contains { $0.contains("cmux hooks grok notification") },
@@ -482,6 +676,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
+        )
+        XCTAssertEqual(notificationTimeouts, [10])
+        XCTAssertEqual(preToolUseTimeouts, [120])
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
+            "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("$CMUX_") },
+            "Grok treats $VAR references as required hook environment, so installed commands must avoid CMUX variable interpolation. Saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: legacyHookURL.path),
+            "Expected setup to remove legacy cmux-owned Grok hook file"
         )
     }
 
