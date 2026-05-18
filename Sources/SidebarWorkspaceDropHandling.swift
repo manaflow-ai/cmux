@@ -120,7 +120,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var dropIndicator: SidebarDropIndicator?
-    let visibleWorkspaceDropState: () -> SidebarWorkspaceDropState
+    let visibleWorkspaceDropState: SidebarWorkspaceDropState
     let selectedWorkspaceId: () -> UUID?
     let reorderVisibleWorkspace: (_ draggedWorkspaceId: UUID, _ targetIndex: Int, _ visibleWorkspaceIds: [UUID]) -> Bool
     let syncSidebarSelection: (_ preferredSelectedWorkspaceId: UUID?) -> Void
@@ -178,7 +178,7 @@ struct SidebarTabDropDelegate: DropDelegate {
 #endif
             return false
         }
-        let dropState = visibleWorkspaceDropState()
+        let dropState = visibleWorkspaceDropState
         guard let fromIndex = dropState.workspaceIds.firstIndex(of: draggedTabId) else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
@@ -224,7 +224,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     private func updateDropIndicator(for info: DropInfo) {
-        let dropState = visibleWorkspaceDropState()
+        let dropState = visibleWorkspaceDropState
         let nextIndicator = SidebarDropPlanner.indicator(
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,

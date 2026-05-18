@@ -9606,7 +9606,13 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceActionBundle() -> SidebarWorkspaceActionBundle {
-        SidebarWorkspaceActionBundle(
+        let visibleWorkspaceTabs = tabManager.visibleWorkspaceTabs
+        let visibleWorkspaceDropState = SidebarWorkspaceDropState(
+            workspaceIds: visibleWorkspaceTabs.map(\.id),
+            pinnedWorkspaceIds: Set(visibleWorkspaceTabs.filter(\.isPinned).map(\.id))
+        )
+
+        return SidebarWorkspaceActionBundle(
             addWorkspaceAtEnd: {
                 tabManager.addWorkspace(placementOverride: .end)
                 guard let selectedId = tabManager.selectedTabId else {
@@ -9717,13 +9723,7 @@ struct VerticalTabsSidebar: View {
                     targetRowHeight: targetRowHeight,
                     dragAutoScrollController: dragAutoScrollController,
                     dropIndicator: dropIndicator,
-                    visibleWorkspaceDropState: {
-                        let visibleTabs = tabManager.visibleWorkspaceTabs
-                        return SidebarWorkspaceDropState(
-                            workspaceIds: visibleTabs.map(\.id),
-                            pinnedWorkspaceIds: Set(visibleTabs.filter(\.isPinned).map(\.id))
-                        )
-                    },
+                    visibleWorkspaceDropState: visibleWorkspaceDropState,
                     selectedWorkspaceId: {
                         tabManager.selectedTabId
                     },
