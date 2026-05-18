@@ -3408,12 +3408,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             }
         )
 
-        let snapshot = try XCTUnwrap(
-            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
-        )
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let detectedEntry = try XCTUnwrap(detected[panelKey])
+        let snapshot = detectedEntry.snapshot
         XCTAssertEqual(snapshot.kind, .claude)
         XCTAssertEqual(snapshot.sessionId, parentSessionId)
         XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
+        XCTAssertEqual(detectedEntry.updatedAt, 0)
         XCTAssertTrue(snapshot.forkCommand?.contains(parentSessionId) == true)
         XCTAssertFalse(snapshot.forkCommand?.contains(childSessionId) == true)
     }
@@ -6201,6 +6202,108 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     environment: [
                         "CODEX_HOME": codexHome.path,
                         "PWD": "/tmp/repo"
+                    ]
+                )
+            }
+        )
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(detected[panelKey]?.snapshot.sessionId, parentSessionId)
+        XCTAssertEqual(detected[panelKey]?.updatedAt, 0)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detected
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, childSessionId)
+        XCTAssertEqual(snapshot.launchCommand?.source, "environment")
+    }
+
+    func testRestorableAgentIndexKeepsClaudeHookOverProcessForkParentFallback() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-claude-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let claudeConfigDir = home.appendingPathComponent(".claude", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let parentSessionId = "18f6c8c3-115b-40ff-8f6a-f8b0cc6352bf"
+        let childSessionId = "5f854a42-a167-45aa-b7d7-ab9fc32758c3"
+        let workingDirectory = "/tmp/claude repo"
+        try writeClaudeTranscript(
+            configDir: claudeConfigDir,
+            sessionId: childSessionId,
+            cwd: workingDirectory
+        )
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "\(childSessionId)": {
+              "sessionId": "\(childSessionId)",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "\(workingDirectory)",
+              "updatedAt": 10,
+              "launchCommand": {
+                "launcher": "claude",
+                "executablePath": "/usr/local/bin/claude",
+                "arguments": [
+                  "/usr/local/bin/claude",
+                  "--model",
+                  "opus"
+                ],
+                "workingDirectory": "\(workingDirectory)",
+                "environment": {
+                  "CLAUDE_CONFIG_DIR": "\(claudeConfigDir.path)"
+                },
+                "capturedAt": 9,
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let process = makeTopProcess(
+            pid: 10_042,
+            name: "claude",
+            path: "/usr/local/bin/claude",
+            ttyDevice: 44_042,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/usr/local/bin/claude",
+                        "--resume",
+                        parentSessionId,
+                        "--fork-session",
+                        "--model",
+                        "opus"
+                    ],
+                    environment: [
+                        "CLAUDE_CONFIG_DIR": claudeConfigDir.path,
+                        "CLAUDE_SESSION_ID": parentSessionId,
+                        "PWD": workingDirectory
                     ]
                 )
             }

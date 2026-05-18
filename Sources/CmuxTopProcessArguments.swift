@@ -100,17 +100,18 @@ extension CmuxTopProcessSnapshot {
 
         let stdout = Pipe()
         process.standardOutput = stdout
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
         } catch {
             return nil
         }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)
     }
 

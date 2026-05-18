@@ -135,7 +135,13 @@ extension RestorableAgentSessionIndex {
             )
             resolved[candidate.panelKey] = (
                 snapshot: snapshot,
-                updatedAt: capturedAt
+                updatedAt: claudeSessionIdIsForkParentFallback(
+                    sessionId: sessionId,
+                    tail: launchTail,
+                    environment: processArguments.environment,
+                    processID: process.pid,
+                    fileManager: fileManager
+                ) ? 0 : capturedAt
             )
             selectedCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
@@ -203,6 +209,30 @@ extension RestorableAgentSessionIndex {
             ?? resumeSessionId
             ?? environmentSessionId
             ?? processSessionFileSessionId
+    }
+
+    private static func claudeSessionIdIsForkParentFallback(
+        sessionId: String,
+        tail: [String],
+        environment: [String: String],
+        processID: Int?,
+        fileManager: FileManager
+    ) -> Bool {
+        guard tail.hasClaudeForkSessionFlag,
+              let resumeSessionId = claudeResumeSessionIdValue(afterOption: "--resume", in: tail)
+                  ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail),
+              sessionId == resumeSessionId,
+              claudeSessionIdValue(afterOption: "--session-id", in: tail) == nil,
+              claudeSessionIdFromProcessSessionFile(
+                  processID: processID,
+                  environment: environment,
+                  fileManager: fileManager
+              ) == nil else {
+            return false
+        }
+
+        let environmentSessionId = normalized(environment["CLAUDE_SESSION_ID"])
+        return environmentSessionId == nil || environmentSessionId == resumeSessionId
     }
 
     private static func claudeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {
