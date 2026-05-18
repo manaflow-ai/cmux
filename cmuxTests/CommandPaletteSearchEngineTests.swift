@@ -1071,7 +1071,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkExecutionDoesNotUseCachedSnapshotAfterProcessSnapshotDisappears() {
+    func testForkExecutionUsesVerifiedCacheAfterProcessSnapshotTemporarilyDisappears() {
         let fallback = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "fallback-claude-session",
@@ -1084,24 +1084,41 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             workingDirectory: "/tmp/live repo",
             launchCommand: nil
         )
+        let cached = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "cached-codex-session",
+            workingDirectory: "/tmp/cached repo",
+            launchCommand: nil
+        )
 
         XCTAssertNil(
             ContentView.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: nil,
-                fallbackSnapshot: nil
+                fallbackSnapshot: nil,
+                cachedSnapshot: nil
             )
         )
         XCTAssertEqual(
             ContentView.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: nil,
-                fallbackSnapshot: fallback
+                fallbackSnapshot: nil,
+                cachedSnapshot: cached
+            )?.sessionId,
+            cached.sessionId
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteForkExecutionSnapshot(
+                indexSnapshot: nil,
+                fallbackSnapshot: fallback,
+                cachedSnapshot: cached
             )?.sessionId,
             fallback.sessionId
         )
         XCTAssertEqual(
             ContentView.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: live,
-                fallbackSnapshot: fallback
+                fallbackSnapshot: fallback,
+                cachedSnapshot: cached
             )?.sessionId,
             live.sessionId
         )

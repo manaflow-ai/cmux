@@ -62,7 +62,8 @@ extension ContentView {
             }
             let snapshot = Self.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: index.snapshot(workspaceId: workspaceId, panelId: panelId),
-                fallbackSnapshot: currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+                fallbackSnapshot: currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
+                cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
             )
             guard let snapshot else {
                 clearCommandPaletteForkableAgentCache(for: panelKey)
@@ -152,9 +153,10 @@ extension ContentView {
 extension ContentView {
     static func commandPaletteForkExecutionSnapshot(
         indexSnapshot: SessionRestorableAgentSnapshot?,
-        fallbackSnapshot: SessionRestorableAgentSnapshot?
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        cachedSnapshot: SessionRestorableAgentSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
-        indexSnapshot ?? fallbackSnapshot
+        indexSnapshot ?? fallbackSnapshot ?? cachedSnapshot
     }
 
     static func commandPaletteForkPostProbeContextStillMatches(
