@@ -4477,10 +4477,7 @@ struct CMUXCLI {
         case "set":
             try validateSurfaceResumeValueOptions(
                 rest,
-                optionNames: [
-                    "--workspace", "--surface", "--name", "--kind", "--checkpoint",
-                    "--checkpoint-id", "--source", "--cwd", "--shell",
-                ],
+                optionNames: Self.surfaceResumeSetValueOptions,
                 context: "surface resume set"
             )
             let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
@@ -4523,7 +4520,7 @@ struct CMUXCLI {
         case "show", "get":
             try validateSurfaceResumeValueOptions(
                 rest,
-                optionNames: ["--workspace", "--surface"],
+                optionNames: Self.surfaceResumeTargetValueOptions,
                 context: "surface resume \(subcommand)"
             )
             let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
@@ -4541,7 +4538,7 @@ struct CMUXCLI {
         case "clear":
             try validateSurfaceResumeValueOptions(
                 rest,
-                optionNames: ["--workspace", "--surface", "--checkpoint", "--checkpoint-id", "--source"],
+                optionNames: Self.surfaceResumeClearValueOptions,
                 context: "surface resume clear"
             )
             let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
@@ -4583,28 +4580,33 @@ struct CMUXCLI {
         case "set":
             try validateSurfaceResumeValueOptions(
                 rest,
-                optionNames: [
-                    "--workspace", "--surface", "--name", "--kind", "--checkpoint",
-                    "--checkpoint-id", "--source", "--cwd", "--shell",
-                ],
+                optionNames: Self.surfaceResumeSetValueOptions,
                 context: "surface resume set"
             )
         case "show", "get":
             try validateSurfaceResumeValueOptions(
                 rest,
-                optionNames: ["--workspace", "--surface"],
+                optionNames: Self.surfaceResumeTargetValueOptions,
                 context: "surface resume \(subcommand)"
             )
         case "clear":
             try validateSurfaceResumeValueOptions(
                 rest,
-                optionNames: ["--workspace", "--surface", "--checkpoint", "--checkpoint-id", "--source"],
+                optionNames: Self.surfaceResumeClearValueOptions,
                 context: "surface resume clear"
             )
         default:
             return
         }
     }
+
+    private static let surfaceResumeTargetValueOptions: Set<String> = ["--workspace", "--surface"]
+    private static let surfaceResumeSetValueOptions: Set<String> = surfaceResumeTargetValueOptions.union([
+        "--name", "--kind", "--checkpoint", "--checkpoint-id", "--source", "--cwd", "--shell",
+    ])
+    private static let surfaceResumeClearValueOptions: Set<String> = surfaceResumeTargetValueOptions.union([
+        "--checkpoint", "--checkpoint-id", "--source",
+    ])
 
     private func validateSurfaceResumeValueOptions(
         _ args: [String],
@@ -19282,7 +19284,6 @@ struct CMUXCLI {
                 agentSurfaceResumePrefixedArguments(
                     executable: original.executable,
                     token: "claude-teams",
-                    removedToken: removedToken,
                     option: "--resume",
                     sessionId: normalizedSessionId,
                     preserved: $0
@@ -19297,7 +19298,6 @@ struct CMUXCLI {
                 agentSurfaceResumePrefixedArguments(
                     executable: original.executable,
                     token: "omo",
-                    removedToken: removedToken,
                     option: "--session",
                     sessionId: normalizedSessionId,
                     preserved: $0
@@ -19391,15 +19391,11 @@ struct CMUXCLI {
     private func agentSurfaceResumePrefixedArguments(
         executable: String,
         token: String,
-        removedToken: Bool,
         option: String,
         sessionId: String,
         preserved: [String]
     ) -> [String] {
-        let executableName = (executable as NSString).lastPathComponent
-        let usesWrapper = executableName == "cmux"
-        let prefix = (usesWrapper || removedToken) ? [executable, token] : [executable]
-        return prefix + [option, sessionId] + preserved
+        [executable, token, option, sessionId] + preserved
     }
 
     private func agentSurfaceResumeCommandParts(

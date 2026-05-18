@@ -4227,18 +4227,33 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
     }
 
-    func testTmuxOptionValueDoesNotReadTargetFromConfigValue() throws {
-        let binding = try XCTUnwrap(
-            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
-                processName: "tmux",
-                processPath: nil,
-                arguments: ["tmux", "attach", "-factive-pane"],
-                environment: [:]
-            )
+    func testTmuxProcessDetectedResumeBindingRejectsUnnamedAttach() {
+        let attachBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach"],
+            environment: [:]
+        )
+        let aliasBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "a"],
+            environment: [:]
         )
 
-        XCTAssertNil(binding.checkpointId)
-        XCTAssertEqual(binding.command, "'tmux' 'attach'")
+        XCTAssertNil(attachBinding)
+        XCTAssertNil(aliasBinding)
+    }
+
+    func testTmuxOptionValueDoesNotReadTargetFromConfigValue() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach", "-factive-pane"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
     }
 
     func testTmuxOptionValueStopsAtValueTakingClusterOption() {

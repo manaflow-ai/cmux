@@ -159,9 +159,13 @@ enum TmuxResumeParser {
         let commandArgs = Array(arguments.dropFirst(index + 1))
         switch command {
         case "attach-session", "attach", "a":
+            let sessionName = optionValue(commandArgs, short: "t", long: "target-session")
+            guard sessionName != nil else {
+                return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
+            }
             return ParsedTmuxTopLevelArguments(
                 socketFlags: socketFlags,
-                sessionName: optionValue(commandArgs, short: "t", long: "target-session"),
+                sessionName: sessionName,
                 isSafe: true
             )
         case "new-session", "new":
