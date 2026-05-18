@@ -9099,7 +9099,11 @@ struct VerticalTabsSidebar: View {
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
-    private func requestSelectedWorkspaceScroll(_ proxy: ScrollViewProxy, workspaceIds: [UUID]) {
+    private func requestSelectedWorkspaceScroll(
+        _ proxy: ScrollViewProxy,
+        workspaceIds: [UUID],
+        allowsVirtualizedRows: Bool
+    ) {
         guard let selectedWorkspaceId = tabManager.selectedTabId,
               workspaceIds.contains(selectedWorkspaceId) else {
             pendingSelectedWorkspaceScrollId = nil
@@ -9107,16 +9111,17 @@ struct VerticalTabsSidebar: View {
         }
 
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
-        flushPendingSelectedWorkspaceScroll(proxy)
+        flushPendingSelectedWorkspaceScroll(proxy, allowsVirtualizedRows: allowsVirtualizedRows)
     }
 
     private func flushPendingSelectedWorkspaceScroll(
         _ proxy: ScrollViewProxy,
-        laidOutWorkspaceRowIds: Set<UUID>? = nil
+        laidOutWorkspaceRowIds: Set<UUID>? = nil,
+        allowsVirtualizedRows: Bool = false
     ) {
         guard let selectedWorkspaceId = pendingSelectedWorkspaceScrollId else { return }
         let rowIds = laidOutWorkspaceRowIds ?? self.laidOutWorkspaceRowIds
-        guard rowIds.contains(selectedWorkspaceId) else { return }
+        guard allowsVirtualizedRows || rowIds.contains(selectedWorkspaceId) else { return }
 
         // No anchor means SwiftUI scrolls the minimum needed to reveal the row.
         proxy.scrollTo(selectedWorkspaceId)
@@ -9382,21 +9387,37 @@ struct VerticalTabsSidebar: View {
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
                 .onAppear {
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                    requestSelectedWorkspaceScroll(
+                        scrollProxy,
+                        workspaceIds: renderContext.workspaceIds,
+                        allowsVirtualizedRows: renderContext.sidebarProvider.mode != nil
+                    )
                 }
                 .onChange(of: tabManager.selectedTabId) { _, _ in
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
+                    requestSelectedWorkspaceScroll(
+                        scrollProxy,
+                        workspaceIds: renderContext.workspaceIds,
+                        allowsVirtualizedRows: renderContext.sidebarProvider.mode != nil
+                    )
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
                     ) else { return }
-                    requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: newWorkspaceIds)
+                    requestSelectedWorkspaceScroll(
+                        scrollProxy,
+                        workspaceIds: newWorkspaceIds,
+                        allowsVirtualizedRows: renderContext.sidebarProvider.mode != nil
+                    )
                 }
                 .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
                     laidOutWorkspaceRowIds = rowIds
-                    flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
+                    flushPendingSelectedWorkspaceScroll(
+                        scrollProxy,
+                        laidOutWorkspaceRowIds: rowIds,
+                        allowsVirtualizedRows: renderContext.sidebarProvider.mode != nil
+                    )
                 }
             }
         }
@@ -9500,15 +9521,45 @@ struct VerticalTabsSidebar: View {
         }
     }
 
+    @ViewBuilder
     private func customizedWorkspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let mode = renderContext.sidebarProvider.mode ?? SidebarWorkspaceListStyleSettings.defaultCustomizationMode
         let provider = CmuxExtensionWorkspaceTreeProvider(descriptor: renderContext.sidebarProvider)
+        let initialRenderModel = provider.render(
+            snapshot: renderContext.extensionSnapshot,
+            context: .current,
+            localize: cmuxExtensionLocalizedString(_:)
+        )
+
+        if initialRenderModel.relativeTextDates.isEmpty {
+            customizedWorkspaceRowsContent(
+                renderContext: renderContext,
+                provider: provider,
+                now: Date()
+            )
+        } else {
+            TimelineView(CmuxExtensionSidebarRelativeTextSchedule(dates: initialRenderModel.relativeTextDates)) { timeline in
+                customizedWorkspaceRowsContent(
+                    renderContext: renderContext,
+                    provider: provider,
+                    now: timeline.date
+                )
+            }
+        }
+    }
+
+    private func customizedWorkspaceRowsContent(
+        renderContext: WorkspaceListRenderContext,
+        provider: CmuxExtensionWorkspaceTreeProvider,
+        now: Date
+    ) -> some View {
+        let mode = renderContext.sidebarProvider.mode ?? SidebarWorkspaceListStyleSettings.defaultCustomizationMode
         let renderModel = provider.render(
             snapshot: renderContext.extensionSnapshot,
+            context: CmuxExtensionSidebarRenderContext(now: now),
             localize: cmuxExtensionLocalizedString(_:)
         )
         let sections = renderModel.sections
-        return VStack(alignment: .leading, spacing: 0) {
+        return LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(sections) { renderSection in
                 let section = renderSection.treeSection
                 let isCollapsed = collapsedTreeSectionIds.contains(section.id)
@@ -9524,14 +9575,15 @@ struct VerticalTabsSidebar: View {
                 .padding(.top, section.id == sections.first?.id ? 0 : 4)
 
                 if !isCollapsed {
-                    VStack(spacing: tabRowSpacing) {
+                    LazyVStack(spacing: tabRowSpacing) {
                         ForEach(renderSection.rows) { row in
                             let workspaceId = row.workspaceId
                             if let tab = renderContext.tabById[workspaceId] {
                                 workspaceRow(
                                     tab,
                                     renderContext: renderContext,
-                                    visualStyle: .extensionTree
+                                    visualStyle: .extensionTree,
+                                    extensionPresentation: extensionRowPresentation(for: row, now: now)
                                 )
                                     .padding(.leading, 12)
                             }
@@ -9603,7 +9655,8 @@ struct VerticalTabsSidebar: View {
     private func workspaceRow(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
-        visualStyle: SidebarWorkspaceRowVisualStyle = .standard
+        visualStyle: SidebarWorkspaceRowVisualStyle = .standard,
+        extensionPresentation: SidebarExtensionWorkspaceRowPresentation? = nil
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -9687,6 +9740,7 @@ struct VerticalTabsSidebar: View {
             settings: renderContext.tabItemSettings,
             visualStyle: visualStyle,
             showsExtensionWorkspaceAccessory: visualStyle == .extensionTree,
+            extensionPresentation: extensionPresentation,
             livePresentation: livePresentation,
             frozenPresentation: $frozenTabItemPresentation
         )
@@ -9752,6 +9806,34 @@ struct VerticalTabsSidebar: View {
         Bundle.main.localizedString(forKey: text.key, value: text.defaultValue, table: nil)
     }
 
+    private func extensionRowPresentation(
+        for row: CmuxExtensionSidebarRenderRow,
+        now: Date
+    ) -> SidebarExtensionWorkspaceRowPresentation {
+        SidebarExtensionWorkspaceRowPresentation(
+            title: row.title,
+            subtitle: row.subtitle.map { cmuxExtensionRenderString($0, now: now) },
+            trailingText: row.trailingText.map { cmuxExtensionRenderString($0, now: now) }
+        )
+    }
+
+    private func cmuxExtensionRenderString(
+        _ text: CmuxExtensionSidebarRenderText,
+        now: Date
+    ) -> String {
+        switch text {
+        case .plain(let value):
+            return value
+        case .localized(let localizedText):
+            return cmuxExtensionLocalizedString(localizedText)
+        case .relativeDate(let date, let style):
+            switch style {
+            case .compact:
+                return CmuxExtensionCompactRelativeTimeFormatter.string(for: date, relativeTo: now)
+            }
+        }
+    }
+
     private func extensionWorkspaceSnapshots(
         tabs: [Workspace],
         showsSidebarNotificationMessage: Bool
@@ -9791,6 +9873,8 @@ struct VerticalTabsSidebar: View {
                 remoteConnectionState: tab.isRemoteWorkspace ? tab.remoteConnectionState.rawValue : nil,
                 unreadCount: notificationStore.unreadCount(forTabId: tab.id),
                 latestNotificationText: latestNotificationText,
+                latestSubmittedMessage: tab.latestSubmittedMessage,
+                latestSubmittedAt: tab.latestSubmittedAt,
                 listeningPorts: tab.listeningPorts,
                 pullRequestURLs: pullRequestURLs
             )
@@ -12404,6 +12488,77 @@ enum SidebarPathFormatter {
     }
 }
 
+struct SidebarExtensionWorkspaceRowPresentation: Equatable {
+    let title: String
+    let subtitle: String?
+    let trailingText: String?
+}
+
+enum CmuxExtensionCompactRelativeTimeFormatter {
+    static func string(for date: Date, relativeTo now: Date) -> String {
+        let age = max(0, now.timeIntervalSince(date))
+        if age < 60 {
+            return String(localized: "sidebar.extension.relative.now", defaultValue: "now")
+        }
+        if age < 3_600 {
+            return String(
+                format: String(localized: "sidebar.extension.relative.minutes", defaultValue: "%dm"),
+                locale: .current,
+                max(1, Int(age / 60))
+            )
+        }
+        if age < 86_400 {
+            return String(
+                format: String(localized: "sidebar.extension.relative.hours", defaultValue: "%dh"),
+                locale: .current,
+                max(1, Int(age / 3_600))
+            )
+        }
+        if age < 604_800 {
+            return String(
+                format: String(localized: "sidebar.extension.relative.days", defaultValue: "%dd"),
+                locale: .current,
+                max(1, Int(age / 86_400))
+            )
+        }
+        return String(
+            format: String(localized: "sidebar.extension.relative.weeks", defaultValue: "%dw"),
+            locale: .current,
+            max(1, Int(age / 604_800))
+        )
+    }
+
+    static func refreshInterval(for date: Date, now: Date) -> TimeInterval {
+        let age = max(0, now.timeIntervalSince(date))
+        if age < 60 { return 5 }
+        if age < 3_600 { return 60 }
+        if age < 86_400 { return 3_600 }
+        return 86_400
+    }
+}
+
+private struct CmuxExtensionSidebarRelativeTextSchedule: TimelineSchedule {
+    let dates: [Date]
+
+    func entries(from startDate: Date, mode: Mode) -> Entries {
+        Entries(current: startDate, dates: dates)
+    }
+
+    struct Entries: Sequence, IteratorProtocol {
+        var current: Date
+        let dates: [Date]
+
+        mutating func next() -> Date? {
+            let date = current
+            let interval = dates
+                .map { CmuxExtensionCompactRelativeTimeFormatter.refreshInterval(for: $0, now: date) }
+                .min() ?? 60
+            current = current.addingTimeInterval(interval)
+            return date
+        }
+    }
+}
+
 enum SidebarWorkspaceListStyleSettings {
     static let treePrototypeEnabledKey = "sidebar.workspaceList.treePrototype.enabled"
     static let customizationModeKey = "sidebar.workspaceList.customizationPrototype.mode"
@@ -12438,6 +12593,8 @@ enum SidebarWorkspaceListStyleSettings {
             return .attention
         case .servers:
             return .servers
+        case .lastMessage:
+            return .lastMessage
         }
     }
 
@@ -12557,6 +12714,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let remoteStateHelpText: String
         let copyableSidebarSSHError: String?
         let latestSubmittedMessage: String?
+        let latestSubmittedAt: Date?
         let metadataEntries: [SidebarStatusEntry]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
@@ -12599,10 +12757,11 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
-        lhs.contextMenuPinState == rhs.contextMenuPinState &&
-        lhs.settings == rhs.settings &&
-        lhs.visualStyle == rhs.visualStyle &&
-        lhs.showsExtensionWorkspaceAccessory == rhs.showsExtensionWorkspaceAccessory
+            lhs.contextMenuPinState == rhs.contextMenuPinState &&
+            lhs.settings == rhs.settings &&
+            lhs.visualStyle == rhs.visualStyle &&
+            lhs.showsExtensionWorkspaceAccessory == rhs.showsExtensionWorkspaceAccessory &&
+            lhs.extensionPresentation == rhs.extensionPresentation
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -12637,6 +12796,7 @@ private struct TabItemView: View, Equatable {
     let settings: SidebarTabItemSettingsSnapshot
     let visualStyle: SidebarWorkspaceRowVisualStyle
     let showsExtensionWorkspaceAccessory: Bool
+    let extensionPresentation: SidebarExtensionWorkspaceRowPresentation?
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
@@ -12941,14 +13101,14 @@ private struct TabItemView: View, Equatable {
             CmuxExtensionWorkspacePopoverView(
                 workspaceId: tab.id,
                 workspaceTitle: workspaceSnapshot.title,
-                pullRequestURLs: workspaceSnapshot.pullRequestRows.map(\.url),
+                suggestedBrowserURLs: workspaceSnapshot.pullRequestRows.map(\.url),
                 selectedTab: $workspaceInspectorSelectedTab,
                 showsOpenWindowButton: true,
                 onOpenWindow: { selectedTab in
                     CmuxExtensionWorkspaceDetailWindowController.show(
                         workspaceId: tab.id,
                         workspaceTitle: workspaceSnapshot.title,
-                        pullRequestURLs: workspaceSnapshot.pullRequestRows.map(\.url),
+                        suggestedBrowserURLs: workspaceSnapshot.pullRequestRows.map(\.url),
                         preferredTab: selectedTab
                     )
                 }
@@ -12967,6 +13127,7 @@ private struct TabItemView: View, Equatable {
 
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
+        let displayTitle = extensionPresentation?.title ?? workspaceSnapshot.title
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
@@ -12987,6 +13148,11 @@ private struct TabItemView: View, Equatable {
                 .nilIfEmpty
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? submittedMessageSubtitle
+        let extensionSubtitle = extensionPresentation?.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let rowSubtitle = extensionSubtitle ?? effectiveSubtitle
+        let extensionTrailingText = extensionPresentation?.trailingText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
         let detailVisibility = visibleAuxiliaryDetails
 
         VStack(alignment: .leading, spacing: rowContentSpacing) {
@@ -13009,7 +13175,7 @@ private struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(workspaceSnapshot.title)
+                Text(displayTitle)
                     .font(.system(size: titleFontSize, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
@@ -13017,6 +13183,16 @@ private struct TabItemView: View, Equatable {
                     .layoutPriority(1)
 
                 Spacer(minLength: 0)
+
+                if let extensionTrailingText {
+                    Text(extensionTrailingText)
+                        .font(.system(size: 10, weight: .regular))
+                        .monospacedDigit()
+                        .foregroundColor(activeSecondaryColor(0.74))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(minWidth: 26, alignment: .trailing)
+                }
 
                 ZStack(alignment: .trailing) {
                     HStack(spacing: 3) {
@@ -13062,7 +13238,7 @@ private struct TabItemView: View, Equatable {
                 .id(description)
             }
 
-            if let subtitle = effectiveSubtitle {
+            if let subtitle = rowSubtitle {
                 Text(subtitle)
                     .font(.system(size: 10))
                     .foregroundColor(activeSecondaryColor(0.8))
@@ -13375,7 +13551,7 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
-        .safeHelp(workspaceSnapshot.title)
+        .safeHelp(displayTitle)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
         .accessibilityHint(Text(accessibilityHintText))
@@ -13784,7 +13960,8 @@ private struct TabItemView: View, Equatable {
     }
 
     private var accessibilityTitle: String {
-        String(localized: "accessibility.workspacePosition", defaultValue: "\(workspaceSnapshot.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
+        let title = extensionPresentation?.title ?? workspaceSnapshot.title
+        return String(localized: "accessibility.workspacePosition", defaultValue: "\(title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
     }
 
     private func moveBy(_ delta: Int) {
@@ -14014,6 +14191,7 @@ private struct TabItemView: View, Equatable {
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestSubmittedMessage: tab.latestSubmittedMessage,
+            latestSubmittedAt: tab.latestSubmittedAt,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
@@ -14441,14 +14619,34 @@ private enum CmuxExtensionWorkspaceNotesStore {
     }
 }
 
+private enum CmuxExtensionWorkspaceBrowserStore {
+    private static let keyPrefix = "sidebar.extension.workspace.browserURL."
+
+    static func url(for workspaceId: UUID, defaults: UserDefaults = .standard) -> URL? {
+        guard let value = defaults.string(forKey: keyPrefix + workspaceId.uuidString) else { return nil }
+        return URL(string: value)
+    }
+
+    static func setURL(_ url: URL?, for workspaceId: UUID, defaults: UserDefaults = .standard) {
+        let key = keyPrefix + workspaceId.uuidString
+        if let url {
+            defaults.set(url.absoluteString, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}
+
 private struct CmuxExtensionWorkspacePopoverView: View {
     let workspaceId: UUID
     let workspaceTitle: String
-    let pullRequestURLs: [URL]
+    let suggestedBrowserURLs: [URL]
     @Binding var selectedTab: CmuxExtensionWorkspacePopoverTab
     var showsOpenWindowButton: Bool
     var onOpenWindow: ((CmuxExtensionWorkspacePopoverTab) -> Void)?
     @State private var notes = ""
+    @State private var browserAddress = ""
+    @State private var browserURL: URL?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14459,11 +14657,11 @@ private struct CmuxExtensionWorkspacePopoverView: View {
                     }
                     .tag(CmuxExtensionWorkspacePopoverTab.notes)
 
-                pullRequestView
+                browserView
                     .tabItem {
-                        Text(String(localized: "sidebar.workspaceInspector.pullRequestTab", defaultValue: "Pull Request"))
+                        Text(String(localized: "sidebar.workspaceInspector.browserTab", defaultValue: "Browser"))
                     }
-                    .tag(CmuxExtensionWorkspacePopoverTab.pullRequest)
+                    .tag(CmuxExtensionWorkspacePopoverTab.browser)
             }
             .frame(width: 460, height: 340)
 
@@ -14487,9 +14685,17 @@ private struct CmuxExtensionWorkspacePopoverView: View {
         }
         .onAppear {
             notes = CmuxExtensionWorkspaceNotesStore.note(for: workspaceId)
+            let initialURL = CmuxExtensionWorkspaceBrowserStore.url(for: workspaceId) ?? suggestedBrowserURLs.first
+            browserURL = initialURL
+            browserAddress = initialURL?.absoluteString ?? ""
         }
         .onChange(of: notes) { _, newValue in
             CmuxExtensionWorkspaceNotesStore.setNote(newValue, for: workspaceId)
+        }
+        .onChange(of: browserURL) { _, newValue in
+            CmuxExtensionWorkspaceBrowserStore.setURL(newValue, for: workspaceId)
+            guard let newValue else { return }
+            browserAddress = newValue.absoluteString
         }
         .accessibilityIdentifier("SidebarWorkspaceInspectorPopover")
     }
@@ -14521,46 +14727,105 @@ private struct CmuxExtensionWorkspacePopoverView: View {
     }
 
     @ViewBuilder
-    private var pullRequestView: some View {
-        if let url = pullRequestURLs.first {
-            CmuxExtensionPullRequestWebView(url: url)
-                .overlay(alignment: .topLeading) {
-                    Text(url.host ?? url.absoluteString)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.regularMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .padding(8)
+    private var browserView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.secondary)
+
+                TextField(
+                    String(localized: "sidebar.workspaceInspector.browserPlaceholder", defaultValue: "Search or enter URL"),
+                    text: $browserAddress
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .onSubmit {
+                    navigateBrowser()
                 }
-        } else {
-            VStack(spacing: 8) {
-                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                    .font(.system(size: 24, weight: .regular))
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "sidebar.workspaceInspector.noPullRequest", defaultValue: "No pull request URL"))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                .accessibilityLabel(
+                    String(localized: "sidebar.workspaceInspector.browserOmnibarLabel", defaultValue: "Browser omnibar")
+                )
+
+                Button {
+                    navigateBrowser()
+                } label: {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.workspaceInspector.browserGo", defaultValue: "Go"))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(12)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
+
+            Divider()
+
+            CmuxExtensionBrowserWebView(url: $browserURL)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func navigateBrowser() {
+        let trimmed = browserAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if let url = resolveBrowserNavigableURL(trimmed) {
+            browserURL = url
+            browserAddress = url.absoluteString
+            return
+        }
+
+        guard let searchURL = BrowserSearchSettings.currentSearchEngine().searchURL(query: trimmed) else { return }
+        browserURL = searchURL
+        browserAddress = searchURL.absoluteString
     }
 }
 
-private struct CmuxExtensionPullRequestWebView: NSViewRepresentable {
-    let url: URL
+private struct CmuxExtensionBrowserWebView: NSViewRepresentable {
+    @Binding var url: URL?
 
     func makeNSView(context: Context) -> WKWebView {
         let webView = WKWebView()
-        webView.load(URLRequest(url: url))
+        webView.navigationDelegate = context.coordinator
+        if let url {
+            context.coordinator.requestedURL = url
+            webView.load(URLRequest(url: url))
+        }
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        guard webView.url != url else { return }
+        context.coordinator.parent = self
+        guard let url else { return }
+        guard webView.url?.absoluteString != url.absoluteString else { return }
+        guard context.coordinator.requestedURL?.absoluteString != url.absoluteString else { return }
+        context.coordinator.requestedURL = url
         webView.load(URLRequest(url: url))
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: CmuxExtensionBrowserWebView
+        var requestedURL: URL?
+
+        init(parent: CmuxExtensionBrowserWebView) {
+            self.parent = parent
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            parent.url = webView.url
+            requestedURL = webView.url
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.url = webView.url
+            requestedURL = webView.url
+        }
     }
 }
 
@@ -14571,14 +14836,14 @@ private final class CmuxExtensionWorkspaceDetailWindowController {
     static func show(
         workspaceId: UUID,
         workspaceTitle: String,
-        pullRequestURLs: [URL],
+        suggestedBrowserURLs: [URL],
         preferredTab: CmuxExtensionWorkspacePopoverTab
     ) {
         var selectedTab = preferredTab
         let rootView = CmuxExtensionWorkspacePopoverView(
             workspaceId: workspaceId,
             workspaceTitle: workspaceTitle,
-            pullRequestURLs: pullRequestURLs,
+            suggestedBrowserURLs: suggestedBrowserURLs,
             selectedTab: Binding(
                 get: { selectedTab },
                 set: { selectedTab = $0 }

@@ -140,6 +140,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestSubmittedMessage: String? = nil,
+        latestSubmittedAt: Date? = nil,
         compactGitBranchSummaryText: String? = nil,
         compactBranchDirectoryRow: String? = nil,
         listeningPorts: [Int] = []
@@ -154,6 +155,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteStateHelpText: "",
             copyableSidebarSSHError: nil,
             latestSubmittedMessage: latestSubmittedMessage,
+            latestSubmittedAt: latestSubmittedAt,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,

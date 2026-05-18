@@ -30,6 +30,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id])
         XCTAssertEqual(manager.selectedTabId, second.id)
         XCTAssertEqual(third.latestSubmittedMessage, "implement this now")
+        XCTAssertNotNil(third.latestSubmittedAt)
     }
 
     func testPromptSubmitDoesNothingWhenIMessageModeDisabled() throws {
@@ -51,6 +52,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(outcome.index, 2)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
         XCTAssertNil(third.latestSubmittedMessage)
+        XCTAssertNil(third.latestSubmittedAt)
     }
 
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
@@ -79,6 +81,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertTrue(outcome.reordered)
         XCTAssertEqual(manager.tabs.map(\.id), [second.id, first.id])
         XCTAssertEqual(second.latestSubmittedMessage, "shipped from feed path")
+        XCTAssertNotNil(second.latestSubmittedAt)
     }
 
     func testFeedPromptSubmitEventFallsBackToContextMessage() {
@@ -110,8 +113,22 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         let workspace = Workspace()
 
         XCTAssertTrue(workspace.recordSubmittedMessage("keep this preview"))
+        let submittedAt = workspace.latestSubmittedAt
         XCTAssertFalse(workspace.recordSubmittedMessage(" \n "))
         XCTAssertEqual(workspace.latestSubmittedMessage, "keep this preview")
+        XCTAssertEqual(workspace.latestSubmittedAt, submittedAt)
+    }
+
+    func testRepeatedSubmittedMessageStillRefreshesLastSubmittedTime() {
+        let workspace = Workspace()
+
+        XCTAssertTrue(workspace.recordSubmittedMessage("repeat me"))
+        let firstSubmittedAt = workspace.latestSubmittedAt
+        XCTAssertTrue(workspace.recordSubmittedMessage("repeat me"))
+
+        XCTAssertEqual(workspace.latestSubmittedMessage, "repeat me")
+        XCTAssertNotNil(firstSubmittedAt)
+        XCTAssertNotNil(workspace.latestSubmittedAt)
     }
 
     func testIMessageModeUsesManagedSettingsKey() throws {

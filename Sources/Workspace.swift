@@ -7197,6 +7197,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
     @Published private(set) var latestSubmittedMessage: String?
+    @Published private(set) var latestSubmittedAt: Date?
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -7280,6 +7281,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($terminalScrollBarHidden),
             sidebarObservationSignal($latestSubmittedMessage),
+            sidebarObservationSignal($latestSubmittedAt),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -8685,6 +8687,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDKeysByPanelId.removeAll()
         agentListeningPorts.removeAll()
         latestSubmittedMessage = nil
+        latestSubmittedAt = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -8996,8 +8999,8 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func recordSubmittedMessage(_ message: String?) -> Bool {
         guard let preview = Self.submittedMessagePreview(from: message) else { return false }
-        guard latestSubmittedMessage != preview else { return false }
         latestSubmittedMessage = preview
+        latestSubmittedAt = Date()
         return true
     }
 

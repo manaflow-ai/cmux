@@ -178,6 +178,7 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "project-tree"), .projectTree)
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "attention"), .attention)
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "servers"), .servers)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "last-message"), .lastMessage)
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "unknown"), .projectTree)
     }
 
@@ -200,11 +201,67 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         )
         XCTAssertEqual(
             SidebarWorkspaceListStyleSettings.providerDescriptor(
+                for: CmuxExtensionSidebarProviderID.lastMessage,
+                legacyTreePrototypeEnabled: false,
+                legacyCustomizationModeRawValue: "servers"
+            ).id,
+            CmuxExtensionSidebarProviderID.lastMessage
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceListStyleSettings.providerDescriptor(
                 for: CmuxExtensionSidebarProviderID.defaultWorkspaces,
                 legacyTreePrototypeEnabled: true,
                 legacyCustomizationModeRawValue: "servers"
             ).id,
             CmuxExtensionSidebarProviderID.servers
+        )
+    }
+
+    func testLastMessageSectionsSortByLatestSubmittedAtAndKeepNoMessageWorkspaces() {
+        let olderDate = Date(timeIntervalSinceReferenceDate: 10)
+        let newerDate = Date(timeIntervalSinceReferenceDate: 20)
+        let older = workspaceSnapshot(
+            title: "Older",
+            latestSubmittedMessage: "older prompt",
+            latestSubmittedAt: olderDate
+        )
+        let empty = workspaceSnapshot(title: "Empty")
+        let newer = workspaceSnapshot(
+            title: "Newer",
+            latestSubmittedMessage: "newer prompt",
+            latestSubmittedAt: newerDate
+        )
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: nil,
+            workspaces: [older, empty, newer]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot, mode: .lastMessage)
+
+        XCTAssertEqual(sections.map(\.id), ["last-message:recent", "last-message:none"])
+        XCTAssertEqual(sections[0].workspaceIds, [newer.id, older.id])
+        XCTAssertEqual(sections[1].workspaceIds, [empty.id])
+    }
+
+    func testCompactRelativeTimeFormatterUsesCoarseRefreshCadence() {
+        let now = Date(timeIntervalSinceReferenceDate: 1_000_000)
+
+        XCTAssertEqual(
+            CmuxExtensionCompactRelativeTimeFormatter.refreshInterval(for: now.addingTimeInterval(-5), now: now),
+            5
+        )
+        XCTAssertEqual(
+            CmuxExtensionCompactRelativeTimeFormatter.refreshInterval(for: now.addingTimeInterval(-90), now: now),
+            60
+        )
+        XCTAssertEqual(
+            CmuxExtensionCompactRelativeTimeFormatter.refreshInterval(for: now.addingTimeInterval(-4_000), now: now),
+            3_600
+        )
+        XCTAssertEqual(
+            CmuxExtensionCompactRelativeTimeFormatter.refreshInterval(for: now.addingTimeInterval(-90_000), now: now),
+            86_400
         )
     }
 
@@ -259,6 +316,8 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         projectRootPath: String? = nil,
         remoteDisplayTarget: String? = nil,
         unreadCount: Int = 0,
+        latestSubmittedMessage: String? = nil,
+        latestSubmittedAt: Date? = nil,
         listeningPorts: [Int] = []
     ) -> CmuxExtensionWorkspaceSnapshot {
         CmuxExtensionWorkspaceSnapshot(
@@ -273,6 +332,8 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
             remoteConnectionState: remoteDisplayTarget == nil ? nil : "connected",
             unreadCount: unreadCount,
             latestNotificationText: nil,
+            latestSubmittedMessage: latestSubmittedMessage,
+            latestSubmittedAt: latestSubmittedAt,
             listeningPorts: listeningPorts
         )
     }

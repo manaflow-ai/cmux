@@ -9,6 +9,8 @@ state bridge.
 - `CmuxExtensionSidebarEvent`: retained state deltas for replay and testing.
 - `CmuxExtensionSidebarProviderDescriptor`: selectable sidebar providers.
 - `CmuxExtensionSidebarProvider`: a render contract from snapshot to rows.
+- `CmuxExtensionSidebarContextualProvider`: an opt-in render contract for
+  host-scheduled values such as relative dates.
 - `CmuxExtensionSidebarMutation`: typed requests back into the host.
 
 The host owns the source of truth. Extensions should not poll app internals or
@@ -45,6 +47,7 @@ The built-in providers are:
 - `cmux.sidebar.project-tree`
 - `cmux.sidebar.attention`
 - `cmux.sidebar.servers`
+- `cmux.sidebar.last-message`
 
 Right-click the left sidebar button to switch providers. The command palette
 also exposes `Sidebar: ...` commands, so `Command-Shift-P` can switch the active
@@ -55,9 +58,17 @@ The project-tree provider renders workspace rows through
 accessory. The host currently implements the accessory as a popover with:
 
 - `Notes`, persisted by workspace id in local defaults.
-- `Pull Request`, a WebKit view pointed at the first workspace PR URL.
+- `Browser`, a WebKit view with an omnibar. The first workspace PR URL is only
+  used as an initial suggestion when one exists.
 - `Open Window`, a host presentation action equivalent to
   `CmuxExtensionSidebarPresentationRequest.openWorkspaceWindow`.
+
+All prototype ExtensionKit providers render through the same virtualized
+sidebar path. Row text can be plain, localized, or a host-formatted relative
+date. The last-message provider uses `latestSubmittedMessage` and
+`latestSubmittedAt` from the workspace snapshot, groups recent messages ahead of
+empty workspaces, and lets the host update visible relative timestamps with one
+coarse `TimelineView` schedule.
 
 ## End-User Shape
 
@@ -84,6 +95,18 @@ struct MySidebar: CmuxExtensionSidebarProvider {
             sections: []
         )
     }
+}
+```
+
+Providers that need live host-formatted values can also conform to
+`CmuxExtensionSidebarContextualProvider`:
+
+```swift
+func render(
+    snapshot: CmuxExtensionSidebarSnapshot,
+    context: CmuxExtensionSidebarRenderContext
+) -> CmuxExtensionSidebarRenderModel {
+    // Return .relativeDate(...) text for values the host should refresh.
 }
 ```
 

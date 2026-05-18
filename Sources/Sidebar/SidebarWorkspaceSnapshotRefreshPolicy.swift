@@ -27,6 +27,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             remoteStateHelpText: remoteStateHelpText,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestSubmittedMessage: latestSubmittedMessage,
+            latestSubmittedAt: latestSubmittedAt,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,

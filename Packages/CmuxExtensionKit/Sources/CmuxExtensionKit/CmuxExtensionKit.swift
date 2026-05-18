@@ -42,6 +42,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
     public var remoteConnectionState: String?
     public var unreadCount: Int
     public var latestNotificationText: String?
+    public var latestSubmittedMessage: String?
+    public var latestSubmittedAt: Date?
     public var listeningPorts: [Int]
     public var pullRequestURLs: [String]
 
@@ -57,6 +59,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         remoteConnectionState: String?,
         unreadCount: Int,
         latestNotificationText: String?,
+        latestSubmittedMessage: String? = nil,
+        latestSubmittedAt: Date? = nil,
         listeningPorts: [Int],
         pullRequestURLs: [String] = []
     ) {
@@ -71,6 +75,8 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         self.remoteConnectionState = remoteConnectionState
         self.unreadCount = unreadCount
         self.latestNotificationText = latestNotificationText
+        self.latestSubmittedMessage = latestSubmittedMessage
+        self.latestSubmittedAt = latestSubmittedAt
         self.listeningPorts = listeningPorts
         self.pullRequestURLs = pullRequestURLs
     }
@@ -140,12 +146,14 @@ public enum CmuxExtensionSidebarProviderID {
     public static let projectTree = "cmux.sidebar.project-tree"
     public static let attention = "cmux.sidebar.attention"
     public static let servers = "cmux.sidebar.servers"
+    public static let lastMessage = "cmux.sidebar.last-message"
 }
 
 public enum CmuxExtensionSidebarCustomizationMode: String, Codable, Equatable, Sendable {
     case projectTree = "project-tree"
     case attention
     case servers
+    case lastMessage = "last-message"
 
     public var allowsProjectWorktreeActions: Bool {
         self == .projectTree
@@ -236,11 +244,27 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
         isHostProvided: true
     )
 
+    public static let lastMessage = CmuxExtensionSidebarProviderDescriptor(
+        id: CmuxExtensionSidebarProviderID.lastMessage,
+        title: CmuxExtensionLocalizedText(
+            key: "sidebar.provider.lastMessage.title",
+            defaultValue: "Last Message"
+        ),
+        subtitle: CmuxExtensionLocalizedText(
+            key: "sidebar.provider.lastMessage.subtitle",
+            defaultValue: "CmuxExtensionKit"
+        ),
+        systemImageName: "clock",
+        mode: .lastMessage,
+        isHostProvided: true
+    )
+
     public static let builtInProviders: [CmuxExtensionSidebarProviderDescriptor] = [
         .defaultWorkspaces,
         .projectTree,
         .attention,
         .servers,
+        .lastMessage,
     ]
 }
 
@@ -277,7 +301,36 @@ public struct CmuxExtensionWorkspaceTreeSection: Identifiable, Codable, Equatabl
 
 public enum CmuxExtensionWorkspacePopoverTab: String, Codable, CaseIterable, Equatable, Sendable {
     case notes
+    case browser
     case pullRequest
+
+    public static let allCases: [CmuxExtensionWorkspacePopoverTab] = [.notes, .browser]
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        switch value {
+        case Self.notes.rawValue:
+            self = .notes
+        case Self.browser.rawValue, Self.pullRequest.rawValue:
+            self = .browser
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown workspace popover tab: \(value)"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .notes:
+            try container.encode(Self.notes.rawValue)
+        case .browser, .pullRequest:
+            try container.encode(Self.browser.rawValue)
+        }
+    }
 }
 
 public enum CmuxExtensionWorkspaceRowAccessoryKind: String, Codable, Equatable, Sendable {
@@ -306,22 +359,47 @@ public struct CmuxExtensionWorkspaceRowAccessory: Codable, Equatable, Sendable {
     )
 }
 
+public enum CmuxExtensionSidebarRelativeDateStyle: String, Codable, Equatable, Sendable {
+    case compact
+}
+
+public enum CmuxExtensionSidebarRenderText: Codable, Equatable, Sendable {
+    case plain(String)
+    case localized(CmuxExtensionLocalizedText)
+    case relativeDate(Date, style: CmuxExtensionSidebarRelativeDateStyle)
+
+    public var relativeDate: Date? {
+        switch self {
+        case .plain, .localized:
+            return nil
+        case .relativeDate(let date, _):
+            return date
+        }
+    }
+}
+
 public struct CmuxExtensionSidebarRenderRow: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var title: String
     public var workspaceId: UUID
     public var accessory: CmuxExtensionWorkspaceRowAccessory?
+    public var subtitle: CmuxExtensionSidebarRenderText?
+    public var trailingText: CmuxExtensionSidebarRenderText?
 
     public init(
         id: UUID,
         title: String,
         workspaceId: UUID,
-        accessory: CmuxExtensionWorkspaceRowAccessory?
+        accessory: CmuxExtensionWorkspaceRowAccessory?,
+        subtitle: CmuxExtensionSidebarRenderText? = nil,
+        trailingText: CmuxExtensionSidebarRenderText? = nil
     ) {
         self.id = id
         self.title = title
         self.workspaceId = workspaceId
         self.accessory = accessory
+        self.subtitle = subtitle
+        self.trailingText = trailingText
     }
 }
 
@@ -357,6 +435,16 @@ public struct CmuxExtensionSidebarRenderModel: Codable, Equatable, Sendable {
     }
 }
 
+public extension CmuxExtensionSidebarRenderModel {
+    var relativeTextDates: [Date] {
+        sections.flatMap { section in
+            section.rows.flatMap { row in
+                [row.subtitle?.relativeDate, row.trailingText?.relativeDate].compactMap { $0 }
+            }
+        }
+    }
+}
+
 public enum CmuxExtensionSidebarPresentationRequest: Codable, Equatable, Sendable {
     case openWorkspacePopover(workspaceId: UUID, preferredTab: CmuxExtensionWorkspacePopoverTab)
     case openWorkspaceWindow(workspaceId: UUID, preferredTab: CmuxExtensionWorkspacePopoverTab)
@@ -370,13 +458,35 @@ public enum CmuxExtensionSidebarMutation: Codable, Equatable, Sendable {
     case present(CmuxExtensionSidebarPresentationRequest)
 }
 
+public struct CmuxExtensionSidebarRenderContext: Codable, Equatable, Sendable {
+    public var now: Date
+
+    public init(now: Date) {
+        self.now = now
+    }
+
+    public static var current: CmuxExtensionSidebarRenderContext {
+        CmuxExtensionSidebarRenderContext(now: Date())
+    }
+}
+
 public protocol CmuxExtensionSidebarProvider: Sendable {
     var descriptor: CmuxExtensionSidebarProviderDescriptor { get }
 
     func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel
 }
 
-public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarProvider {
+public protocol CmuxExtensionSidebarContextualProvider: CmuxExtensionSidebarProvider {
+    func render(snapshot: CmuxExtensionSidebarSnapshot, context: CmuxExtensionSidebarRenderContext) -> CmuxExtensionSidebarRenderModel
+}
+
+public extension CmuxExtensionSidebarProvider {
+    func render(snapshot: CmuxExtensionSidebarSnapshot, context: CmuxExtensionSidebarRenderContext) -> CmuxExtensionSidebarRenderModel {
+        render(snapshot: snapshot)
+    }
+}
+
+public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarContextualProvider {
     public var descriptor: CmuxExtensionSidebarProviderDescriptor
 
     public init(descriptor: CmuxExtensionSidebarProviderDescriptor) {
@@ -384,11 +494,19 @@ public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarProvider {
     }
 
     public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
-        render(snapshot: snapshot, localize: { $0.defaultValue })
+        render(snapshot: snapshot, context: .current, localize: { $0.defaultValue })
     }
 
     public func render(
         snapshot: CmuxExtensionSidebarSnapshot,
+        context: CmuxExtensionSidebarRenderContext
+    ) -> CmuxExtensionSidebarRenderModel {
+        render(snapshot: snapshot, context: context, localize: { $0.defaultValue })
+    }
+
+    public func render(
+        snapshot: CmuxExtensionSidebarSnapshot,
+        context: CmuxExtensionSidebarRenderContext = .current,
         localize: CmuxExtensionWorkspaceTreeBuilder.Localize
     ) -> CmuxExtensionSidebarRenderModel {
         let mode = descriptor.mode ?? .projectTree
@@ -407,12 +525,48 @@ public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarProvider {
                             id: workspace.id,
                             title: workspace.title,
                             workspaceId: workspace.id,
-                            accessory: .inspector
+                            accessory: .inspector,
+                            subtitle: Self.subtitle(for: workspace, mode: mode),
+                            trailingText: Self.trailingText(for: workspace, mode: mode)
                         )
                     }
                 )
             }
         )
+    }
+
+    private static func subtitle(
+        for workspace: CmuxExtensionWorkspaceSnapshot,
+        mode: CmuxExtensionSidebarCustomizationMode
+    ) -> CmuxExtensionSidebarRenderText? {
+        guard mode == .lastMessage else { return nil }
+        if let message = trimmedNonEmpty(workspace.latestSubmittedMessage) {
+            return .plain(message)
+        }
+        return .localized(
+            CmuxExtensionLocalizedText(
+                key: "sidebar.custom.lastMessage.none",
+                defaultValue: "No messages yet"
+            )
+        )
+    }
+
+    private static func trailingText(
+        for workspace: CmuxExtensionWorkspaceSnapshot,
+        mode: CmuxExtensionSidebarCustomizationMode
+    ) -> CmuxExtensionSidebarRenderText? {
+        guard mode == .lastMessage, let latestSubmittedAt = workspace.latestSubmittedAt else {
+            return nil
+        }
+        return .relativeDate(latestSubmittedAt, style: .compact)
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }
 
@@ -431,6 +585,8 @@ public enum CmuxExtensionWorkspaceTreeBuilder {
             return attentionSections(for: snapshot, localize: localize)
         case .servers:
             return serverSections(for: snapshot, localize: localize)
+        case .lastMessage:
+            return lastMessageSections(for: snapshot, localize: localize)
         }
     }
 
@@ -603,6 +759,46 @@ public enum CmuxExtensionWorkspaceTreeBuilder {
             workspaces: snapshot.workspaces.filter {
                 !$0.isPinned && !hasServerSignal($0) && trimmedNonEmpty($0.remoteDisplayTarget) == nil
             },
+            localize: localize,
+            to: &sections
+        )
+
+        return sections
+    }
+
+    private static func lastMessageSections(
+        for snapshot: CmuxExtensionSidebarSnapshot,
+        localize: Localize
+    ) -> [CmuxExtensionWorkspaceTreeSection] {
+        var sections: [CmuxExtensionWorkspaceTreeSection] = []
+        let withMessages = snapshot.workspaces
+            .filter { $0.latestSubmittedAt != nil }
+            .sorted { lhs, rhs in
+                guard let lhsDate = lhs.latestSubmittedAt else { return false }
+                guard let rhsDate = rhs.latestSubmittedAt else { return true }
+                return lhsDate > rhsDate
+            }
+
+        appendSection(
+            id: "last-message:recent",
+            title: CmuxExtensionLocalizedText(
+                key: "sidebar.custom.group.recentMessages",
+                defaultValue: "Recent Messages"
+            ),
+            systemImageName: "clock",
+            workspaces: withMessages,
+            localize: localize,
+            to: &sections
+        )
+
+        appendSection(
+            id: "last-message:none",
+            title: CmuxExtensionLocalizedText(
+                key: "sidebar.custom.group.noMessages",
+                defaultValue: "No Messages"
+            ),
+            systemImageName: "tray",
+            workspaces: snapshot.workspaces.filter { $0.latestSubmittedAt == nil },
             localize: localize,
             to: &sections
         )
