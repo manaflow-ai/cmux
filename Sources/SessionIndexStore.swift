@@ -1128,7 +1128,7 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
-        case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .opencode: return await loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .registered(let agent):
@@ -1423,9 +1423,22 @@ final class SessionIndexStore: ObservableObject {
 
     /// Returns OpenCode session entries paginated by `time_updated` desc.
     /// Empty needle skips the `LIKE` clause entirely so it's just `ORDER BY … LIMIT/OFFSET`.
-    /// Sync because the SQL pass is fast and SQLite's API is sync; the caller
-    /// awaits the wrapping `searchSessions`/`scanAll` boundaries.
     nonisolated private static func loadOpenCodeEntries(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        errorBag: ErrorBag
+    ) async -> [SessionEntry] {
+        await runSessionIndexBackgroundScan {
+            loadOpenCodeEntriesOnBackground(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: errorBag
+            )
+        }
+    }
+
+    nonisolated private static func loadOpenCodeEntriesOnBackground(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) -> [SessionEntry] {
