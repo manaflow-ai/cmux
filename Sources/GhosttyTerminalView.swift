@@ -1666,6 +1666,17 @@ class GhosttyApp {
         case never
     }
 
+    private enum SingletonConstructionPhase {
+        case constructing
+        case constructed
+    }
+
+    private struct RuntimeColorSchemeSync {
+        let colorScheme: GhosttyConfig.ColorSchemePreference
+        let runtimeColorScheme: ghostty_color_scheme_e
+        let source: String
+    }
+
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
@@ -1845,6 +1856,9 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
+    private var singletonConstructionPhase: SingletonConstructionPhase = .constructing
+    private var pendingInitialRuntimeColorSchemeSync: RuntimeColorSchemeSync?
+    private var activeRuntimeColorSchemeReloadPreference: GhosttyConfig.ColorSchemePreference?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -1931,6 +1945,7 @@ class GhosttyApp {
 
     private init() {
         initializeGhostty()
+        singletonConstructionPhase = .constructed
     }
 
     #if DEBUG
@@ -2001,10 +2016,11 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            GhosttyApp.instance(fromUserdata: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            guard let instance = GhosttyApp.instance(fromRuntimeApp: app) else { return false }
+            return instance.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
@@ -2154,7 +2170,11 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
-        synchronizeGhosttyRuntimeColorScheme(initialColorScheme, source: "initialize")
+        pendingInitialRuntimeColorSchemeSync = RuntimeColorSchemeSync(
+            colorScheme: initialColorScheme,
+            runtimeColorScheme: Self.ghosttyRuntimeColorScheme(for: initialColorScheme),
+            source: "initialize"
+        )
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -2183,6 +2203,16 @@ class GhosttyApp {
         })
 
         #endif
+    }
+
+    private static func instance(fromUserdata userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
+        guard let userdata else { return nil }
+        return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    private static func instance(fromRuntimeApp runtimeApp: ghostty_app_t?) -> GhosttyApp? {
+        guard let runtimeApp else { return nil }
+        return instance(fromUserdata: ghostty_app_userdata(runtimeApp))
     }
 
     private func loadInlineGhosttyConfig(
@@ -3119,6 +3149,8 @@ class GhosttyApp {
     }
 
     func tick() {
+        synchronizePendingInitialRuntimeColorSchemeIfNeeded()
+
         _tickLock.lock()
         _tickScheduled = false
         _tickLock.unlock()
@@ -3156,6 +3188,7 @@ class GhosttyApp {
             }
         }
         let reloadColorScheme = preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference()
+        synchronizePendingInitialRuntimeColorSchemeIfNeeded()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -3211,6 +3244,7 @@ class GhosttyApp {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
         )
+        synchronizePendingInitialRuntimeColorSchemeIfNeeded()
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
@@ -3261,11 +3295,41 @@ class GhosttyApp {
         source: String
     ) {
         guard let app else { return }
+        activeRuntimeColorSchemeReloadPreference = colorScheme
+        defer { activeRuntimeColorSchemeReloadPreference = nil }
         ghostty_app_set_color_scheme(app, runtimeColorScheme)
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
             logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
         }
+    }
+
+    private func synchronizePendingInitialRuntimeColorSchemeIfNeeded() {
+        guard pendingInitialRuntimeColorSchemeSync != nil else { return }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.sync {
+                self.synchronizePendingInitialRuntimeColorSchemeIfNeeded()
+            }
+            return
+        }
+        guard singletonConstructionPhase == .constructed,
+              let pending = pendingInitialRuntimeColorSchemeSync else { return }
+
+        pendingInitialRuntimeColorSchemeSync = nil
+        synchronizeGhosttyRuntimeColorScheme(
+            pending.runtimeColorScheme,
+            colorScheme: pending.colorScheme,
+            source: pending.source
+        )
+    }
+
+    func runtimeAppForSurfaceCreation(source: String) -> ghostty_app_t? {
+        synchronizePendingInitialRuntimeColorSchemeIfNeeded()
+        guard let app else {
+            logThemeAction("runtime app unavailable source=\(source)")
+            return nil
+        }
+        return app
     }
 
     func openConfigurationInTextEdit() {
@@ -3611,8 +3675,8 @@ class GhosttyApp {
                 source: source,
                 scope: .app
             )
-            DispatchQueue.main.async {
-                GhosttyApp.shared.applyBackgroundToKeyWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.applyBackgroundToKeyWindow()
             }
         case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
             applyDefaultBackground(
@@ -3754,6 +3818,8 @@ class GhosttyApp {
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
+        synchronizePendingInitialRuntimeColorSchemeIfNeeded()
+
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
                 action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -3805,7 +3871,11 @@ class GhosttyApp {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    GhosttyApp.shared.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+                    self.reloadConfiguration(
+                        soft: soft,
+                        source: "action.reload_config.app",
+                        preferredColorScheme: activeRuntimeColorSchemeReloadPreference
+                    )
                 }
                 return true
             }
@@ -3823,8 +3893,8 @@ class GhosttyApp {
                     source: "action.config_change.app",
                     scope: .app
                 )
-                DispatchQueue.main.async {
-                    GhosttyApp.shared.applyBackgroundToKeyWindow()
+                DispatchQueue.main.async { [weak self] in
+                    self?.applyBackgroundToKeyWindow()
                 }
                 return true
             }
@@ -4108,7 +4178,12 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                GhosttyApp.shared.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
+                self.reloadSurfaceConfiguration(
+                    target.target.surface,
+                    soft: soft,
+                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
+                    preferredColorScheme: activeRuntimeColorSchemeReloadPreference
+                )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
@@ -5381,7 +5456,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Self.surfaceLog("createSurface start surface=\(id.uuidString) tab=\(tabId.uuidString) bounds=\(view.bounds) inWindow=\(view.window != nil) resources=\(resourcesDir) terminfo=\(terminfo) xdg=\(xdg) manpath=\(manpath)")
         #endif
 
-        guard let app = GhosttyApp.shared.app else {
+        guard let app = GhosttyApp.shared.runtimeAppForSurfaceCreation(source: "surface.create") else {
             print("Ghostty app not initialized")
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
