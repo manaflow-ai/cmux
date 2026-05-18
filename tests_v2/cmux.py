@@ -52,22 +52,46 @@ _LAST_SOCKET_PATH_FILES = [
 ]
 
 
-def _sanitize_tag_slug(raw: str) -> str:
+def _sanitize_tag_slug(raw: str) -> Optional[str]:
     cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
     cleaned = re.sub(r"-+", "-", cleaned).strip("-")
-    return cleaned or "agent"
+    return cleaned or None
 
 
 def _socket_path_for_file_name(file_name: str) -> str:
     return str(_shared_socket_path_for_file_name(file_name))
 
 
+def _is_non_release_variant_socket_name(name: str) -> bool:
+    if not name.endswith(".sock"):
+        return False
+    return (
+        name == "cmux-staging.sock"
+        or name.startswith("cmux-staging-")
+        or name == "cmux-nightly.sock"
+        or name.startswith("cmux-nightly-")
+        or name == "cmux-debug.sock"
+        or name.startswith("cmux-debug-")
+        or (name.startswith("cmux-") and name != "cmux.sock")
+        or name == "com.cmuxterm.app.dev.sock"
+        or name.startswith("com.cmuxterm.app.dev.")
+        or name == "com.cmuxterm.app.nightly.sock"
+        or name.startswith("com.cmuxterm.app.nightly.")
+        or name == "com.cmuxterm.app.staging.sock"
+        or name.startswith("com.cmuxterm.app.staging.")
+    )
+
+
 def _read_last_socket_path() -> Optional[str]:
+    is_stable_client = not os.environ.get("CMUX_TAG")
     for marker_path in _LAST_SOCKET_PATH_FILES:
         try:
             with open(marker_path, "r", encoding="utf-8") as f:
                 path = f.read().strip()
-            if path:
+            if path and (
+                not is_stable_client
+                or not _is_non_release_variant_socket_name(os.path.basename(path))
+            ):
                 return path
         except OSError:
             continue
@@ -127,11 +151,17 @@ def _default_socket_path() -> str:
 
     if tag:
         slug = _sanitize_tag_slug(tag)
-        tagged_candidates = [
-            _socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"),
-            f"/tmp/cmux-debug-{slug}.sock",
-            f"/tmp/cmux-{slug}.sock",
-        ]
+        if slug:
+            tagged_candidates = [
+                _socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"),
+                f"/tmp/cmux-debug-{slug}.sock",
+                f"/tmp/cmux-{slug}.sock",
+            ]
+        else:
+            tagged_candidates = [
+                _socket_path_for_file_name("com.cmuxterm.app.dev.sock"),
+                "/tmp/cmux-debug.sock",
+            ]
         for path in tagged_candidates:
             if os.path.exists(path) and _can_connect(path):
                 return path
@@ -166,6 +196,11 @@ def _default_socket_path() -> str:
                 return path
 
     return candidates[0]
+
+
+class _DefaultSocketPath:
+    def __get__(self, obj: object, owner: Optional[type] = None) -> str:
+        return _default_socket_path()
 
 
 def _looks_like_uuid(s: str) -> bool:
@@ -228,7 +263,7 @@ def _unescape_backslash_controls(s: str) -> str:
 class cmux:
     """Client for controlling cmux via the v2 JSON Unix socket."""
 
-    DEFAULT_SOCKET_PATH = _default_socket_path()
+    DEFAULT_SOCKET_PATH = _DefaultSocketPath()
 
     def __init__(self, socket_path: str = None):
         # Resolve at init time so imports don't lock in stale socket paths.

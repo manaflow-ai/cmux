@@ -374,6 +374,31 @@ def python_client_default_socket_path(extra_env: dict[str, str]) -> str:
     return proc.stdout.strip()
 
 
+def python_v2_client_default_socket_path(extra_env: dict[str, str]) -> str:
+    env = os.environ.copy()
+    env.pop("CMUX_SOCKET_PATH", None)
+    env.pop("CMUX_SOCKET", None)
+    env.pop("CMUX_BUNDLE_ID", None)
+    env.pop("CMUX_TAG", None)
+    env.update(extra_env)
+
+    tests_v2_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests_v2")
+    python_path = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = tests_v2_dir if not python_path else f"{tests_v2_dir}{os.pathsep}{python_path}"
+
+    proc = subprocess.run(
+        [sys.executable, "-c", "from cmux import cmux; print(cmux().socket_path)"],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=8,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"tests_v2 cmux.py socket resolution failed: {proc.stderr!r}")
+    return proc.stdout.strip()
+
+
 def test_python_client_ignores_unknown_bundle_env() -> bool:
     expected_tagged_debug = "com.cmuxterm.app.debug.variant.test.tag"
     actual = python_client_default_bundle_id({
@@ -435,6 +460,66 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
         return False
 
     print("PASS: python client treats stable socket overrides as implicit for tagged debug")
+    return True
+
+
+def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
+    with temporary_socket_home("cmux-v2-empty-tag-") as home:
+        app_support = os.path.join(home, "Library", "Application Support", "cmux")
+        expected_socket = os.path.join(app_support, "com.cmuxterm.app.dev.sock")
+        actual = python_v2_client_default_socket_path({
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_TAG": "!!!",
+        })
+
+    if actual != expected_socket:
+        print("FAIL: tests_v2 client diverged from Swift empty tag slug handling")
+        print(f"expected={expected_socket!r}")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: tests_v2 client matches Swift empty tag slug handling")
+    return True
+
+
+def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
+    with temporary_socket_home("cmux-v2-marker-") as home:
+        app_support = Path(home) / "Library" / "Application Support" / "cmux"
+        app_support.mkdir(parents=True, exist_ok=True)
+        variant_socket = str(app_support / "com.cmuxterm.app.nightly.sock")
+        write_marker(home, "last-socket-path", variant_socket)
+
+        variant_server = PingServer(
+            variant_socket,
+            response=b'{"id":1,"ok":true,"result":{"pong":true}}\n',
+            accept_timeout=1.0,
+        )
+        variant_server.start()
+        if not variant_server.wait_ready(2.0):
+            print("FAIL: v2 variant socket server did not become ready")
+            return False
+        if variant_server.error is not None:
+            print(f"FAIL: v2 variant socket server failed to start: {variant_server.error}")
+            return False
+
+        actual = python_v2_client_default_socket_path({
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+        })
+
+        variant_server.join(timeout=2.0)
+        try:
+            os.remove(variant_socket)
+        except OSError:
+            pass
+
+    if actual == variant_socket:
+        print("FAIL: tests_v2 stable client followed a non-release marker")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: tests_v2 stable client ignores non-release variant markers")
     return True
 
 
@@ -800,6 +885,12 @@ def main() -> int:
         return 1
 
     if not test_python_client_treats_stable_override_as_implicit():
+        return 1
+
+    if not test_python_v2_client_matches_empty_swift_tag_slug():
+        return 1
+
+    if not test_python_v2_client_ignores_non_release_stable_marker():
         return 1
 
     print("PASS: cmux ping auto-discovers tagged socket from CMUX_TAG")
