@@ -656,7 +656,7 @@ extension RestorableAgentSessionIndex {
             )
             let command = codexSessionCommand(in: tail)
             let parentForkSessionId = command.flatMap { normalized($0.sessionId) }
-            let openFilePaths = command?.name == "fork" ? processOpenFilePaths(process.pid) : []
+            let openFilePaths = command?.name == "resume" ? [] : processOpenFilePaths(process.pid)
             let canUseForkMetadataFallback = command?.name == "fork"
                 && codexForkMetadataFallbackKey(
                     workingDirectory: workingDirectory,
@@ -807,6 +807,14 @@ extension RestorableAgentSessionIndex {
             }
             return CodexSessionResolution(sessionId: commandSessionId, isForkParentFallback: false)
         }
+        if let openSessionId = codexSessionIdFromOpenSessionFiles(
+            openFilePaths,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            return CodexSessionResolution(sessionId: openSessionId, isForkParentFallback: false)
+        }
         if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
             return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
         }
@@ -830,11 +838,15 @@ extension RestorableAgentSessionIndex {
     private static func codexSessionIdFromOpenSessionFiles(
         _ openFilePaths: [String],
         workingDirectory: String?,
-        parentSessionId: String,
+        parentSessionId: String? = nil,
         environment: [String: String],
         fileManager: FileManager
     ) -> String? {
-        guard let parentSessionId = normalized(parentSessionId) else { return nil }
+        let rawParentSessionId = parentSessionId
+        let normalizedParentSessionId = rawParentSessionId.flatMap { normalized($0) }
+        if rawParentSessionId != nil, normalizedParentSessionId == nil {
+            return nil
+        }
         let sessionsDirectory = codexHomeDirectory(environment: environment, fileManager: fileManager)
             .appendingPathComponent("sessions", isDirectory: true)
             .standardizedFileURL
@@ -854,10 +866,14 @@ extension RestorableAgentSessionIndex {
                   let meta = codexSessionMetaLine(fileURL: fileURL),
                   meta.type == nil || meta.type == "session_meta",
                   let payload = meta.payload,
-                  normalized(payload.forkedFromId) == parentSessionId,
-                  let sessionId = normalized(payload.id),
-                  sessionId != parentSessionId else {
+                  let sessionId = normalized(payload.id) else {
                 continue
+            }
+            if let normalizedParentSessionId {
+                guard normalized(payload.forkedFromId) == normalizedParentSessionId,
+                      sessionId != normalizedParentSessionId else {
+                    continue
+                }
             }
             let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
             let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast

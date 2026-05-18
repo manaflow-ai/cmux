@@ -3518,6 +3518,74 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectionUsesCodexOpenTranscriptForDirectSessionWhenThreadEnvironmentIsStale() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_130
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-direct-stale-env-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/codex direct repo"
+        let staleSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let actualSessionId = "019e396b-6d2b-7eb0-a409-91f09c2b49b3"
+        let transcript = try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: actualSessionId,
+            forkedFromId: nil,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 200),
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_130,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "--dangerously-bypass-approvals-and-sandbox"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "CODEX_THREAD_ID": staleSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            },
+            processOpenFilePaths: { pid in
+                pid == process.pid ? [transcript.path] : []
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, actualSessionId)
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex direct repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex direct repo' '019e396b-6d2b-7eb0-a409-91f09c2b49b3' '--dangerously-bypass-approvals-and-sandbox'"
+        )
+    }
+
     func testProcessDetectionUsesCodexForkChildThreadEnvironment() throws {
         let workspaceId = UUID()
         let panelId = UUID()
