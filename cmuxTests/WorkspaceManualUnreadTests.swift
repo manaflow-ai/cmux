@@ -414,6 +414,66 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: nextUnreadWorkspace.id), 0)
     }
 
+    func testJumpToLatestUnreadSkipsExcludedWorkspaceRetainedNotification() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalTabManager = appDelegate.tabManager
+
+        AppDelegate.shared = appDelegate
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        appDelegate.tabManager = manager
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        defer {
+            window.orderOut(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let currentWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let currentPanelId = try XCTUnwrap(currentWorkspace.focusedPanelId)
+        let nextUnreadWorkspace = manager.addWorkspace(title: "Next unread", select: false)
+        let nextPanelId = try XCTUnwrap(nextUnreadWorkspace.focusedPanelId)
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: currentWorkspace.id,
+                surfaceId: currentPanelId,
+                title: "Excluded workspace notification",
+                subtitle: "",
+                body: "",
+                createdAt: Date.now,
+                isRead: false
+            ),
+        ])
+        nextUnreadWorkspace.markPanelUnread(nextPanelId)
+        manager.focusTab(currentWorkspace.id, surfaceId: currentPanelId)
+
+        _ = appDelegate.jumpToLatestUnread(excludingWorkspaceId: currentWorkspace.id)
+
+        XCTAssertEqual(manager.selectedTabId, nextUnreadWorkspace.id)
+        XCTAssertEqual(manager.focusedSurfaceId(for: nextUnreadWorkspace.id), nextPanelId)
+        XCTAssertEqual(store.unreadCount(forTabId: currentWorkspace.id), 1)
+        XCTAssertEqual(store.unreadCount(forTabId: nextUnreadWorkspace.id), 0)
+    }
+
     func testManualPanelUnreadClearsOnDirectTerminalInteraction() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
