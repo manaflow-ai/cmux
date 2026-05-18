@@ -12,6 +12,7 @@ struct AgentHibernationPlannerInput: Sendable {
     let isLive: Bool
     let isProtected: Bool
     let lifecycle: AgentHibernationLifecycleState
+    let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
 }
 
@@ -30,6 +31,7 @@ enum AgentHibernationPlanner {
             .filter { input in
                 !input.isProtected &&
                     input.lifecycle.allowsHibernation &&
+                    !input.hasUnconfirmedTerminalInput &&
                     now - input.lastActivityAt >= settings.idleSeconds
             }
             .sorted { lhs, rhs in
@@ -50,6 +52,7 @@ struct AgentHibernationRecord {
     let terminalPanel: TerminalPanel
     let agent: SessionRestorableAgentSnapshot
     let lifecycle: AgentHibernationLifecycleState
+    let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
     let isProtected: Bool
 }
@@ -68,6 +71,8 @@ final class AgentHibernationController {
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
 
     private init() {}
@@ -104,7 +109,8 @@ final class AgentHibernationController {
     }
 
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
     }
 
     func recordTerminalFocus(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
@@ -112,13 +118,16 @@ final class AgentHibernationController {
     }
 
     func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        lifecycleChangeByPanel[key] = recordedAt.timeIntervalSince1970
     }
 
-    private func recordActivity(workspaceId: UUID, panelId: UUID, recordedAt: Date) {
+    @discardableResult
+    private func recordActivity(workspaceId: UUID, panelId: UUID, recordedAt: Date) -> AgentHibernationPanelKey {
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         activityByPanel[key] = recordedAt.timeIntervalSince1970
         confirmations.removeValue(forKey: key)
+        return key
     }
 
     private func updateTimerForCurrentSettings() {
@@ -157,7 +166,9 @@ final class AgentHibernationController {
 
         let records = appDelegate.agentHibernationRecords(
             index: index,
-            activityByPanel: activityByPanel
+            activityByPanel: activityByPanel,
+            terminalInputByPanel: terminalInputByPanel,
+            lifecycleChangeByPanel: lifecycleChangeByPanel
         )
         let nowTime = now.timeIntervalSince1970
         let plannerInputs = records.map { record in
@@ -167,6 +178,7 @@ final class AgentHibernationController {
                 isLive: record.terminalPanel.surface.hasLiveSurface && !record.terminalPanel.isAgentHibernated,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
+                hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
                 lastActivityAt: record.lastActivityAt
             )
         }
@@ -191,6 +203,7 @@ final class AgentHibernationController {
         now: TimeInterval
     ) {
         guard record.lifecycle.allowsHibernation,
+              !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
               record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
@@ -240,7 +253,9 @@ extension AppDelegate {
     @MainActor
     func agentHibernationRecords(
         index: RestorableAgentSessionIndex,
-        activityByPanel: [AgentHibernationPanelKey: TimeInterval]
+        activityByPanel: [AgentHibernationPanelKey: TimeInterval],
+        terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval],
+        lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval]
     ) -> [AgentHibernationRecord] {
         var records: [AgentHibernationRecord] = []
         var seenManagers: Set<ObjectIdentifier> = []
@@ -261,6 +276,8 @@ extension AppDelegate {
                     let key = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
                     let indexActivity = index.updatedAt(workspaceId: workspace.id, panelId: panelId) ?? 0
                     let localActivity = activityByPanel[key] ?? 0
+                    let terminalInputAt = terminalInputByPanel[key] ?? 0
+                    let lifecycleChangeAt = lifecycleChangeByPanel[key] ?? 0
                     let createdAt = terminalPanel.surface.debugRuntimeSurfaceCreatedAt()?.timeIntervalSince1970
                         ?? terminalPanel.surface.debugCreatedAt().timeIntervalSince1970
                     let lifecycle = workspace.agentHibernationLifecycleState(
@@ -274,6 +291,7 @@ extension AppDelegate {
                             terminalPanel: terminalPanel,
                             agent: agent,
                             lifecycle: lifecycle,
+                            hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId)
                         )
