@@ -980,6 +980,7 @@
       "gettingStarted": "はじめに",
       "concepts": "コンセプト",
       "configuration": "設定",
+      "sessionRestore": "セッション復元",
       "customCommands": "カスタムコマンド",
       "keyboardShortcuts": "キーボードショートカット",
       "apiReference": "APIリファレンス",
