@@ -542,13 +542,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
     return True
 
 
-def main() -> int:
-    try:
-        cli_path = resolve_cmux_cli()
-    except Exception as exc:
-        print(f"FAIL: {exc}")
-        return 1
-
+def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
     tag = f"cli-autodiscover-{os.getpid()}"
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
     server = PingServer(socket_path)
@@ -556,11 +550,11 @@ def main() -> int:
 
     if not server.wait_ready(2.0):
         print("FAIL: socket server did not become ready")
-        return 1
+        return False
 
     if server.error is not None:
         print(f"FAIL: socket server failed to start: {server.error}")
-        return 1
+        return False
 
     env = os.environ.copy()
     env["CMUX_SOCKET_PATH"] = "/tmp/cmux.sock"
@@ -569,17 +563,24 @@ def main() -> int:
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
     try:
-        proc = subprocess.run(
-            [cli_path, "ping"],
-            text=True,
-            capture_output=True,
-            env=env,
-            timeout=8,
-            check=False,
-        )
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:
+            debug_cli = bundled_cli_for_variant(
+                cli_path,
+                apps,
+                "cmux DEV issue3542",
+                "com.cmuxterm.app.debug",
+            )
+            proc = subprocess.run(
+                [debug_cli, "ping"],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=8,
+                check=False,
+            )
     except Exception as exc:
         print(f"FAIL: invoking cmux ping failed: {exc}")
-        return 1
+        return False
     finally:
         server.join(timeout=2.0)
         try:
@@ -589,18 +590,31 @@ def main() -> int:
 
     if server.error is not None:
         print(f"FAIL: socket server error: {server.error}")
-        return 1
+        return False
 
     if proc.returncode != 0:
         print("FAIL: cmux ping returned non-zero status")
         print(f"stdout={proc.stdout!r}")
         print(f"stderr={proc.stderr!r}")
-        return 1
+        return False
 
     if proc.stdout.strip() != "PONG":
         print("FAIL: cmux ping did not use auto-discovered socket")
         print(f"stdout={proc.stdout!r}")
         print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
+def main() -> int:
+    try:
+        cli_path = resolve_cmux_cli()
+    except Exception as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
+    if not test_base_debug_cli_discovers_cmux_tag(cli_path):
         return 1
 
     if not test_variant_last_socket_markers(cli_path):
