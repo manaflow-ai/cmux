@@ -2,7 +2,10 @@ mod notifications;
 mod terminal;
 
 use adw::prelude::*;
-use cmux_core::{terminal::{TerminalCommand, TerminalSession}, APP_ID};
+use cmux_core::{
+    terminal::{TerminalCommand, TerminalSession},
+    APP_ID,
+};
 use gtk::glib;
 
 fn main() -> glib::ExitCode {

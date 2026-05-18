@@ -49,7 +49,9 @@ pub struct StateStore {
 impl StateStore {
     pub fn xdg() -> Result<Self, StorageError> {
         let config_dir = dirs::config_dir().ok_or(StorageError::MissingConfigDirectory)?;
-        Ok(Self { path: config_dir.join("cmux").join("state.json") })
+        Ok(Self {
+            path: config_dir.join("cmux").join("state.json"),
+        })
     }
 
     #[must_use]

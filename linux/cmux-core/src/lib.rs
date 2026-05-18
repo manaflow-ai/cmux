@@ -19,7 +19,10 @@ pub struct Workspace {
 impl Workspace {
     #[must_use]
     pub fn new(id: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { id: id.into(), title: title.into() }
+        Self {
+            id: id.into(),
+            title: title.into(),
+        }
     }
 }
 
