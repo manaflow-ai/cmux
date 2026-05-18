@@ -2801,11 +2801,20 @@ struct CMUXCLI {
             }
 
         case "current-window":
-            let response = try sendV1Command("current_window", client: client)
-            if jsonOutput {
-                print(jsonString(["window_id": response]))
+            if let globalWindowOverride {
+                let payload = try client.sendV2(method: "window.current", params: ["window_id": globalWindowOverride])
+                if jsonOutput {
+                    print(jsonString(formatIDs(payload, mode: idFormat)))
+                } else {
+                    print((payload["window_id"] as? String) ?? (payload["window_ref"] as? String) ?? "")
+                }
             } else {
-                print(response)
+                let response = try sendV1Command("current_window", client: client)
+                if jsonOutput {
+                    print(jsonString(["window_id": response]))
+                } else {
+                    print(response)
+                }
             }
 
         case "new-window":
@@ -3125,7 +3134,13 @@ struct CMUXCLI {
             try runSplitOff(commandName: "drag-surface-to-split", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "refresh-surfaces":
-            let response = try sendV1Command("refresh_surfaces", client: client)
+            let (windowOpt, remaining) = parseOption(commandArgs, name: "--window")
+            if let extra = remaining.first {
+                throw CLIError(message: "refresh-surfaces: unexpected argument '\(extra)'")
+            }
+            let windowHandle = try normalizeWindowHandle(windowOpt ?? globalWindowOverride, client: client)
+            let socketCmd = windowHandle.map { "refresh_surfaces --window \($0)" } ?? "refresh_surfaces"
+            let response = try sendV1Command(socketCmd, client: client)
             print(response)
         case "reload-config":
             if let unexpected = commandArgs.first {
@@ -3604,7 +3619,15 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "jump-to-unread":
-            let payload = try client.sendV2(method: "notification.jump_to_unread")
+            let (windowOpt, remaining) = parseOption(commandArgs, name: "--window")
+            if let extra = remaining.first {
+                throw CLIError(message: "jump-to-unread: unexpected argument '\(extra)'")
+            }
+            var params: [String: Any] = [:]
+            if let windowHandle = try normalizeWindowHandle(windowOpt ?? globalWindowOverride, client: client) {
+                params["window_id"] = windowHandle
+            }
+            let payload = try client.sendV2(method: "notification.jump_to_unread", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "clear-notifications":
@@ -10030,9 +10053,9 @@ struct CMUXCLI {
             """
         case "refresh-surfaces":
             return """
-            Usage: cmux refresh-surfaces
+            Usage: cmux refresh-surfaces [--window <id|ref|index>]
 
-            Refresh surface snapshots for the focused workspace.
+            Refresh surface snapshots for the focused workspace in the selected window.
             """
         case "reload-config":
             return """
@@ -10474,11 +10497,12 @@ struct CMUXCLI {
             """)
         case "jump-to-unread":
             return String(localized: "cli.help.jumpToUnread", defaultValue: """
-            Usage: cmux jump-to-unread
+            Usage: cmux jump-to-unread [--window <id|ref|index>]
 
             Focus the latest unread notification, matching the Notifications page action.
 
             Flags:
+              --window <id|ref|index>  Limit the unread lookup to one window
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
             """)

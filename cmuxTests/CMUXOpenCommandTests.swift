@@ -631,6 +631,61 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
+    func testGlobalWindowOptionRoutesActiveContextCommandsWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-current",
+            arguments: ["--window", "window:2", "current-window"],
+            expectedMethod: "window.current"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+        }
+
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-jump",
+            arguments: ["--window", "window:2", "jump-to-unread"],
+            expectedMethod: "notification.jump_to_unread"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+        }
+
+        let socketPath = makeSocketPath("win-refresh")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = Self.v2Payload(from: line),
+               let id = payload["id"] as? String,
+               payload["method"] as? String == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+            guard line == "refresh_surfaces --window window:2" else {
+                return "ERROR: unexpected \(line)"
+            }
+            return "OK Refreshed 1 surfaces"
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "refresh-surfaces"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK Refreshed 1 surfaces\n")
+        XCTAssertEqual(state.commands, ["refresh_surfaces --window window:2"])
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")

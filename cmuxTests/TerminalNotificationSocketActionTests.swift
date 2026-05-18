@@ -234,6 +234,30 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.notification(openable.id)?.isRead, true)
     }
 
+    func testNotificationJumpToUnreadRejectsUnknownWindowInsteadOfActiveFallback() async throws {
+        let fixture = try makeSocketFixture(name: "notif-jump-window", includeWindow: true)
+        defer { fixture.cleanup() }
+
+        let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Target", select: false)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let notification = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Latest")
+        fixture.store.replaceNotificationsForTesting([notification])
+        fixture.manager.selectTab(fixture.workspace)
+        let selectedBefore = fixture.manager.selectedTabId
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.jump_to_unread",
+            params: ["window_id": UUID().uuidString],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(fixture.manager.selectedTabId, selectedBefore)
+        XCTAssertEqual(fixture.notification(notification.id)?.isRead, false)
+    }
+
     private struct SocketFixture {
         let socketPath: String
         let store: TerminalNotificationStore
