@@ -808,7 +808,7 @@ final class SessionIndexStore: ObservableObject {
         let updatedMs: Int64
         let parentSessionId: String?
         let lastAssistantJSON: String?
-        let firstMessageJSON: String?
+        let firstMessageHasToolControls: Bool
     }
 
     private struct OpenCodeMessageMetadata: Sendable {
@@ -1296,10 +1296,7 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func openCodeEntry(from record: OpenCodeSessionRecord) -> SessionEntry {
         let lastMessage = parseOpenCodeMessage(record.lastAssistantJSON)
-        let firstMessage = parseOpenCodeMessage(record.firstMessageJSON)
-        let providerModel = lastMessage.providerModel ?? firstMessage.providerModel
-        let agentName = lastMessage.agentName ?? firstMessage.agentName
-        let subagent = openCodeSubagentMetadata(from: record, firstMessage: firstMessage)
+        let subagent = openCodeSubagentMetadata(from: record)
         let fork = subagent == nil ? openCodeForkMetadata(from: record) : nil
 
         return SessionEntry(
@@ -1312,7 +1309,7 @@ final class SessionIndexStore: ObservableObject {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: TimeInterval(record.updatedMs) / 1000.0),
             fileURL: nil,
-            specifics: .opencode(providerModel: providerModel, agentName: agentName),
+            specifics: .opencode(providerModel: lastMessage.providerModel, agentName: lastMessage.agentName),
             subagent: subagent,
             fork: fork
         )
@@ -1331,11 +1328,12 @@ final class SessionIndexStore: ObservableObject {
         if fieldMatches(record.title) { return true }
         if fieldMatches(record.directory) { return true }
         if fieldMatches(record.parentSessionId) { return true }
-        if fieldMatches(record.firstMessageJSON) { return true }
-        if fieldMatches(record.lastAssistantJSON) { return true }
 
-        let firstMessage = parseOpenCodeMessage(record.firstMessageJSON)
-        let subagent = openCodeSubagentMetadata(from: record, firstMessage: firstMessage)
+        let lastMessage = parseOpenCodeMessage(record.lastAssistantJSON)
+        if fieldMatches(lastMessage.providerModel) { return true }
+        if fieldMatches(lastMessage.agentName) { return true }
+
+        let subagent = openCodeSubagentMetadata(from: record)
         if let subagent {
             if needle == "subagent" || needle == "subagents" { return true }
             if subagent.searchableTerms.contains(where: { fieldMatches($0) }) { return true }
@@ -1350,14 +1348,12 @@ final class SessionIndexStore: ObservableObject {
     }
 
     nonisolated private static func openCodeSubagentMetadata(
-        from record: OpenCodeSessionRecord,
-        firstMessage: OpenCodeMessageMetadata
+        from record: OpenCodeSessionRecord
     ) -> SessionSubagentMetadata? {
         guard let parentSessionId = normalizedOptionalString(record.parentSessionId) else { return nil }
         let roleFromTitle = openCodeSubagentRole(fromTitle: record.title)
-        let isSubagent = roleFromTitle != nil || firstMessage.hasToolControls
+        let isSubagent = roleFromTitle != nil || record.firstMessageHasToolControls
         guard isSubagent else { return nil }
-        let role = roleFromTitle ?? firstMessage.agentName
         return SessionSubagentMetadata(
             provider: .opencode,
             parentSessionId: parentSessionId,
@@ -1365,7 +1361,7 @@ final class SessionIndexStore: ObservableObject {
             depth: nil,
             status: nil,
             name: nil,
-            role: role,
+            role: roleFromTitle,
             parentFileURL: nil
         )
     }
@@ -2201,16 +2197,23 @@ final class SessionIndexStore: ObservableObject {
         defer { sqlite3_close(db) }
 
         let shouldFilterInSQL = !needle.isEmpty && !openCodeRelationshipNeedle(needle)
+        let needsFirstMessageToolCheck = openCodeRelationshipNeedle(needle)
+        let firstMessageToolsSelect = needsFirstMessageToolCheck
+            ? """
+            (
+                SELECT CASE WHEN data LIKE '%"tools":%' THEN 1 ELSE 0 END
+                FROM message
+                WHERE session_id = s.id
+                ORDER BY time_created ASC LIMIT 1
+            )
+            """
+            : "0"
         var sql = """
             SELECT s.id, s.title, s.directory, s.time_updated, s.parent_id, (
                 SELECT data FROM message
                 WHERE session_id = s.id AND data LIKE '%"role":"assistant"%'
                 ORDER BY time_created DESC LIMIT 1
-            ) AS last_assistant, (
-                SELECT data FROM message
-                WHERE session_id = s.id
-                ORDER BY time_created ASC LIMIT 1
-            ) AS first_message
+            ) AS last_assistant, \(firstMessageToolsSelect) AS first_message_has_tools
             FROM session s
             """
         var conditions: [String] = []
@@ -2258,7 +2261,7 @@ final class SessionIndexStore: ObservableObject {
                 updatedMs: sqlite3_column_int64(stmt, 3),
                 parentSessionId: sqliteText(stmt, 4),
                 lastAssistantJSON: sqliteText(stmt, 5),
-                firstMessageJSON: sqliteText(stmt, 6)
+                firstMessageHasToolControls: sqlite3_column_int(stmt, 6) != 0
             ))
         }
         guard !needle.isEmpty else {

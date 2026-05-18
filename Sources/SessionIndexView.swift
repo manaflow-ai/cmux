@@ -557,7 +557,8 @@ private struct IndexSectionView: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
             if !isCollapsed {
-                let rows = SessionTreeLayout.rows(from: section.entries)
+                let previewEntries = Array(section.entries.prefix(rowLimit + 1))
+                let rows = SessionTreeLayout.rows(from: previewEntries)
                 ForEach(Array(rows.prefix(rowLimit))) { row in
                     SessionRow(
                         entry: row.entry,
@@ -576,7 +577,7 @@ private struct IndexSectionView: View, Equatable {
                         .equatable()
                         .id(row.id)
                 }
-                if rows.count > rowLimit {
+                if section.entries.count > rowLimit || rows.count > rowLimit {
                     showMoreButton
                 }
                 Spacer(minLength: 2)
