@@ -35,7 +35,9 @@ class HookSocketServer:
         self.surface_id = surface_id
         self.commands: list[str] = []
         self.fail_next_needs_input_status = threading.Event()
+        self.fail_next_running_status = threading.Event()
         self.failed_needs_input_status_count = 0
+        self.failed_running_status_count = 0
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
@@ -109,6 +111,14 @@ class HookSocketServer:
             self.fail_next_needs_input_status.clear()
             self.failed_needs_input_status_count += 1
             return "ERROR: injected needs-input status failure"
+
+        if (
+            line.startswith("set_status claude_code Running ")
+            and self.fail_next_running_status.is_set()
+        ):
+            self.fail_next_running_status.clear()
+            self.failed_running_status_count += 1
+            return "ERROR: injected running status failure"
 
         if not line.startswith("{"):
             return "OK"
@@ -417,6 +427,57 @@ def main() -> int:
             "[Drop]",
         ):
             print("FAIL: state persistence failure should not block AskUserQuestion notification")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        pre_tool_running_failure_payload = {
+            "session_id": f"pre-tool-running-failure-{uuid.uuid4().hex}",
+            "hook_event_name": "PreToolUse",
+            "cwd": "/tmp/cmux-4257",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo ok"},
+        }
+        server.fail_next_running_status.set()
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            pre_tool_running_failure_payload,
+            env,
+        )
+
+        prompt_submit_running_failure_payload = {
+            "session_id": f"prompt-submit-running-failure-{uuid.uuid4().hex}",
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": "/tmp/cmux-4257",
+            "prompt": "continue",
+        }
+        server.fail_next_running_status.set()
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            prompt_submit_running_failure_payload,
+            env,
+        )
+
+        session_start_running_failure_payload = {
+            "session_id": f"session-start-running-failure-{uuid.uuid4().hex}",
+            "hook_event_name": "SessionStart",
+            "cwd": "/tmp/cmux-4257",
+            "source": "clear",
+        }
+        server.fail_next_running_status.set()
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "session-start",
+            session_start_running_failure_payload,
+            env,
+        )
+
+        if server.failed_running_status_count != 3:
+            print("FAIL: running status failures should be injected for all best-effort hook paths")
             print(f"commands={server.commands!r}")
             return 1
 

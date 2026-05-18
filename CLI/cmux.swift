@@ -16485,14 +16485,16 @@ struct CMUXCLI {
             }
             if isClearSessionStart {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-                try setClaudeStatus(
+                setClaudeStatusBestEffort(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     value: "Running",
                     icon: "bolt.fill",
                     color: "#4C8DFF",
-                    pid: claudePid
+                    pid: claudePid,
+                    telemetry: telemetry,
+                    stage: "claude-hook.session-start.set-status"
                 )
             }
             print("OK")
@@ -16547,13 +16549,15 @@ struct CMUXCLI {
                     )
                 }
 
-                try? setClaudeStatus(
+                setClaudeStatusBestEffort(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     value: "Idle",
                     icon: "pause.circle.fill",
-                    color: "#8E8E93"
+                    color: "#8E8E93",
+                    telemetry: telemetry,
+                    stage: "claude-hook.stop.set-status"
                 )
                 if let completion {
                     let title = String(
@@ -16625,13 +16629,15 @@ struct CMUXCLI {
                 stage: "claude-hook.prompt-submit.clear-needs-input-summary"
             )
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            try setClaudeStatus(
+            setClaudeStatusBestEffort(
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                telemetry: telemetry,
+                stage: "claude-hook.prompt-submit.set-status"
             )
             print("OK")
 
@@ -16822,14 +16828,16 @@ struct CMUXCLI {
             } else {
                 statusValue = "Running"
             }
-            try setClaudeStatus(
+            setClaudeStatusBestEffort(
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: claudePid,
+                telemetry: telemetry,
+                stage: "claude-hook.pre-tool-use.set-status"
             )
             print("OK")
 
@@ -16897,6 +16905,32 @@ struct CMUXCLI {
         _ = try sendV1Command(cmd, client: client)
     }
 
+    private func setClaudeStatusBestEffort(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String? = nil,
+        value: String,
+        icon: String,
+        color: String,
+        pid: Int? = nil,
+        telemetry: CLISocketSentryTelemetry,
+        stage: String
+    ) {
+        do {
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                value: value,
+                icon: icon,
+                color: color,
+                pid: pid
+            )
+        } catch {
+            telemetry.captureError(stage: stage, error: error)
+        }
+    }
+
     private func claudePreToolNeedsInputSummary(_ object: [String: Any]?) -> (subtitle: String, body: String)? {
         guard let toolName = object?["tool_name"] as? String,
               toolName == "AskUserQuestion" else {
@@ -16957,18 +16991,16 @@ struct CMUXCLI {
         }
 
         let statusValue = String(localized: "agent.claude.input.status.needsInput", defaultValue: "Needs input")
-        do {
-            try setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: statusValue,
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
-        } catch {
-            telemetry.captureError(stage: "claude-hook.publish-needs-input.set-status", error: error)
-        }
+        setClaudeStatusBestEffort(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            value: statusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            telemetry: telemetry,
+            stage: "claude-hook.publish-needs-input.set-status"
+        )
 
         do {
             return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
