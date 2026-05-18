@@ -4020,6 +4020,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
         )
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: oldWorkspaceId, panelId: oldPanelId)]?.snapshot
+        )
         XCTAssertEqual(snapshot.kind, .claude)
         XCTAssertEqual(snapshot.sessionId, "6a4f9b09-7144-48b5-b5b6-76a3d9c4b490")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved claude repo")
@@ -4067,6 +4070,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
+        )
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: oldWorkspaceId, panelId: oldPanelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .opencode)
         XCTAssertEqual(snapshot.sessionId, "opencode-moved-session")
@@ -4121,6 +4127,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
+        )
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: oldWorkspaceId, panelId: oldPanelId)]?.snapshot
         )
         XCTAssertEqual(latestLookups.count, 1)
         XCTAssertEqual(latestLookups.first?.workingDirectory, "/tmp/moved opencode fork repo")
