@@ -117,6 +117,45 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
+    func testMarkdownRendererHandleReusesCoordinatorAcrossViewRecreation() {
+        let handle = MarkdownWebRendererHandle()
+        let panelId = UUID()
+        let workspaceId = UUID()
+        let filePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stable-renderer.md")
+            .path
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+
+        let firstRenderer = MarkdownWebRenderer(
+            markdown: "# Existing\n",
+            theme: theme,
+            backgroundColor: .windowBackgroundColor,
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            handle: handle,
+            onRequestPanelFocus: {}
+        )
+        let firstCoordinator = firstRenderer.makeCoordinator()
+
+        let recreatedRenderer = MarkdownWebRenderer(
+            markdown: "# Existing\n",
+            theme: theme,
+            backgroundColor: .windowBackgroundColor,
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            handle: handle,
+            onRequestPanelFocus: {}
+        )
+        let recreatedCoordinator = recreatedRenderer.makeCoordinator()
+
+        XCTAssertTrue(
+            firstCoordinator === recreatedCoordinator,
+            "Markdown renderer should keep its coordinator across SwiftUI view recreation so existing previews do not reload and blink during drops."
+        )
+    }
+
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
