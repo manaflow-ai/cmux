@@ -313,6 +313,152 @@ private struct AgentIconImage: View, Equatable {
     }
 }
 
+struct SessionTreeRow: Identifiable, Equatable {
+    let entry: SessionEntry
+    let level: Int
+    let hasChildren: Bool
+
+    var id: SessionEntry.ID { entry.id }
+}
+
+enum SessionTreeLayout {
+    private struct ParentKey: Hashable {
+        let agent: String
+        let sessionId: String
+    }
+
+    static func rows(from entries: [SessionEntry]) -> [SessionTreeRow] {
+        guard !entries.isEmpty else { return [] }
+
+        let originalIndex = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($0.element.id, $0.offset) })
+        let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let parentCandidates = parentCandidatesByKey(entries)
+
+        var parentIDByChildID: [SessionEntry.ID: SessionEntry.ID] = [:]
+        var childrenByParentID: [SessionEntry.ID: [SessionEntry]] = [:]
+
+        for entry in entries {
+            guard let parentKey = parentKey(for: entry),
+                  let parent = preferredParent(
+                    for: entry,
+                    candidates: parentCandidates[parentKey] ?? [],
+                    originalIndex: originalIndex
+                  ) else { continue }
+            parentIDByChildID[entry.id] = parent.id
+            childrenByParentID[parent.id, default: []].append(entry)
+        }
+
+        for parentID in childrenByParentID.keys {
+            childrenByParentID[parentID]?.sort {
+                (originalIndex[$0.id] ?? Int.max) < (originalIndex[$1.id] ?? Int.max)
+            }
+        }
+
+        var rankMemo: [SessionEntry.ID: Int] = [:]
+        func rank(for entry: SessionEntry, visiting: Set<SessionEntry.ID> = []) -> Int {
+            if let memo = rankMemo[entry.id] { return memo }
+            guard !visiting.contains(entry.id) else {
+                return originalIndex[entry.id] ?? Int.max
+            }
+            var nextVisiting = visiting
+            nextVisiting.insert(entry.id)
+            let childRank = (childrenByParentID[entry.id] ?? [])
+                .compactMap { child -> Int? in
+                    guard entriesByID[child.id] != nil else { return nil }
+                    return rank(for: child, visiting: nextVisiting)
+                }
+                .min() ?? Int.max
+            let value = min(originalIndex[entry.id] ?? Int.max, childRank)
+            rankMemo[entry.id] = value
+            return value
+        }
+
+        let roots = entries
+            .filter { parentIDByChildID[$0.id] == nil }
+            .sorted {
+                let lhsRank = rank(for: $0)
+                let rhsRank = rank(for: $1)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return (originalIndex[$0.id] ?? Int.max) < (originalIndex[$1.id] ?? Int.max)
+            }
+
+        var output: [SessionTreeRow] = []
+        var emitted: Set<SessionEntry.ID> = []
+
+        func append(_ entry: SessionEntry, level: Int, visiting: Set<SessionEntry.ID>) {
+            guard emitted.insert(entry.id).inserted else { return }
+            let children = childrenByParentID[entry.id] ?? []
+            let rowLevel: Int = {
+                if entry.subagent != nil, level == 0 {
+                    return clampedLevel(entry.subagent?.depth ?? 1)
+                }
+                return clampedLevel(level)
+            }()
+            output.append(SessionTreeRow(entry: entry, level: rowLevel, hasChildren: !children.isEmpty))
+            guard !children.isEmpty, !visiting.contains(entry.id) else { return }
+            var nextVisiting = visiting
+            nextVisiting.insert(entry.id)
+            for child in children {
+                append(child, level: rowLevel + 1, visiting: nextVisiting)
+            }
+        }
+
+        for root in roots {
+            append(root, level: 0, visiting: [])
+        }
+        for entry in entries where !emitted.contains(entry.id) {
+            append(entry, level: clampedLevel(entry.subagent?.depth ?? 0), visiting: [])
+        }
+
+        return output
+    }
+
+    private static func parentCandidatesByKey(_ entries: [SessionEntry]) -> [ParentKey: [SessionEntry]] {
+        var candidates: [ParentKey: [SessionEntry]] = [:]
+        for entry in entries {
+            guard let key = ownKey(for: entry) else { continue }
+            candidates[key, default: []].append(entry)
+        }
+        return candidates
+    }
+
+    private static func ownKey(for entry: SessionEntry) -> ParentKey? {
+        let sessionId = normalized(entry.sessionId)
+        guard !sessionId.isEmpty else { return nil }
+        return ParentKey(agent: entry.agent.rawValue, sessionId: sessionId)
+    }
+
+    private static func parentKey(for entry: SessionEntry) -> ParentKey? {
+        let parentSessionId = normalized(entry.subagent?.parentSessionId)
+        guard !parentSessionId.isEmpty else { return nil }
+        return ParentKey(agent: entry.agent.rawValue, sessionId: parentSessionId)
+    }
+
+    private static func preferredParent(
+        for child: SessionEntry,
+        candidates: [SessionEntry],
+        originalIndex: [SessionEntry.ID: Int]
+    ) -> SessionEntry? {
+        candidates
+            .filter { $0.id != child.id }
+            .sorted {
+                if ($0.subagent == nil) != ($1.subagent == nil) {
+                    return $0.subagent == nil
+                }
+                return (originalIndex[$0.id] ?? Int.max) < (originalIndex[$1.id] ?? Int.max)
+            }
+            .first
+    }
+
+    private static func clampedLevel(_ level: Int) -> Int {
+        min(max(level, 0), 4)
+    }
+
+    private static func normalized(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}
+
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -405,23 +551,26 @@ private struct IndexSectionView: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
             if !isCollapsed {
-                ForEach(Array(section.entries.prefix(rowLimit))) { entry in
+                let rows = SessionTreeLayout.rows(from: section.entries)
+                ForEach(Array(rows.prefix(rowLimit))) { row in
                     SessionRow(
-                        entry: entry,
-                        isPreviewPresented: previewEntryId == entry.id,
+                        entry: row.entry,
+                        treeLevel: row.level,
+                        hasSubagentChildren: row.hasChildren,
+                        isPreviewPresented: previewEntryId == row.entry.id,
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
-                                actions.onPreviewEntry(entry)
+                                actions.onPreviewEntry(row.entry)
                             } else {
-                                actions.onDismissPreview(entry.id)
+                                actions.onDismissPreview(row.entry.id)
                             }
                         },
                         onResume: actions.onResume
                     )
                         .equatable()
-                        .id(entry.id)
+                        .id(row.id)
                 }
-                if section.entries.count > rowLimit {
+                if rows.count > rowLimit {
                     showMoreButton
                 }
                 Spacer(minLength: 2)
@@ -588,6 +737,8 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
+    let treeLevel: Int
+    let hasSubagentChildren: Bool
     let isPreviewPresented: Bool
     let onPreviewPresentationChange: (Bool) -> Void
     let onResume: ((SessionEntry) -> Void)?
@@ -597,14 +748,19 @@ private struct SessionRow: View, Equatable {
         // Skip body re-eval during scroll when the entry is unchanged.
         // The closure isn't compared (it comes from stable parent state).
         lhs.entry == rhs.entry &&
+            lhs.treeLevel == rhs.treeLevel &&
+            lhs.hasSubagentChildren == rhs.hasSubagentChildren &&
             lhs.isPreviewPresented == rhs.isPreviewPresented
     }
 
     var body: some View {
         HStack(spacing: 6) {
+            SessionTreePrefix(level: treeLevel)
             AgentIconImage(agent: entry.agent, size: 12)
             if let subagent = entry.subagent {
                 SubagentIndicator(metadata: subagent, size: 11)
+            } else if hasSubagentChildren {
+                SubagentParentIndicator(size: 11)
             }
             Text(entry.displayTitle)
                 .font(.system(size: 13))
@@ -698,6 +854,25 @@ private struct SessionRow: View, Equatable {
     }
 }
 
+private struct SessionTreePrefix: View, Equatable {
+    let level: Int
+
+    @ViewBuilder
+    var body: some View {
+        if level > 0 {
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: CGFloat(max(0, level - 1)) * 12)
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.55))
+                    .frame(width: 14, height: 14)
+            }
+            .frame(width: CGFloat(max(level, 1)) * 12 + 2, height: 14, alignment: .leading)
+        }
+    }
+}
+
 private struct SubagentIndicator: View, Equatable {
     let metadata: SessionSubagentMetadata
     let size: CGFloat
@@ -708,6 +883,17 @@ private struct SubagentIndicator: View, Equatable {
             .foregroundColor(.secondary.opacity(0.75))
             .frame(width: size + 3, height: size + 3)
             .help(subagentHelpLines(metadata).joined(separator: "\n"))
+    }
+}
+
+private struct SubagentParentIndicator: View, Equatable {
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: size, weight: .semibold))
+            .foregroundColor(.secondary.opacity(0.65))
+            .frame(width: size + 3, height: size + 3)
     }
 }
 
@@ -2086,9 +2272,13 @@ private struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
-                                onResume?(entry)
+                        ForEach(SessionTreeLayout.rows(from: loaded)) { row in
+                            PopoverRow(
+                                entry: row.entry,
+                                treeLevel: row.level,
+                                hasSubagentChildren: row.hasChildren
+                            ) {
+                                onResume?(row.entry)
                                 onDismiss()
                             }
                             .equatable()
@@ -2336,12 +2526,16 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let treeLevel: Int
+    let hasSubagentChildren: Bool
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
         lhs.entry == rhs.entry
+            && lhs.treeLevel == rhs.treeLevel
+            && lhs.hasSubagentChildren == rhs.hasSubagentChildren
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2372,9 +2566,12 @@ private struct PopoverRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 6) {
+            SessionTreePrefix(level: treeLevel)
             AgentIconImage(agent: entry.agent, size: 12)
             if let subagent = entry.subagent {
                 SubagentIndicator(metadata: subagent, size: 11)
+            } else if hasSubagentChildren {
+                SubagentParentIndicator(size: 11)
             }
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't

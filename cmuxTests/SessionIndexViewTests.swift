@@ -258,6 +258,62 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(results.map(\.id), ["codex-subagent"])
     }
 
+    func testSessionTreeLayoutNestsCodexSubagentUnderParent() {
+        let parent = makeEntry(
+            id: "codex-parent-row",
+            agent: .codex,
+            sessionId: "codex-parent",
+            title: "Parent Codex orchestrator"
+        )
+        let child = makeEntry(
+            id: "codex-child-row",
+            agent: .codex,
+            sessionId: "codex-child",
+            title: "Codex subagent Ada worker",
+            subagent: SessionSubagentMetadata(
+                provider: .codex,
+                parentSessionId: "codex-parent",
+                subagentId: "codex-child",
+                depth: 1,
+                status: "closed",
+                name: "Ada",
+                role: "worker",
+                parentFileURL: nil
+            )
+        )
+
+        let rows = SessionTreeLayout.rows(from: [child, parent])
+
+        XCTAssertEqual(rows.map { $0.entry.id }, ["codex-parent-row", "codex-child-row"])
+        XCTAssertEqual(rows.map(\.level), [0, 1])
+        XCTAssertEqual(rows.map(\.hasChildren), [true, false])
+    }
+
+    func testSessionTreeLayoutKeepsOrphanSubagentIndented() {
+        let child = makeEntry(
+            id: "claude-child-row",
+            agent: .claude,
+            sessionId: "parent-claude-session",
+            title: "Claude sidechain Nimbus researcher",
+            subagent: SessionSubagentMetadata(
+                provider: .claude,
+                parentSessionId: "parent-claude-session",
+                subagentId: "nimbus",
+                depth: 2,
+                status: nil,
+                name: "Nimbus",
+                role: "Explore",
+                parentFileURL: nil
+            )
+        )
+
+        let rows = SessionTreeLayout.rows(from: [child])
+
+        XCTAssertEqual(rows.map { $0.entry.id }, ["claude-child-row"])
+        XCTAssertEqual(rows.map(\.level), [2])
+        XCTAssertEqual(rows.map(\.hasChildren), [false])
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
