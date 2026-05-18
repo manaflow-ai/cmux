@@ -5981,7 +5981,7 @@ struct CMUXCLI {
                     )
                 }
 
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path) {
                     candidates.append(
                         current
@@ -12599,7 +12599,12 @@ struct CMUXCLI {
         let pid = topInt(process["pid"]).map(String.init) ?? "?"
         let name = topLabelText(process["name"] as? String)
         let label = name.isEmpty ? "process" : name
-        return "process \(pid) \(label)"
+        var parts = ["process", pid, label]
+        let attributionReason = topLabelText(process["attribution_reason"] as? String)
+        if !attributionReason.isEmpty {
+            parts.append("[\(attributionReason)]")
+        }
+        return parts.joined(separator: " ")
     }
 
     private func topResourceColumns(node: [String: Any]) -> String {
@@ -18603,7 +18608,12 @@ struct CMUXCLI {
         }
     }
 
-    private func retireCodexMonitorLeases(sessionId: String, turnId: String?, env: [String: String]) {
+    private func retireCodexMonitorLeases(
+        sessionId: String,
+        turnId: String?,
+        preservingLeasePath: String? = nil,
+        env: [String: String]
+    ) {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionId.isEmpty else { return }
 
@@ -18611,6 +18621,9 @@ struct CMUXCLI {
         let now = Date().timeIntervalSince1970
         let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let shouldMatchTurn = normalizedTurnId?.isEmpty == false
+        let preservingPath = preservingLeasePath.map {
+            URL(fileURLWithPath: $0, isDirectory: false).standardizedFileURL.path
+        }
         let directory = codexMonitorLeaseDirectory(env: env)
         let targetPaths = ((try? fileManager.contentsOfDirectory(
             at: directory,
@@ -18619,6 +18632,10 @@ struct CMUXCLI {
         )) ?? []).map(\.path)
 
         for path in targetPaths {
+            let standardizedPath = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.path
+            guard preservingPath == nil || standardizedPath != preservingPath else {
+                continue
+            }
             guard var record = readCodexMonitorLease(path: path),
                   record.sessionId == normalizedSessionId,
                   !shouldMatchTurn || record.turnId == normalizedTurnId,
@@ -20094,6 +20111,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hooksFilePath: filePath,
             def: def
         )
+        let codexHookTrustEscapedKeyPrefixes = Self.codexHookTrustEscapedKeyPrefixes(
+            hooksFilePath: filePath,
+            def: def
+        )
+        let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
@@ -20142,10 +20164,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     existingContent = ""
                 }
-                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
+                let trustClean = Self.codexConfigTomlRemovingHookTrust(
+                    in: existingContent,
+                    entries: codexHookTrustEntries,
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    removingTrustedHashes: codexLegacyHookTrustHashes
+                )
+                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
                 let trustInstall = Self.codexConfigTomlInstallingHookTrust(
                     in: featureContent,
-                    entries: codexHookTrustEntries
+                    entries: codexHookTrustEntries,
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    removingTrustedHashes: codexLegacyHookTrustHashes
                 )
                 let newContent = trustInstall.content
                 if newContent != existingContent {
@@ -20206,6 +20236,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         var hooks = json["hooks"] as? [String: Any] ?? [:]
+        let codexHookTrustEntriesToRemove = Self.codexHookTrustEntries(
+            hooks: hooks,
+            hooksFilePath: filePath,
+            def: def,
+            includeLegacyOwnedCommands: true
+        )
+        let codexStaleHookTrustHashesToRemove = Set(Self.codexHookTrustEntries(
+            hooks: buildHooksDict(for: def),
+            hooksFilePath: filePath,
+            def: def
+        ).map(\.trustedHash)).union(Self.codexLegacyHookTrustHashes(def: def))
+        let codexHookTrustEscapedKeyPrefixesToRemove = Self.codexHookTrustEscapedKeyPrefixes(
+            hooksFilePath: filePath,
+            def: def
+        )
         var removed = 0
 
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
@@ -20257,7 +20302,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } catch {
                     throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
                 }
-                let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
+                let newContent = Self.codexConfigTomlUninstallingHooksFeature(
+                    from: content,
+                    removingHookTrustEntries: codexHookTrustEntriesToRemove,
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixesToRemove,
+                    removingTrustedHashes: codexStaleHookTrustHashesToRemove
+                )
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
                     print("Removed Codex hooks feature from \(configPath)")
@@ -20298,6 +20348,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     private static let cmuxCodexHookTrustEnd =
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    private static let codexHookTrustTableHeaderRegex = try! NSRegularExpression(
+        pattern: #"^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\\n]|\\.)*)"\s*\]\s*(#.*)?$"#
+    )
 
     struct CodexHookTrustEntry: Equatable {
         let key: String
@@ -20318,9 +20371,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
-            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
-        }
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
 
@@ -20382,34 +20432,75 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return lines
     }
 
-    static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
+    static func codexConfigTomlUninstallingHooksFeature(
+        from existingContent: String,
+        removingHookTrustEntries entries: [CodexHookTrustEntry] = [],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
+    ) -> String {
         var lines = tomlLines(from: existingContent)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
+        if removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        ) == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
         return tomlContent(from: lines)
     }
 
+    private static func codexConfigTomlRemovingHookTrust(
+        in existingContent: String,
+        entries: [CodexHookTrustEntry],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
+    ) -> String {
+        var lines = tomlLines(from: existingContent)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
+        let removalResult = removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        )
+        if removalResult == .malformed {
+            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
+        }
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
+        return tomlContent(from: lines)
+    }
+
     private static func codexConfigTomlInstallingHookTrust(
         in existingContent: String,
-        entries: [CodexHookTrustEntry]
+        entries: [CodexHookTrustEntry],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
-        let removalResult = removeCmuxCodexHookTrustBlock(from: &lines)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
+        let removalResult = removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        )
         if removalResult == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         guard !entries.isEmpty else {
             return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
         }
-        removeCodexHookTrustTables(
-            withEscapedKeys: Set(entries.map { tomlBasicStringContent($0.key) }),
-            from: &lines
-        )
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
 
         if !lines.isEmpty, lines.last?.isEmpty == false {
             lines.append("")
@@ -20426,11 +20517,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexHookTrustEntries(
         hooks: [String: Any],
         hooksFilePath: String,
-        def: AgentHookDef
+        def: AgentHookDef,
+        includeLegacyOwnedCommands: Bool = false
     ) -> [CodexHookTrustEntry] {
         guard def.name == "codex" else { return [] }
         let isOwnedCommand: (String) -> Bool = { command in
-            isCmuxOwnedHookCommand(command, for: def, includeLegacy: false)
+            isCmuxOwnedHookCommand(command, for: def, includeLegacy: includeLegacyOwnedCommands)
         }
         var entries: [CodexHookTrustEntry] = []
         let keySource = codexNormalizedHookSourcePath(hooksFilePath)
@@ -20464,6 +20556,62 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         return entries
+    }
+
+    private static func codexHookTrustEscapedKeyPrefixes(
+        hooksFilePath: String,
+        def: AgentHookDef
+    ) -> Set<String> {
+        guard def.name == "codex" else { return [] }
+        return [tomlBasicStringContent("\(codexNormalizedHookSourcePath(hooksFilePath)):")]
+    }
+
+    private static func codexLegacyHookTrustHashes(def: AgentHookDef) -> Set<String> {
+        guard def.name == "codex" else { return [] }
+        let hookTimeoutMs: Int
+        if case .nested(let timeoutMs) = def.format {
+            hookTimeoutMs = timeoutMs
+        } else {
+            hookTimeoutMs = 600
+        }
+
+        var hashes = Set<String>()
+        func insertHashes(eventLabel: String, command: String, timeouts: [Int]) {
+            let commands = [
+                command,
+                "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'",
+            ]
+            for command in commands {
+                for timeout in timeouts {
+                    hashes.insert(codexCommandHookHash(
+                        eventLabel: eventLabel,
+                        matcher: nil,
+                        command: command,
+                        timeoutMs: timeout,
+                        statusMessage: nil
+                    ))
+                }
+            }
+        }
+
+        for event in def.events {
+            guard let eventLabel = codexHookEventLabel(event.agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: "cmux codex-hook \(event.cmuxSubcommand)",
+                timeouts: [hookTimeoutMs, 600]
+            )
+        }
+
+        for agentEvent in def.feedHookEvents {
+            guard let eventLabel = codexHookEventLabel(agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: "cmux feed-hook --source \(def.name) --event \(agentEvent)",
+                timeouts: [120_000, 600]
+            )
+        }
+        return hashes
     }
 
     private static func codexNormalizedHookSourcePath(_ path: String) -> String {
@@ -20715,8 +20863,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     @discardableResult
-    private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) -> CodexHookTrustBlockRemovalResult {
-        var ranges: [ClosedRange<Int>] = []
+    private static func removeCmuxCodexHookTrustBlock(
+        from lines: inout [String],
+        removingEscapedKeys escapedKeys: Set<String> = [],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes trustedHashes: Set<String> = []
+    ) -> CodexHookTrustBlockRemovalResult {
+        var replacements: [(range: ClosedRange<Int>, lines: [String])] = []
         var index = 0
         while index < lines.count {
             guard lines[index] == cmuxCodexHookTrustBegin else {
@@ -20727,14 +20880,94 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) else {
                 return .malformed
             }
-            ranges.append(index...endIndex)
+            let preservedLines = codexHookTrustBlockUnownedLines(
+                from: lines[(index + 1)..<endIndex],
+                removingEscapedKeys: escapedKeys,
+                removingEscapedKeyPrefixes: escapedKeyPrefixes,
+                removingTrustedHashes: trustedHashes
+            )
+            replacements.append((index...endIndex, preservedLines))
             index = endIndex + 1
         }
 
-        for range in ranges.reversed() {
-            lines.removeSubrange(range)
+        for replacement in replacements.reversed() {
+            lines.replaceSubrange(replacement.range, with: replacement.lines)
         }
-        return ranges.isEmpty ? .notFound : .removed
+        return replacements.isEmpty ? .notFound : .removed
+    }
+
+    private static func codexHookTrustBlockUnownedLines(
+        from lines: ArraySlice<String>,
+        removingEscapedKeys escapedKeys: Set<String>,
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes trustedHashes: Set<String>
+    ) -> [String] {
+        var preserved: [String] = []
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            if let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]) {
+                let tableStart = index
+                index += 1
+                while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                    index += 1
+                }
+                if !codexHookTrustEscapedKeyIsRemoved(
+                    escapedKey,
+                    trustedHash: codexHookTrustTrustedHash(from: lines[tableStart..<index]),
+                    removingEscapedKeys: escapedKeys,
+                    removingEscapedKeyPrefixes: escapedKeyPrefixes,
+                    removingTrustedHashes: trustedHashes
+                ) {
+                    preserved.append(contentsOf: lines[tableStart..<index])
+                }
+                continue
+            }
+
+            guard tomlLineIsAnyTableHeader(lines[index]) else {
+                // Marker drift can capture user config lines; only cmux-owned
+                // hook trust tables are safe to discard.
+                preserved.append(lines[index])
+                index += 1
+                continue
+            }
+            let tableStart = index
+            index += 1
+            while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                index += 1
+            }
+            preserved.append(contentsOf: lines[tableStart..<index])
+        }
+        return preserved
+    }
+
+    private static func codexHookTrustEscapedKeyIsRemoved(
+        _ escapedKey: String,
+        trustedHash: String?,
+        removingEscapedKeys escapedKeys: Set<String>,
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes trustedHashes: Set<String>
+    ) -> Bool {
+        if escapedKeys.contains(escapedKey) {
+            return true
+        }
+        guard let trustedHash, trustedHashes.contains(trustedHash) else {
+            return false
+        }
+        return escapedKeyPrefixes.contains { escapedKey.hasPrefix($0) }
+    }
+
+    private static func codexHookTrustTrustedHash(from lines: ArraySlice<String>) -> String? {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let equalsIndex = trimmed.firstIndex(of: "=") else { continue }
+            let key = String(trimmed[..<equalsIndex]).trimmingCharacters(in: .whitespaces)
+            guard key == "trusted_hash" else { continue }
+            let valueStart = trimmed.index(after: equalsIndex)
+            let value = String(trimmed[valueStart...]).trimmingCharacters(in: .whitespaces)
+            guard value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 else { continue }
+            return String(value.dropFirst().dropLast())
+        }
+        return nil
     }
 
     private static func stripMalformedCmuxCodexHookTrustMarker(from lines: inout [String]) {
@@ -20750,19 +20983,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 index += 1
                 continue
             }
-            let endIndex = tomlTableEndIndex(in: lines, after: index)
+            let endIndex = codexHookTrustTableEndIndex(in: lines, after: index)
             lines.removeSubrange(index..<endIndex)
         }
     }
 
+    private static func codexHookTrustTableEndIndex(in lines: [String], after tableStart: Int) -> Int {
+        var index = tableStart + 1
+        while index < lines.count {
+            if tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                return index
+            }
+            index += 1
+        }
+        return lines.count
+    }
+
     private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let prefix = "[hooks.state.\""
-        let suffix = "\"]"
-        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(suffix) else {
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = codexHookTrustTableHeaderRegex.firstMatch(in: line, range: range),
+              let keyRange = Range(match.range(at: 1), in: line) else {
             return nil
         }
-        return String(trimmed.dropFirst(prefix.count).dropLast(suffix.count))
+        return String(line[keyRange])
+    }
+
+    private static func tomlLineIsCodexHookTrustBlockTableBoundary(_ line: String) -> Bool {
+        codexHookTrustTableEscapedKey(from: line) != nil || tomlLineIsAnyTableHeader(line)
     }
 
     private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {
@@ -20959,6 +21206,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     telemetry.breadcrumb(
                         "codex-hook.monitor.lease-unavailable",
                         data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                    )
+                } else {
+                    retireCodexMonitorLeases(
+                        sessionId: sessionId,
+                        turnId: nil,
+                        preservingLeasePath: leasePath,
+                        env: env
                     )
                 }
                 startCodexTranscriptMonitor(
@@ -22839,7 +23093,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
                     break
                 }
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
                 let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoResource.path) {
@@ -23875,6 +24129,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
           \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
           \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)
         """
 
         print()
@@ -23969,7 +24224,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var current = executableURL.deletingLastPathComponent().standardizedFileURL
 
         while true {
-            let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let projectFile = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
             if fileManager.fileExists(atPath: projectFile.path),
                let contents = try? String(contentsOf: projectFile, encoding: .utf8) {
                 var info: [String: String] = [:]
@@ -24098,7 +24353,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 appendIfExisting(current.appendingPathComponent("Info.plist"))
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
             let repoInfo = current.appendingPathComponent("Resources/Info.plist")
             if fileManager.fileExists(atPath: projectMarker.path),
                fileManager.fileExists(atPath: repoInfo.path) {
@@ -24199,6 +24454,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
