@@ -1669,6 +1669,8 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
+    private static let bootstrapInstanceLock = NSLock()
+    private static var bootstrapInstance: GhosttyApp?
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1933,6 +1935,27 @@ class GhosttyApp {
         initializeGhostty()
     }
 
+    private static func setBootstrapInstance(_ instance: GhosttyApp) {
+        bootstrapInstanceLock.lock()
+        bootstrapInstance = instance
+        bootstrapInstanceLock.unlock()
+    }
+
+    private static func clearBootstrapInstance(_ instance: GhosttyApp) {
+        bootstrapInstanceLock.lock()
+        if bootstrapInstance === instance {
+            bootstrapInstance = nil
+        }
+        bootstrapInstanceLock.unlock()
+    }
+
+    private static func runtimeCallbackInstance() -> GhosttyApp {
+        bootstrapInstanceLock.lock()
+        let instance = bootstrapInstance
+        bootstrapInstanceLock.unlock()
+        return instance ?? shared
+    }
+
     #if DEBUG
     private static let initLogPath = "/tmp/cmux-ghostty-init.log"
 
@@ -1964,6 +1987,9 @@ class GhosttyApp {
     #endif
 
     private func initializeGhostty() {
+        Self.setBootstrapInstance(self)
+        defer { Self.clearBootstrapInstance(self) }
+
         // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
         if getenv("NO_COLOR") != nil {
             unsetenv("NO_COLOR")
@@ -2001,10 +2027,11 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            guard let userdata else { return }
+            Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue().scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            return GhosttyApp.runtimeCallbackInstance().handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
