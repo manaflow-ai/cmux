@@ -263,6 +263,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var directory: String?
     var isPinned: Bool
     var isManuallyUnread: Bool
+    var hasUnreadIndicator: Bool? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
@@ -350,6 +351,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
+    var isManuallyUnread: Bool? = nil
+    var hasUnreadIndicator: Bool? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
