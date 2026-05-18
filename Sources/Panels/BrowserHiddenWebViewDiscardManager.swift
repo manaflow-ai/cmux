@@ -124,10 +124,12 @@ final class BrowserHiddenWebViewDiscardManager {
         }
     }
 
-    func stop() {
-        cancel()
-        policyObservationTask?.cancel()
-        policyObservationTask = nil
+    nonisolated func stop() {
+        MainActor.assumeIsolated {
+            cancel()
+            policyObservationTask?.cancel()
+            policyObservationTask = nil
+        }
     }
 
     func markDiscarded(reason: String, now: Date) {
