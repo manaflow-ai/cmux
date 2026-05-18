@@ -882,6 +882,10 @@ enum FilePreviewTextSaver {
 
     typealias Operation = @Sendable (String, URL, String.Encoding) async -> Result
 
+    static let live: Operation = { content, url, encoding in
+        await save(content: content, to: url, encoding: encoding)
+    }
+
     static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
         await Task.detached(priority: .userInitiated) {
             guard let data = content.data(using: encoding) else {
@@ -930,7 +934,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     init(
         workspaceId: UUID,
         filePath: String,
-        textSaver: @escaping FilePreviewTextSaver.Operation = FilePreviewTextSaver.save
+        textSaver: @escaping FilePreviewTextSaver.Operation = FilePreviewTextSaver.live
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId

@@ -2263,7 +2263,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let firstSave = try XCTUnwrap(panel.saveTextContent())
         XCTAssertTrue(panel.isSaving)
-        XCTAssertEqual(await saveProbe.waitForSaveStart(), "first save")
+        let savedContent = await saveProbe.waitForSaveStart()
+        XCTAssertEqual(savedContent, "first save")
 
         panel.updateTextContent("second save")
         XCTAssertNil(panel.saveTextContent())
