@@ -2119,7 +2119,7 @@ class TerminalController {
             return SocketLineProcessingResult(
                 response: response,
                 authenticated: nextAuthenticated,
-                shouldWriteResponse: CMUXSocketProtocol.shouldWriteResponse(for: command)
+                shouldWriteResponse: shouldWriteSocketResponse(for: parsedDispatch, command: command)
             )
         case .request(let request):
             parsedV2Request = request
@@ -2127,8 +2127,7 @@ class TerminalController {
             parsedV2Request = nil
         }
 
-        let shouldWriteResponse = parsedV2Request.map { CMUXSocketProtocol.shouldWriteResponse(for: $0) }
-            ?? CMUXSocketProtocol.shouldWriteResponse(for: command)
+        let shouldWriteResponse = shouldWriteSocketResponse(for: parsedDispatch, command: command)
         if let response = authResponseIfNeeded(
             for: command,
             parsedV2Request: parsedV2Request,
@@ -2141,7 +2140,7 @@ class TerminalController {
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command, parsedV2Request: parsedV2Request)
+        let response = processCommandUsingSocketExecutionPolicy(command, parsedV2: parsedDispatch)
         return SocketLineProcessingResult(
             response: response,
             authenticated: nextAuthenticated,
@@ -2150,10 +2149,20 @@ class TerminalController {
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(
-        _ command: String,
-        parsedV2Request: V2SocketRequest? = nil
+        _ command: String
     ) -> String {
-        if let request = parsedV2Request ?? parsedV2RequestForDispatch(command) {
+        let parsedV2 = parseV2SocketCommandForDispatch(command)
+        return processCommandUsingSocketExecutionPolicy(command, parsedV2: parsedV2)
+    }
+
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        parsedV2: V2SocketCommandDispatchParse?
+    ) -> String {
+        switch parsedV2 {
+        case .response(let response):
+            return response
+        case .request(let request):
             if Thread.isMainThread,
                CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
                 return v2Error(
@@ -2171,6 +2180,8 @@ class TerminalController {
             return v2MainSync {
                 self.processV2Command(request)
             }
+        case nil:
+            break
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
@@ -2184,15 +2195,15 @@ class TerminalController {
         }
     }
 
-    private nonisolated func parsedV2RequestForDispatch(_ command: String) -> V2SocketRequest? {
-        guard let parsedRequest = parseV2SocketCommandForDispatch(command) else {
-            return nil
-        }
-        switch parsedRequest {
+    private nonisolated func shouldWriteSocketResponse(
+        for parsedV2: V2SocketCommandDispatchParse?,
+        command: String
+    ) -> Bool {
+        switch parsedV2 {
         case .request(let request):
-            return request
-        case .response:
-            return nil
+            return CMUXSocketProtocol.shouldWriteResponse(for: request)
+        case .response, nil:
+            return CMUXSocketProtocol.shouldWriteResponse(for: command)
         }
     }
 
@@ -2201,8 +2212,9 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        let response = processCommandUsingSocketExecutionPolicy(line)
-        return CMUXSocketProtocol.shouldWriteResponse(for: line) ? response : ""
+        let parsedV2 = parseV2SocketCommandForDispatch(line)
+        let response = processCommandUsingSocketExecutionPolicy(line, parsedV2: parsedV2)
+        return shouldWriteSocketResponse(for: parsedV2, command: line) ? response : ""
     }
 
     private func processCommand(_ command: String) -> String {
