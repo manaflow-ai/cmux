@@ -599,7 +599,7 @@ func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, []st
 			if strings.HasPrefix(args[idx], "--") {
 				break
 			}
-			if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || !strings.HasPrefix(second, "-")) {
+			if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || isIntegerString(second) || !strings.HasPrefix(second, "-")) {
 				spec := browserCommands["tab switch"]
 				return "tab switch", spec, 1, nil, true
 			}
