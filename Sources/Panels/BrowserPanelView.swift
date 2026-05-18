@@ -2034,17 +2034,13 @@ struct BrowserPanelView: View {
 
     private func handleOmnibarSelectionChange(range: NSRange, hasMarkedText: Bool) {
         let didBeginComposition = !omnibarHasMarkedText && hasMarkedText
-        let didEndComposition = omnibarHasMarkedText && !hasMarkedText
         omnibarSelectionRange = range
         omnibarHasMarkedText = hasMarkedText
         if didBeginComposition {
             hideSuggestions()
-        } else if didEndComposition {
-            // `controlTextDidChange` publishes selection state before updating
-            // the bound buffer, so refresh suggestions from the committed buffer
-            // change that immediately follows instead of from pre-commit text.
-            refreshInlineCompletion()
         } else {
+            // Do not refresh suggestions from selection-state publication. On
+            // composition end, the committed buffer change immediately follows.
             refreshInlineCompletion()
         }
     }
