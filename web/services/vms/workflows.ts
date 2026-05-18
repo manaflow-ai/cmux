@@ -21,6 +21,7 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
@@ -30,11 +31,13 @@ import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape }
 import {
   VmRepository,
   VmRepositoryLive,
+  type BeginCreateResult,
   type CloudVmStatus,
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
 } from "./repository";
+import { measureVmEffect, type VmTimingSink } from "./timings";
 
 export type VmEntry = {
   readonly providerVmId: string;
@@ -74,13 +77,13 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    yield* refreshActiveLimitProviderStatuses(repo, providers, input);
-    const create = yield* repo.beginCreate(input);
+    const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, input);
 
     if (!create.inserted) {
       const existing = create.vm;
@@ -100,81 +103,14 @@ export function createVm(input: {
       return vmEntryFromRow(existing);
     }
 
-    yield* seedInitialCreateCredits(billing, repo, input, create.vm).pipe(
-      Effect.catchAll((err) =>
-        repo.recordUsageEvent({
-          userId: input.userId,
-          billingTeamId: input.billingTeamId,
-          billingPlanId: input.billingPlanId,
-          vmId: create.vm.id,
-          eventType: "vm.create.credit.grant_failed",
-          provider: input.provider,
-          imageId: input.image,
-          metadata: {
-            idempotencyKeySet: !!input.idempotencyKey,
-            imageVersion: input.imageVersion ?? null,
-            message: errorMessage(err),
-          },
-        }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
+    const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
+    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
 
-    const creditReservation = yield* billing.reserveCreate({
-      userId: input.userId,
-      billingCustomerType: input.billingCustomerType,
-      billingTeamId: input.billingTeamId,
-      billingPlanId: input.billingPlanId,
-      provider: input.provider,
-      image: input.image,
-      imageVersion: input.imageVersion ?? null,
-      vmId: create.vm.id,
-      idempotencyKey: input.idempotencyKey,
-    }).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          repo.markCreateFailed({
-            id: create.vm.id,
-            code: "billing_reserve_failed",
-            message: errorMessage(err),
-          }),
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.create.billing_failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: {
-              idempotencyKeySet: !!input.idempotencyKey,
-              imageVersion: input.imageVersion ?? null,
-              errorTag: typeof err === "object" && err !== null && "_tag" in err
-                ? String((err as { _tag?: unknown })._tag)
-                : null,
-            },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
-
-    yield* recordCreditEvent(repo, create.vm, "vm.create.credit.reserved", creditReservation)
-      .pipe(Effect.catchAll(() => Effect.void));
-
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: input.billingTeamId,
-      billingPlanId: input.billingPlanId,
-      vmId: create.vm.id,
-      eventType: "vm.create.requested",
-      provider: input.provider,
-      imageId: input.image,
-      metadata: {
-        idempotencyKeySet: !!input.idempotencyKey,
-        imageVersion: input.imageVersion ?? null,
-      },
-    }).pipe(Effect.catchAll(() => Effect.void));
-
-    const handle = yield* providers.create(input.provider, { image: input.image }).pipe(
+    const handle = yield* measureVmEffect(
+      input.timing,
+      "provider_create",
+      providers.create(input.provider, { image: input.image }),
+    ).pipe(
       Effect.tapError((err) =>
         Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
@@ -197,44 +133,65 @@ export function createVm(input: {
       ),
     );
 
-    const running = yield* repo
-      .markCreateRunning({
+    const running = yield* measureVmEffect(
+      input.timing,
+      "mark_running",
+      repo.markCreateRunning({
         id: create.vm.id,
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-      })
-      .pipe(
-        Effect.catchAll((err) =>
-          Effect.gen(function* () {
-            yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
-            yield* refundCredit(billing, repo, create.vm, creditReservation);
-            yield* repo.markCreateFailed({
-              id: create.vm.id,
-              code: "database_finalize_failed",
-              message: err.message,
-            }).pipe(Effect.catchAll(() => Effect.void));
-            return yield* Effect.fail(err);
-          }),
-        ),
-      );
+      }),
+    ).pipe(
+      Effect.catchAll((err) =>
+        Effect.gen(function* () {
+          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* refundCredit(billing, repo, create.vm, creditReservation);
+          yield* repo.markCreateFailed({
+            id: create.vm.id,
+            code: "database_finalize_failed",
+            message: "Cloud VM state update failed.",
+          }).pipe(Effect.catchAll(() => Effect.void));
+          yield* recordCreateFailureEvent(
+            repo,
+            input,
+            create.vm,
+            "database_finalize_failed",
+            errorMessage(err.cause),
+          ).pipe(Effect.catchAll(() => Effect.void));
+          return yield* Effect.fail(err);
+        }),
+      ),
+    );
 
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: running.billingTeamId,
-      billingPlanId: running.billingPlanId,
-      vmId: running.id,
-      eventType: "vm.created",
-      provider: running.provider,
-      imageId: running.imageId,
-      metadata: {
-        idempotencyKeySet: !!input.idempotencyKey,
-        imageVersion: running.imageVersion,
-      },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    yield* recordCreateSuccessEvents(repo, input, running);
 
     return vmEntryFromRow(running);
   });
+}
+
+function beginCreateWithLazyProviderRefresh(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly timing?: VmTimingSink;
+  } & Parameters<VmRepositoryShape["beginCreate"]>[0],
+): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
+  return measureVmEffect(input.timing, "begin_create", repo.beginCreate(input)).pipe(
+    Effect.catchAll((err) => {
+      if (!isVmLimitExceededError(err)) return Effect.fail(err);
+      return Effect.gen(function* () {
+        yield* measureVmEffect(
+          input.timing,
+          "limit_reconcile",
+          refreshActiveLimitProviderStatuses(repo, providers, input),
+        ).pipe(Effect.catchAll(() => Effect.void));
+        return yield* measureVmEffect(input.timing, "begin_create", repo.beginCreate(input));
+      });
+    }),
+  );
 }
 
 function refreshActiveLimitProviderStatuses(
@@ -258,16 +215,32 @@ function refreshActiveLimitProviderStatuses(
       if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
       return Effect.gen(function* () {
         const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catchAll((err) =>
+            isProviderNotFoundError(err)
+              ? Effect.succeed("destroyed" as const)
+              : Effect.succeed(null),
+          ),
         );
         if (!providerStatus || providerStatus === "creating") return;
         const dbStatus = dbStatusFromProviderStatus(providerStatus);
         if (dbStatus === vm.status) return;
-        yield* repo.markProviderObservedStatus({
+        const didUpdate = yield* repo.markProviderObservedStatus({
           id: vm.id,
           providerVmId,
           status: dbStatus,
-        }).pipe(Effect.catchAll(() => Effect.void));
+        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (didUpdate && dbStatus === "destroyed") {
+          yield* repo.recordUsageEvent({
+            userId: vm.userId,
+            billingTeamId: vm.billingTeamId,
+            billingPlanId: vm.billingPlanId,
+            vmId: vm.id,
+            eventType: "vm.destroyed",
+            provider: vm.provider,
+            imageId: vm.imageId,
+            metadata: { source: "provider_status_refresh" },
+          }).pipe(Effect.catchAll(() => Effect.void));
+        }
       });
     }, { concurrency: "unbounded", discard: true });
   });
@@ -477,6 +450,202 @@ function recordCreditEvent(
       customerIdSet: !!reservation.customerId,
     },
   });
+}
+
+function reserveCreateCredit(
+  billing: VmBillingGatewayShape,
+  repo: VmRepositoryShape,
+  input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+    readonly image: string;
+    readonly imageVersion?: string | null;
+    readonly idempotencyKey?: string;
+    readonly timing?: VmTimingSink;
+  },
+  vm: CloudVmRow,
+) {
+  return measureVmEffect(
+    input.timing,
+    "billing",
+    Effect.gen(function* () {
+      yield* seedInitialCreateCredits(billing, repo, input, vm).pipe(
+        Effect.catchAll((err) =>
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: vm.id,
+            eventType: "vm.create.credit.grant_failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: {
+              idempotencyKeySet: !!input.idempotencyKey,
+              imageVersion: input.imageVersion ?? null,
+              message: errorMessage(err),
+            },
+          }).pipe(Effect.catchAll(() => Effect.void))
+        ),
+      );
+
+      const creditReservation = yield* billing.reserveCreate({
+        userId: input.userId,
+        billingCustomerType: input.billingCustomerType,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: input.provider,
+        image: input.image,
+        imageVersion: input.imageVersion ?? null,
+        vmId: vm.id,
+        idempotencyKey: input.idempotencyKey,
+      }).pipe(
+        Effect.tapError((err) =>
+          Effect.all([
+            repo.markCreateFailed({
+              id: vm.id,
+              code: "billing_reserve_failed",
+              message: errorMessage(err),
+            }),
+            repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              vmId: vm.id,
+              eventType: "vm.create.billing_failed",
+              provider: input.provider,
+              imageId: input.image,
+              metadata: {
+                idempotencyKeySet: !!input.idempotencyKey,
+                imageVersion: input.imageVersion ?? null,
+                errorTag: typeof err === "object" && err !== null && "_tag" in err
+                  ? String((err as { _tag?: unknown })._tag)
+                  : null,
+              },
+            }),
+          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ),
+      );
+      return creditReservation;
+    }),
+  );
+}
+
+function recordCreateRequestedEvents(
+  repo: VmRepositoryShape,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+    readonly image: string;
+    readonly imageVersion?: string | null;
+    readonly idempotencyKey?: string;
+    readonly timing?: VmTimingSink;
+  },
+  requestedVm: CloudVmRow,
+  creditReservation: VmCreateCreditReservation,
+) {
+  return measureVmEffect(
+    input.timing,
+    "usage_events",
+    repo.recordUsageEvents([
+      ...(creditReservation.kind === "none"
+        ? []
+        : [creditUsageEvent(requestedVm, "vm.create.credit.reserved", creditReservation)]),
+      {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        vmId: requestedVm.id,
+        eventType: "vm.create.requested",
+        provider: input.provider,
+        imageId: input.image,
+        metadata: {
+          idempotencyKeySet: !!input.idempotencyKey,
+          imageVersion: input.imageVersion ?? null,
+        },
+      },
+    ]).pipe(Effect.catchAll(() => Effect.void)),
+  );
+}
+
+function recordCreateSuccessEvents(
+  repo: VmRepositoryShape,
+  input: {
+    readonly idempotencyKey?: string;
+    readonly timing?: VmTimingSink;
+  },
+  running: CloudVmRow,
+) {
+  return measureVmEffect(
+    input.timing,
+    "usage_events",
+    repo.recordUsageEvents([
+      {
+        userId: running.userId,
+        billingTeamId: running.billingTeamId,
+        billingPlanId: running.billingPlanId,
+        vmId: running.id,
+        eventType: "vm.created",
+        provider: running.provider,
+        imageId: running.imageId,
+        metadata: {
+          idempotencyKeySet: !!input.idempotencyKey,
+          imageVersion: running.imageVersion,
+        },
+      },
+    ]).pipe(Effect.catchAll(() => Effect.void)),
+  );
+}
+
+function recordCreateFailureEvent(
+  repo: VmRepositoryShape,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+    readonly image: string;
+  },
+  requestedVm: CloudVmRow,
+  operation: string,
+  message: string,
+) {
+  return repo.recordUsageEvent({
+    userId: input.userId,
+    billingTeamId: input.billingTeamId,
+    billingPlanId: input.billingPlanId,
+    vmId: requestedVm.id,
+    eventType: "vm.create.failed",
+    provider: input.provider,
+    imageId: input.image,
+    metadata: { operation, message },
+  });
+}
+
+function creditUsageEvent(
+  vm: CloudVmRow,
+  eventType: string,
+  reservation: Exclude<VmCreateCreditReservation, { readonly kind: "none" }>,
+) {
+  return {
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    billingPlanId: vm.billingPlanId,
+    vmId: vm.id,
+    eventType,
+    provider: vm.provider,
+    imageId: vm.imageId,
+    metadata: {
+      itemId: reservation.itemId,
+      amount: reservation.amount,
+      customerType: reservation.customerType,
+      customerIdSet: !!reservation.customerId,
+    },
+  };
 }
 
 function seedInitialCreateCredits(
