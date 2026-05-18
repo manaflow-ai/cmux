@@ -1914,6 +1914,38 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
     }
 
+    func testNewMouseDownReevaluatesAfterStaleBonsplitPaneTabSuppression() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+
+        let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let nextDown = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
+        XCTAssertNil(
+            windowMoveSuppressionReasonForEvent(
+                window: window,
+                event: nextDown,
+                pressedMouseButtons: 1
+            ),
+            "A fresh mouse-down must end stale tab suppression and re-check the actual hit target"
+        )
+        XCTAssertTrue(window.isMovable)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+    }
+
     func testBonsplitPaneTabSuppressionLeavesEmptyTabChromeDraggable() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true
