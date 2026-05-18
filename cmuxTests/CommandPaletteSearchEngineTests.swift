@@ -464,23 +464,46 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancellationChecks, 4)
     }
 
-    func testExactForkQueryPinsForkRightBeforeOtherForkCommands() {
+    func testExactForkQueryPinsForkCommandsInPaletteOrderAheadOfOtherFuzzyMatches() {
         let entries = [
             FixtureEntry(
-                id: "palette.forkAgentConversationLeft",
+                id: "palette.toggleSetting.focusPaneOnFirstClick",
                 rank: 0,
+                title: "Disable Focus Pane on First Click",
+                searchableTexts: [
+                    "Disable Focus Pane on First Click",
+                    "Settings",
+                    "focus pane first click",
+                    "mouse click focus",
+                ]
+            ),
+            FixtureEntry(
+                id: "palette.forkAgentConversationLeft",
+                rank: 1,
                 title: "Fork Conversation to the Left",
                 searchableTexts: ["Fork Conversation to the Left", "Terminal", "fork", "left"]
             ),
             FixtureEntry(
                 id: "palette.forkAgentConversationRight",
-                rank: 4,
+                rank: 5,
                 title: "Fork Conversation to the Right",
                 searchableTexts: ["Fork Conversation to the Right", "Terminal", "fork", "right"]
             ),
             FixtureEntry(
+                id: "palette.forkAgentConversationTop",
+                rank: 2,
+                title: "Fork Conversation to the Top",
+                searchableTexts: ["Fork Conversation to the Top", "Terminal", "fork", "top"]
+            ),
+            FixtureEntry(
+                id: "palette.forkAgentConversationBottom",
+                rank: 3,
+                title: "Fork Conversation to the Bottom",
+                searchableTexts: ["Fork Conversation to the Bottom", "Terminal", "fork", "bottom"]
+            ),
+            FixtureEntry(
                 id: "palette.forkAgentConversationNewWorkspace",
-                rank: 1,
+                rank: 4,
                 title: "Fork Conversation to New Workspace",
                 searchableTexts: ["Fork Conversation to New Workspace", "Workspace", "fork", "new", "workspace"]
             ),
@@ -501,7 +524,16 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPaletteForkPriorityBoost(commandId: commandId, query: "fork")
         }
 
-        XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversationRight")
+        XCTAssertEqual(
+            Array(results.map(\.payload).prefix(5)),
+            [
+                "palette.forkAgentConversationRight",
+                "palette.forkAgentConversationBottom",
+                "palette.forkAgentConversationLeft",
+                "palette.forkAgentConversationTop",
+                "palette.forkAgentConversationNewWorkspace",
+            ]
+        )
     }
 
     func testForkableAgentCacheKeepsPanelVisibleWithoutFallbackSnapshot() {

@@ -5063,11 +5063,23 @@ struct ContentView: View {
     }
 
     nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
-        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
-              commandId == "palette.forkAgentConversationRight" else {
+        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork" else {
             return 0
         }
-        return 10_000
+        switch commandId {
+        case "palette.forkAgentConversationRight":
+            return 50_000
+        case "palette.forkAgentConversationBottom":
+            return 49_000
+        case "palette.forkAgentConversationLeft":
+            return 48_000
+        case "palette.forkAgentConversationTop":
+            return 47_000
+        case "palette.forkAgentConversationNewWorkspace":
+            return 46_000
+        default:
+            return 0
+        }
     }
 
     private static func commandPaletteMaterializedSearchResults(
