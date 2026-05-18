@@ -247,6 +247,57 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.currentDirectory, workspaceDirectory.path)
     }
 
+    func testWorkspaceSessionSaveSkipsRewritingIdenticalSnapshotData() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspace = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            .windows[0]
+            .tabManager
+            .workspaces[0]
+        workspace.currentDirectory = workspaceDirectory.path
+        workspace.customTitle = "Stable Workspace"
+
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspace,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        let snapshotPath = try XCTUnwrap(
+            FileManager.default.subpathsOfDirectory(atPath: appSupport.path)
+                .first { $0.hasSuffix("session.json") }
+        )
+        let snapshotURL = appSupport.appendingPathComponent(snapshotPath, isDirectory: false)
+        let firstFileNumber = try fileNumber(for: snapshotURL)
+
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspace,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        let secondFileNumber = try fileNumber(for: snapshotURL)
+
+        XCTAssertEqual(
+            secondFileNumber,
+            firstFileNumber,
+            "Saving identical workspace session data should not replace the snapshot file"
+        )
+    }
+
     func testSaveSkipsRewritingIdenticalSnapshotData() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

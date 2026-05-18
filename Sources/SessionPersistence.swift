@@ -377,7 +377,7 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
-struct WorkspaceSessionSnapshotEnvelope: Codable, Sendable {
+nonisolated struct WorkspaceSessionSnapshotEnvelope: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var workingDirectory: String
@@ -500,17 +500,29 @@ enum SessionPersistenceStore {
         }
         var canonicalSnapshot = snapshot
         canonicalSnapshot.currentDirectory = canonicalDirectory
-        let envelope = WorkspaceSessionSnapshotEnvelope(
-            version: SessionSnapshotSchema.currentVersion,
-            createdAt: Date().timeIntervalSince1970,
-            workingDirectory: canonicalDirectory,
-            workspace: canonicalSnapshot
-        )
         let directory = fileURL.deletingLastPathComponent()
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let existingData = try? Data(contentsOf: fileURL)
+            let existingEnvelope = existingData.flatMap { data -> WorkspaceSessionSnapshotEnvelope? in
+                try? JSONDecoder().decode(WorkspaceSessionSnapshotEnvelope.self, from: data)
+            }
+            let createdAt: TimeInterval
+            if existingEnvelope?.version == SessionSnapshotSchema.currentVersion,
+               existingEnvelope?.workingDirectory == canonicalDirectory,
+               let existingCreatedAt = existingEnvelope?.createdAt {
+                createdAt = existingCreatedAt
+            } else {
+                createdAt = Date().timeIntervalSince1970
+            }
+            let envelope = WorkspaceSessionSnapshotEnvelope(
+                version: SessionSnapshotSchema.currentVersion,
+                createdAt: createdAt,
+                workingDirectory: canonicalDirectory,
+                workspace: canonicalSnapshot
+            )
             let data = try encodedWorkspaceSnapshotData(envelope)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+            if existingData == data {
                 return true
             }
             try data.write(to: fileURL, options: .atomic)

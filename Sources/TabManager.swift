@@ -1055,6 +1055,10 @@ class TabManager: ObservableObject {
         label: "com.cmux.initial-workspace-git-probe",
         qos: .utility
     )
+    private let workspaceSessionRestoreQueue = DispatchQueue(
+        label: "com.cmux.workspace-session-restore",
+        qos: .utility
+    )
     private var workspaceGitProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
     private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
@@ -2165,20 +2169,11 @@ class TabManager: ObservableObject {
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
             let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
-            let restoredWorkspaceSnapshot: SessionWorkspaceSnapshot?
-            if restoreWorkspaceSession,
-               let explicitWorkingDirectory,
-               initialTerminalCommand == nil,
-               initialTerminalInput == nil,
-               initialTerminalEnvironment.isEmpty {
-                restoredWorkspaceSnapshot = SessionPersistenceStore.loadWorkspaceSnapshot(
-                    workingDirectory: explicitWorkingDirectory,
-                    bundleIdentifier: workspaceSessionBundleIdentifier,
-                    appSupportDirectory: workspaceSessionAppSupportDirectory
-                )
-            } else {
-                restoredWorkspaceSnapshot = nil
-            }
+            let workspaceSessionRestoreRequested = restoreWorkspaceSession
+                && explicitWorkingDirectory != nil
+                && initialTerminalCommand == nil
+                && initialTerminalInput == nil
+                && initialTerminalEnvironment.isEmpty
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
             )
@@ -2197,9 +2192,6 @@ class TabManager: ObservableObject {
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
             )
-            if let restoredWorkspaceSnapshot {
-                newWorkspace.restoreSessionSnapshot(restoredWorkspaceSnapshot)
-            }
             applyCreationChromeInheritance(
                 to: newWorkspace,
                 from: sourceWorkspace ?? capturedTabs.first
@@ -2252,7 +2244,20 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && restoredWorkspaceSnapshot == nil && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+            if workspaceSessionRestoreRequested, let explicitWorkingDirectory {
+                scheduleWorkspaceSessionRestore(
+                    workingDirectory: explicitWorkingDirectory,
+                    workspaceId: newWorkspace.id,
+                    bundleIdentifier: workspaceSessionBundleIdentifier,
+                    appSupportDirectory: workspaceSessionAppSupportDirectory,
+                    autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                    select: select,
+                    expectedCustomTitle: newWorkspace.customTitle,
+                    expectedCurrentDirectory: newWorkspace.currentDirectory,
+                    expectedPanelIds: Set(newWorkspace.panels.keys),
+                    explicitTitle: title
+                )
+            } else if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {
@@ -2260,6 +2265,53 @@ class TabManager: ObservableObject {
                 }
             }
             return newWorkspace
+        }
+    }
+
+    private func scheduleWorkspaceSessionRestore(
+        workingDirectory: String,
+        workspaceId: UUID,
+        bundleIdentifier: String?,
+        appSupportDirectory: URL?,
+        autoWelcomeIfNeeded: Bool,
+        select: Bool,
+        expectedCustomTitle: String?,
+        expectedCurrentDirectory: String,
+        expectedPanelIds: Set<UUID>,
+        explicitTitle: String?
+    ) {
+        workspaceSessionRestoreQueue.async { [workingDirectory, bundleIdentifier, appSupportDirectory] in
+            let restoredSnapshot = SessionPersistenceStore.loadWorkspaceSnapshot(
+                workingDirectory: workingDirectory,
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: appSupportDirectory
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let workspace = self.tabs.first(where: { $0.id == workspaceId }) else { return }
+                guard workspace.customTitle == expectedCustomTitle,
+                      workspace.currentDirectory == expectedCurrentDirectory,
+                      Set(workspace.panels.keys) == expectedPanelIds else {
+                    return
+                }
+                if let restoredSnapshot {
+                    workspace.restoreSessionSnapshot(restoredSnapshot)
+                    if let explicitTitle {
+                        workspace.setCustomTitle(explicitTitle)
+                    }
+                    return
+                }
+                guard autoWelcomeIfNeeded,
+                      select,
+                      !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) else {
+                    return
+                }
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+                } else {
+                    sendWelcomeWhenReady(to: workspace)
+                }
+            }
         }
     }
 
