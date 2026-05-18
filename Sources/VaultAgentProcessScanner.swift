@@ -1118,7 +1118,10 @@ extension RestorableAgentSessionIndex {
         tail: [String]? = nil
     ) -> [String]? {
         let tail = tail ?? codexLaunchTail(observed: observed)
-        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail) else {
+        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(
+            args: tail,
+            preserveImageOptions: true
+        ) else {
             return nil
         }
         return [executablePath] + preserved

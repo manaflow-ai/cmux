@@ -139,12 +139,20 @@ public enum AgentLaunchSanitizer {
         }
     }
 
-    public static func preservedCodexForkArguments(args: [String]) -> [String]? {
+    public static func preservedCodexForkArguments(
+        args: [String],
+        preserveImageOptions: Bool = false
+    ) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {
             tail = dropCodexForkPositionals(tail, forkCommand: forkCommand)
         }
-        return preserveOptions(tail, policy: codexPolicy)
+        var policy = codexPolicy
+        if preserveImageOptions {
+            policy.droppedOptions.remove("--image")
+            policy.droppedOptions.remove("-i")
+        }
+        return preserveOptions(tail, policy: policy)
     }
 
     private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {

@@ -315,7 +315,8 @@ enum AgentResumeCommandBuilder {
             }
             guard let preserved = preservedCodexForkArguments(
                 args: args,
-                fallbackWorkingDirectory: workingDirectory
+                fallbackWorkingDirectory: workingDirectory,
+                preserveImageOptions: true
             ) else { return nil }
             return [original.executable, "codex-teams", "fork"]
                 + codexArgumentsWithSession(preserved, sessionId: sessionId)
@@ -345,7 +346,8 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = preservedCodexForkArguments(
                 args: original.tail,
-                fallbackWorkingDirectory: workingDirectory
+                fallbackWorkingDirectory: workingDirectory,
+                preserveImageOptions: true
             ) else { return nil }
             return [original.executable, "fork"]
                 + codexArgumentsWithSession(preserved, sessionId: sessionId)
@@ -412,9 +414,13 @@ enum AgentResumeCommandBuilder {
 
     private static func preservedCodexForkArguments(
         args: [String],
-        fallbackWorkingDirectory: String?
+        fallbackWorkingDirectory: String?,
+        preserveImageOptions: Bool = false
     ) -> PreservedCodexForkArguments? {
-        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else {
+        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(
+            args: args,
+            preserveImageOptions: preserveImageOptions
+        ) else {
             return nil
         }
         guard let workingDirectory = codexWorkingDirectoryArgument(in: preserved) ?? normalized(fallbackWorkingDirectory) else {
