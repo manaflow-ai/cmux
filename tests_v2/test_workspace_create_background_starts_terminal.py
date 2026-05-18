@@ -110,6 +110,8 @@ def main() -> int:
                 "background layout eager load should not switch the selected workspace",
             )
         finally:
+            active_exc_type = sys.exc_info()[0]
+            close_workspace_exc_info = None
             try:
                 marker_path.unlink()
             except FileNotFoundError:
@@ -121,8 +123,13 @@ def main() -> int:
             for workspace_id in reversed(created_workspaces):
                 try:
                     c.close_workspace(workspace_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"cleanup: close_workspace({workspace_id}) failed: {exc!r}", file=sys.stderr)
+                    if close_workspace_exc_info is None:
+                        close_workspace_exc_info = sys.exc_info()
+            if close_workspace_exc_info is not None and active_exc_type is None:
+                _, close_workspace_exc, close_workspace_tb = close_workspace_exc_info
+                raise close_workspace_exc.with_traceback(close_workspace_tb)
 
     print("PASS: workspace.create eager background load starts deferred terminal work without focus")
     return 0
