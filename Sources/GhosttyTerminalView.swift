@@ -2955,6 +2955,31 @@ class GhosttyApp {
         previousColorScheme != currentColorScheme
     }
 
+    struct AppearanceSynchronizationPlan {
+        let runtimeColorScheme: ghostty_color_scheme_e?
+        let shouldReloadConfiguration: Bool
+    }
+
+    static func appearanceSynchronizationPlan(
+        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
+        currentColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> AppearanceSynchronizationPlan {
+        guard shouldReloadConfigurationForAppearanceChange(
+            previousColorScheme: previousColorScheme,
+            currentColorScheme: currentColorScheme
+        ) else {
+            return AppearanceSynchronizationPlan(
+                runtimeColorScheme: nil,
+                shouldReloadConfiguration: false
+            )
+        }
+
+        return AppearanceSynchronizationPlan(
+            runtimeColorScheme: ghosttyRuntimeColorScheme(for: currentColorScheme),
+            shouldReloadConfiguration: true
+        )
+    }
+
     static func ghosttyRuntimeColorScheme(
         for colorScheme: GhosttyConfig.ColorSchemePreference
     ) -> ghostty_color_scheme_e {
@@ -3147,7 +3172,7 @@ class GhosttyApp {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
             appAppearance: appearance ?? NSApp?.effectiveAppearance
         )
-        let shouldReload = Self.shouldReloadConfigurationForAppearanceChange(
+        let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
         )
@@ -3163,12 +3188,19 @@ class GhosttyApp {
             }
             let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
             logBackground(
-                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(shouldReload)"
+                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
-        guard shouldReload else { return }
-        synchronizeGhosttyRuntimeColorScheme(currentColorScheme, source: source)
+        guard plan.runtimeColorScheme != nil || plan.shouldReloadConfiguration else { return }
+        if let runtimeColorScheme = plan.runtimeColorScheme {
+            synchronizeGhosttyRuntimeColorScheme(
+                runtimeColorScheme,
+                colorScheme: currentColorScheme,
+                source: source
+            )
+        }
         lastAppearanceColorScheme = currentColorScheme
+        guard plan.shouldReloadConfiguration else { return }
         reloadConfiguration(
             source: "appearanceSync:\(source)",
             reloadSettingsFromFile: false
@@ -3179,9 +3211,20 @@ class GhosttyApp {
         _ colorScheme: GhosttyConfig.ColorSchemePreference,
         source: String
     ) {
+        synchronizeGhosttyRuntimeColorScheme(
+            Self.ghosttyRuntimeColorScheme(for: colorScheme),
+            colorScheme: colorScheme,
+            source: source
+        )
+    }
+
+    private func synchronizeGhosttyRuntimeColorScheme(
+        _ runtimeColorScheme: ghostty_color_scheme_e,
+        colorScheme: GhosttyConfig.ColorSchemePreference,
+        source: String
+    ) {
         guard let app else { return }
-        let scheme = Self.ghosttyRuntimeColorScheme(for: colorScheme)
-        ghostty_app_set_color_scheme(app, scheme)
+        ghostty_app_set_color_scheme(app, runtimeColorScheme)
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
             logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
