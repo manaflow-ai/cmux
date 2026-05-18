@@ -55,6 +55,7 @@ private final class CLISocketSentryTelemetry {
     private let subcommand: String
     private let socketPath: String
     private let envSocketPath: String?
+    private let processEnv: [String: String]
     private let workspaceId: String?
     private let surfaceId: String?
     private let disabledByEnv: Bool
@@ -108,58 +109,13 @@ private final class CLISocketSentryTelemetry {
             return Bundle.main
         }
 
-        guard let executableURL = currentExecutableURL() else {
-            return Bundle.main
-        }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.pathExtension == "app", let bundle = Bundle(url: current) {
-                return bundle
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
-                    return bundle
-                }
-            }
-
-            guard let parent = parentSearchURL(for: current) else {
-                break
-            }
-            current = parent
+        if let bundle = CLIExecutableLocator.enclosingAppBundle() {
+            return bundle
         }
 
         return Bundle.main
     }
 
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-            }
-        }
-
-        return Bundle.main.executableURL?.standardizedFileURL
-    }
-
-    private static func parentSearchURL(for url: URL) -> URL? {
-        let standardized = url.standardizedFileURL
-        let path = standardized.path
-        guard !path.isEmpty, path != "/" else {
-            return nil
-        }
-
-        let parent = standardized.deletingLastPathComponent().standardizedFileURL
-        guard parent.path != path else {
-            return nil
-        }
-        return parent
-    }
 #endif
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
@@ -167,6 +123,7 @@ private final class CLISocketSentryTelemetry {
         self.subcommand = commandArgs.first?.lowercased() ?? "help"
         self.socketPath = socketPath
         self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
+        self.processEnv = processEnv
         self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
         self.disabledByEnv =
@@ -274,7 +231,11 @@ private final class CLISocketSentryTelemetry {
             context["tmp_cmux_sockets"] = tmpSockets
         }
         let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
-        if CLISocketPathResolver.isImplicitDefaultPath(socketPath),
+        if CLISocketPathResolver.isImplicitDefaultPath(
+            socketPath,
+            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
+            environment: processEnv
+        ),
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {
             context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
@@ -897,192 +858,6 @@ enum SocketPasswordResolver {
             return password
         }
         return nil
-    }
-}
-
-private enum CLISocketPathSource {
-    case explicitFlag
-    case environment
-    case implicitDefault
-}
-
-private enum CLISocketPathResolver {
-    private static let appSupportDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
-    private static let lastSocketPathFileName = "last-socket-path"
-    static let legacyDefaultSocketPath = "/tmp/cmux.sock"
-    private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
-    private static let stagingSocketPath = "/tmp/cmux-staging.sock"
-    private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
-
-    static var defaultSocketPath: String {
-        let stablePath: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(stableSocketFileName, isDirectory: false)
-            .path
-        return stablePath ?? legacyDefaultSocketPath
-    }
-
-    static func isImplicitDefaultPath(_ path: String) -> Bool {
-        path == defaultSocketPath || path == legacyDefaultSocketPath
-    }
-
-    static func resolve(
-        requestedPath: String,
-        source: CLISocketPathSource,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String {
-        guard source == .implicitDefault else {
-            return requestedPath
-        }
-
-        let candidates = dedupe(candidatePaths(requestedPath: requestedPath, environment: environment))
-
-        // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(to: path) {
-            return path
-        }
-
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
-            return path
-        }
-
-        return requestedPath
-    }
-
-    private static func candidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
-        var candidates: [String] = []
-
-        if let tag = normalized(environment["CMUX_TAG"]) {
-            let slug = sanitizeTagSlug(tag)
-            candidates.append("/tmp/cmux-debug-\(slug).sock")
-            candidates.append("/tmp/cmux-\(slug).sock")
-        }
-
-        candidates.append(requestedPath)
-        candidates.append(defaultSocketPath)
-        candidates.append(legacyDefaultSocketPath)
-        candidates.append(fallbackSocketPath)
-        candidates.append(stagingSocketPath)
-        candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
-        if let last = readLastSocketPath() {
-            candidates.append(last)
-        }
-        return candidates
-    }
-
-    private static func readLastSocketPath() -> String? {
-        let primaryCandidate: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(lastSocketPathFileName, isDirectory: false)
-            .path
-        let candidates = [primaryCandidate, legacyLastSocketPathFile].compactMap { $0 }
-
-        for candidate in candidates {
-            guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
-                continue
-            }
-            if let value = normalized(data) {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private static func discoverTaggedSockets(limit: Int) -> [String] {
-        var discovered: [(path: String, mtime: TimeInterval)] = []
-        for directory in socketDiscoveryDirectories() {
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
-                continue
-            }
-            discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
-                let path = URL(fileURLWithPath: directory)
-                    .appendingPathComponent(name, isDirectory: false)
-                    .path
-                var st = stat()
-                guard lstat(path, &st) == 0 else { continue }
-                guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
-                    continue
-                }
-                let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
-                discovered.append((path: path, mtime: modified))
-            }
-        }
-
-        discovered.sort { $0.mtime > $1.mtime }
-        return dedupe(discovered.prefix(limit).map(\.path))
-    }
-
-    private static func isSocketFile(_ path: String) -> Bool {
-        var st = stat()
-        return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
-    }
-
-    private static func canConnect(to path: String) -> Bool {
-        guard isSocketFile(path) else { return false }
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { Darwin.close(fd) }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
-        path.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strncpy(buf, ptr, maxLength - 1)
-            }
-        }
-
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        return result == 0
-    }
-
-    private static func sanitizeTagSlug(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let slug = trimmed
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return slug.isEmpty ? "agent" : slug
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func stableSocketDirectoryURL() -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
-    }
-
-    private static func socketDiscoveryDirectories() -> [String] {
-        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
-        return dedupe([
-            "/tmp",
-            appSupportSocketDirectory,
-        ])
-    }
-
-    private static func dedupe(_ paths: [String]) -> [String] {
-        var seen: Set<String> = []
-        var ordered: [String] = []
-        ordered.reserveCapacity(paths.count)
-        for path in paths where !path.isEmpty {
-            if seen.insert(path).inserted {
-                ordered.append(path)
-            }
-        }
-        return ordered
     }
 }
 
@@ -1813,10 +1588,109 @@ final class SocketClient {
         if let error = response["error"] as? [String: Any] {
             let code = (error["code"] as? String) ?? "error"
             let message = (error["message"] as? String) ?? "Unknown v2 error"
-            throw CLIError(message: "\(code): \(message)")
+            let action = error["action"] as? String
+            let reason = error["reason"] as? String
+            throw CLIError(
+                message: formatV2Error(
+                    code: code,
+                    message: message,
+                    action: action,
+                    reason: reason,
+                    details: safeV2Details(error["details"])
+                )
+            )
         }
 
         throw CLIError(message: "v2 request failed")
+    }
+
+    private func formatV2Error(
+        code: String,
+        message: String,
+        action: String? = nil,
+        reason: String? = nil,
+        details: String? = nil
+    ) -> String {
+        let header: String
+        if code == "vm_error" {
+            header = message
+        } else if message.contains("\n") {
+            header = "\(code):\n\(message)"
+        } else {
+            header = "\(code): \(message)"
+        }
+        var sections = [header]
+        if let reason = trimmedNonEmptyV2Text(reason) {
+            sections.append("Reason:\n\(indentV2ErrorLines(reason))")
+        }
+        if let action = trimmedNonEmptyV2Text(action) {
+            sections.append("What to do:\n\(indentV2ErrorLines(action))")
+        }
+        if let details = trimmedNonEmptyV2Text(details) {
+            sections.append("Details:\n\(indentV2ErrorLines(details))")
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func safeV2Details(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let string = value as? String {
+            return trimmedNonEmptyV2Text(string)
+        }
+        if let dictionary = value as? [String: Any] {
+            let allowedKeys = Set([
+                "amount",
+                "code",
+                "duration",
+                "durationMs",
+                "field",
+                "idempotencyKeySet",
+                "imageRequested",
+                "limit",
+                "operation",
+                "retryable",
+                "status",
+                "type",
+                "vmId",
+            ])
+            let lines = dictionary.keys.sorted().compactMap { key -> String? in
+                guard allowedKeys.contains(key), let value = dictionary[key], !(value is NSNull) else { return nil }
+                return "\(key): \(safeV2DetailValue(value))"
+            }
+            return lines.isEmpty ? nil : lines.joined(separator: "\n")
+        }
+        return nil
+    }
+
+    private func safeV2DetailValue(_ value: Any) -> String {
+        if let string = value as? String {
+            return string.replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+        }
+        if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return number.boolValue ? "true" : "false"
+            }
+            return "\(number)"
+        }
+        if value is [String: Any] || value is [Any] {
+            return "available"
+        }
+        return String(describing: value)
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+    }
+
+    private func trimmedNonEmptyV2Text(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func indentV2ErrorLines(_ value: String) -> String {
+        value
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "  \($0)" }
+            .joined(separator: "\n")
     }
 
     func streamV2(
@@ -1881,7 +1755,6 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
 
-    private static let debugLastSocketHintPath = "/tmp/cmux-last-socket-path"
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -1961,10 +1834,19 @@ struct CMUXCLI {
         }
         let normalized = trimmed.lowercased()
         guard normalized == "e2b" || normalized == "freestyle" else {
-            throw CLIError(message: "vm new: unsupported provider '\(trimmed)'. Expected e2b or freestyle.")
+            throw CLIError(message: """
+                vm new: unsupported Cloud VM service override.
+
+                Try:
+                  cmux vm new
+                """)
         }
         return normalized
     }
+
+    private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
+
+    private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
 
     private static func vmCreateIdempotencyStoreURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -2018,84 +1900,11 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
-    private static func pathIsSocket(_ path: String) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return false }
-        return (st.st_mode & S_IFMT) == S_IFSOCK
-    }
-
-    private static func debugSocketPathFromHintFile() -> String? {
-#if DEBUG
-        guard let raw = try? String(contentsOfFile: debugLastSocketHintPath, encoding: .utf8) else {
-            return nil
-        }
-        guard let hinted = normalizedEnvValue(raw),
-              hinted.hasPrefix("/tmp/cmux-debug"),
-              hinted.hasSuffix(".sock"),
-              pathIsSocket(hinted) else {
-            return nil
-        }
-        return hinted
-#else
-        return nil
-#endif
-    }
-
-    private static func defaultSocketPath(environment: [String: String]) -> String {
-        if let explicit = normalizedEnvValue(environment["CMUX_SOCKET_PATH"]) {
-            return explicit
-        }
-#if DEBUG
-        if let hinted = debugSocketPathFromHintFile() {
-            return hinted
-        }
-        return "/tmp/cmux-debug.sock"
-#else
-        return "/tmp/cmux.sock"
-#endif
-    }
-
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        guard size > 0 else {
-            return Bundle.main.executableURL?.standardizedFileURL
-        }
-
-        var buffer = Array<CChar>(repeating: 0, count: Int(size))
-        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
-            return Bundle.main.executableURL?.standardizedFileURL
-        }
-        return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-    }
-
     private static func containingAppBundleIdentifier() -> String? {
-        guard let executableURL = currentExecutableURL() else { return nil }
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while current.path != "/" {
-            if current.pathExtension == "app",
-               let bundle = Bundle(url: current),
-               let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                return bundleIdentifier
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app",
-                   let bundle = Bundle(url: appURL),
-                   let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                    return bundleIdentifier
-                }
-            }
-
-            let parent = current.deletingLastPathComponent().standardizedFileURL
-            guard parent.path != current.path else { break }
-            current = parent
-        }
-        return nil
+        normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
 
     private static func browserSettingsDomain(environment: [String: String]) -> String {
@@ -2229,6 +2038,7 @@ struct CMUXCLI {
 
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
+        let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil
@@ -2332,7 +2142,10 @@ struct CMUXCLI {
            settingsCommandDoesNotNeedSocket(commandArgs) {
             try runSettings(
                 commandArgs: commandArgs,
-                socketPath: CLISocketPathResolver.defaultSocketPath,
+                socketPath: CLISocketPathResolver.defaultSocketPath(
+                    bundleIdentifier: cliBundleIdentifier,
+                    environment: processEnv
+                ),
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
             )
@@ -2355,12 +2168,19 @@ struct CMUXCLI {
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
-        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: cliBundleIdentifier,
+            environment: processEnv
+        )
         let socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
             socketPathSource = .explicitFlag
         } else if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                bundleIdentifier: cliBundleIdentifier,
+                environment: processEnv
+            ) ? .implicitDefault : .environment
         } else {
             socketPathSource = .implicitDefault
         }
@@ -2373,7 +2193,8 @@ struct CMUXCLI {
         let resolvedSocketPath = CLISocketPathResolver.resolve(
             requestedPath: socketPath,
             source: socketPathSource,
-            environment: processEnv
+            environment: processEnv,
+            bundleIdentifier: cliBundleIdentifier
         )
 
         // If the argument looks like a path (not a known command), open a workspace there.
@@ -2709,15 +2530,33 @@ struct CMUXCLI {
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
                 let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
-                if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                    throw CLIError(message: "vm new: unknown flag '\(unknown)'. Known flags: --image, --provider, --detach/-d")
+                if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
+                    throw CLIError(message: """
+                        vm new: unknown flag '\(unknown)'.
+
+                        Known flags:
+                          --image <image-id>
+                          --provider <provider>
+                          --detach, -d
+
+                        Try:
+                          cmux vm new
+                        """)
                 }
                 // Stray positional args (e.g. a typo like `cmux vm new myvm`) previously fell
                 // through and still provisioned a VM. That silently costs the user money and
                 // hides the typo. Reject them explicitly.
-                if let extra = remaining.first(where: { !$0.hasPrefix("--") && $0 != "-d" }) {
+                if let extra = remaining.first(where: { !Self.isFlagToken($0) }) {
                     throw CLIError(
-                        message: "vm new: unexpected argument '\(extra)'. vm new takes no positional args; use --image / --provider / --detach."
+                        message: """
+                            vm new: unexpected argument '\(extra)'.
+
+                            `cmux vm new` does not take a VM name or positional arguments.
+
+                            Try:
+                              cmux vm new
+                              cmux vm new --detach
+                            """
                     )
                 }
                 let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
@@ -2768,7 +2607,12 @@ struct CMUXCLI {
 
             case "shell", "attach":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux \(command) shell <id>")
+                    throw CLIError(message: """
+                        Usage: cmux \(command) shell <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
@@ -2781,7 +2625,12 @@ struct CMUXCLI {
 
             case "rm", "destroy", "delete":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm rm <id>")
+                    throw CLIError(message: """
+                        Usage: cmux vm rm <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 _ = try client.sendV2(method: "vm.destroy", params: ["id": vmId], responseTimeout: 60)
                 if jsonOutput {
@@ -2792,7 +2641,12 @@ struct CMUXCLI {
 
             case "ssh":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux \(command) ssh <id>")
+                    throw CLIError(message: """
+                        Usage: cmux \(command) ssh <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
@@ -2805,7 +2659,12 @@ struct CMUXCLI {
 
             case "ssh-info":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux \(command) ssh-info <id>")
+                    throw CLIError(message: """
+                        Usage: cmux \(command) ssh-info <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
                 }
                 try printVMSSHInfo(id: vmId, command: command, client: client, jsonOutput: jsonOutput)
 
@@ -2814,7 +2673,13 @@ struct CMUXCLI {
 
             case "exec":
                 guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm exec <id> -- <command...>")
+                    throw CLIError(message: """
+                        Usage: cmux vm exec <id> -- <command...>
+
+                        Examples:
+                          cmux vm ls
+                          cmux vm exec <id> -- pwd
+                        """)
                 }
                 var commandArgsForVM: [String] = Array(rest.dropFirst())
                 // Consume a leading "--" separator if present.
@@ -2822,7 +2687,12 @@ struct CMUXCLI {
                     commandArgsForVM.removeFirst()
                 }
                 guard !commandArgsForVM.isEmpty else {
-                    throw CLIError(message: "Usage: cmux vm exec <id> -- <command...>")
+                    throw CLIError(message: """
+                        Usage: cmux vm exec <id> -- <command...>
+
+                        Example:
+                          cmux vm exec \(vmId) -- uname -a
+                        """)
                 }
                 // Shell-quote each argv element before joining. Plain-space join previously
                 // dropped quoting so `cmux vm exec <id> -- printf '%s\n' "a b"` reached the
@@ -2856,7 +2726,15 @@ struct CMUXCLI {
                 }
 
             default:
-                throw CLIError(message: "Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]")
+                throw CLIError(message: """
+                    Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]
+
+                    Common commands:
+                      cmux vm ls
+                      cmux vm new
+                      cmux vm ssh <id>
+                      cmux vm rm <id>
+                    """)
             }
 
         case "rpc":
@@ -5816,7 +5694,7 @@ struct CMUXCLI {
                     )
                 }
 
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path) {
                     candidates.append(
                         current
@@ -6130,7 +6008,9 @@ struct CMUXCLI {
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; kill -TERM \"$CMUX_SSH_CHILD_PID\" 2>/dev/null || true; exit \"$cmux_ssh_signal_status\"; }",
+            // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
+            // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
@@ -6140,14 +6020,19 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
+        // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
+        // job control is off (the default for `/bin/sh -c …`), so ssh would
+        // never receive keystrokes from the surface PTY. Inheriting fd 0
+        // explicitly with `<&0` overrides that default and keeps the wrapper's
+        // own stdin (the terminal) wired into the backgrounded ssh process.
         if isShellSnippet {
             scriptLines += [
                 "  (",
                 "    \(sshCommand)",
-                "  ) &",
+                "  ) <&0 &",
             ]
         } else {
-            scriptLines.append("  command \(sshCommand) &")
+            scriptLines.append("  command \(sshCommand) <&0 &")
         }
         scriptLines += [
             "  CMUX_SSH_CHILD_PID=$!",
@@ -6274,7 +6159,16 @@ struct CMUXCLI {
             let endpoint = try parseVMPtyWebSocketEndpoint(response)
             guard endpoint.daemon != nil else {
                 throw CLIError(
-                    message: "vm.attach_info returned a WebSocket PTY without daemon/proxy support. Rebuild the cloud VM image or snapshot with the current cmuxd-remote."
+                    message: """
+                        This Cloud VM image does not support interactive attach in this cmux build.
+
+                        What to do:
+                          Update cmux, then create a fresh VM with `cmux vm new`.
+                          If this keeps happening, contact support with the VM id.
+
+                        Details:
+                          Interactive attach is not available for this VM image.
+                        """
                 )
             }
             try runVMPtyWebSocketWorkspace(
@@ -6319,19 +6213,55 @@ struct CMUXCLI {
               let cred = response["credential"] as? [String: Any],
               let kind = cred["kind"] as? String
         else {
-            throw CLIError(message: "vm.attach_info returned malformed SSH payload: \(response)")
+            throw CLIError(message: """
+                cmux could not read the attach information for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new` and share the details below.
+
+                Details:
+                  Cloud VM attach details were incomplete.
+                """)
         }
         guard kind == "password" else {
             if kind == "authorizedKey" {
                 throw CLIError(
-                    message: "authorizedKey credentials aren't supported by `cmux vm shell` yet; received from server."
+                    message: """
+                        This Cloud VM does not support interactive SSH attach in this cmux build.
+
+                        What to do:
+                          Update cmux and retry.
+                          If this keeps happening, contact support with the VM id.
+
+                        Details:
+                          Interactive SSH attach is unavailable for this VM.
+                        """
                 )
             }
-            throw CLIError(message: "vm.attach_info returned unknown credential kind: \(kind)")
+            throw CLIError(message: """
+                cmux could not use the attach information for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new`.
+
+                Details:
+                  Interactive SSH attach is unavailable for this VM.
+                """)
         }
         guard let token = cred["value"] as? String,
               !token.isEmpty else {
-            throw CLIError(message: "vm.attach_info password credential missing `value`")
+            throw CLIError(message: """
+                cmux could not open an interactive SSH session for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new`.
+
+                Details:
+                  Cloud VM attach details were incomplete.
+                """)
         }
 
         // Freestyle gateway has a fresh host key per session and we re-mint per attach,
@@ -6387,16 +6317,18 @@ struct CMUXCLI {
             print("  username:  \(username)")
             print("  password:  \(credValue)")
         } else {
-            let kindDescription = credKind.isEmpty || credKind == "?" ? "unknown" : credKind
-            print("credential kind \"\(kindDescription)\" not yet supported by `cmux \(command) ssh-info`; raw response:")
-            print(jsonString(response))
+            print("This Cloud VM does not support `cmux \(command) ssh-info` in this cmux build.")
+            print("")
+            print("What to do:")
+            print("  Update cmux and retry.")
+            print("  If this keeps happening, contact support with the VM id.")
         }
     }
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'")
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'. Use `cmux vm ssh-attach --id <vm-id>`.")
         }
         guard remaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
@@ -6417,7 +6349,7 @@ struct CMUXCLI {
         )
         let sshArguments = buildSSHCommandArguments(options)
         guard let launchPath = sshArguments.first else {
-            throw CLIError(message: "vm ssh-attach: failed to construct ssh command")
+            throw CLIError(message: "vm ssh-attach could not construct an ssh command. Retry `cmux vm ssh <id>` from a normal cmux shell.")
         }
         client.close()
         try execInteractiveProgram(
@@ -6438,7 +6370,16 @@ struct CMUXCLI {
         guard let url = response["url"] as? String,
               let token = response["token"] as? String,
               let sessionId = response["session_id"] as? String else {
-            throw CLIError(message: "vm.attach_info websocket endpoint missing url/token/session_id: \(response)")
+            throw CLIError(message: """
+                cmux could not read the attach information for this Cloud VM.
+
+                What to do:
+                  Retry `cmux vm ssh <id>`.
+                  If it keeps failing, recreate the VM with `cmux vm new`.
+
+                Details:
+                  Cloud VM attach details were incomplete.
+                """)
         }
         let headers = parseHeaders(response["headers"])
         let expiresAtUnix = (response["expires_at_unix"] as? Int64)
@@ -6623,8 +6564,8 @@ struct CMUXCLI {
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'")
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'. Use `cmux vm-pty-attach --id <vm-id>`.")
         }
         guard remaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
@@ -9126,7 +9067,7 @@ struct CMUXCLI {
 
             Subcommands:
               ls                        List your cloud VMs.
-              new [--image <template>] [--provider <e2b|freestyle>] [--detach|-d]
+              new [--image <template>] [--provider <provider>] [--detach|-d]
                                         Create a new VM. By default drops you into a shell on
                                         the VM (like `docker run -it`). Pass --detach/-d to
                                         just print the id and exit (scripting primitive).
@@ -9134,7 +9075,7 @@ struct CMUXCLI {
                                         Alias: `attach <id>`.
               ssh <id>                  Drop into a cmux-managed SSH workspace for an existing
                                         VM, using the same session path as `cmux ssh`.
-              ssh-info <id>             Print SSH connection details when the VM provider
+              ssh-info <id>             Print SSH connection details when the Cloud VM
                                         exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
@@ -12282,7 +12223,12 @@ struct CMUXCLI {
         let pid = topInt(process["pid"]).map(String.init) ?? "?"
         let name = topLabelText(process["name"] as? String)
         let label = name.isEmpty ? "process" : name
-        return "process \(pid) \(label)"
+        var parts = ["process", pid, label]
+        let attributionReason = topLabelText(process["attribution_reason"] as? String)
+        if !attributionReason.isEmpty {
+            parts.append("[\(attributionReason)]")
+        }
+        return parts.joined(separator: " ")
     }
 
     private func topResourceColumns(node: [String: Any]) -> String {
@@ -12953,11 +12899,19 @@ struct CMUXCLI {
 
     private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
         let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
+        let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
 
-        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: processEnvironment
+        )
         let source: CLISocketPathSource
         if let envSocketPath {
-            source = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+            source = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                bundleIdentifier: bundleIdentifier,
+                environment: processEnvironment
+            ) ? .implicitDefault : .environment
         } else {
             source = .implicitDefault
         }
@@ -12965,7 +12919,8 @@ struct CMUXCLI {
         return CLISocketPathResolver.resolve(
             requestedPath: requestedSocketPath,
             source: source,
-            environment: processEnvironment
+            environment: processEnvironment,
+            bundleIdentifier: bundleIdentifier
         )
     }
 
@@ -18279,7 +18234,12 @@ struct CMUXCLI {
         }
     }
 
-    private func retireCodexMonitorLeases(sessionId: String, turnId: String?, env: [String: String]) {
+    private func retireCodexMonitorLeases(
+        sessionId: String,
+        turnId: String?,
+        preservingLeasePath: String? = nil,
+        env: [String: String]
+    ) {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionId.isEmpty else { return }
 
@@ -18287,6 +18247,9 @@ struct CMUXCLI {
         let now = Date().timeIntervalSince1970
         let normalizedTurnId = turnId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let shouldMatchTurn = normalizedTurnId?.isEmpty == false
+        let preservingPath = preservingLeasePath.map {
+            URL(fileURLWithPath: $0, isDirectory: false).standardizedFileURL.path
+        }
         let directory = codexMonitorLeaseDirectory(env: env)
         let targetPaths = ((try? fileManager.contentsOfDirectory(
             at: directory,
@@ -18295,6 +18258,10 @@ struct CMUXCLI {
         )) ?? []).map(\.path)
 
         for path in targetPaths {
+            let standardizedPath = URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.path
+            guard preservingPath == nil || standardizedPath != preservingPath else {
+                continue
+            }
             guard var record = readCodexMonitorLease(path: path),
                   record.sessionId == normalizedSessionId,
                   !shouldMatchTurn || record.turnId == normalizedTurnId,
@@ -19770,6 +19737,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hooksFilePath: filePath,
             def: def
         )
+        let codexHookTrustEscapedKeyPrefixes = Self.codexHookTrustEscapedKeyPrefixes(
+            hooksFilePath: filePath,
+            def: def
+        )
+        let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
         let newString = String(data: newData, encoding: .utf8) ?? "{}"
@@ -19818,10 +19790,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     existingContent = ""
                 }
-                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: existingContent)
+                let trustClean = Self.codexConfigTomlRemovingHookTrust(
+                    in: existingContent,
+                    entries: codexHookTrustEntries,
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    removingTrustedHashes: codexLegacyHookTrustHashes
+                )
+                let featureContent = Self.codexConfigTomlInstallingHooksFeature(in: trustClean)
                 let trustInstall = Self.codexConfigTomlInstallingHookTrust(
                     in: featureContent,
-                    entries: codexHookTrustEntries
+                    entries: codexHookTrustEntries,
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixes,
+                    removingTrustedHashes: codexLegacyHookTrustHashes
                 )
                 let newContent = trustInstall.content
                 if newContent != existingContent {
@@ -19882,6 +19862,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         var hooks = json["hooks"] as? [String: Any] ?? [:]
+        let codexHookTrustEntriesToRemove = Self.codexHookTrustEntries(
+            hooks: hooks,
+            hooksFilePath: filePath,
+            def: def,
+            includeLegacyOwnedCommands: true
+        )
+        let codexStaleHookTrustHashesToRemove = Set(Self.codexHookTrustEntries(
+            hooks: buildHooksDict(for: def),
+            hooksFilePath: filePath,
+            def: def
+        ).map(\.trustedHash)).union(Self.codexLegacyHookTrustHashes(def: def))
+        let codexHookTrustEscapedKeyPrefixesToRemove = Self.codexHookTrustEscapedKeyPrefixes(
+            hooksFilePath: filePath,
+            def: def
+        )
         var removed = 0
 
         let isCmuxOwnedCommand: (String) -> Bool = { cmd in
@@ -19933,7 +19928,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } catch {
                     throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
                 }
-                let newContent = Self.codexConfigTomlUninstallingHooksFeature(from: content)
+                let newContent = Self.codexConfigTomlUninstallingHooksFeature(
+                    from: content,
+                    removingHookTrustEntries: codexHookTrustEntriesToRemove,
+                    removingEscapedKeyPrefixes: codexHookTrustEscapedKeyPrefixesToRemove,
+                    removingTrustedHashes: codexStaleHookTrustHashesToRemove
+                )
                 if newContent != content {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
                     print("Removed Codex hooks feature from \(configPath)")
@@ -19974,6 +19974,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 begin"
     private static let cmuxCodexHookTrustEnd =
         "# cmux-codex-hook-trust-f5cc24da-7a09-4b20-a756-89e7786f6738 end"
+    private static let codexHookTrustTableHeaderRegex = try! NSRegularExpression(
+        pattern: #"^\s*\[\s*hooks\s*\.\s*state\s*\.\s*"((?:[^"\\\n]|\\.)*)"\s*\]\s*(#.*)?$"#
+    )
 
     struct CodexHookTrustEntry: Equatable {
         let key: String
@@ -19994,9 +19997,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexConfigTomlInstallingHooksFeature(in existingContent: String) -> String {
         var lines = tomlLines(from: existingContent)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
-            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
-        }
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
 
@@ -20058,34 +20058,75 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return lines
     }
 
-    static func codexConfigTomlUninstallingHooksFeature(from existingContent: String) -> String {
+    static func codexConfigTomlUninstallingHooksFeature(
+        from existingContent: String,
+        removingHookTrustEntries entries: [CodexHookTrustEntry] = [],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
+    ) -> String {
         var lines = tomlLines(from: existingContent)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
         removeCmuxCodexHooksFeatureBlock(from: &lines)
-        if removeCmuxCodexHookTrustBlock(from: &lines) == .malformed {
+        if removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        ) == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
         lines.removeAll { tomlLineDefinesKey("codex_hooks", line: $0) }
         lines.removeAll { tomlLineDefinesDottedFeaturesKey("codex_hooks", line: $0) }
         removeEmptyFeaturesTable(from: &lines)
         return tomlContent(from: lines)
     }
 
+    private static func codexConfigTomlRemovingHookTrust(
+        in existingContent: String,
+        entries: [CodexHookTrustEntry],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
+    ) -> String {
+        var lines = tomlLines(from: existingContent)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
+        let removalResult = removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        )
+        if removalResult == .malformed {
+            stripMalformedCmuxCodexHookTrustMarker(from: &lines)
+        }
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
+        return tomlContent(from: lines)
+    }
+
     private static func codexConfigTomlInstallingHookTrust(
         in existingContent: String,
-        entries: [CodexHookTrustEntry]
+        entries: [CodexHookTrustEntry],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes additionalTrustedHashes: Set<String> = []
     ) -> CodexHookTrustInstallResult {
         var lines = tomlLines(from: existingContent)
-        let removalResult = removeCmuxCodexHookTrustBlock(from: &lines)
+        let escapedKeys = Set(entries.map { tomlBasicStringContent($0.key) })
+        let trustedHashes = Set(entries.map(\.trustedHash)).union(additionalTrustedHashes)
+        let removalResult = removeCmuxCodexHookTrustBlock(
+            from: &lines,
+            removingEscapedKeys: escapedKeys,
+            removingEscapedKeyPrefixes: escapedKeyPrefixes,
+            removingTrustedHashes: trustedHashes
+        )
         if removalResult == .malformed {
             stripMalformedCmuxCodexHookTrustMarker(from: &lines)
         }
         guard !entries.isEmpty else {
             return CodexHookTrustInstallResult(content: tomlContent(from: lines), installedTrust: false)
         }
-        removeCodexHookTrustTables(
-            withEscapedKeys: Set(entries.map { tomlBasicStringContent($0.key) }),
-            from: &lines
-        )
+        removeCodexHookTrustTables(withEscapedKeys: escapedKeys, from: &lines)
 
         if !lines.isEmpty, lines.last?.isEmpty == false {
             lines.append("")
@@ -20102,11 +20143,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     static func codexHookTrustEntries(
         hooks: [String: Any],
         hooksFilePath: String,
-        def: AgentHookDef
+        def: AgentHookDef,
+        includeLegacyOwnedCommands: Bool = false
     ) -> [CodexHookTrustEntry] {
         guard def.name == "codex" else { return [] }
         let isOwnedCommand: (String) -> Bool = { command in
-            isCmuxOwnedHookCommand(command, for: def, includeLegacy: false)
+            isCmuxOwnedHookCommand(command, for: def, includeLegacy: includeLegacyOwnedCommands)
         }
         var entries: [CodexHookTrustEntry] = []
         let keySource = codexNormalizedHookSourcePath(hooksFilePath)
@@ -20140,6 +20182,62 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         return entries
+    }
+
+    private static func codexHookTrustEscapedKeyPrefixes(
+        hooksFilePath: String,
+        def: AgentHookDef
+    ) -> Set<String> {
+        guard def.name == "codex" else { return [] }
+        return [tomlBasicStringContent("\(codexNormalizedHookSourcePath(hooksFilePath)):")]
+    }
+
+    private static func codexLegacyHookTrustHashes(def: AgentHookDef) -> Set<String> {
+        guard def.name == "codex" else { return [] }
+        let hookTimeoutMs: Int
+        if case .nested(let timeoutMs) = def.format {
+            hookTimeoutMs = timeoutMs
+        } else {
+            hookTimeoutMs = 600
+        }
+
+        var hashes = Set<String>()
+        func insertHashes(eventLabel: String, command: String, timeouts: [Int]) {
+            let commands = [
+                command,
+                "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'",
+            ]
+            for command in commands {
+                for timeout in timeouts {
+                    hashes.insert(codexCommandHookHash(
+                        eventLabel: eventLabel,
+                        matcher: nil,
+                        command: command,
+                        timeoutMs: timeout,
+                        statusMessage: nil
+                    ))
+                }
+            }
+        }
+
+        for event in def.events {
+            guard let eventLabel = codexHookEventLabel(event.agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: "cmux codex-hook \(event.cmuxSubcommand)",
+                timeouts: [hookTimeoutMs, 600]
+            )
+        }
+
+        for agentEvent in def.feedHookEvents {
+            guard let eventLabel = codexHookEventLabel(agentEvent) else { continue }
+            insertHashes(
+                eventLabel: eventLabel,
+                command: "cmux feed-hook --source \(def.name) --event \(agentEvent)",
+                timeouts: [120_000, 600]
+            )
+        }
+        return hashes
     }
 
     private static func codexNormalizedHookSourcePath(_ path: String) -> String {
@@ -20391,8 +20489,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     @discardableResult
-    private static func removeCmuxCodexHookTrustBlock(from lines: inout [String]) -> CodexHookTrustBlockRemovalResult {
-        var ranges: [ClosedRange<Int>] = []
+    private static func removeCmuxCodexHookTrustBlock(
+        from lines: inout [String],
+        removingEscapedKeys escapedKeys: Set<String> = [],
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String> = [],
+        removingTrustedHashes trustedHashes: Set<String> = []
+    ) -> CodexHookTrustBlockRemovalResult {
+        var replacements: [(range: ClosedRange<Int>, lines: [String])] = []
         var index = 0
         while index < lines.count {
             guard lines[index] == cmuxCodexHookTrustBegin else {
@@ -20403,14 +20506,94 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let endIndex = lines[index...].firstIndex(of: cmuxCodexHookTrustEnd) else {
                 return .malformed
             }
-            ranges.append(index...endIndex)
+            let preservedLines = codexHookTrustBlockUnownedLines(
+                from: lines[(index + 1)..<endIndex],
+                removingEscapedKeys: escapedKeys,
+                removingEscapedKeyPrefixes: escapedKeyPrefixes,
+                removingTrustedHashes: trustedHashes
+            )
+            replacements.append((index...endIndex, preservedLines))
             index = endIndex + 1
         }
 
-        for range in ranges.reversed() {
-            lines.removeSubrange(range)
+        for replacement in replacements.reversed() {
+            lines.replaceSubrange(replacement.range, with: replacement.lines)
         }
-        return ranges.isEmpty ? .notFound : .removed
+        return replacements.isEmpty ? .notFound : .removed
+    }
+
+    private static func codexHookTrustBlockUnownedLines(
+        from lines: ArraySlice<String>,
+        removingEscapedKeys escapedKeys: Set<String>,
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes trustedHashes: Set<String>
+    ) -> [String] {
+        var preserved: [String] = []
+        var index = lines.startIndex
+        while index < lines.endIndex {
+            if let escapedKey = codexHookTrustTableEscapedKey(from: lines[index]) {
+                let tableStart = index
+                index += 1
+                while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                    index += 1
+                }
+                if !codexHookTrustEscapedKeyIsRemoved(
+                    escapedKey,
+                    trustedHash: codexHookTrustTrustedHash(from: lines[tableStart..<index]),
+                    removingEscapedKeys: escapedKeys,
+                    removingEscapedKeyPrefixes: escapedKeyPrefixes,
+                    removingTrustedHashes: trustedHashes
+                ) {
+                    preserved.append(contentsOf: lines[tableStart..<index])
+                }
+                continue
+            }
+
+            guard tomlLineIsAnyTableHeader(lines[index]) else {
+                // Marker drift can capture user config lines; only cmux-owned
+                // hook trust tables are safe to discard.
+                preserved.append(lines[index])
+                index += 1
+                continue
+            }
+            let tableStart = index
+            index += 1
+            while index < lines.endIndex, !tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                index += 1
+            }
+            preserved.append(contentsOf: lines[tableStart..<index])
+        }
+        return preserved
+    }
+
+    private static func codexHookTrustEscapedKeyIsRemoved(
+        _ escapedKey: String,
+        trustedHash: String?,
+        removingEscapedKeys escapedKeys: Set<String>,
+        removingEscapedKeyPrefixes escapedKeyPrefixes: Set<String>,
+        removingTrustedHashes trustedHashes: Set<String>
+    ) -> Bool {
+        if escapedKeys.contains(escapedKey) {
+            return true
+        }
+        guard let trustedHash, trustedHashes.contains(trustedHash) else {
+            return false
+        }
+        return escapedKeyPrefixes.contains { escapedKey.hasPrefix($0) }
+    }
+
+    private static func codexHookTrustTrustedHash(from lines: ArraySlice<String>) -> String? {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard let equalsIndex = trimmed.firstIndex(of: "=") else { continue }
+            let key = String(trimmed[..<equalsIndex]).trimmingCharacters(in: .whitespaces)
+            guard key == "trusted_hash" else { continue }
+            let valueStart = trimmed.index(after: equalsIndex)
+            let value = String(trimmed[valueStart...]).trimmingCharacters(in: .whitespaces)
+            guard value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 else { continue }
+            return String(value.dropFirst().dropLast())
+        }
+        return nil
     }
 
     private static func stripMalformedCmuxCodexHookTrustMarker(from lines: inout [String]) {
@@ -20426,19 +20609,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 index += 1
                 continue
             }
-            let endIndex = tomlTableEndIndex(in: lines, after: index)
+            let endIndex = codexHookTrustTableEndIndex(in: lines, after: index)
             lines.removeSubrange(index..<endIndex)
         }
     }
 
+    private static func codexHookTrustTableEndIndex(in lines: [String], after tableStart: Int) -> Int {
+        var index = tableStart + 1
+        while index < lines.count {
+            if tomlLineIsCodexHookTrustBlockTableBoundary(lines[index]) {
+                return index
+            }
+            index += 1
+        }
+        return lines.count
+    }
+
     private static func codexHookTrustTableEscapedKey(from line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let prefix = "[hooks.state.\""
-        let suffix = "\"]"
-        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(suffix) else {
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = codexHookTrustTableHeaderRegex.firstMatch(in: line, range: range),
+              let keyRange = Range(match.range(at: 1), in: line) else {
             return nil
         }
-        return String(trimmed.dropFirst(prefix.count).dropLast(suffix.count))
+        return String(line[keyRange])
+    }
+
+    private static func tomlLineIsCodexHookTrustBlockTableBoundary(_ line: String) -> Bool {
+        codexHookTrustTableEscapedKey(from: line) != nil || tomlLineIsAnyTableHeader(line)
     }
 
     private static func tomlLineIsCodexHooksFeatureBegin(_ line: String) -> Bool {
@@ -20635,6 +20832,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     telemetry.breadcrumb(
                         "codex-hook.monitor.lease-unavailable",
                         data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
+                    )
+                } else {
+                    retireCodexMonitorLeases(
+                        sessionId: sessionId,
+                        turnId: nil,
+                        preservingLeasePath: leasePath,
+                        env: env
                     )
                 }
                 startCodexTranscriptMonitor(
@@ -22515,7 +22719,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     appendIfExisting(current.appendingPathComponent("Contents/Resources/opencode-plugin.js", isDirectory: false))
                     break
                 }
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
                 let repoResource = current.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
                 if fileManager.fileExists(atPath: projectMarker.path),
                    fileManager.fileExists(atPath: repoResource.path) {
@@ -23551,6 +23755,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
           \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
           \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 Toggle unread\(reset)
         """
 
         print()
@@ -23645,7 +23850,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var current = executableURL.deletingLastPathComponent().standardizedFileURL
 
         while true {
-            let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let projectFile = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
             if fileManager.fileExists(atPath: projectFile.path),
                let contents = try? String(contentsOf: projectFile, encoding: .utf8) {
                 var info: [String: String] = [:]
@@ -23774,7 +23979,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 appendIfExisting(current.appendingPathComponent("Info.plist"))
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj")
             let repoInfo = current.appendingPathComponent("Resources/Info.plist")
             if fileManager.fileExists(atPath: projectMarker.path),
                fileManager.fileExists(atPath: repoInfo.path) {
@@ -23875,6 +24080,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
