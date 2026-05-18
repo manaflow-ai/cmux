@@ -95,11 +95,7 @@ def socket_path_for_file_name(
         return shortened
 
     tmp_directory = pathlib.Path("/tmp")
-    tmp_shortened = tmp_directory / shortened_socket_file_name(file_name, tmp_directory)
-    if len(str(tmp_shortened).encode("utf-8")) <= max_path_length:
-        return tmp_shortened
-
-    return tmp_directory / f"{fnv1a32_hex(file_name)}.sock"
+    return tmp_directory / shortened_socket_file_name(file_name, tmp_directory)
 
 
 def main(argv: list[str]) -> int:

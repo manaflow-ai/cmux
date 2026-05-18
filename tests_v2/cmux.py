@@ -146,7 +146,7 @@ def _default_socket_path() -> str:
         if not is_stale_stable_default:
             if os.path.exists(override) and _can_connect(override):
                 return override
-            if not os.path.exists(override):
+            if not os.path.exists(override) and override not in stable_defaults:
                 return override
 
     if tag:

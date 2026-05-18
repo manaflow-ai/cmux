@@ -214,15 +214,8 @@ public enum SocketPathMarkerFiles {
         }
 
         let tmpDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
-        let tmpShortened = tmpDirectory
-            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: tmpDirectory.path), isDirectory: false)
-            .path
-        if tmpShortened.utf8.count <= unixSocketPathMaxLength {
-            return tmpShortened
-        }
-
         return tmpDirectory
-            .appendingPathComponent("\(fnv1a32Hex(fileName)).sock", isDirectory: false)
+            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: tmpDirectory.path), isDirectory: false)
             .path
     }
 

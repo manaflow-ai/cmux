@@ -483,6 +483,25 @@ def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
     return True
 
 
+def test_python_v2_client_treats_stable_override_as_implicit() -> bool:
+    with temporary_socket_home("cmux-v2-stable-override-") as home:
+        app_support = os.path.join(home, "Library", "Application Support", "cmux")
+        stable_socket = os.path.join(app_support, "com.cmuxterm.app.sock")
+        actual = python_v2_client_default_socket_path({
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_SOCKET_PATH": stable_socket,
+        })
+
+    if actual == stable_socket:
+        print("FAIL: tests_v2 client followed a nonexistent stable CMUX_SOCKET_PATH")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: tests_v2 client treats stable socket overrides as implicit")
+    return True
+
+
 def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
     with temporary_socket_home("cmux-v2-marker-") as home:
         app_support = Path(home) / "Library" / "Application Support" / "cmux"
@@ -888,6 +907,9 @@ def main() -> int:
         return 1
 
     if not test_python_v2_client_matches_empty_swift_tag_slug():
+        return 1
+
+    if not test_python_v2_client_treats_stable_override_as_implicit():
         return 1
 
     if not test_python_v2_client_ignores_non_release_stable_marker():
