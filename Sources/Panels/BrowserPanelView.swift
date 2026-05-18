@@ -465,7 +465,7 @@ struct BrowserPanelView: View {
         return searchSuggestionsEnabled
     }
 
-    private var canInteractWithOmnibarSuggestions: Bool {
+    private var hasActionableOmnibarSuggestions: Bool {
         !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty
     }
 
@@ -526,7 +526,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        addressBarFocused && canInteractWithOmnibarSuggestions && omnibarPillFrame.width > 0
+        addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -870,7 +870,7 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
-            guard canHandleOmnibarSelectionNavigation(), canInteractWithOmnibarSuggestions else { return }
+            guard canHandleOmnibarSuggestionInteraction() else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
@@ -1248,7 +1248,7 @@ struct BrowserPanelView: View {
                     handleOmnibarTap()
                 },
                 onSubmit: {
-                    if canInteractWithOmnibarSuggestions {
+                    if canHandleOmnibarSuggestionInteraction() {
                         commitSelectedSuggestion()
                     } else {
                         panel.navigateSmart(omnibarState.buffer)
@@ -1264,7 +1264,7 @@ struct BrowserPanelView: View {
                     setAddressBarFocused(false, reason: "omnibar.fieldLostFocus")
                 },
                 onMoveSelection: { delta in
-                    guard canHandleOmnibarSelectionNavigation(), canInteractWithOmnibarSuggestions else { return }
+                    guard canHandleOmnibarSuggestionInteraction() else { return }
                     let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
                     applyOmnibarEffects(effects)
                     refreshInlineCompletion()
@@ -1462,6 +1462,10 @@ struct BrowserPanelView: View {
             return true
         }
         return false
+    }
+
+    private func canHandleOmnibarSuggestionInteraction() -> Bool {
+        canHandleOmnibarSelectionNavigation() && hasActionableOmnibarSuggestions
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
