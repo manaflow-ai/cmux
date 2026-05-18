@@ -6193,7 +6193,7 @@ class TerminalController {
     private static let v2WindowUnavailableMessage = "cmux window is not available. Reopen the window and try again."
 
     private func v2SurfaceResumeTargetValidationError(params: [String: Any]) -> V2CallResult? {
-        for key in ["window_id", "workspace_id", "surface_id"] {
+        for key in ["window_id", "workspace_id", "surface_id", "tab_id"] {
             if v2HasNonNullParam(params, key), v2UUID(params, key) == nil {
                 return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
             }
@@ -6206,7 +6206,7 @@ class TerminalController {
         params: [String: Any],
         fallbackTabManager: TabManager
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID)? {
-        if let explicitSurfaceId = v2UUID(params, "surface_id") {
+        if let explicitSurfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") {
             if let explicitWorkspaceId = v2UUID(params, "workspace_id") {
                 guard let workspace = fallbackTabManager.tabs.first(where: { $0.id == explicitWorkspaceId }),
                       workspace.terminalPanel(for: explicitSurfaceId) != nil else {

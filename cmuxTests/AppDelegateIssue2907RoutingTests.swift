@@ -176,7 +176,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanelId))
     }
 
-    func testSurfaceResumeRejectsMalformedSurfaceIdWithoutFocusedFallback() throws {
+    func testSurfaceResumeRejectsMalformedSurfaceOrTabIdWithoutFocusedFallback() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -210,22 +210,100 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             panelId: panelId
         ))
 
-        for method in ["surface.resume.set", "surface.resume.clear"] {
-            var params: [String: Any] = [
-                "window_id": windowId.uuidString,
-                "surface_id": "not-a-surface"
-            ]
-            if method == "surface.resume.set" {
-                params["command"] = "echo bad"
+        for key in ["surface_id", "tab_id"] {
+            for method in ["surface.resume.set", "surface.resume.get", "surface.resume.clear"] {
+                var params: [String: Any] = [
+                    "window_id": windowId.uuidString,
+                    key: "not-a-surface"
+                ]
+                if method == "surface.resume.set" {
+                    params["command"] = "echo bad"
+                }
+
+                let (raw, envelope) = try v2Envelope(method: method, params: params)
+
+                XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+                let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
+                XCTAssertEqual(error["code"] as? String, "invalid_params", raw)
+                XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.command, "echo keep")
             }
-
-            let (raw, envelope) = try v2Envelope(method: method, params: params)
-
-            XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
-            let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
-            XCTAssertEqual(error["code"] as? String, "invalid_params", raw)
-            XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.command, "echo keep")
         }
+    }
+
+    func testSurfaceResumeUsesTabIdAliasForTargetSurface() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let focusedPanel = try XCTUnwrap(workspace.terminalPanel(for: focusedPanelId))
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: focusedPanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        let setResult = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "tab_id": splitPanel.id.uuidString,
+                "command": "tmux attach -t alias-target",
+                "checkpoint_id": "alias-target",
+            ]
+        )
+        XCTAssertEqual(setResult["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: focusedPanel.id))
+        XCTAssertEqual(
+            workspace.surfaceResumeBinding(panelId: splitPanel.id)?.command,
+            "tmux attach -t alias-target"
+        )
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "tab_id": splitPanel.id.uuidString,
+            ]
+        )
+        XCTAssertEqual(getResult["surface_id"] as? String, splitPanel.id.uuidString)
+        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(getBinding["checkpoint_id"] as? String, "alias-target")
+
+        let clearResult = try v2Result(
+            method: "surface.resume.clear",
+            params: [
+                "window_id": windowId.uuidString,
+                "tab_id": splitPanel.id.uuidString,
+                "checkpoint_id": "alias-target",
+            ]
+        )
+        XCTAssertEqual(clearResult["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertEqual(clearResult["cleared"] as? Bool, true)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 
     func testSurfaceResumePayloadIncludesEnvironment() throws {
