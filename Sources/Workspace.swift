@@ -7212,8 +7212,26 @@ final class WorkspaceDock: ObservableObject, Identifiable {
     let id = UUID()
     let edge: WorkspaceDockEdge
     let ordinal: Int
-    let preferredSize: CGFloat?
+    @Published private(set) var preferredSize: CGFloat
     let controller: BonsplitController
+
+    static func defaultPreferredSize(for edge: WorkspaceDockEdge) -> CGFloat {
+        switch edge {
+        case .left, .right:
+            return 240
+        case .bottom:
+            return 220
+        }
+    }
+
+    static func clampedPreferredSize(for edge: WorkspaceDockEdge, size: CGFloat) -> CGFloat {
+        switch edge {
+        case .left, .right:
+            return min(max(size, 120), 640)
+        case .bottom:
+            return min(max(size, 120), 520)
+        }
+    }
 
     init(
         edge: WorkspaceDockEdge,
@@ -7223,7 +7241,10 @@ final class WorkspaceDock: ObservableObject, Identifiable {
     ) {
         self.edge = edge
         self.ordinal = ordinal
-        self.preferredSize = preferredSize
+        self.preferredSize = Self.clampedPreferredSize(
+            for: edge,
+            size: preferredSize ?? Self.defaultPreferredSize(for: edge)
+        )
         self.controller = BonsplitController(configuration: configuration)
 
         let welcomeTabIds = controller.allTabIds
@@ -7246,6 +7267,12 @@ final class WorkspaceDock: ObservableObject, Identifiable {
         controller.onTabCloseRequest = { [weak workspace] tabId, _ in
             workspace?.markExplicitClose(surfaceId: tabId)
         }
+    }
+
+    func setPreferredSize(_ size: CGFloat) {
+        let nextSize = Self.clampedPreferredSize(for: edge, size: size)
+        guard abs(nextSize - preferredSize) > 0.5 else { return }
+        preferredSize = nextSize
     }
 }
 
@@ -7277,6 +7304,10 @@ final class WorkspaceDockLayout: ObservableObject {
 
     func docksSnapshot(for edge: WorkspaceDockEdge) -> [WorkspaceDock] {
         docks(for: edge)
+    }
+
+    func openDocksSnapshot(for edge: WorkspaceDockEdge) -> [WorkspaceDock] {
+        isEdgeOpen(edge) ? docks(for: edge) : []
     }
 
     func bind(to workspace: Workspace) {
@@ -7405,6 +7436,20 @@ final class WorkspaceDockLayout: ObservableObject {
 
     func canRemove(_ dock: WorkspaceDock) -> Bool {
         dock.controller.allTabIds.isEmpty
+    }
+
+    func setPreferredSize(_ size: CGFloat, for dock: WorkspaceDock) {
+        guard docks(for: dock.edge).contains(where: { $0.id == dock.id }) else { return }
+        objectWillChange.send()
+        dock.setPreferredSize(size)
+    }
+
+    func setBottomDockHeight(_ height: CGFloat) {
+        guard !bottom.isEmpty else { return }
+        objectWillChange.send()
+        for dock in bottom {
+            dock.setPreferredSize(height)
+        }
     }
 
     func hasEmptyDocks(edge: WorkspaceDockEdge) -> Bool {
@@ -12149,23 +12194,168 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
+    private enum WorkspaceFocusRegion: Equatable {
+        case left(Int)
+        case main
+        case right(Int)
+        case bottom(Int)
+    }
+
     func moveFocus(direction: NavigationDirection) {
         let previousFocusedPanelId = focusedPanelId
+        let controller = currentFocusNavigationController()
 
         // Unfocus the currently-focused panel before navigating.
         if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
             prev.unfocus()
         }
 
-        bonsplitController.navigateFocus(direction: direction)
-
-        // Always reconcile selection/focus after navigation so AppKit first-responder and
-        // bonsplit's focused pane stay aligned, even through split tree mutations.
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
+        if moveFocusWithinController(controller, direction: direction) {
+            return
         }
 
+        let currentRegion = focusRegion(for: controller)
+        guard let targetController = crossDockNavigationTarget(from: currentRegion, direction: direction) else {
+            return
+        }
+        _ = focusPreferredPane(in: targetController)
+    }
+
+    private func currentFocusNavigationController() -> BonsplitController {
+        guard let controller = focusedBonsplitController,
+              allBonsplitControllers.contains(where: { $0 === controller }) else {
+            return bonsplitController
+        }
+        return controller
+    }
+
+    private func moveFocusWithinController(
+        _ controller: BonsplitController,
+        direction: NavigationDirection
+    ) -> Bool {
+        guard let paneId = controller.focusedPaneId else {
+            return focusPreferredPane(in: controller)
+        }
+        guard let targetPaneId = controller.adjacentPane(to: paneId, direction: direction) else {
+            return false
+        }
+        return focusPane(targetPaneId, in: controller)
+    }
+
+    private func focusPreferredPane(in controller: BonsplitController) -> Bool {
+        guard let paneId = preferredNavigationPane(in: controller) else { return false }
+        return focusPane(paneId, in: controller)
+    }
+
+    private func preferredNavigationPane(in controller: BonsplitController) -> PaneID? {
+        if let focusedPaneId = controller.focusedPaneId,
+           controller.selectedTab(inPane: focusedPaneId) != nil {
+            return focusedPaneId
+        }
+        if let selectedPaneId = controller.allPaneIds.first(where: { controller.selectedTab(inPane: $0) != nil }) {
+            return selectedPaneId
+        }
+        return controller.focusedPaneId ?? controller.allPaneIds.first
+    }
+
+    private func focusPane(_ paneId: PaneID, in controller: BonsplitController) -> Bool {
+        controller.focusPane(paneId)
+        focusedBonsplitController = controller
+        guard let tabId = controller.selectedTab(inPane: paneId)?.id else {
+            return true
+        }
+        applyTabSelection(tabId: tabId, inPane: paneId, controller: controller)
+        return true
+    }
+
+    func focusBonsplitPane(_ paneId: PaneID, controller: BonsplitController) {
+        _ = focusPane(paneId, in: controller)
+    }
+
+    private func focusRegion(for controller: BonsplitController) -> WorkspaceFocusRegion {
+        if controller === bonsplitController {
+            return .main
+        }
+
+        let leftDocks = dockLayout.openDocksSnapshot(for: .left)
+        if let index = leftDocks.firstIndex(where: { $0.controller === controller }) {
+            return .left(index)
+        }
+
+        let rightDocks = dockLayout.openDocksSnapshot(for: .right)
+        if let index = rightDocks.firstIndex(where: { $0.controller === controller }) {
+            return .right(index)
+        }
+
+        let bottomDocks = dockLayout.openDocksSnapshot(for: .bottom)
+        if let index = bottomDocks.firstIndex(where: { $0.controller === controller }) {
+            return .bottom(index)
+        }
+
+        return .main
+    }
+
+    private func crossDockNavigationTarget(
+        from region: WorkspaceFocusRegion,
+        direction: NavigationDirection
+    ) -> BonsplitController? {
+        let leftDocks = dockLayout.openDocksSnapshot(for: .left)
+        let rightDocks = dockLayout.openDocksSnapshot(for: .right)
+        let bottomDocks = dockLayout.openDocksSnapshot(for: .bottom)
+
+        switch direction {
+        case .left:
+            switch region {
+            case .left(let index):
+                return dockController(in: leftDocks, at: index - 1)
+            case .main:
+                return leftDocks.last?.controller
+            case .right(let index):
+                return dockController(in: rightDocks, at: index - 1) ?? bonsplitController
+            case .bottom(let index):
+                return dockController(in: bottomDocks, at: index - 1)
+            }
+        case .right:
+            switch region {
+            case .left(let index):
+                return dockController(in: leftDocks, at: index + 1) ?? bonsplitController
+            case .main:
+                return rightDocks.first?.controller
+            case .right(let index):
+                return dockController(in: rightDocks, at: index + 1)
+            case .bottom(let index):
+                return dockController(in: bottomDocks, at: index + 1)
+            }
+        case .up:
+            switch region {
+            case .bottom:
+                return bonsplitController
+            case .left, .main, .right:
+                return nil
+            }
+        case .down:
+            switch region {
+            case .left(let index):
+                return dockController(in: bottomDocks, atClamped: index)
+            case .main:
+                return bottomDocks.first?.controller
+            case .right(let index):
+                let bottomIndex = max(bottomDocks.count - rightDocks.count + index, 0)
+                return dockController(in: bottomDocks, atClamped: bottomIndex)
+            case .bottom:
+                return nil
+            }
+        }
+    }
+
+    private func dockController(in docks: [WorkspaceDock], at index: Int) -> BonsplitController? {
+        guard docks.indices.contains(index) else { return nil }
+        return docks[index].controller
+    }
+
+    private func dockController(in docks: [WorkspaceDock], atClamped index: Int) -> BonsplitController? {
+        guard !docks.isEmpty else { return nil }
+        return docks[min(max(index, 0), docks.count - 1)].controller
     }
 
     // MARK: - Surface Navigation

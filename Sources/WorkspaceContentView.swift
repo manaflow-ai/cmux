@@ -708,8 +708,6 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     @ViewBuilder let mainContent: () -> MainContent
     @State private var targetedRevealEdges: Set<WorkspaceDockEdge> = []
 
-    private let sideDockWidth: CGFloat = 240
-    private let bottomDockHeight: CGFloat = 220
     private let tabTransferType = UTType(exportedAs: "com.splittabbar.tabtransfer", conformingTo: .data)
 
     var body: some View {
@@ -726,7 +724,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     }
                 }
                 if layout.isEdgeOpen(.bottom) {
-                    Divider()
+                    bottomDockResizeHandle
                     bottomDockStrip
                 }
             }
@@ -741,7 +739,9 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
         HStack(spacing: 0) {
             ForEach(docks) { dock in
                 if edge == .right {
-                    Divider()
+                    dockResizeHandle(edge: edge, currentSize: dock.preferredSize) { size in
+                        layout.setPreferredSize(size, for: dock)
+                    }
                 }
                 WorkspaceDockPaneView(
                     workspace: workspace,
@@ -754,9 +754,11 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                     usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
                     portalPriority: portalPriority
                 )
-                .frame(width: dock.preferredSize ?? sideDockWidth)
+                .frame(width: dock.preferredSize)
                 if edge == .left {
-                    Divider()
+                    dockResizeHandle(edge: edge, currentSize: dock.preferredSize) { size in
+                        layout.setPreferredSize(size, for: dock)
+                    }
                 }
             }
         }
@@ -766,6 +768,20 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             }
         }
         .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
+    }
+
+    private var bottomDockResizeHandle: some View {
+        dockResizeHandle(edge: .bottom, currentSize: bottomDockHeightForOpenDocks) { size in
+            layout.setBottomDockHeight(size)
+        }
+    }
+
+    private func dockResizeHandle(
+        edge: WorkspaceDockEdge,
+        currentSize: CGFloat,
+        onResize: @escaping (CGFloat) -> Void
+    ) -> some View {
+        WorkspaceDockResizeHandle(edge: edge, currentSize: currentSize, onResize: onResize)
     }
 
     private var bottomDockStrip: some View {
@@ -796,8 +812,9 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     }
 
     private var bottomDockHeightForOpenDocks: CGFloat {
-        let configured = layout.bottom.compactMap(\.preferredSize).max() ?? bottomDockHeight
-        return max(120, configured)
+        let configured = layout.bottom.map(\.preferredSize).max()
+            ?? WorkspaceDock.defaultPreferredSize(for: .bottom)
+        return WorkspaceDock.clampedPreferredSize(for: .bottom, size: configured)
     }
 
     @ViewBuilder
@@ -864,6 +881,78 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
         case .bottom:
             return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
+        }
+    }
+}
+
+private struct WorkspaceDockResizeHandle: View {
+    let edge: WorkspaceDockEdge
+    let currentSize: CGFloat
+    let onResize: (CGFloat) -> Void
+    @State private var dragStartSize: CGFloat?
+    @State private var isHovering = false
+
+    var body: some View {
+        handleBody
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let startSize = dragStartSize ?? currentSize
+                        if dragStartSize == nil {
+                            dragStartSize = startSize
+                        }
+                        onResize(proposedSize(startSize: startSize, translation: value.translation))
+                    }
+                    .onEnded { _ in
+                        dragStartSize = nil
+                    }
+            )
+            .onHover { hovering in
+                isHovering = hovering
+            }
+    }
+
+    @ViewBuilder
+    private var handleBody: some View {
+        switch edge {
+        case .left, .right:
+            ZStack {
+                Rectangle()
+                    .fill(separatorColor)
+                    .frame(width: 1)
+                Rectangle()
+                    .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
+                    .frame(width: 7)
+            }
+            .frame(width: 7)
+            .frame(maxHeight: .infinity)
+        case .bottom:
+            ZStack {
+                Rectangle()
+                    .fill(separatorColor)
+                    .frame(height: 1)
+                Rectangle()
+                    .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
+                    .frame(height: 7)
+            }
+            .frame(height: 7)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var separatorColor: Color {
+        Color(nsColor: .separatorColor)
+    }
+
+    private func proposedSize(startSize: CGFloat, translation: CGSize) -> CGFloat {
+        switch edge {
+        case .left:
+            return startSize + translation.width
+        case .right:
+            return startSize - translation.width
+        case .bottom:
+            return startSize - translation.height
         }
     }
 }
@@ -1133,7 +1222,7 @@ private struct WorkspaceDockPaneView: View {
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {
-                    dock.controller.focusPane(paneId)
+                    workspace.focusBonsplitPane(paneId, controller: dock.controller)
                 }
             } else {
                 EmptyPanelView(workspace: workspace, paneId: paneId, controller: dock.controller)
@@ -1141,7 +1230,7 @@ private struct WorkspaceDockPaneView: View {
         } emptyPane: { paneId in
             EmptyPanelView(workspace: workspace, paneId: paneId, controller: dock.controller)
                 .onTapGesture {
-                    dock.controller.focusPane(paneId)
+                    workspace.focusBonsplitPane(paneId, controller: dock.controller)
                 }
         }
         .internalOnlyTabDrag()
