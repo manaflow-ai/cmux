@@ -143,6 +143,68 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
+    func testSkipsScrollWhenSelectedWorkspaceIdIsNil() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: nil as String?,
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenSelectedWorkspaceFirstAppears() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a"],
+                newWorkspaceIds: ["a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenSelectedWorkspaceMovesToTop() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "c",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testRequestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        XCTAssertTrue(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["c", "a", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "a",
+                oldWorkspaceIds: ["a", "b", "c"],
+                newWorkspaceIds: ["a", "c", "b"]
+            )
+        )
+    }
+
+    func testSkipsScrollWhenSelectedWorkspaceIsMissing() {
+        XCTAssertFalse(
+            SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+                selectedWorkspaceId: "b",
+                oldWorkspaceIds: ["a", "b"],
+                newWorkspaceIds: ["a", "c"]
+            )
+        )
+    }
+}
+
 final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
     func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
         let tabId = UUID()
