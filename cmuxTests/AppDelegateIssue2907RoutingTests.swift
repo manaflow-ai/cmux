@@ -176,6 +176,60 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanelId))
     }
 
+    func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        _ = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "codex resume new-session",
+                "checkpoint_id": "new-session",
+                "source": "agent-hook",
+            ]
+        )
+
+        let clearResult = try v2Result(
+            method: "surface.resume.clear",
+            params: [
+                "window_id": windowId.uuidString,
+                "surface_id": panelId.uuidString,
+                "checkpoint_id": "old-session",
+                "source": "agent-hook",
+            ]
+        )
+
+        XCTAssertEqual(clearResult["cleared"] as? Bool, false)
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId, "new-session")
+    }
+
     func testIssue2907TabManagerDependentSocketCommandsRecoverLiveSurfaceContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
