@@ -11453,6 +11453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if activateFocusedCanvasItemForShortcutIfNeeded(event: event, normalizedFlags: normalizedFlags) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
@@ -12044,6 +12045,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
             if !didHandle { NSSound.beep() }
             return true
+        }
+
+        if isCanvasZoomShortcutAvailable(event: event) {
+            if matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .browserZoomIn)) {
+                return performCanvasZoomShortcut(.zoomIn, event: event)
+            }
+            if matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .browserZoomOut)) {
+                return performCanvasZoomShortcut(.zoomOut, event: event)
+            }
+            if matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .browserZoomReset)) {
+                return performCanvasZoomShortcut(.reset, event: event)
+            }
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
@@ -12809,12 +12822,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case reset
     }
 
-    @discardableResult
-    private func performCanvasZoomShortcut(_ action: CanvasZoomShortcutAction, event: NSEvent) -> Bool {
+    private func canvasShortcutWorkspace(event: NSEvent) -> Workspace? {
         let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
         guard let workspace = routedManager?.selectedWorkspace,
-              workspace.layoutController.isCanvasOverviewActive
-        else {
+              workspace.layoutController.isCanvasOverviewActive else {
+            return nil
+        }
+        return workspace
+    }
+
+    private func isCanvasZoomShortcutAvailable(event: NSEvent) -> Bool {
+        canvasShortcutWorkspace(event: event) != nil
+    }
+
+    private func activateFocusedCanvasItemForShortcutIfNeeded(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard normalizedFlags.isEmpty,
+              event.keyCode == 36 || event.keyCode == 76,
+              let workspace = canvasShortcutWorkspace(event: event),
+              workspace.layoutController.canvasViewport.scale < 0.99 else {
+            return false
+        }
+        if let firstResponder = NSApp.keyWindow?.firstResponder,
+           firstResponder is NSTextView || firstResponder is NSTextField {
+            return false
+        }
+        return workspace.activateFocusedCanvasItem()
+    }
+
+    @discardableResult
+    private func performCanvasZoomShortcut(_ action: CanvasZoomShortcutAction, event: NSEvent) -> Bool {
+        guard let workspace = canvasShortcutWorkspace(event: event) else {
             return false
         }
 

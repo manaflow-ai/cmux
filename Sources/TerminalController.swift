@@ -15207,7 +15207,9 @@ class TerminalController {
         let selectedPanels: [LayoutDebugSelectedPanel]
         let canvasPolicy: String
         let canvasOverviewActive: Bool
+        let canvasViewportScale: Double
         let canvasFocusedItemId: String?
+        let canvasActiveRenderMode: String?
         let canvasItems: [LayoutDebugCanvasItem]
         let mainWindowNumber: Int?
         let keyWindowNumber: Int?
@@ -15401,12 +15403,15 @@ class TerminalController {
                 )
             }
 
+            let canvasScene = tab.layoutController.canvasSceneSnapshot()
             let payload = LayoutDebugResponse(
                 layout: layout,
                 selectedPanels: selectedPanels,
                 canvasPolicy: canvas.policy.rawValue,
                 canvasOverviewActive: tab.layoutController.isCanvasOverviewActive,
+                canvasViewportScale: tab.layoutController.canvasViewport.scale,
                 canvasFocusedItemId: tab.layoutController.focusedCanvasItemID?.id.uuidString,
+                canvasActiveRenderMode: canvasScene.activeMountDirective?.renderMode.rawValue,
                 canvasItems: canvasItems,
                 mainWindowNumber: NSApp.mainWindow?.windowNumber,
                 keyWindowNumber: NSApp.keyWindow?.windowNumber

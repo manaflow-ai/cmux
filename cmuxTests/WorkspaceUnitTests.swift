@@ -2553,7 +2553,28 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(defaultInsertedIndex, explicitInsertedIndex)
     }
 
-    func testSelectedCanvasModeCarriesIntoNewWorkspace() {
+    func testNewWorkspaceStartsInCanvasMainView() {
+        let workspace = Workspace()
+
+        XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(workspace.layoutController.canvasLayoutPolicy, .freeform)
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testCanvasActivationKeepsCanvasMainViewAndRestoresNativeScale() throws {
+        let workspace = Workspace()
+        let focusedItemID = try XCTUnwrap(workspace.layoutController.focusedCanvasItemID)
+
+        workspace.layoutController.setCanvasViewportScale(0.5)
+        XCTAssertTrue(workspace.activateCanvasItem(focusedItemID))
+
+        XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testSelectedCanvasModeCarriesIntoNewWorkspaceAtNativeScale() {
         let manager = TabManager()
         guard let source = manager.selectedWorkspace else {
             XCTFail("Expected selected workspace")
@@ -2566,7 +2587,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
         XCTAssertTrue(inserted.layoutController.isCanvasOverviewActive)
         XCTAssertEqual(inserted.layoutController.canvasLayoutPolicy, .freeform)
-        XCTAssertEqual(inserted.layoutController.canvasViewport.scale, 0.58, accuracy: 0.001)
+        XCTAssertEqual(inserted.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
     }
 
     func testAddWorkspaceEndOverrideAlwaysAppends() {

@@ -868,7 +868,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
         XCTAssertTrue(
             waitForDataMatch(timeout: 8.0) { data in
-                data["canvasOverviewActive"] == "false" &&
+                data["canvasOverviewActive"] == "true" &&
                     data["focusedPaneId"] == terminalPaneId &&
                     data["focusedPanelKind"] == "terminal" &&
                     !(data["firstResponderTerminalPanelId"] ?? "").isEmpty

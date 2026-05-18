@@ -580,6 +580,8 @@ private final class CanvasDragEventMonitorView: NSView {
 private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
     var onPan: (CGSize) -> Void
     var onZoom: (Double, CGPoint) -> Void
+    var onMagnify: (Double, CGPoint) -> Void
+    var onSmartZoom: (CGPoint) -> Void
 
     func makeNSView(context: Context) -> CanvasPanEventMonitorView {
         let view = CanvasPanEventMonitorView()
@@ -590,6 +592,8 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
     func updateNSView(_ nsView: CanvasPanEventMonitorView, context: Context) {
         nsView.onPan = onPan
         nsView.onZoom = onZoom
+        nsView.onMagnify = onMagnify
+        nsView.onSmartZoom = onSmartZoom
         nsView.installMonitorIfNeeded()
     }
 
@@ -601,6 +605,8 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
 private final class CanvasPanEventMonitorView: NSView {
     var onPan: ((CGSize) -> Void)?
     var onZoom: ((Double, CGPoint) -> Void)?
+    var onMagnify: ((Double, CGPoint) -> Void)?
+    var onSmartZoom: ((CGPoint) -> Void)?
 
     private var monitor: Any?
 
@@ -621,7 +627,7 @@ private final class CanvasPanEventMonitorView: NSView {
 
     func installMonitorIfNeeded() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .smartMagnify]) { [weak self] event in
             self?.handle(event) ?? event
         }
     }
@@ -643,14 +649,26 @@ private final class CanvasPanEventMonitorView: NSView {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard bounds.contains(localPoint) else { return event }
 
-        let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
-        guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-            onZoom?(Double(delta.height), localPoint)
+        switch event.type {
+        case .scrollWheel:
+            let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+            guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+                onZoom?(Double(delta.height), localPoint)
+                return nil
+            }
+            onPan?(delta)
             return nil
+        case .magnify:
+            guard abs(event.magnification) > 0.0001 else { return event }
+            onMagnify?(Double(event.magnification), localPoint)
+            return nil
+        case .smartMagnify:
+            onSmartZoom?(localPoint)
+            return nil
+        default:
+            return event
         }
-        onPan?(delta)
-        return nil
     }
 
     deinit {
@@ -1844,7 +1862,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     var body: some View {
         let scene = controller.canvasSceneSnapshot()
         let document = scene.document
-        let renderModes = Dictionary(uniqueKeysWithValues: scene.items.map { ($0.id, CanvasRenderMode.previewTexture) })
+        let renderModes = Dictionary(uniqueKeysWithValues: scene.items.map { ($0.id, $0.renderMode) })
         let items = document.items.sorted { lhs, rhs in
             if lhs.zIndex != rhs.zIndex {
                 return lhs.zIndex < rhs.zIndex
@@ -1919,7 +1937,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
         .backport.onKeyPress(.escape) { _ in
             guard shouldHandleCanvasOverviewShortcut() else { return .ignored }
-            workspace.exitCanvasOverview()
             return .handled
         }
         .backport.onKeyPress("-") { modifiers in
@@ -2043,6 +2060,20 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             viewportSize: proxy.size,
                             anchorScreenPoint: anchor
                         )
+                    },
+                    onMagnify: { magnification, anchor in
+                        controller.setCanvasViewportScale(
+                            zoomedCanvasScale(magnification: magnification),
+                            viewportSize: proxy.size,
+                            anchorScreenPoint: anchor
+                        )
+                    },
+                    onSmartZoom: { anchor in
+                        controller.setCanvasViewportScale(
+                            smartZoomedCanvasScale(),
+                            viewportSize: proxy.size,
+                            anchorScreenPoint: anchor
+                        )
                     }
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -2091,7 +2122,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
                             return
                         }
-                        focusCanvasHeader(item: item, paneID: paneID(for: item))
+                        activateCanvasItemForInput(item)
                     }
                 )
                 .frame(width: 1, height: 1)
@@ -2145,7 +2176,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
         }
         .overlay {
-            if dragScale != nil {
+            if dragScale != nil, renderMode != .liveNative1x {
                 CanvasDragRegistrationLayer(itemID: item.id)
                     .accessibilityHidden(true)
             }
@@ -2258,6 +2289,11 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         if let paneID {
             controller.focusPane(paneID)
         }
+    }
+
+    @discardableResult
+    private func activateCanvasItemForInput(_ item: CanvasItem) -> Bool {
+        workspace.activateCanvasItem(item.id)
     }
 
     private func canvasTabChip(
@@ -2797,7 +2833,21 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private func zoomedCanvasScale(delta: Double) -> Double {
         let current = controller.canvasViewport.scale
         let step = max(-0.10, min(0.10, delta * 0.002))
-        return min(max(current + step, 0.16), 0.72)
+        return clampedCanvasScale(current + step)
+    }
+
+    private func zoomedCanvasScale(magnification: Double) -> Double {
+        let current = controller.canvasViewport.scale
+        let factor = max(0.5, min(1.5, 1 + magnification))
+        return clampedCanvasScale(current * factor)
+    }
+
+    private func smartZoomedCanvasScale() -> Double {
+        controller.canvasViewport.scale < 0.99 ? 1.0 : 0.5
+    }
+
+    private func clampedCanvasScale(_ scale: Double) -> Double {
+        min(max(scale, 0.16), 1.0)
     }
 
     private func freeformCardSize(for frame: PixelRect, scale: CGFloat) -> CGSize {

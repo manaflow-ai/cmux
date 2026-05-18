@@ -318,6 +318,7 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+        ensureCanvasMainView()
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
         if snapshot.hasUnreadIndicator == true {
@@ -7899,6 +7900,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             layoutController.selectTab(initialTabId)
         }
+        ensureCanvasMainView()
         tmuxPaneLayoutSnapshot = layoutController.layoutSnapshot()
     }
 
@@ -11953,9 +11955,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private enum CanvasOverviewZoom {
-        static let defaultScale = 0.50
+        static let defaultScale = 1.0
         static let minimumScale = 0.16
-        static let maximumScale = 0.72
+        static let maximumScale = 1.0
         static let step = 0.08
     }
 
@@ -11965,6 +11967,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func enterCanvasOverview(policy: CanvasLayoutPolicy? = nil) {
         layoutController.enterCanvasOverview(policy: policy, scale: CanvasOverviewZoom.defaultScale)
+    }
+
+    private func ensureCanvasMainView() {
+        layoutController.enterCanvasOverview(policy: .freeform, scale: CanvasOverviewZoom.defaultScale)
     }
 
     @discardableResult
@@ -11998,7 +12004,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func activateCanvasItem(_ itemID: LayoutItemID) -> Bool {
-        guard let paneID = layoutController.activateCanvasItem(itemID) else { return false }
+        guard let paneID = layoutController.focusPane(forCanvasItem: itemID) else { return false }
+        if layoutController.canvasViewport.scale < 0.99 {
+            setCanvasOverviewScale(CanvasOverviewZoom.defaultScale)
+        }
         if let selectedTab = layoutController.selectedTab(inPane: paneID),
            let panelID = panelIdFromSurfaceId(selectedTab.id) {
             focusPanel(panelID)
@@ -12855,6 +12864,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
+        if layoutController.isCanvasOverviewActive {
+            var visiblePanelIds: Set<UUID> = []
+            for directive in layoutController.canvasSceneSnapshot().mountDirectives
+                where directive.renderMode == .liveNative1x {
+                if let surfaceID = directive.surfaceID,
+                   let panelId = panelIdFromSurfaceId(surfaceID),
+                   panels[panelId] != nil {
+                    visiblePanelIds.insert(panelId)
+                    continue
+                }
+                if let paneID = directive.paneID,
+                   let selectedTab = layoutController.selectedTab(inPane: paneID) ?? layoutController.tabs(inPane: paneID).first,
+                   let panelId = panelIdFromSurfaceId(selectedTab.id),
+                   panels[panelId] != nil {
+                    visiblePanelIds.insert(panelId)
+                }
+            }
+            return visiblePanelIds
+        }
         let renderedPaneIds = layoutController.zoomedPaneId.map { [$0] } ?? layoutController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
