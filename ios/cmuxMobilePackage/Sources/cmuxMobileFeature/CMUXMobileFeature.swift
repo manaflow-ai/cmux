@@ -1702,9 +1702,7 @@ struct WorkspaceDetailView: View {
                 terminal: selectedTerminal,
                 fontScale: terminalFontScale,
                 safeAreaContext: safeAreaContext,
-                bottomOverlayHeight: inlineBottomBarOverlaysTerminal
-                    ? TerminalInputAccessoryVisualMetrics.barHeight
-                    : 0,
+                bottomOverlayHeight: terminalSurfaceBottomOverlayHeight,
                 modifierState: $bottomActionModifierState,
                 isKeyboardVisible: $isTerminalKeyboardVisible,
                 inputFocusRequest: terminalInputFocusRequest,
@@ -1785,6 +1783,16 @@ struct WorkspaceDetailView: View {
     private var inlineBottomBarOverlaysTerminal: Bool {
         !isTerminalKeyboardVisible
             && MobileTerminalBottomBarVisibilityPolicy.showsInlineBar(isKeyboardVisible: isTerminalKeyboardVisible)
+    }
+
+    private var terminalSurfaceBottomOverlayHeight: CGFloat {
+        #if os(iOS)
+        return inlineBottomBarOverlaysTerminal
+            ? TerminalInputAccessoryVisualMetrics.barHeight
+            : 0
+        #else
+        return 0
+        #endif
     }
 
     private static let minimumTerminalFontScale: CGFloat = 0.8

@@ -341,6 +341,8 @@ public final class CMUXMobileShellStore {
                 stopTerminalRefreshPolling()
                 cancelSelectedTerminalSnapshotRefresh()
                 cancelRemoteOperationTasks()
+                viewportEchoSettlingKeys = []
+                viewportMatchedEchoByTerminalKey = []
             }
         }
     }
@@ -356,6 +358,8 @@ public final class CMUXMobileShellStore {
     private var needsSelectedTerminalSnapshotRefresh: Bool
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var viewportSettlingRefreshesByTerminalKey: [MobileTerminalViewportKey: Int]
+    private var viewportEchoSettlingKeys: Set<MobileTerminalViewportKey>
+    private var viewportMatchedEchoByTerminalKey: Set<MobileTerminalViewportKey>
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
 
     public var phase: MobileShellPhase {
@@ -420,6 +424,8 @@ public final class CMUXMobileShellStore {
         self.needsSelectedTerminalSnapshotRefresh = false
         self.reportedViewportSizesByTerminalKey = [:]
         self.viewportSettlingRefreshesByTerminalKey = [:]
+        self.viewportEchoSettlingKeys = []
+        self.viewportMatchedEchoByTerminalKey = []
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
     }
 
@@ -727,6 +733,8 @@ public final class CMUXMobileShellStore {
         reportedViewportSizesByTerminalKey[key] = viewportSize
         let currentSnapshotClientSize = terminalSnapshotClientSize(workspaceID: workspaceID, terminalID: terminalID)
         if previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize {
+            viewportEchoSettlingKeys.insert(key)
+            viewportMatchedEchoByTerminalKey.remove(key)
             viewportSettlingRefreshesByTerminalKey[key] = max(
                 viewportSettlingRefreshesByTerminalKey[key] ?? 0,
                 Self.viewportSettlingRefreshCount
@@ -746,6 +754,8 @@ public final class CMUXMobileShellStore {
         if let terminalID = selectedTerminalID,
            let key = selectedTerminalViewportKey(workspaceID: id, terminalID: terminalID),
            reportedViewportSizesByTerminalKey[key] != nil {
+            viewportEchoSettlingKeys.remove(key)
+            viewportMatchedEchoByTerminalKey.remove(key)
             viewportSettlingRefreshesByTerminalKey[key] = max(
                 viewportSettlingRefreshesByTerminalKey[key] ?? 0,
                 Self.workspaceOpenSettlingRefreshCount
@@ -1085,7 +1095,8 @@ public final class CMUXMobileShellStore {
             )
             scheduleViewportSettlingRefreshIfNeeded(
                 workspaceID: workspace.id,
-                terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
+                terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID),
+                viewportFit: response.viewportFit
             )
         } catch {
             guard generation == connectionGeneration else { return }
@@ -1111,6 +1122,8 @@ public final class CMUXMobileShellStore {
                     terminalID: MobileTerminalPreview.ID(rawValue: terminalID)
                 )
                 viewportSettlingRefreshesByTerminalKey[key] = nil
+                viewportEchoSettlingKeys.remove(key)
+                viewportMatchedEchoByTerminalKey.remove(key)
                 connectionError = nil
                 return
             }
@@ -1243,6 +1256,8 @@ public final class CMUXMobileShellStore {
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            viewportEchoSettlingKeys.remove(key)
+            viewportMatchedEchoByTerminalKey.remove(key)
             viewportSettlingRefreshesByTerminalKey[key] = max(
                 viewportSettlingRefreshesByTerminalKey[key] ?? 0,
                 Self.inputSettlingRefreshCount
@@ -1312,14 +1327,33 @@ public final class CMUXMobileShellStore {
 
     private func scheduleViewportSettlingRefreshIfNeeded(
         workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
+        terminalID: MobileTerminalPreview.ID,
+        viewportFit: MobileTerminalViewportFit?
     ) {
         let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
         guard let remaining = viewportSettlingRefreshesByTerminalKey[key],
               remaining > 0 else {
             viewportSettlingRefreshesByTerminalKey[key] = nil
+            viewportEchoSettlingKeys.remove(key)
+            viewportMatchedEchoByTerminalKey.remove(key)
             return
         }
+
+        let reportedViewportSize = reportedViewportSizesByTerminalKey[key]
+        if viewportEchoSettlingKeys.contains(key),
+           let reportedViewportSize,
+           viewportFit?.client == reportedViewportSize {
+            guard viewportMatchedEchoByTerminalKey.contains(key) else {
+                viewportMatchedEchoByTerminalKey.insert(key)
+                scheduleSelectedTerminalSnapshotRefresh()
+                return
+            }
+            viewportSettlingRefreshesByTerminalKey[key] = nil
+            viewportEchoSettlingKeys.remove(key)
+            viewportMatchedEchoByTerminalKey.remove(key)
+            return
+        }
+        viewportMatchedEchoByTerminalKey.remove(key)
         viewportSettlingRefreshesByTerminalKey[key] = remaining - 1
         scheduleSelectedTerminalSnapshotRefresh()
     }
