@@ -164,6 +164,7 @@ private struct FeedListView: View {
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
+        let keyboardSnapshots = keyboardNavigationSnapshots(snapshots)
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
             Group {
@@ -190,13 +191,13 @@ private struct FeedListView: View {
                         syncFeedFocusSnapshot(window: window)
                     },
                     onMoveSelection: { delta in
-                        moveSelection(in: snapshots, delta: delta)
+                        moveSelection(in: keyboardSnapshots, delta: delta)
                     },
                     onActivateSelection: {
-                        activateSelection(in: snapshots, actions: rowActions)
+                        activateSelection(in: keyboardSnapshots, actions: rowActions)
                     },
                     onFocusFirstItemRequested: {
-                        focusFirstVisibleItem(in: snapshots, focusHost: false)
+                        focusFirstVisibleItem(in: keyboardSnapshots, focusHost: false)
                     },
                     onFocusChanged: { focused in
                         let window = activeFeedWindow()
@@ -404,6 +405,16 @@ private struct FeedListView: View {
 
     private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
         snapshot.status.isPending || snapshot.kind == .stop
+    }
+
+    private func keyboardNavigationSnapshots(_ snapshots: [FeedItemSnapshot]) -> [FeedItemSnapshot] {
+        switch filter {
+        case .actionable:
+            return snapshots
+        case .activity:
+            return snapshots.filter(prefersStableSurface)
+                + snapshots.filter { !prefersStableSurface($0) }
+        }
     }
 
     private var shouldShowActivityHistoryLoader: Bool {
