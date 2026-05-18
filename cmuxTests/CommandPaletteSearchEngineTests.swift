@@ -929,6 +929,31 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(state?.wasReportedInCurrentSession, true)
     }
 
+    func testForkProbeRejectsProcessDetectedSnapshotWhenFallbackTTYChanged() {
+        let state = ContentView.commandPaletteForkableAgentProbeTTYState(
+            snapshotWasProcessDetected: true,
+            requestedTTYName: "ttys001",
+            requestedTTYWasReportedInCurrentSession: true,
+            currentTTYName: "ttys002",
+            currentTTYWasReportedInCurrentSession: true
+        )
+
+        XCTAssertNil(state)
+    }
+
+    func testForkProbeAcceptsProcessDetectedSnapshotWhenFallbackTTYStillMatches() {
+        let state = ContentView.commandPaletteForkableAgentProbeTTYState(
+            snapshotWasProcessDetected: true,
+            requestedTTYName: "ttys001",
+            requestedTTYWasReportedInCurrentSession: true,
+            currentTTYName: " ttys001 ",
+            currentTTYWasReportedInCurrentSession: true
+        )
+
+        XCTAssertEqual(state?.cacheValue, "ttys001")
+        XCTAssertEqual(state?.wasReportedInCurrentSession, true)
+    }
+
     func testForkProbeRejectsFallbackOnlySnapshotAcrossTTYRefresh() {
         let state = ContentView.commandPaletteForkableAgentProbeTTYState(
             snapshotWasProcessDetected: false,
@@ -1107,6 +1132,84 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
                 fallbackSnapshot: unsupported
+            )
+        )
+    }
+
+    func testForkCachedSnapshotRequiresMatchingContext() {
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: UUID(),
+            panelId: UUID()
+        )
+        let cached = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "cached-codex-session",
+            workingDirectory: "/tmp/cached repo",
+            launchCommand: nil
+        )
+        let remoteContextsByPanelKey = [panelKey: false]
+        let ttyNamesByPanelKey = [panelKey: "ttys001"]
+        let ttyFreshByPanelKey = [panelKey: true]
+
+        XCTAssertEqual(
+            ContentView.commandPaletteForkCachedSnapshot(
+                panelKey: panelKey,
+                cachedSnapshot: cached,
+                cachedRemoteContextsByPanelKey: remoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: ttyNamesByPanelKey,
+                cachedTTYFreshByPanelKey: ttyFreshByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true
+            )?.sessionId,
+            cached.sessionId
+        )
+        XCTAssertNil(
+            ContentView.commandPaletteForkCachedSnapshot(
+                panelKey: panelKey,
+                cachedSnapshot: cached,
+                cachedRemoteContextsByPanelKey: remoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: ttyNamesByPanelKey,
+                cachedTTYFreshByPanelKey: ttyFreshByPanelKey,
+                isRemoteTerminal: true,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertNil(
+            ContentView.commandPaletteForkCachedSnapshot(
+                panelKey: panelKey,
+                cachedSnapshot: cached,
+                cachedRemoteContextsByPanelKey: remoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: ttyNamesByPanelKey,
+                cachedTTYFreshByPanelKey: ttyFreshByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys002",
+                ttyWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertNil(
+            ContentView.commandPaletteForkCachedSnapshot(
+                panelKey: panelKey,
+                cachedSnapshot: cached,
+                cachedRemoteContextsByPanelKey: remoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: ttyNamesByPanelKey,
+                cachedTTYFreshByPanelKey: ttyFreshByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: false
+            )
+        )
+        XCTAssertNil(
+            ContentView.commandPaletteForkCachedSnapshot(
+                panelKey: panelKey,
+                cachedSnapshot: cached,
+                cachedRemoteContextsByPanelKey: [:],
+                cachedTTYNamesByPanelKey: ttyNamesByPanelKey,
+                cachedTTYFreshByPanelKey: ttyFreshByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true
             )
         )
     }

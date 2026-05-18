@@ -85,10 +85,20 @@ extension ContentView {
             }
 
             let ttyCacheValue = Self.commandPaletteTTYCacheValue(effectiveTTYName)
+            let cachedSnapshot = Self.commandPaletteForkCachedSnapshot(
+                panelKey: panelKey,
+                cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey],
+                cachedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: commandPaletteForkableAgentTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: commandPaletteForkableAgentTTYFreshByPanelKey,
+                isRemoteTerminal: isInitialRemoteContext,
+                ttyName: effectiveTTYName,
+                ttyWasReportedInCurrentSession: effectiveTTYWasReportedInCurrentSession
+            )
             let snapshot = Self.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: index.snapshot(workspaceId: workspaceId, panelId: panelId),
                 fallbackSnapshot: currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
-                cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
+                cachedSnapshot: cachedSnapshot
             )
             guard let snapshot else {
                 clearCommandPaletteForkableAgentCache(for: panelKey)
@@ -178,6 +188,25 @@ extension ContentView {
 }
 
 extension ContentView {
+    static func commandPaletteForkCachedSnapshot(
+        panelKey: String,
+        cachedSnapshot: SessionRestorableAgentSnapshot?,
+        cachedRemoteContextsByPanelKey: [String: Bool],
+        cachedTTYNamesByPanelKey: [String: String],
+        cachedTTYFreshByPanelKey: [String: Bool],
+        isRemoteTerminal: Bool,
+        ttyName: String?,
+        ttyWasReportedInCurrentSession: Bool
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let cachedSnapshot,
+              cachedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+              cachedTTYNamesByPanelKey[panelKey] == commandPaletteTTYCacheValue(ttyName),
+              cachedTTYFreshByPanelKey[panelKey] == ttyWasReportedInCurrentSession else {
+            return nil
+        }
+        return cachedSnapshot
+    }
+
     static func commandPaletteForkExecutionSnapshot(
         indexSnapshot: SessionRestorableAgentSnapshot?,
         fallbackSnapshot: SessionRestorableAgentSnapshot?,

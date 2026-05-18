@@ -6238,6 +6238,9 @@ struct ContentView: View {
                     clearCommandPaletteForkableAgentCache(for: panelKey)
                     if let unsupportedFingerprint {
                         commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey[panelKey] = unsupportedFingerprint
+                        commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                        commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyState.cacheValue
+                        commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyState.wasReportedInCurrentSession
                     }
                 }
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
@@ -6264,7 +6267,8 @@ struct ContentView: View {
     ) -> (cacheValue: String, wasReportedInCurrentSession: Bool)? {
         let requestedTTYName = commandPaletteNormalizedTTYName(requestedTTYName)
         let currentTTYName = commandPaletteNormalizedTTYName(currentTTYName)
-        if snapshotWasProcessDetected {
+        let usedTTYFallbackScope = requestedTTYName != nil && requestedTTYWasReportedInCurrentSession
+        if snapshotWasProcessDetected && !usedTTYFallbackScope {
             return (
                 commandPaletteTTYCacheValue(currentTTYName),
                 currentTTYWasReportedInCurrentSession
