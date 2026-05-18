@@ -260,7 +260,38 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-    print("PASS: Claude AskUserQuestion PreToolUse publishes Needs input once")
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            payload,
+            env,
+        )
+
+        permission_payload = {
+            "session_id": session_id,
+            "hook_event_name": "Notification",
+            "notification_type": "permission",
+            "message": "Approval is required before running the command.",
+        }
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            permission_payload,
+            env,
+        )
+
+        notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
+        if len(notify_commands) != 3:
+            print("FAIL: non-duplicate Notification hook should not be suppressed")
+            print(f"commands={server.commands!r}")
+            return 1
+
+    print("PASS: Claude AskUserQuestion PreToolUse handles needs-input notifications")
     return 0
 
 

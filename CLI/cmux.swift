@@ -16937,7 +16937,16 @@ struct CMUXCLI {
                !savedSignature.isEmpty {
                 let savedSubtitle = mappedSession.lastSubtitle ?? summary.subtitle
                 let savedBody = mappedSession.lastBody ?? ""
-                if needsInputNotificationSignature(subtitle: savedSubtitle, body: savedBody) == savedSignature {
+                let savedSummarySignature = needsInputNotificationSignature(
+                    subtitle: savedSubtitle,
+                    body: savedBody
+                )
+                let incomingSummarySignature = needsInputNotificationSignature(
+                    subtitle: summary.subtitle,
+                    body: summary.body
+                )
+                if savedSummarySignature == savedSignature,
+                   shouldUseSavedNeedsInputSummary(for: summary) || incomingSummarySignature == savedSignature {
                     clearLastNeedsInputSummaryBestEffort(
                         sessionStore: sessionStore,
                         sessionId: parsedInput.sessionId,
