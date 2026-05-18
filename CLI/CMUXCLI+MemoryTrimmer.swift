@@ -114,18 +114,17 @@ extension CMUXCLI {
                 throw CLIError(message: memoryNoAgentMessage(candidates: candidates, requested: options.agent))
             }
 
-            let graceful = memoryGracefulExit(for: candidate)
+            let graceful = memoryGracefulExitAction(for: candidate)
             var gracefulAction: String?
             var terminated = false
             var killed = false
             var attemptedShutdown = false
 
             if !options.dryRun {
-                if let graceful,
-                   let surfaceHandle = candidate.surfaceId ?? candidate.surfaceRef {
+                if let graceful {
                     let params: [String: Any] = [
                         "workspace_id": workspaceId,
-                        "surface_id": surfaceHandle,
+                        "surface_id": graceful.surfaceHandle,
                         "text": graceful.text
                     ]
                     do {
@@ -189,14 +188,14 @@ extension CMUXCLI {
         ) throws -> MemoryAgentCandidate? {
             guard isProcessRunning(pid: original.pid) else { return nil }
             guard original.identity != nil else {
-                throw CLIError(message: "memory trim refused to signal PID \(original.pid) because system.top did not include a process identity")
+                throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity was not available")
             }
 
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
             guard let workspace = memoryWorkspaceNode(from: payload, matching: workspaceHandle),
                   let candidate = memoryAgentCandidates(in: workspace).first(where: { matchesOriginal($0, original: original) }) else {
                 guard isProcessRunning(pid: original.pid) else { return nil }
-                throw CLIError(message: "memory trim refused to signal PID \(original.pid) because system.top could not revalidate the process identity")
+                throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity could not be verified")
             }
             return candidate
         }
@@ -458,6 +457,16 @@ extension CMUXCLI {
             default:
                 return nil
             }
+        }
+
+        private func memoryGracefulExitAction(
+            for candidate: MemoryAgentCandidate
+        ) -> (label: String, text: String, surfaceHandle: String)? {
+            guard let graceful = memoryGracefulExit(for: candidate),
+                  let surfaceHandle = candidate.surfaceId ?? candidate.surfaceRef else {
+                return nil
+            }
+            return (graceful.label, graceful.text, surfaceHandle)
         }
 
         private func waitForProcessExit(pid: Int, timeout: TimeInterval) -> Bool {
