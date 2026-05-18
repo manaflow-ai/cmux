@@ -3199,6 +3199,27 @@ final class WindowBrowserPortal: NSObject {
         return true
     }
 
+    @discardableResult
+    func refreshVisibleHostedWebViewPresentation(
+        withId webViewId: ObjectIdentifier,
+        reason: String
+    ) -> Bool {
+        guard ensureInstalled() else { return false }
+        guard let entry = entriesByWebViewId[webViewId],
+              let webView = entry.webView,
+              let containerView = entry.containerView,
+              !containerView.isPortalHidden else {
+            return false
+        }
+        refreshHostedWebViewPresentation(
+            webView,
+            in: containerView,
+            reason: reason,
+            forceRenderingStateReattach: false
+        )
+        return true
+    }
+
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
 
@@ -3886,13 +3907,14 @@ final class WindowBrowserPortal: NSObject {
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
-        // Logical portal hides keep the remote layer attached and opaque, so
-        // normal reveal/refresh repaint stays selector-free. Only explicit
-        // queued repairs force WebKit's private window-state selectors.
+        // The WKWebView stays in the AppKit tree while hidden, but WebKit can
+        // still keep stale remote-layer state until the reveal pass nudges it.
         let shouldForceRenderingStateReattach =
             presentationUpdateKind == .refresh &&
-            forceRenderingStateReattach
-        if shouldForceRenderingStateReattach, scheduleNavigationRenderingStateReattach {
+            (forceRenderingStateReattach || revealedForDisplay || recoveredFromTransientGeometry)
+        if presentationUpdateKind == .refresh,
+           forceRenderingStateReattach,
+           scheduleNavigationRenderingStateReattach {
             webView.browserPortalScheduleNavigationRenderingStateReattach(
                 reason: "\(source):\(refreshReasons.joined(separator: ","))"
             )
@@ -4322,7 +4344,14 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         let forceRenderingStateReattach = webView.browserPortalHasPendingNavigationRenderingStateReattach
-        guard forceRenderingStateReattach else { return }
+        guard forceRenderingStateReattach else {
+            guard portal.refreshVisibleHostedWebViewPresentation(
+                withId: webViewId,
+                reason: "navigation.didFinish"
+            ) else { return }
+            postRegistryDidChange(for: webView)
+            return
+        }
         let didRefresh = portal.forceRefreshWebView(
             withId: webViewId,
             reason: "navigation.didFinish",

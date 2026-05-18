@@ -3071,10 +3071,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
         )
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should not need private WebKit reattach selectors"
+            "Revealing an existing portal-hosted browser should nudge WebKit's remote render layer back into the window"
         )
     }
 
@@ -3150,10 +3150,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenDisplayCount,
             "Inspector divider adjustment during reveal must not skip the browser presentation refresh"
         )
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Inspector-adjusted reveal should not need private WebKit reattach selectors"
+            "Inspector-adjusted reveal should still nudge WebKit's remote render layer back into the window"
         )
     }
 
@@ -3447,7 +3447,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testRegistryNavigationRefreshSkipsVisiblePortalWithoutQueuedRepair() {
+    func testRegistryNavigationRefreshRepaintsVisiblePortalWithoutQueuedRepair() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -3478,10 +3478,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let afterFirstNavigationDisplayCount = webView.displayIfNeededCount
         let afterFirstNavigationReattachCount = webView.reattachRenderingStateCount
 
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             afterFirstNavigationDisplayCount,
             afterBindDisplayCount,
-            "Navigation completion without a queued repair should not repaint the visible browser presentation"
+            "Navigation completion should repaint the visible browser presentation"
         )
         XCTAssertEqual(
             afterFirstNavigationReattachCount,
@@ -3492,10 +3492,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
         advanceAnimations()
 
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             webView.displayIfNeededCount,
             afterFirstNavigationDisplayCount,
-            "Later navigation completions without a queued repair should stay no-op"
+            "Later navigation completions should still repaint the visible portal-hosted browser"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
