@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+nonisolated private let cmuxSettingsJSONWriterLog = Logger(subsystem: "com.cmuxterm.app", category: "SettingsFile")
 
 enum CmuxSettingsJSONWriter {
     static func write(
@@ -32,7 +35,7 @@ enum CmuxSettingsJSONWriter {
             try? fileManager.removeItem(at: temporaryURL)
             throw error
         }
-        try restoreSecurityAttributes(securityAttributes, to: path, fileManager: fileManager)
+        restoreSecurityAttributes(securityAttributes, to: path, fileManager: fileManager)
     }
 
     private static func existingSecurityAttributes(
@@ -55,19 +58,31 @@ enum CmuxSettingsJSONWriter {
         _ attributes: [FileAttributeKey: Any]?,
         to path: String,
         fileManager: FileManager
-    ) throws {
+    ) {
         guard let attributes else {
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            setSecurityAttributesBestEffort([.posixPermissions: 0o600], to: path, fileManager: fileManager)
             return
         }
         var ownershipAttributes: [FileAttributeKey: Any] = [:]
         ownershipAttributes[.ownerAccountID] = attributes[.ownerAccountID]
         ownershipAttributes[.groupOwnerAccountID] = attributes[.groupOwnerAccountID]
         if !ownershipAttributes.isEmpty {
-            try? fileManager.setAttributes(ownershipAttributes, ofItemAtPath: path)
+            setSecurityAttributesBestEffort(ownershipAttributes, to: path, fileManager: fileManager)
         }
         if let permissions = attributes[.posixPermissions] {
-            try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: path)
+            setSecurityAttributesBestEffort([.posixPermissions: permissions], to: path, fileManager: fileManager)
+        }
+    }
+
+    private static func setSecurityAttributesBestEffort(
+        _ attributes: [FileAttributeKey: Any],
+        to path: String,
+        fileManager: FileManager
+    ) {
+        do {
+            try fileManager.setAttributes(attributes, ofItemAtPath: path)
+        } catch {
+            cmuxSettingsJSONWriterLog.error("Failed to restore cmux.json attributes after write-back: \(String(describing: error), privacy: .private)")
         }
     }
 }
