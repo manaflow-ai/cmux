@@ -1,11 +1,6 @@
 import Foundation
 import os
 
-nonisolated private let ephemeralWorktreeLogger = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "ephemeral-worktree"
-)
-
 nonisolated enum EphemeralWorktreeCleanupPolicy: String, Codable, Sendable, Equatable {
     case snapshot
     case block
@@ -216,6 +211,10 @@ nonisolated struct EphemeralWorktreeGitClient {
 // git subprocess operations are stateless per call and any background cleanup enters through that lock-protected API.
 final class EphemeralWorktreeRegistry: @unchecked Sendable {
     static let shared = EphemeralWorktreeRegistry()
+    private nonisolated static let logger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "ephemeral-worktree"
+    )
 
     private let storeURL: URL
     private let git: EphemeralWorktreeGitClient
@@ -319,7 +318,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
             do {
                 _ = try self.cleanup(record, userConfirmed: userConfirmed)
             } catch {
-                ephemeralWorktreeLogger.error(
+                Self.logger.error(
                     "Ephemeral worktree cleanup failed for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
                 )
 #if DEBUG

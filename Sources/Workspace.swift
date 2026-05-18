@@ -9,11 +9,6 @@ import Network
 import CoreText
 import os
 
-nonisolated private let workspaceEphemeralWorktreeLogger = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "ephemeral-worktree"
-)
-
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
     guard let text else { return "nil" }
@@ -914,7 +909,7 @@ extension Workspace {
             try EphemeralWorktreeRegistry.shared.register(record)
             return record
         } catch {
-            workspaceEphemeralWorktreeLogger.error(
+            Self.ephemeralWorktreeLogger.error(
                 "Failed to register restored ephemeral worktree for session \(String(record.sessionId.prefix(8)), privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
 #if DEBUG
@@ -7202,6 +7197,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
+    )
+    private nonisolated static let ephemeralWorktreeLogger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "ephemeral-worktree"
     )
 
     let id: UUID
