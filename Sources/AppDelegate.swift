@@ -8755,7 +8755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
                 waitForContext { context in
                     let tabManager = context.tabManager
-                    let initialIndex = tabManager.tabs.firstIndex(where: { $0.id == tabManager.selectedTabId }) ?? 0
+                    let initialWorkspaceId = tabManager.selectedTabId ?? tabManager.visibleWorkspaceTabs.first?.id
                     let tab = tabManager.addTab()
                     guard let initialPanelId = tab.focusedPanelId else { return }
 
@@ -8785,7 +8785,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "expectedSurfaceId": targetPanelId.uuidString
                     ])
 
-                    tabManager.selectTab(at: initialIndex)
+                    if let initialWorkspaceId,
+                       let initialWorkspace = tabManager.tabs.first(where: { $0.id == initialWorkspaceId }) {
+                        tabManager.selectWorkspace(initialWorkspace)
+                    }
                 }
             }
         }

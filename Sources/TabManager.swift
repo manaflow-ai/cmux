@@ -3916,19 +3916,31 @@ class TabManager: ObservableObject {
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
-        guard !tabIds.isEmpty else { return }
-        let selectedTabs = tabs.filter { tabIds.contains($0.id) }
-        guard !selectedTabs.isEmpty else { return }
-        let previousOrder = tabs.map(\.id)
-        let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
-        let selectedPinned = selectedTabs.filter { $0.isPinned }
-        let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
-        let remainingPinned = remainingTabs.filter { $0.isPinned }
-        let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
-        tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
-        if tabs.map(\.id) != previousOrder {
-            postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
-        }
+        _ = moveVisibleWorkspacesToTop(tabIds)
+    }
+
+    @discardableResult
+    func moveVisibleWorkspacesToTop(_ workspaceIds: Set<UUID>) -> Bool {
+        guard !workspaceIds.isEmpty else { return false }
+        let visibleWorkspaces = visibleWorkspaceTabs
+        let selectedWorkspaces = visibleWorkspaces.filter { workspaceIds.contains($0.id) }
+        guard !selectedWorkspaces.isEmpty else { return false }
+
+        let visibleWorkspaceIds = visibleWorkspaces.map(\.id)
+        let remainingWorkspaces = visibleWorkspaces.filter { !workspaceIds.contains($0.id) }
+        let selectedPinned = selectedWorkspaces.filter { $0.isPinned }
+        let selectedUnpinned = selectedWorkspaces.filter { !$0.isPinned }
+        let remainingPinned = remainingWorkspaces.filter { $0.isPinned }
+        let remainingUnpinned = remainingWorkspaces.filter { !$0.isPinned }
+        let reorderedVisibleIds = (
+            selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+        ).map(\.id)
+
+        return applyVisibleWorkspaceOrder(
+            reorderedVisibleIds,
+            currentVisibleIds: visibleWorkspaceIds,
+            movedWorkspaceIds: selectedWorkspaces.map(\.id)
+        )
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
@@ -4015,14 +4027,36 @@ class TabManager: ObservableObject {
         reorderedVisibleIds.remove(at: currentVisibleIndex)
         reorderedVisibleIds.insert(tabId, at: clampedTargetIndex)
 
-        // Hidden workspaces keep their full-array slots; only visible slots receive the new order.
+        return applyVisibleWorkspaceOrder(
+            reorderedVisibleIds,
+            currentVisibleIds: visibleIds,
+            movedWorkspaceIds: [tabId]
+        )
+    }
+
+    private func applyVisibleWorkspaceOrder(
+        _ reorderedVisibleIds: [UUID],
+        currentVisibleIds: [UUID],
+        movedWorkspaceIds: [UUID]
+    ) -> Bool {
+        guard reorderedVisibleIds.count == currentVisibleIds.count else { return false }
+        guard reorderedVisibleIds != currentVisibleIds else { return true }
+
         var visibleWorkspacesById: [UUID: Workspace] = [:]
         for workspace in tabs where !workspace.isHidden {
             visibleWorkspacesById[workspace.id] = workspace
         }
+        var seenWorkspaceIds = Set<UUID>()
+        for workspaceId in reorderedVisibleIds {
+            guard visibleWorkspacesById[workspaceId] != nil,
+                  seenWorkspaceIds.insert(workspaceId).inserted else {
+                return false
+            }
+        }
 
         var visibleCursor = 0
         var reorderedTabs = tabs
+        // Hidden workspaces keep their full-array slots; only visible slots receive the new order.
         for index in reorderedTabs.indices where !reorderedTabs[index].isHidden {
             guard visibleCursor < reorderedVisibleIds.count,
                   let replacement = visibleWorkspacesById[reorderedVisibleIds[visibleCursor]] else {
@@ -4032,8 +4066,11 @@ class TabManager: ObservableObject {
             visibleCursor += 1
         }
         guard visibleCursor == reorderedVisibleIds.count else { return false }
+        let previousOrder = tabs.map(\.id)
         tabs = reorderedTabs
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        if reorderedTabs.map(\.id) != previousOrder {
+            postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
+        }
         return true
     }
 

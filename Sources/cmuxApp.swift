@@ -925,7 +925,7 @@ struct cmuxApp: App {
 
     private func moveSelectedWorkspaceToTop(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
+        manager.moveVisibleWorkspacesToTop([workspace.id])
         manager.selectWorkspace(workspace)
     }
 

@@ -7633,7 +7633,7 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            tabManager.moveTabsToTop([workspace.id])
+            tabManager.moveVisibleWorkspacesToTop([workspace.id])
             tabManager.selectWorkspace(workspace)
         }
         registry.register(commandId: "palette.closeOtherWorkspaces") {
@@ -9654,7 +9654,7 @@ struct VerticalTabsSidebar: View {
                 tabManager.reorderVisibleWorkspace(tabId: workspaceId, byVisibleDelta: delta)
             },
             moveWorkspacesToTop: { workspaceIds in
-                tabManager.moveTabsToTop(workspaceIds)
+                tabManager.moveVisibleWorkspacesToTop(workspaceIds)
             },
             canHideWorkspaces: { workspaceIds in
                 tabManager.canHideWorkspaces(workspaceIds)
