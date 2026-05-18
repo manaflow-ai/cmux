@@ -1388,6 +1388,36 @@ func TestCLIBrowserTabBareSignTargetDoesNotBecomeIndex(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserTabShortcutAcceptsNegativeIndex(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"browser", "surface:2", "tab", "-3",
+	})
+	if code != 0 {
+		t.Fatalf("browser tab negative index shortcut should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.tab.switch" {
+			t.Fatalf("expected browser.tab.switch, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "surface:2" {
+			t.Fatalf("expected surface_id surface:2, got %v", got)
+		}
+		if got := params["index"]; got != "-3" {
+			t.Fatalf("expected index -3, got %v", got)
+		}
+		if _, ok := params["target_surface_id"]; ok {
+			t.Fatalf("negative integer should not be sent as target_surface_id: %#v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser tab switch request")
+	}
+}
+
 func TestCLIBrowserMultiWordCommandIgnoresInterleavedShortFlag(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
