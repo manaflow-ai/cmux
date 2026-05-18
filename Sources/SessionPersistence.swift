@@ -381,7 +381,7 @@ private enum SurfaceResumeBindingScriptStore {
             \(inlineInput)
             """
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL
         } catch {
             return nil

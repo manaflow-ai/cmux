@@ -6083,6 +6083,9 @@ class TerminalController {
             checkpointId: v2OptionalTrimmedRawString(params, "checkpoint_id") ?? v2OptionalTrimmedRawString(params, "checkpointId"),
             source: v2OptionalTrimmedRawString(params, "source"),
             environment: v2StringMap(params, "environment"),
+            // Public socket callers can persist manual resume metadata, but
+            // only cmux-owned process detection may create auto-run bindings.
+            autoResume: false,
             updatedAt: Date().timeIntervalSince1970
         )
 

@@ -3650,14 +3650,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        async let loadedRestorableAgentIndex = RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-        async let loadedSurfaceResumeBindingIndex = SurfaceResumeBindingIndex.loadIncludingProcessDetectedBindings()
-        let restorableAgentIndex = await loadedRestorableAgentIndex
-        let surfaceResumeBindingIndex = await loadedSurfaceResumeBindingIndex
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
@@ -3683,8 +3680,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         _ = saveSessionSnapshot(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
@@ -3701,13 +3698,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let restorableAgentIndex = RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously()
-        let surfaceResumeBindingIndex = SurfaceResumeBindingIndex.loadProcessDetectedBindingsSynchronously()
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
     }
 
@@ -3716,16 +3712,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) {
         Task { @MainActor [weak self] in
-            async let loadedRestorableAgentIndex = RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-            async let loadedSurfaceResumeBindingIndex = SurfaceResumeBindingIndex.loadIncludingProcessDetectedBindings()
-            let restorableAgentIndex = await loadedRestorableAgentIndex
-            let surfaceResumeBindingIndex = await loadedSurfaceResumeBindingIndex
+            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
             guard let self, !self.isTerminatingApp else { return }
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
                 removeWhenEmpty: removeWhenEmpty,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
         }
     }

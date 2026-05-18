@@ -35,6 +35,20 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        return processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func processDetectedSnapshots(
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
@@ -542,6 +556,19 @@ extension SurfaceResumeBindingIndex {
         _ = fileManager
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        return processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func processDetectedTmuxBindings(
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval
+    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
+        _ = fileManager
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
 
         for process in processSnapshot.cmuxScopedProcesses() {
@@ -729,7 +756,7 @@ extension SurfaceResumeBindingIndex {
 
     private static func tmuxTopLevelOptionWidth(_ argument: String, arguments: [String], index: Int) -> Int {
         if argument.contains("=") { return 1 }
-        let valueOptions: Set<String> = ["-f"]
+        let valueOptions: Set<String> = ["-c", "-f"]
         guard valueOptions.contains(argument), index + 1 < arguments.count else { return 1 }
         return 2
     }

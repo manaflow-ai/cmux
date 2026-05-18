@@ -4143,6 +4143,20 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding)
     }
 
+    func testTmuxAttachFlagParserTreatsShellCommandFlagAsValueTaking() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "-c", "/bin/zsh", "attach", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
     func testTmuxOptionValueDoesNotReadTargetFromConfigValue() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
