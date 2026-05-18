@@ -2,6 +2,12 @@ name: cmux events stress
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/cmux-events-stress.yml"
+      - "scripts/cmux-events-stress.py"
+      - "Sources/CmuxEvent*.swift"
+      - "Sources/CmuxSocketEventMapper.swift"
+      - "Sources/TerminalController.swift"
   workflow_dispatch:
     inputs:
       ref:
