@@ -559,6 +559,81 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTopTruncatesFloatBackedResidentBytes() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-top-float-rss")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let dbURL = temporaryMemoryTelemetryDatabaseURL(name: "top-float-rss")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: dbURL.deletingLastPathComponent())
+        }
+
+        let snapshotHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "system.top")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:5",
+                    surfaceId: "66666666-6666-6666-6666-666666666666",
+                    agentKey: "codex",
+                    agentPID: 525_253,
+                    secretCommandLine: "/usr/local/bin/codex --secret ignored",
+                    workspaceResidentBytes: 314_572_800.75
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_MEMORY_TELEMETRY_DB_PATH"] = dbURL.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let snapshotResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "snapshot", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [snapshotHandled], timeout: 5)
+        XCTAssertFalse(snapshotResult.timedOut, snapshotResult.stderr)
+        XCTAssertEqual(snapshotResult.status, 0, snapshotResult.stderr)
+
+        let topHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            XCTFail("memory top should read SQLite and not resample system.top, saw \(line)")
+            return "{}"
+        }
+        topHandled.isInverted = true
+
+        let topResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["memory", "top", "--since", "1d", "--json", "--id-format", "uuids"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [topHandled], timeout: 0.1)
+        XCTAssertFalse(topResult.timedOut, topResult.stderr)
+        XCTAssertEqual(topResult.status, 0, topResult.stderr)
+        XCTAssertTrue(topResult.stderr.isEmpty, topResult.stderr)
+
+        let payload = try jsonPayload(from: topResult.stdout)
+        let rows = try XCTUnwrap(payload["rows"] as? [[String: Any]])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual((row["peak_rss_bytes"] as? NSNumber)?.int64Value, 314_572_800)
+    }
+
     func testMemoryTopSortsByAverageRSSBeforeLimit() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-top-sort")
@@ -2323,7 +2398,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         agentPID: Int,
         secretCommandLine: String,
         includeAgentTag: Bool = true,
-        includeAgentTagSurfaceId: Bool = true
+        includeAgentTagSurfaceId: Bool = true,
+        workspaceResidentBytes: Any = 314_572_800
     ) -> [String: Any] {
         var tags: [[String: Any]] = []
         if includeAgentTag {
@@ -2354,7 +2430,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                             "resources": [
                                 "cpu_percent": 12.5,
                                 "memory_percent": 1.8,
-                                "resident_bytes": 314_572_800,
+                                "resident_bytes": workspaceResidentBytes,
                                 "virtual_bytes": 629_145_600,
                                 "process_count": 3,
                             ],
