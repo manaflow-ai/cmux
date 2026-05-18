@@ -344,6 +344,38 @@ html { scroll-behavior: smooth; }
     return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=\s]+$/i.test(raw);
   }
 
+  function cmuxLocalImageURL(value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return null; }
+    var compact = compactForProtocolCheck(raw);
+    if (
+      compact.indexOf('data:') === 0 ||
+      compact.indexOf('http:') === 0 ||
+      compact.indexOf('https:') === 0 ||
+      compact.indexOf('cmux-local-image:') === 0
+    ) {
+      return null;
+    }
+
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      if ((parsed.protocol || '').toLowerCase() !== 'file:') { return null; }
+      return 'cmux-local-image://image?url=' + encodeURIComponent(parsed.href);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function rewriteLocalImageSources() {
+    contentEl.querySelectorAll('img[src]').forEach(function(img) {
+      var raw = img.getAttribute('src') || '';
+      var rewritten = cmuxLocalImageURL(raw);
+      if (!rewritten) { return; }
+      img.setAttribute('data-cmux-original-src', raw);
+      img.setAttribute('src', rewritten);
+    });
+  }
+
   function isSafeURLAttribute(name, value) {
     var raw = String(value || '').trim();
     if (!raw) { return true; }
@@ -947,6 +979,7 @@ html { scroll-behavior: smooth; }
       if (didReplaceContent) {
         contentEl.innerHTML = html;
       }
+      rewriteLocalImageSources();
       postProcessSpecialBlocks();
       if (didReplaceContent) {
         restoreMarkdownScrollState(scrollState);
@@ -964,6 +997,13 @@ html { scroll-behavior: smooth; }
     var clone = contentEl.cloneNode(true);
     clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
       el.remove();
+    });
+    clone.querySelectorAll('img[data-cmux-original-src]').forEach(function(el) {
+      var originalSrc = el.getAttribute('data-cmux-original-src') || '';
+      if (originalSrc) {
+        el.setAttribute('src', originalSrc);
+      }
+      el.removeAttribute('data-cmux-original-src');
     });
     clone.querySelectorAll('*').forEach(function(el) {
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {

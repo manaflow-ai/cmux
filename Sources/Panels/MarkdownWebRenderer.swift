@@ -38,6 +38,8 @@ struct MarkdownWebTheme: Equatable {
 }
 
 struct MarkdownWebRenderer: NSViewRepresentable {
+    static let localImageURLScheme = "cmux-local-image"
+
     let markdown: String
     let theme: MarkdownWebTheme
     let backgroundColor: NSColor
@@ -63,6 +65,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
         config.userContentController.add(context.coordinator, name: "cmuxLib")
+        config.setURLSchemeHandler(
+            context.coordinator,
+            forURLScheme: Self.localImageURLScheme
+        )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
         webView.setValue(false, forKey: "drawsBackground")
@@ -126,7 +132,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         weak var webView: WKWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
@@ -320,6 +326,69 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private var requestedLibs: Set<String> = []
+
+        // MARK: WKURLSchemeHandler
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            guard let requestURL = urlSchemeTask.request.url,
+                  let fileURL = localImageFileURL(from: requestURL),
+                  let mimeType = Self.localImageMimeType(for: fileURL.pathExtension) else {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+                return
+            }
+
+            do {
+                let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+                let response = URLResponse(
+                    url: requestURL,
+                    mimeType: mimeType,
+                    expectedContentLength: data.count,
+                    textEncodingName: nil
+                )
+                urlSchemeTask.didReceive(response)
+                urlSchemeTask.didReceive(data)
+                urlSchemeTask.didFinish()
+            } catch {
+                urlSchemeTask.didFailWithError(error)
+            }
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        }
+
+        private func localImageFileURL(from requestURL: URL) -> URL? {
+            guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.localImageURLScheme,
+                  let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
+                  let rawFileURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
+                  let fileURL = URL(string: rawFileURL),
+                  fileURL.isFileURL else {
+                return nil
+            }
+
+            let standardizedURL = fileURL.standardizedFileURL
+            guard FileManager.default.isReadableFile(atPath: standardizedURL.path),
+                  Self.localImageMimeType(for: standardizedURL.pathExtension) != nil else {
+                return nil
+            }
+            return standardizedURL
+        }
+
+        private static func localImageMimeType(for pathExtension: String) -> String? {
+            switch pathExtension.lowercased() {
+            case "png":
+                return "image/png"
+            case "jpg", "jpeg":
+                return "image/jpeg"
+            case "gif":
+                return "image/gif"
+            case "webp":
+                return "image/webp"
+            case "avif":
+                return "image/avif"
+            default:
+                return nil
+            }
+        }
 
         private func resolveMarkdownFile(_ rawPath: String, requestId: String) {
             guard let webView else { return }
