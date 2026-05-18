@@ -465,6 +465,16 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             .state(.init(visible: true, mode: .sessions))
         )
 
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .toggle,
+                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            ),
+            .ok
+        )
+        XCTAssertFalse(stateB.isVisible)
+        XCTAssertTrue(appDelegate.tabManager === managerA)
+
         switch appDelegate.applyRightSidebarRemoteCommand(
             .getState,
             target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceC.id)

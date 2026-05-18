@@ -1167,7 +1167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
-        if !isRunningUnderAppHostedXCTest {
+        if !isRunningUnderAppHostedXCTest || hasMainTerminalWindow() {
             scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         }
 #if DEBUG
@@ -1213,7 +1213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
-                if NSApp.windows.isEmpty {
+                if !isRunningUnderAppHostedXCTest, !hasMainTerminalWindow() {
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
@@ -1470,7 +1470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard let window = NSApp.windows.first else {
+        guard let window = NSApp.windows.first(where: { isMainTerminalWindow($0) }) else {
             if attempt < 20 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
@@ -5764,7 +5764,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch command {
         case .toggle:
             if !target.isActiveTarget {
+                let wasVisible = state.isVisible
                 state.toggle()
+                if wasVisible, !state.isVisible {
+                    _ = context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+                }
                 return .ok
             }
             guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
@@ -14173,6 +14177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func hasMainTerminalWindow() -> Bool {
+        NSApp.windows.contains { isMainTerminalWindow($0) }
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {
