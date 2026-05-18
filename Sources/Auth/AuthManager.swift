@@ -606,6 +606,7 @@ final class AuthManager: ObservableObject {
     }
 
     func applySignInResult(_ result: SignInResult) async {
+        lastSignInError = nil
         let mutationGeneration = beginAuthMutation(.signIn)
         isLoading = true
         defer {

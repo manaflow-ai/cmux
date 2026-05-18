@@ -139,6 +139,45 @@ final class AuthManagerSignInErrorTests: XCTestCase {
         XCTAssertNil(manager.lastSignInError)
     }
 
+    func testApplySignInResultClearsVisibleErrorBeforeTokenPersistence() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.ApplyClearsErrorBeforePersistence.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = BlockingSetTokenStore()
+        let manager = AuthManager(
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markBrowserSignInLoadingForTesting()
+        do {
+            try await manager.handleCallbackURL(URL(string: "cmux://auth-callback?stack_refresh=refresh-token")!)
+            XCTFail("Expected invalid callback to throw")
+        } catch AuthManagerError.invalidCallback {
+            // Expected path.
+        } catch {
+            XCTFail("Expected invalidCallback, got \(error)")
+        }
+        XCTAssertNotNil(manager.lastSignInError)
+
+        let applyTask = Task {
+            await manager.applySignInResult(makeSignInResult())
+        }
+        await tokenStore.waitForBlockedSet()
+
+        XCTAssertNil(manager.lastSignInError)
+
+        await tokenStore.releaseBlockedSet()
+        await applyTask.value
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertNil(manager.lastSignInError)
+    }
+
     func testSupersededCredentialSignInDoesNotLeakInternalError() async throws {
         let suiteName = "AuthManagerSignInErrorTests.CredentialSuperseded.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
