@@ -667,6 +667,8 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
     func testSettingsUIWriteBackFiltersLossySettingsPaths() {
         let values = CmuxSettingsJSONPersistence.settingsUIWriteBackValues([
+            "app.minimalMode": .bool(true),
+            "app.keepWorkspaceOpenWhenClosingLastSurface": .bool(true),
             "sidebarAppearance.matchTerminalBackground": .bool(true),
             "workspaceColors.colors": .stringDictionary(["Review": "#112233"]),
             "browser.hostsToOpenInEmbeddedBrowser": .stringArray(["example.com"]),
