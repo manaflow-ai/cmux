@@ -403,6 +403,180 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     }
 }
 
+final class BrowserProfilePopoverContrastUITests: XCTestCase {
+    private var setupPath = ""
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+        setupPath = "/tmp/cmux-ui-test-profile-popover-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: setupPath)
+    }
+
+    func testProfilePopoverUsesOpaqueReadableChromeOverLightPagesInDarkAppMode() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-appearanceMode", "dark",
+            "-browserThemeMode", "light",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = setupPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = makeLightPageDataURL()
+        app.launch()
+        XCTAssertTrue(ensureForegroundAfterLaunch(app, timeout: 12.0), "Expected app to launch in foreground")
+
+        let profileButton = app.descendants(matching: .any)
+            .matching(identifier: "BrowserProfileButton")
+            .firstMatch
+        XCTAssertTrue(profileButton.waitForExistence(timeout: 10.0), "Expected browser profile button")
+        profileButton.click()
+
+        let defaultProfileRow = app.buttons["Default"].firstMatch
+        XCTAssertTrue(defaultProfileRow.waitForExistence(timeout: 5.0), "Expected profile popover default row")
+
+        let rowScreenshot = defaultProfileRow.screenshot()
+        let sample = try sampleRGBA(fromPNG: rowScreenshot.pngRepresentation, xFraction: 0.88, yFraction: 0.5)
+        attachPNG(rowScreenshot.pngRepresentation, name: "profile-popover-default-row")
+
+        XCTAssertGreaterThan(
+            sample.alpha,
+            0.95,
+            "Expected the profile popover row to be composited against opaque menu chrome, sample=\(sample)"
+        )
+        XCTAssertLessThan(
+            sample.luminance,
+            0.72,
+            "Expected dark app mode profile menu chrome to stay visibly distinct from the white page behind it, sample=\(sample)"
+        )
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
+    }
+
+    private func makeLightPageDataURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>profile-popover-light-page</title>
+          <style>
+            html, body {
+              margin: 0;
+              width: 100%;
+              min-height: 100%;
+              background: #ffffff;
+              color: #111111;
+              font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            }
+            main {
+              padding: 96px 32px;
+            }
+          </style>
+        </head>
+        <body tabindex="-1">
+          <main>Light page behind the browser profile popover.</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+          </script>
+        </body>
+        </html>
+        """
+        let data = Data(html.utf8)
+        return "data:text/html;base64,\(data.base64EncodedString())"
+    }
+
+    private func sampleRGBA(
+        fromPNG pngData: Data,
+        xFraction: CGFloat,
+        yFraction: CGFloat
+    ) throws -> RGBA {
+        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw XCTSkip("Could not decode row screenshot PNG")
+        }
+
+        let width = image.width
+        let height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: &bytes,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw XCTSkip("Could not create bitmap context for row screenshot")
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let x = min(width - 1, max(0, Int(CGFloat(width - 1) * xFraction)))
+        let y = min(height - 1, max(0, Int(CGFloat(height - 1) * yFraction)))
+        let offset = (y * width + x) * 4
+        return RGBA(
+            red: Double(bytes[offset]) / 255.0,
+            green: Double(bytes[offset + 1]) / 255.0,
+            blue: Double(bytes[offset + 2]) / 255.0,
+            alpha: Double(bytes[offset + 3]) / 255.0,
+            width: width,
+            height: height,
+            x: x,
+            y: y
+        )
+    }
+
+    private func attachPNG(_ data: Data, name: String) {
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.png")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private struct RGBA: CustomStringConvertible {
+        let red: Double
+        let green: Double
+        let blue: Double
+        let alpha: Double
+        let width: Int
+        let height: Int
+        let x: Int
+        let y: Int
+
+        var luminance: Double {
+            0.2126 * red + 0.7152 * green + 0.0722 * blue
+        }
+
+        var description: String {
+            String(
+                format: "rgba=(%.3f, %.3f, %.3f, %.3f) luminance=%.3f image=%dx%d sample=(%d,%d)",
+                red,
+                green,
+                blue,
+                alpha,
+                luminance,
+                width,
+                height,
+                x,
+                y
+            )
+        }
+    }
+}
+
 final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     private var dataPath = ""
     private var socketPath = ""
