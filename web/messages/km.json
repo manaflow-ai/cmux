@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup ដំឡើង integration ដែលគាំទ្រទាំងអស់ដែលរកឃើញ ហើយបង្ហាញសង្ខេប agent ដែលបានរំលង។ ប្រើឈ្មោះ agent បើចង់បាន integration តែមួយ។",
       "surfaceBindingsTitle": "command surface resume ផ្ទាល់ខ្លួន",
       "surfaceBindingsDesc": "អ្នកប្រើប្រាស់កម្រិតខ្ពស់ និង integration អាច bind terminal surface ណាមួយទៅ restart command។ cmux រក្សាទុក binding ដែលបង្កើតដោយ public CLI ឬ socket សម្រាប់ពិនិត្យ និង resume ដោយដៃ។",
-      "surfaceBindingsNote": "cmux auto-run តែ resume binding ដែលវាសម្គាល់ថា trusted ប៉ុណ្ណោះ ដូចជា tmux binding ដែលរកឃើញពី live process។ cmux នៅតែមិន checkpoint process memory ទូទៅទេ។ environment key ដែលមានភាពរសើប ដូចជា token, password, secret និង API key នឹងត្រូវបានដកចេញ មុនពេលរក្សាទុក resume binding។",
+      "surfaceBindingsNote": "prefix ដែលបាន approve អាចពិនិត្យ ឬកែបាននៅ Settings > Terminal > Resume Commands។ cmux auto-run តែ resume binding ដែលវាសម្គាល់ថា trusted ប៉ុណ្ណោះ ដូចជា tmux binding ដែលរកឃើញពី live process ឬ prefix ដែល user បាន approve។ cmux នៅតែមិន checkpoint process memory ទូទៅទេ។ environment key ដែលមានភាពរសើប ដូចជា token, password, secret និង API key នឹងត្រូវបានដកចេញ មុនពេលរក្សាទុក resume binding។ Approval ក៏ភ្ជាប់ជាមួយ working directory និងតម្លៃ environment ពិតប្រាកដ ប្រសិនបើមាន។",
       "supportedTitle": "agent ដែលគាំទ្រ",
       "agentHeader": "Agent",
       "binaryHeader": "Binary",

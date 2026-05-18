@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup ติดตั้ง integration ที่รองรับทั้งหมดที่พบ และพิมพ์สรุป agent ที่ข้ามไป ใช้ชื่อ agent เมื่อต้องการ integration เดียว",
       "surfaceBindingsTitle": "คำสั่ง surface resume แบบกำหนดเอง",
       "surfaceBindingsDesc": "ผู้ใช้ขั้นสูงและ integration สามารถผูก terminal surface ใดก็ได้กับคำสั่ง restart cmux เก็บ binding ที่สร้างผ่าน public CLI หรือ socket ไว้สำหรับตรวจสอบและ resume ด้วยตนเอง",
-      "surfaceBindingsNote": "cmux จะ auto-run เฉพาะ resume binding ที่ถูกทำเครื่องหมายว่า trusted เช่น tmux binding ที่ตรวจพบจาก process ที่กำลังทำงาน cmux ยังไม่ checkpoint process memory ทั่วไป คีย์ environment ที่ละเอียดอ่อน เช่น token, password, secret และ API key จะถูกตัดทิ้งก่อนบันทึก resume binding",
+      "surfaceBindingsNote": "prefix ที่อนุมัติแล้วสามารถตรวจสอบหรือแก้ไขได้ใน Settings > Terminal > Resume Commands cmux จะ auto-run เฉพาะ resume binding ที่ถูกทำเครื่องหมายว่า trusted เช่น tmux binding ที่ตรวจพบจาก process ที่กำลังทำงาน หรือ prefix ที่ user อนุมัติแล้ว cmux ยังไม่ checkpoint process memory ทั่วไป คีย์ environment ที่ละเอียดอ่อน เช่น token, password, secret และ API key จะถูกตัดทิ้งก่อนบันทึก resume binding การอนุมัติจะผูกกับไดเรกทอรีทำงานและค่า environment แบบตรงกันทุกค่าเมื่อมีอยู่ด้วย",
       "supportedTitle": "Agent ที่รองรับ",
       "agentHeader": "Agent",
       "binaryHeader": "Binary",

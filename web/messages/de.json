@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup installiert jede unterstützte Integration, die es findet, und gibt eine Zusammenfassung übersprungener Agents aus. Verwenden Sie einen Agent-Namen, wenn Sie nur eine Integration einrichten wollen.",
       "surfaceBindingsTitle": "Benutzerdefinierte Surface-Wiederaufnahmebefehle",
       "surfaceBindingsDesc": "Fortgeschrittene Nutzer und Integrationen können jede Terminal-Surface an einen Neustartbefehl binden. cmux speichert über öffentliche CLI oder Socket erstellte Bindungen zur Prüfung und manuellen Wiederaufnahme.",
-      "surfaceBindingsNote": "cmux startet nur Wiederaufnahme-Bindungen automatisch, die als vertrauenswürdig markiert sind, zum Beispiel aus laufenden Prozessen erkannte tmux-Bindungen. cmux checkpointet weiterhin keinen beliebigen Prozessspeicher. Sensible Umgebungsvariablen wie Tokens, Passwörter, Secrets und API-Keys werden verworfen, bevor eine Wiederaufnahme-Bindung gespeichert wird.",
+      "surfaceBindingsNote": "Genehmigte Präfixe können unter Settings > Terminal > Resume Commands geprüft oder bearbeitet werden. cmux startet nur Wiederaufnahme-Bindungen automatisch, die als vertrauenswürdig markiert sind, zum Beispiel aus laufenden Prozessen erkannte tmux-Bindungen oder vom Benutzer genehmigte Präfixe. cmux checkpointet weiterhin keinen beliebigen Prozessspeicher. Sensible Umgebungsvariablen wie Tokens, Passwörter, Secrets und API-Keys werden verworfen, bevor eine Wiederaufnahme-Bindung gespeichert wird. Genehmigungen sind außerdem an Arbeitsverzeichnis und exakte Umgebungswerte gebunden, wenn sie vorhanden sind.",
       "supportedTitle": "Unterstützte Agents",
       "agentHeader": "Agent",
       "binaryHeader": "Binärdatei",

@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup은 찾을 수 있는 모든 지원 integration을 설치하고 건너뛴 agent 요약을 출력합니다. 하나의 integration만 원하면 agent 이름을 사용하세요.",
       "surfaceBindingsTitle": "사용자 지정 surface resume 명령",
       "surfaceBindingsDesc": "고급 사용자와 integration은 어떤 터미널 surface든 restart 명령에 연결할 수 있습니다. cmux는 공개 CLI나 socket으로 만든 binding을 확인과 수동 resume용으로 저장합니다.",
-      "surfaceBindingsNote": "cmux는 실행 중인 프로세스에서 감지한 tmux binding처럼 신뢰됨으로 표시한 resume binding만 자동 실행합니다. cmux는 여전히 임의의 process memory를 checkpoint하지 않습니다. 토큰, 비밀번호, 시크릿, API 키 같은 민감한 환경 변수 키는 resume binding을 저장하기 전에 제거됩니다.",
+      "surfaceBindingsNote": "승인된 prefix는 Settings > Terminal > Resume Commands에서 확인하거나 수정할 수 있습니다. cmux는 실행 중인 프로세스에서 감지한 tmux binding이나 사용자가 승인한 prefix처럼 신뢰됨으로 표시한 resume binding만 자동 실행합니다. cmux는 여전히 임의의 process memory를 checkpoint하지 않습니다. 토큰, 비밀번호, 시크릿, API 키 같은 민감한 환경 변수 키는 resume binding을 저장하기 전에 제거됩니다. 승인은 작업 디렉터리와 정확한 환경 값이 있을 때에도 함께 묶입니다.",
       "supportedTitle": "지원되는 agent",
       "agentHeader": "Agent",
       "binaryHeader": "Binary",

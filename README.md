@@ -282,8 +282,13 @@ cmux surface resume clear --checkpoint work
 ```
 
 The binding stays attached to the cmux surface. Public CLI or socket-created
-bindings are stored for inspection and manual restore. cmux only auto-runs
-resume bindings it marks trusted, such as live process-detected tmux bindings. Sensitive environment keys such as tokens, passwords, secrets, and API keys are dropped before a resume binding is stored.
+bindings are stored for inspection and manual restore unless you approve a
+signed command prefix for automatic restore. Approved prefixes are also bound to
+the working directory and exact environment values, when present. Review or edit
+approvals in **Settings > Terminal > Resume Commands**. cmux only auto-runs
+resume bindings it marks trusted, such as live process-detected tmux bindings or
+user-approved prefixes. Sensitive environment keys such as tokens, passwords,
+secrets, and API keys are dropped before a resume binding is stored.
 
 To keep restored agent terminals idle instead of automatically running their resume commands,
 turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set this in

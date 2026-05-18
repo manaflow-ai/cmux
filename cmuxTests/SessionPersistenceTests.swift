@@ -3819,6 +3819,134 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
 
+    func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t 'work session'",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertTrue(record.hasValidSignature(secret: secret))
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let changedEnvironmentBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t 'work session'",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/tmp/bin"]
+        )
+        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: changedEnvironmentBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(changedEnvironmentEffectiveBinding.approvalPolicy, .manual)
+        XCTAssertFalse(changedEnvironmentEffectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumeApprovalRejectsTamperedRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        var record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        record.policy = .auto
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(SurfaceResumeApprovalStore.StoredFile(version: 1, records: [record]))
+        try data.write(to: storeURL, options: [.atomic])
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertNil(effectiveBinding.approvalRecordId)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumePromptPolicyDoesNotRunAutomaticallyUnderTest() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let input = Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: storeURL,
+            approvalSigningSecret: secret
+        )
+        XCTAssertNil(input)
+    }
+
+    func testProcessDetectedSurfaceResumeRemainsTrustedWithoutApprovalRecord() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "process-detected"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-approvals-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return root.appendingPathComponent("resume-commands.json", isDirectory: false)
+    }
+
     @MainActor
     func testRestoreRunsSurfaceResumeBindingFromBindingCwd() throws {
         let source = Workspace()
@@ -3831,7 +3959,7 @@ extension SessionPersistenceTests {
                 command: "./resume.sh",
                 cwd: "/tmp/new",
                 checkpointId: "script",
-                source: "cli",
+                source: "process-detected",
                 autoResume: true,
                 updatedAt: 10
             ),
@@ -3861,7 +3989,7 @@ extension SessionPersistenceTests {
                 command: "./resume.sh",
                 cwd: "/tmp/sticky",
                 checkpointId: "script",
-                source: "cli",
+                source: "process-detected",
                 updatedAt: 10
             ),
         ])
@@ -3893,7 +4021,7 @@ extension SessionPersistenceTests {
                 command: "codex resume session",
                 cwd: "/tmp/project",
                 checkpointId: "session",
-                source: "cli",
+                source: "process-detected",
                 environment: [
                     "CODEX_HOME": "/tmp/codex home",
                     "EMPTY": "",
@@ -3932,7 +4060,7 @@ extension SessionPersistenceTests {
                 command: "codex resume session --add-dir \(longPath)",
                 cwd: "/tmp/project",
                 checkpointId: "session",
-                source: "cli",
+                source: "process-detected",
                 environment: [
                     "CODEX_HOME": "/tmp/codex home",
                 ],

@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup installe toutes les intégrations prises en charge qu'il trouve et affiche un résumé des agents ignorés. Utilisez le nom d'un agent si vous ne voulez qu'une intégration.",
       "surfaceBindingsTitle": "Commandes personnalisées de reprise de surface",
       "surfaceBindingsDesc": "Les utilisateurs avancés et les intégrations peuvent lier toute surface de terminal à une commande de redémarrage. cmux conserve les associations créées par le CLI public ou le socket pour inspection et reprise manuelle.",
-      "surfaceBindingsNote": "cmux exécute automatiquement seulement les associations de reprise qu'il marque comme fiables, comme les associations tmux détectées depuis des processus actifs. cmux ne checkpoint toujours pas la mémoire arbitraire des processus. Les clés d’environnement sensibles, comme les jetons, mots de passe, secrets et clés API, sont supprimées avant l’enregistrement d’une association de reprise.",
+      "surfaceBindingsNote": "Les préfixes approuvés peuvent être vérifiés ou modifiés dans Settings > Terminal > Resume Commands. cmux exécute automatiquement seulement les associations de reprise qu'il marque comme fiables, comme les associations tmux détectées depuis des processus actifs ou les préfixes approuvés par l’utilisateur. cmux ne checkpoint toujours pas la mémoire arbitraire des processus. Les clés d’environnement sensibles, comme les jetons, mots de passe, secrets et clés API, sont supprimées avant l’enregistrement d’une association de reprise. Les approbations sont aussi liées au répertoire de travail et aux valeurs exactes de l’environnement quand elles existent.",
       "supportedTitle": "Agents pris en charge",
       "agentHeader": "Agent",
       "binaryHeader": "Binaire",

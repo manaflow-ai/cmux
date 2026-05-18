@@ -6095,7 +6095,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: nil)
                 return
             }
-            guard target.workspace.setSurfaceResumeBinding(binding, panelId: target.surfaceId) else {
+            let effectiveBinding = v2SurfaceResumeBindingWithApproval(binding)
+            guard target.workspace.setSurfaceResumeBinding(effectiveBinding, panelId: target.surfaceId) else {
                 result = .err(code: "invalid_params", message: "Resume command is empty", data: nil)
                 return
             }
@@ -6103,11 +6104,80 @@ class TerminalController {
                 tabManager: target.tabManager,
                 workspace: target.workspace,
                 surfaceId: target.surfaceId,
-                binding: binding,
+                binding: effectiveBinding,
                 cleared: false
             ))
         }
         return result
+    }
+
+    private func v2SurfaceResumeBindingWithApproval(_ binding: SurfaceResumeBindingSnapshot) -> SurfaceResumeBindingSnapshot {
+        let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
+        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        guard v2ShouldPromptForSurfaceResumeApproval(binding: binding, existingRecord: existingRecord) else {
+            return effectiveBinding
+        }
+        let policy = v2PromptForSurfaceResumeApproval(binding: effectiveBinding)
+        guard let record = SurfaceResumeApprovalStore.approve(binding: binding, policy: policy) else {
+            return effectiveBinding
+        }
+        effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        effectiveBinding.approvalPolicy = record.policy
+        effectiveBinding.approvalRecordId = record.id
+        effectiveBinding.autoResume = record.policy == .auto
+        return effectiveBinding
+    }
+
+    private func v2ShouldPromptForSurfaceResumeApproval(
+        binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?
+    ) -> Bool {
+        guard Thread.isMainThread else {
+            return false
+        }
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return false
+        }
+        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
+            return false
+        }
+        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+            return false
+        }
+        guard let existingRecord else { return true }
+        return existingRecord.policy == .prompt
+    }
+
+    private func v2PromptForSurfaceResumeApproval(
+        binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeApprovalPolicy {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "surfaceResumeApproval.proposal.title",
+            defaultValue: "Allow Resume Command?"
+        )
+        let cwd = binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
+        alert.informativeText = String(
+            format: String(
+                localized: "surfaceResumeApproval.proposal.message",
+                defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\n%@\n\nWorking directory: %@"
+            ),
+            binding.command,
+            cwd
+        )
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.manual", defaultValue: "Keep Manual"))
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .auto
+        case .alertSecondButtonReturn:
+            return .prompt
+        default:
+            return .manual
+        }
     }
 
     private func v2SurfaceResumeGet(params: [String: Any]) -> V2CallResult {
@@ -6273,16 +6343,19 @@ class TerminalController {
 
     private func v2SurfaceResumeBindingPayload(_ binding: SurfaceResumeBindingSnapshot?) -> Any {
         guard let binding else { return NSNull() }
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
         return [
-            "name": v2OrNull(binding.name),
-            "kind": v2OrNull(binding.kind),
-            "command": binding.command,
-            "cwd": v2OrNull(binding.cwd),
-            "checkpoint_id": v2OrNull(binding.checkpointId),
-            "source": v2OrNull(binding.source),
-            "environment": v2OrNull(binding.environment),
-            "auto_resume": binding.allowsAutomaticResume,
-            "updated_at": binding.updatedAt
+            "name": v2OrNull(effectiveBinding.name),
+            "kind": v2OrNull(effectiveBinding.kind),
+            "command": effectiveBinding.command,
+            "cwd": v2OrNull(effectiveBinding.cwd),
+            "checkpoint_id": v2OrNull(effectiveBinding.checkpointId),
+            "source": v2OrNull(effectiveBinding.source),
+            "environment": v2OrNull(effectiveBinding.environment),
+            "auto_resume": effectiveBinding.allowsAutomaticResume,
+            "approval_policy": v2OrNull(effectiveBinding.approvalPolicy?.rawValue),
+            "approval_record_id": v2OrNull(effectiveBinding.approvalRecordId),
+            "updated_at": effectiveBinding.updatedAt
         ]
     }
 

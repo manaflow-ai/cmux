@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup installerer alle understøttede integrationer, den kan finde, og viser en oversigt over agenter, der blev sprunget over. Brug et agentnavn, når du kun vil have én integration.",
       "surfaceBindingsTitle": "Brugerdefinerede surface resume-kommandoer",
       "surfaceBindingsDesc": "Avancerede brugere og integrationer kan binde enhver terminal-surface til en restart-kommando. cmux gemmer bindinger oprettet via offentlig CLI eller socket til inspektion og manuel genoptagelse.",
-      "surfaceBindingsNote": "cmux auto-kører kun resume-bindinger, som den markerer som betroede, for eksempel tmux-bindinger fundet fra live processer. cmux checkpoint'er stadig ikke vilkårlig proceshukommelse. Følsomme miljønøgler som tokens, adgangskoder, hemmeligheder og API-nøgler fjernes, før en resume-binding gemmes.",
+      "surfaceBindingsNote": "Godkendte præfikser kan gennemgås eller redigeres i Settings > Terminal > Resume Commands. cmux auto-kører kun resume-bindinger, som den markerer som betroede, for eksempel tmux-bindinger fundet fra live processer eller bruger-godkendte præfikser. cmux checkpoint'er stadig ikke vilkårlig proceshukommelse. Følsomme miljønøgler som tokens, adgangskoder, hemmeligheder og API-nøgler fjernes, før en resume-binding gemmes. Godkendelser bindes også til arbejdsmappen og præcise miljøværdier, når de findes.",
       "supportedTitle": "Understøttede agenter",
       "agentHeader": "Agent",
       "binaryHeader": "Binær",

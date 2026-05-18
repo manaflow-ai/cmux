@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup instaluje każdą znalezioną obsługiwaną integrację i wypisuje podsumowanie pominiętych agentów. Użyj nazwy agenta, gdy chcesz tylko jedną integrację.",
       "surfaceBindingsTitle": "Własne polecenia surface resume",
       "surfaceBindingsDesc": "Zaawansowani użytkownicy i integracje mogą powiązać dowolną terminal surface z poleceniem restartu. cmux zapisuje bindingi utworzone przez publiczny CLI lub socket do inspekcji i ręcznego wznowienia.",
-      "surfaceBindingsNote": "cmux automatycznie uruchamia tylko bindingi resume oznaczone jako zaufane, na przykład bindingi tmux wykryte z działających procesów. cmux nadal nie checkpointuje dowolnej pamięci procesów. Wrażliwe klucze środowiska, takie jak tokeny, hasła, sekrety i klucze API, są odrzucane przed zapisaniem bindingu wznowienia.",
+      "surfaceBindingsNote": "Zatwierdzone prefiksy można sprawdzić lub edytować w Settings > Terminal > Resume Commands. cmux automatycznie uruchamia tylko bindingi resume oznaczone jako zaufane, na przykład bindingi tmux wykryte z działających procesów albo prefiksy zatwierdzone przez użytkownika. cmux nadal nie checkpointuje dowolnej pamięci procesów. Wrażliwe klucze środowiska, takie jak tokeny, hasła, sekrety i klucze API, są odrzucane przed zapisaniem bindingu wznowienia. Zatwierdzenia są też powiązane z katalogiem roboczym i dokładnymi wartościami środowiska, gdy są obecne.",
       "supportedTitle": "Obsługiwani agenci",
       "agentHeader": "Agent",
       "binaryHeader": "Binarka",

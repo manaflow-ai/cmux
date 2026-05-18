@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup 会安装它能找到的所有受支持集成，并打印被跳过 agent 的摘要。只需要一个集成时请指定 agent 名称。",
       "surfaceBindingsTitle": "自定义 surface resume 命令",
       "surfaceBindingsDesc": "高级用户和集成可以把任意终端 surface 绑定到重启命令。cmux 会保存通过公开 CLI 或 socket 创建的绑定，用于检查和手动恢复。",
-      "surfaceBindingsNote": "cmux 只会自动运行被标记为可信的 resume 绑定，例如从运行中进程检测到的 tmux 绑定。cmux 仍然不会 checkpoint 任意进程内存。 令牌、密码、密钥和 API key 等敏感环境变量键会在保存恢复绑定前被丢弃。",
+      "surfaceBindingsNote": "已批准的前缀可在 Settings > Terminal > Resume Commands 中查看或编辑。cmux 只会自动运行被标记为可信的 resume 绑定，例如从运行中进程检测到的 tmux 绑定或用户批准的前缀。cmux 仍然不会 checkpoint 任意进程内存。 令牌、密码、密钥和 API key 等敏感环境变量键会在保存恢复绑定前被丢弃。 批准项也会绑定到工作目录以及存在时的精确环境变量值。",
       "supportedTitle": "受支持的 agents",
       "agentHeader": "Agent",
       "binaryHeader": "二进制",
