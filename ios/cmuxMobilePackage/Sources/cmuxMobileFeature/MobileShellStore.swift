@@ -1099,7 +1099,12 @@ public final class CMUXMobileShellStore {
                 viewportFit: response.viewportFit
             )
         } catch {
+            let requestedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
             guard generation == connectionGeneration else { return }
+            guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: requestedTerminalID) else {
+                connectionError = nil
+                return
+            }
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .private)")
             if Self.isTerminalSurfaceNotReady(error) {
                 if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
@@ -1138,6 +1143,9 @@ public final class CMUXMobileShellStore {
         guard let client = remoteClient else { return false }
         let generation = connectionGeneration
         let excludedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
+        guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
+            return false
+        }
         for candidate in terminalSnapshotFallbackCandidates(
             preferredWorkspaceID: workspace.id,
             excludingTerminalID: excludedTerminalID
@@ -1154,6 +1162,9 @@ public final class CMUXMobileShellStore {
                 )
                 let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
                 guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
+                guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
+                    return false
+                }
                 let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? candidate.terminalID.rawValue)
                 replaceTerminalSnapshot(
                     workspaceID: candidate.workspaceID,
@@ -1168,6 +1179,9 @@ public final class CMUXMobileShellStore {
                 return true
             } catch {
                 guard generation == connectionGeneration else { return false }
+                guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
+                    return false
+                }
                 if Self.isTerminalSurfaceNotReady(error) {
                     continue
                 }
@@ -1176,6 +1190,13 @@ public final class CMUXMobileShellStore {
             }
         }
         return false
+    }
+
+    private func isStillSelectedTerminal(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) -> Bool {
+        selectedWorkspace?.id == workspaceID && selectedTerminalID == terminalID
     }
 
     private func terminalSnapshotFallbackCandidates(

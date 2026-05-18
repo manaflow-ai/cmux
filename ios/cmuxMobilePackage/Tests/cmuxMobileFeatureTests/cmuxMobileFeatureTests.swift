@@ -1053,6 +1053,43 @@ import UIKit
 }
 
 @MainActor
+@Test func staleNotReadySnapshotDoesNotSelectFallbackAfterUserSelectionChanges() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let router = StaleSnapshotSelectionRouter(route: route)
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareSnapshotTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    let connectTask = Task { @MainActor in
+        await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    }
+
+    await router.waitForStaleSnapshotRequest()
+    await store.openWorkspace(.init(rawValue: "chosen-workspace"))
+    await router.releaseStaleSnapshotError()
+    await connectTask.value
+
+    for _ in 0..<100 {
+        if store.selectedWorkspace?.id.rawValue == "chosen-workspace",
+           store.selectedTerminalID?.rawValue == "chosen-terminal",
+           store.selectedWorkspace?.terminals.first?.lines.first == "chosen stays selected" {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    let requests = await router.sentRequests()
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "chosen-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "chosen-terminal")
+    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "chosen stays selected")
+    #expect(!requests.contains { $0.workspaceID == "fallback-workspace" })
+}
+
+@MainActor
 @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
     let store = CMUXMobileShellStore.preview()
     store.signIn()
@@ -2192,6 +2229,184 @@ private struct FailingRouteTransportFactory: CmxByteTransportFactory {
     }
 }
 
+private struct RequestAwareSnapshotTransportFactory: CmxByteTransportFactory {
+    let router: StaleSnapshotSelectionRouter
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        RequestAwareSnapshotTransport(router: router)
+    }
+}
+
+private actor StaleSnapshotSelectionRouter {
+    private let route: CmxAttachRoute
+    private var staleSnapshotRequested = false
+    private var staleSnapshotReleased = false
+    private var staleSnapshotReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var staleSnapshotRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var requests: [RecordedRPCRequest] = []
+
+    init(route: CmxAttachRoute) {
+        self.route = route
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForStaleSnapshotRequest() async {
+        guard !staleSnapshotRequested else { return }
+        await withCheckedContinuation { continuation in
+            staleSnapshotRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseStaleSnapshotError() {
+        staleSnapshotReleased = true
+        staleSnapshotReleaseContinuation?.resume()
+        staleSnapshotReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "mobile.attach_ticket.create":
+            return try rpcAttachTicketFrame(route: route, workspaceID: "stale-workspace")
+        case "workspace.list":
+            return try workspaceListFrame()
+        case "terminal.snapshot":
+            if request.workspaceID == "stale-workspace", request.terminalID == "stale-terminal" {
+                markStaleSnapshotRequested()
+                await waitForStaleSnapshotRelease()
+                return try rpcErrorFrame(message: "Terminal surface is not ready")
+            }
+            if request.workspaceID == "fallback-workspace", request.terminalID == "fallback-terminal" {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: "fallback-workspace",
+                    terminalID: "fallback-terminal",
+                    visibleLines: ["fallback should not steal selection"]
+                )
+            }
+            if request.workspaceID == "chosen-workspace", request.terminalID == "chosen-terminal" {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: "chosen-workspace",
+                    terminalID: "chosen-terminal",
+                    visibleLines: ["chosen stays selected"]
+                )
+            }
+            return try rpcErrorFrame(message: "Unexpected terminal snapshot request")
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markStaleSnapshotRequested() {
+        staleSnapshotRequested = true
+        let waiters = staleSnapshotRequestWaiters
+        staleSnapshotRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForStaleSnapshotRelease() async {
+        guard !staleSnapshotReleased else { return }
+        await withCheckedContinuation { continuation in
+            staleSnapshotReleaseContinuation = continuation
+        }
+    }
+
+    private func workspaceListFrame() throws -> Data {
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    workspaceObject(
+                        id: "stale-workspace",
+                        title: "Stale Workspace",
+                        terminalID: "stale-terminal",
+                        terminalTitle: "Stale Terminal",
+                        isReady: false,
+                        isSelected: true
+                    ),
+                    workspaceObject(
+                        id: "fallback-workspace",
+                        title: "Fallback Workspace",
+                        terminalID: "fallback-terminal",
+                        terminalTitle: "Fallback Terminal",
+                        isReady: true,
+                        isSelected: false
+                    ),
+                    workspaceObject(
+                        id: "chosen-workspace",
+                        title: "Chosen Workspace",
+                        terminalID: "chosen-terminal",
+                        terminalTitle: "Chosen Terminal",
+                        isReady: true,
+                        isSelected: false
+                    ),
+                ],
+            ]
+        )
+    }
+
+    private func workspaceObject(
+        id: String,
+        title: String,
+        terminalID: String,
+        terminalTitle: String,
+        isReady: Bool,
+        isSelected: Bool
+    ) -> [String: Any] {
+        [
+            "id": id,
+            "title": title,
+            "current_directory": "/Users/test/\(id)",
+            "is_selected": isSelected,
+            "terminals": [
+                [
+                    "id": terminalID,
+                    "title": terminalTitle,
+                    "current_directory": "/Users/test/\(id)",
+                    "is_ready": isReady,
+                    "is_focused": true,
+                ],
+            ],
+        ]
+    }
+}
+
+private actor RequestAwareSnapshotTransport: CmxByteTransport {
+    private let router: StaleSnapshotSelectionRouter
+    private var request: RecordedRPCRequest?
+
+    init(router: StaleSnapshotSelectionRouter) {
+        self.router = router
+    }
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        guard let request else {
+            return nil
+        }
+        return try await router.response(for: request)
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        guard let payload = try MobileSyncFrameCodec.decodeFrames(from: &buffer).last else {
+            return
+        }
+        let request = try recordedRPCRequest(from: payload)
+        self.request = request
+        await router.record(request)
+    }
+
+    func close() async {}
+}
+
 private actor RouteAttemptRecorder {
     private var recordedRouteIDs: [String] = []
 
@@ -2270,6 +2485,25 @@ private actor AsyncFlag {
     func isSet() -> Bool {
         value
     }
+}
+
+private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest {
+    let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+    let params = request["params"] as? [String: Any] ?? [:]
+    let auth = request["auth"] as? [String: Any]
+    return RecordedRPCRequest(
+        method: request["method"] as? String,
+        workspaceID: params["workspace_id"] as? String,
+        terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
+        viewportColumns: params["viewport_columns"] as? Int,
+        viewportRows: params["viewport_rows"] as? Int,
+        maxScrollbackRows: params["max_scrollback_rows"] as? Int,
+        clientID: params["client_id"] as? String,
+        text: params["text"] as? String,
+        hasAuth: auth != nil,
+        attachToken: auth?["attach_token"] as? String,
+        stackAccessToken: auth?["stack_access_token"] as? String
+    )
 }
 
 private actor ScriptedTransport: CmxByteTransport {
