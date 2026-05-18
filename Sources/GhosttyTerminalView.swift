@@ -3850,10 +3850,7 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            surfaceView.enqueueScrollbarUpdate(
-                scrollbar,
-                wasKeyboardInitiated: surfaceView.consumeKeyboardInitiatedScrollAction()
-            )
+            surfaceView.enqueueScrollbarActionUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -6485,6 +6482,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    func enqueueScrollbarActionUpdate(_ newValue: GhosttyScrollbar) {
+        enqueueScrollbarUpdate(newValue, wasKeyboardInitiated: consumeKeyboardInitiatedScrollAction())
+    }
+
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
@@ -6540,7 +6541,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(_ newValue: GhosttyScrollbar) {
         beginKeyboardInitiatedScrollAction()
         endKeyboardInitiatedScrollAction()
-        enqueueScrollbarUpdate(newValue, wasKeyboardInitiated: consumeKeyboardInitiatedScrollAction())
+        enqueueScrollbarActionUpdate(newValue)
     }
 #endif
 
@@ -7805,7 +7806,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func keyEventMayTriggerKeyboardScrollAction(_ event: NSEvent) -> Bool {
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-        guard !flags.contains(.command) else { return false }
+        guard flags.isDisjoint(with: [.command, .control, .option]) else { return false }
         switch Int(event.keyCode) {
         case kVK_PageUp, kVK_PageDown:
             return true
