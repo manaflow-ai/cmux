@@ -10,12 +10,16 @@ const resolveVmImage = mock(() => ({
   image: "base-image",
   imageVersion: "base-version",
 }));
-const resolveVmEntitlements = mock(() => ({
-  billingCustomerType: "team" as const,
-  billingTeamId: "team-actions-runner",
-  planId: "free",
-  maxActiveVms: 5,
-}));
+let resolveVmEntitlementsError: Error | null = null;
+const resolveVmEntitlements = mock(() => {
+  if (resolveVmEntitlementsError) throw resolveVmEntitlementsError;
+  return {
+    billingCustomerType: "team" as const,
+    billingTeamId: "team-actions-runner",
+    planId: "free",
+    maxActiveVms: 5,
+  };
+});
 let failCacheLookup = false;
 let execExitCode = 42;
 let snapshotFails = false;
@@ -66,6 +70,7 @@ beforeEach(() => {
   assertVmCreateEnabled.mockClear();
   vmCreateEnabledError = null;
   resolveVmImage.mockClear();
+  resolveVmEntitlementsError = null;
   resolveVmEntitlements.mockClear();
   findFreestyleActionSnapshotByName.mockClear();
   failCacheLookup = false;
@@ -211,6 +216,41 @@ describe("cloud action runner", () => {
     expect(result.dryRun).toBe(true);
     expect(assertVmCreateEnabled).not.toHaveBeenCalled();
     expect(resolveVmImage).not.toHaveBeenCalled();
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
+  test("converts entitlement config failures into safe action errors", async () => {
+    resolveVmEntitlementsError = new Error("CMUX_VM_FREE_MAX_ACTIVE_VMS has secret upstream config details");
+
+    try {
+      await runAction({
+        request: {
+          action: "hexclave/stack-auth:fresh-env",
+          ref: "dev",
+        },
+        user: testUser(),
+        dependencies: {
+          assertVmCreateEnabled,
+          resolveVmImage,
+          resolveVmEntitlements,
+          findFreestyleActionSnapshotByName,
+          createVm,
+          destroyVm,
+          execVm,
+          runVmWorkflow,
+          snapshotVm,
+        },
+      });
+      throw new Error("expected action run to fail");
+    } catch (err) {
+      expect(isActionRunError(err)).toBe(true);
+      if (!isActionRunError(err)) throw err;
+      expect(err.code).toBe("actions_entitlements_unavailable");
+      expect(err.message).not.toContain("CMUX_VM_FREE_MAX_ACTIVE_VMS");
+      expect(err.action).toContain("Retry");
+      expect(err.details).toEqual({ phase: "entitlements" });
+    }
+
     expect(createVm).not.toHaveBeenCalled();
   });
 

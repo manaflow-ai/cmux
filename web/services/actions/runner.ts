@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import { assertVmCreateEnabled } from "../vms/config";
 import type { AuthedUser } from "../vms/auth";
 import {
+  isVmBillingTeamResolutionError,
   resolveVmEntitlements,
   type VmBillingTeamResolutionError,
 } from "../vms/entitlements";
@@ -137,10 +138,22 @@ export async function runAction(input: {
   const setupScript = recipe.setupScript({ ref, mode });
   const startScript = recipe.startScript({ ref, mode });
 
-  const entitlements = dependencies.resolveVmEntitlements(input.user, process.env, {
-    requestedBillingTeamId: input.requestedBillingTeamId ?? null,
-    requireTeam: true,
-  });
+  let entitlements: ReturnType<typeof resolveVmEntitlements>;
+  try {
+    entitlements = dependencies.resolveVmEntitlements(input.user, process.env, {
+      requestedBillingTeamId: input.requestedBillingTeamId ?? null,
+      requireTeam: true,
+    });
+  } catch (err) {
+    if (isVmBillingTeamResolutionError(err)) throw err;
+    throw new ActionRunError(
+      "actions_entitlements_unavailable",
+      500,
+      "Cloud VM plan limits are unavailable right now.",
+      "Retry in a moment. If this keeps happening, contact support.",
+      { phase: "entitlements" },
+    );
+  }
 
   const idempotencyKey = typeof input.request.idempotencyKey === "string" && input.request.idempotencyKey.trim()
     ? input.request.idempotencyKey.trim().slice(0, 128)
