@@ -3365,6 +3365,22 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
     }
 
+    func testSurfaceResumeBindingStartupInputScopesEnvironmentToCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && codex resume session",
+            environment: [
+                "SPACED": "  keep exact  ",
+                "CODEX_HOME": "/tmp/codex home",
+                "EMPTY": "",
+            ]
+        )
+
+        XCTAssertEqual(
+            binding.startupInput,
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' 'SPACED=  keep exact  ' '/bin/zsh' '-lc' 'cd '\\''/tmp/project'\\'' && codex resume session'\n"
+        )
+    }
+
     @MainActor
     func testSnapshotPrefersFreshProcessDetectedSurfaceResumeBinding() throws {
         let workspace = Workspace()
@@ -3641,6 +3657,43 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreScopesSurfaceResumeBindingEnvironmentToInitialInput() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "cli",
+                environment: [
+                    "CODEX_HOME": "/tmp/codex home",
+                    "EMPTY": "",
+                ],
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
+        XCTAssertEqual(
+            restoredPanel.surface.debugInitialInputForTesting(),
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        )
     }
 
     @MainActor

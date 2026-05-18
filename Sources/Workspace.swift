@@ -884,9 +884,6 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
             )
-            let startupEnvironment = replayEnvironment.merging(effectiveResumeBinding?.environment ?? [:]) { current, _ in
-                current
-            }
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -894,7 +891,7 @@ extension Workspace {
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
-                startupEnvironment: startupEnvironment
+                startupEnvironment: replayEnvironment
             ) else {
                 return nil
             }

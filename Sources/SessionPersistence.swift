@@ -258,7 +258,15 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var startupInput: String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return trimmed + "\n"
+        guard let environment, !environment.isEmpty else {
+            return trimmed + "\n"
+        }
+        let assignments = environment.keys.sorted().compactMap { key -> String? in
+            guard let value = environment[key] else { return nil }
+            return "\(key)=\(value)"
+        }
+        let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
+        return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -277,6 +285,10 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
