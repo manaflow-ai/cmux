@@ -54,6 +54,7 @@ def main() -> int:
         user_config_json.write_text(
             json.dumps({
                 "plugin": [
+                    "oh-my-openagent",
                     "oh-my-opencode@2.0.0",
                     "oh-my-openagent@3.17.5",
                     ["oh-my-opencode", "1.0.0"],

@@ -19534,6 +19534,10 @@ export default CMUXSessionRestore;
         value == packageName || value.hasPrefix("\(packageName)@")
     }
 
+    private static func openCodePluginSpecIsPinnedPackage(_ value: String, packageName: String) -> Bool {
+        value.hasPrefix("\(packageName)@")
+    }
+
     private static func openCodePluginEntryReplacingPackage(
         _ entry: Any,
         packageName: String,
@@ -19556,46 +19560,59 @@ export default CMUXSessionRestore;
         return entry
     }
 
-    private static func openCodePluginListNormalizingOMOPlugin(_ plugins: [Any]) -> [Any] {
-        let hasCurrentOMOPlugin = plugins.contains { entry in
-            guard let name = openCodePluginEntryName(entry) else { return false }
-            return openCodePluginSpecIsPackage(name, packageName: omoPluginName)
+    private static func openCodePluginEntryIsOMOPackage(_ entry: Any) -> Bool {
+        guard let name = openCodePluginEntryName(entry) else { return false }
+        return openCodePluginSpecIsPackage(name, packageName: omoPluginName)
+            || openCodePluginSpecIsPackage(name, packageName: legacyOmoPluginName)
+    }
+
+    private static func preferredOMOPluginEntry(from plugins: [Any]) -> Any? {
+        var currentPinnedEntry: Any?
+        var currentEntry: Any?
+        var legacyEntry: Any?
+
+        for entry in plugins {
+            guard let name = openCodePluginEntryName(entry) else { continue }
+            if openCodePluginSpecIsPackage(name, packageName: omoPluginName) {
+                if openCodePluginSpecIsPinnedPackage(name, packageName: omoPluginName) {
+                    if currentPinnedEntry == nil {
+                        currentPinnedEntry = entry
+                    }
+                } else if currentEntry == nil {
+                    currentEntry = entry
+                }
+                continue
+            }
+
+            if legacyEntry == nil,
+               openCodePluginSpecIsPackage(name, packageName: legacyOmoPluginName) {
+                legacyEntry = openCodePluginEntryReplacingPackage(
+                    entry,
+                    packageName: legacyOmoPluginName,
+                    replacementPackageName: omoPluginName
+                )
+            }
         }
-        var sawOMOPlugin = false
+
+        return currentPinnedEntry ?? currentEntry ?? legacyEntry
+    }
+
+    private static func openCodePluginListNormalizingOMOPlugin(_ plugins: [Any]) -> [Any] {
+        guard let preferredEntry = preferredOMOPluginEntry(from: plugins) else {
+            return plugins
+        }
+
+        var insertedOMOPlugin = false
         var normalized: [Any] = []
         for entry in plugins {
-            guard let name = openCodePluginEntryName(entry) else {
-                normalized.append(entry)
-                continue
-            }
-
-            if openCodePluginSpecIsPackage(name, packageName: omoPluginName) {
-                if sawOMOPlugin {
-                    continue
+            if openCodePluginEntryIsOMOPackage(entry) {
+                if !insertedOMOPlugin {
+                    normalized.append(preferredEntry)
+                    insertedOMOPlugin = true
                 }
-                sawOMOPlugin = true
+            } else {
                 normalized.append(entry)
-                continue
             }
-
-            if hasCurrentOMOPlugin,
-               openCodePluginSpecIsPackage(name, packageName: legacyOmoPluginName) {
-                continue
-            }
-
-            let normalizedEntry = openCodePluginEntryReplacingPackage(
-                entry,
-                packageName: legacyOmoPluginName,
-                replacementPackageName: omoPluginName
-            )
-            if let normalizedName = openCodePluginEntryName(normalizedEntry),
-               openCodePluginSpecIsPackage(normalizedName, packageName: omoPluginName) {
-                if sawOMOPlugin {
-                    continue
-                }
-                sawOMOPlugin = true
-            }
-            normalized.append(normalizedEntry)
         }
         return normalized
     }
