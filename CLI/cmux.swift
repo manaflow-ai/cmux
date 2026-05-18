@@ -6425,15 +6425,24 @@ struct CMUXCLI {
         extraArguments: [String] = []
     ) -> String {
         let suffix = extraArguments.isEmpty ? "" : " " + extraArguments.joined(separator: " ")
+        let fallbackCLIPath = resolvedExecutableURL()?.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackCLILine: String
+        if let fallbackCLIPath, !fallbackCLIPath.isEmpty {
+            fallbackCLILine = "cmux_lifecycle_fallback_cli=\(shellQuote(fallbackCLIPath));"
+        } else {
+            fallbackCLILine = "cmux_lifecycle_fallback_cli=\"\";"
+        }
         return [
             "cmux_lifecycle_cli=\"\";",
+            fallbackCLILine,
             "cmux_lifecycle_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
             "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]; then cmux_lifecycle_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
+            "if [ -z \"$cmux_lifecycle_cli\" ] && [ -n \"$cmux_lifecycle_fallback_cli\" ] && [ -x \"$cmux_lifecycle_fallback_cli\" ]; then cmux_lifecycle_cli=\"$cmux_lifecycle_fallback_cli\"; fi;",
             "if [ -z \"$cmux_lifecycle_cli\" ]; then cmux_lifecycle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
             "if [ -n \"$cmux_lifecycle_cli\" ] && [ -x \"$cmux_lifecycle_cli\" ] && [ -n \"$cmux_lifecycle_socket\" ] && [ -n \"${CMUX_WORKSPACE_ID:-}\" ] && [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
             "\"$cmux_lifecycle_cli\" --socket \"$cmux_lifecycle_socket\" \(subcommand) --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\"\(suffix) >/dev/null 2>&1 || true;",
             "fi;",
-            "unset cmux_lifecycle_socket cmux_lifecycle_cli;",
+            "unset cmux_lifecycle_socket cmux_lifecycle_fallback_cli cmux_lifecycle_cli;",
         ].joined(separator: " ")
     }
 
