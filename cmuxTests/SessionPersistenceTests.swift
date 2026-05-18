@@ -1942,6 +1942,37 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexResumeCommandDropsStartupImages() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e2bb9-5544-7201-a517-d77bb00d724f",
+            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/lawrence/.bun/bin/codex",
+                arguments: [
+                    "/Users/lawrence/.bun/bin/codex",
+                    "resume",
+                    "--yolo",
+                    "--image",
+                    "[Image #1]",
+                    "[Image #1] cmd clicking this should open the crash file in finder",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/lawrence/fun/cmuxterm-hq' && '/Users/lawrence/.bun/bin/codex' 'resume' '--cd' '/Users/lawrence/fun/cmuxterm-hq' '--yolo' '--model' 'gpt-5.4' '019e2bb9-5544-7201-a517-d77bb00d724f'"
+        )
+    }
+
     func testCodexForkCommandPrefersCapturedCdOverShellWorkingDirectory() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -1997,7 +2028,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb' '--image' '/tmp/screenshot-one.png' '/tmp/screenshot-two.png'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
     }
 
@@ -2267,7 +2298,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019image-session' '--image' '/tmp/screenshot.png'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019image-session'"
         )
         XCTAssertEqual(
             codexFork.forkCommand,
@@ -2275,7 +2306,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' 'codex-teams-session' '--image' '/tmp/team screenshot.png'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' 'codex-teams-session'"
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
@@ -6382,7 +6413,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' '--model' 'gpt-5.4' '--search' 'codex-session-123'"
+            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'"
         )
     }
 
