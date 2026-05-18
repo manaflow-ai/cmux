@@ -125,11 +125,13 @@ mkdir -p "node_modules/$package"
         opencode_log = root / "opencode-config-dir.log"
         if not opencode_log.exists():
             print("FAIL: fake opencode was not invoked (opencode-config-dir.log missing)")
+            print(f"opencode_log={opencode_log}")
             print(f"exit={run.returncode}")
             print(f"stdout={run.stdout.strip()}")
             print(f"stderr={run.stderr.strip()}")
             return 1
-        opencode_config_dir = opencode_log.read_text(encoding="utf-8").strip()
+        opencode_log_content = opencode_log.read_text(encoding="utf-8")
+        opencode_config_dir = opencode_log_content.strip()
         expected_config_dir = str(root / ".cmuxterm" / "omo-config")
         if opencode_config_dir != expected_config_dir:
             print(
@@ -159,6 +161,7 @@ mkdir -p "node_modules/$package"
         if run.returncode != 0:
             print("FAIL: cmux omo reached fake opencode but returned non-zero")
             print(f"exit={run.returncode}")
+            print(f"opencode_log={opencode_log_content.strip()!r}")
             print(f"stdout={run.stdout.strip()}")
             print(f"stderr={run.stderr.strip()}")
             return 1
