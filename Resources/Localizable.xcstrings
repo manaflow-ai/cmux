@@ -183,13 +183,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnostic file saved to ~/.local/state/cmux/crash/"
+            "value": "Diagnostic file saved. Click to reveal it in Finder."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "診断ファイルは ~/.local/state/cmux/crash/ に保存されました"
+            "value": "診断ファイルを保存しました。クリックするとFinderで表示します。"
           }
         }
       }

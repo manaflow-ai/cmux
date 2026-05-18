@@ -1644,7 +1644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ),
                 body: String(
                     localized: "crashBreadcrumb.body",
-                    defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
+                    defaultValue: "Diagnostic file saved. Click to reveal it in Finder."
                 ),
                 clickAction: .revealInFinder(path: pendingCrash.fileURL.path)
             )
