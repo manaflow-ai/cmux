@@ -8651,6 +8651,9 @@ class TerminalController {
             return .err(code: "invalid_params", message: "agent.codex_transcript_monitor.start requires session_id", data: nil)
         }
         let surfaceId = v2UUID(params, "surface_id")
+        if v2HasNonNullParam(params, "surface_id"), surfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
 
         guard let workspace = tabForSidebarMutation(id: workspaceId) else {
             return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])

@@ -51,14 +51,6 @@ final class BackgroundWorkspacePrimeCoordinator {
             }
         }
 
-        func addObserver(_ observer: NSObjectProtocol) {
-            addCleanup { NotificationCenter.default.removeObserver(observer) }
-        }
-
-        func addCancellable(_ cancellable: AnyCancellable) {
-            addCleanup { cancellable.cancel() }
-        }
-
         func addTask(_ task: Task<Void, Never>) {
             addCleanup { task.cancel() }
         }
@@ -98,6 +90,7 @@ final class BackgroundWorkspacePrimeCoordinator {
     }
 
     private struct RegisteredWaiter {
+        let id: UUID
         weak var waiter: Waiter?
     }
 
@@ -245,11 +238,13 @@ final class BackgroundWorkspacePrimeCoordinator {
         tabManager: TabManager
     ) {
         ensureSharedReadinessObservers(tabManager: tabManager)
-        readinessWaitersByWorkspaceId[workspaceId, default: []].append(RegisteredWaiter(waiter: waiter))
-        waiter.addCleanupAction { [weak self, weak waiter] in
+        let registrationId = UUID()
+        readinessWaitersByWorkspaceId[workspaceId, default: []].append(
+            RegisteredWaiter(id: registrationId, waiter: waiter)
+        )
+        waiter.addCleanupAction { [weak self] in
             Task { @MainActor in
-                guard let waiter else { return }
-                self?.unregisterReadinessWaiter(waiter, workspaceId: workspaceId)
+                self?.unregisterReadinessWaiter(registrationId: registrationId, workspaceId: workspaceId)
             }
         }
     }
@@ -316,9 +311,9 @@ final class BackgroundWorkspacePrimeCoordinator {
         readinessCancellables.insert(tabsObserver)
     }
 
-    private func unregisterReadinessWaiter(_ waiter: Waiter, workspaceId: UUID) {
+    private func unregisterReadinessWaiter(registrationId: UUID, workspaceId: UUID) {
         guard var waiters = readinessWaitersByWorkspaceId[workspaceId] else { return }
-        waiters.removeAll { $0.waiter == nil || $0.waiter === waiter || $0.waiter?.isResolved == true }
+        waiters.removeAll { $0.id == registrationId || $0.waiter == nil || $0.waiter?.isResolved == true }
         if waiters.isEmpty {
             readinessWaitersByWorkspaceId.removeValue(forKey: workspaceId)
         } else {

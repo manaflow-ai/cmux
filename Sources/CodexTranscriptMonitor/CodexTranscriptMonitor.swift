@@ -4,6 +4,7 @@ import Foundation
 final class CodexTranscriptMonitorSession {
     private enum Policy {
         static let maxTailBytes: UInt64 = 512 * 1024
+        static let maxBufferedLineBytes = 1 * 1024 * 1024
         static let retryInterval: TimeInterval = 1
         static let deadline: TimeInterval = 4 * 60 * 60
     }
@@ -20,6 +21,7 @@ final class CodexTranscriptMonitorSession {
     private var transcriptPath: String?
     private var readOffset: UInt64 = 0
     private var pendingData = Data()
+    private var discardingOversizedLine = false
     private var publishedUserInputCallIds = Set<String>()
     private var sawRelevantTurn = false
     private var sawAssistantMessage = false
@@ -183,8 +185,7 @@ final class CodexTranscriptMonitorSession {
         defer { try? handle.close() }
         let endOffset = (try? handle.seekToEnd()) ?? 0
         if readOffset > endOffset {
-            readOffset = 0
-            pendingData.removeAll(keepingCapacity: false)
+            resetTailState()
         }
         let seekOffset = readOffset
         do {
@@ -200,13 +201,45 @@ final class CodexTranscriptMonitorSession {
 
     private func process(data: Data) {
         guard !data.isEmpty else { return }
-        pendingData.append(data)
-        while let newline = pendingData.firstIndex(of: 0x0A) {
-            let lineData = pendingData[..<newline]
-            pendingData.removeSubrange(pendingData.startIndex...newline)
-            processLine(Data(lineData))
+        var cursor = data.startIndex
+        while cursor < data.endIndex {
+            if discardingOversizedLine {
+                guard let newline = data[cursor...].firstIndex(of: 0x0A) else { return }
+                discardingOversizedLine = false
+                cursor = data.index(after: newline)
+                continue
+            }
+
+            guard let newline = data[cursor...].firstIndex(of: 0x0A) else {
+                if !appendPendingLineFragment(data[cursor...]) {
+                    discardingOversizedLine = true
+                }
+                return
+            }
+
+            let lineData = data[cursor..<newline]
+            if pendingData.isEmpty {
+                if lineData.count <= Policy.maxBufferedLineBytes {
+                    processLine(Data(lineData))
+                }
+            } else if appendPendingLineFragment(lineData) {
+                let completeLine = pendingData
+                pendingData.removeAll(keepingCapacity: true)
+                processLine(completeLine)
+            }
             if finished { return }
+            cursor = data.index(after: newline)
         }
+    }
+
+    private func appendPendingLineFragment(_ fragment: Data.SubSequence) -> Bool {
+        guard !fragment.isEmpty else { return true }
+        guard pendingData.count + fragment.count <= Policy.maxBufferedLineBytes else {
+            pendingData.removeAll(keepingCapacity: false)
+            return false
+        }
+        pendingData.append(contentsOf: fragment)
+        return true
     }
 
     private func processLine(_ lineData: Data) {
@@ -379,5 +412,6 @@ final class CodexTranscriptMonitorSession {
     private func resetTailState() {
         readOffset = 0
         pendingData.removeAll(keepingCapacity: false)
+        discardingOversizedLine = false
     }
 }
