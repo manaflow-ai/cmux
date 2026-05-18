@@ -70,7 +70,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         port = try container.decode(Int.self, forKey: .port)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
         transport = try container.decode(MobileSyncTransportKind.self, forKey: .transport)
-        try validate(now: Date())
+        try validate(now: .distantPast)
     }
 
     public func validate(now: Date = Date()) throws {

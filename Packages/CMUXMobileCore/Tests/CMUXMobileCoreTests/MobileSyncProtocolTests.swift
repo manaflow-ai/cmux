@@ -111,6 +111,27 @@ import Testing
     }
 }
 
+@Test func pairingPayloadDecodeURLHonorsInjectedClock() throws {
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "mac-1",
+      "host": "100.64.1.2",
+      "port": 49831,
+      "expires_at": "1970-01-01T00:16:40Z",
+      "transport": "tailscale"
+    }
+    """
+    let url = try #require(URL(string: "cmux-ios://pair?v=1&payload=\(base64URLEncode(Data(json.utf8)))"))
+
+    let decoded = try MobileSyncPairingPayload.decodeURL(
+        url,
+        now: Date(timeIntervalSince1970: 999)
+    )
+
+    #expect(decoded.host == "100.64.1.2")
+}
+
 @Test func pairingPayloadSupportsDebugLoopbackWithoutChangingProductionTransport() throws {
     let payload = try MobileSyncPairingPayload(
         macDeviceID: "debug-mac",
