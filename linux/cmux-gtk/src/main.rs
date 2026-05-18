@@ -23,12 +23,12 @@ fn build_ui(app: &adw::Application) {
     sidebar.add_css_class("navigation-sidebar");
 
     let session = TerminalSession::new("workspace-1", "Workspace 1", TerminalCommand::user_shell());
-    let placeholder = terminal::placeholder(&session);
+    let terminal = terminal::terminal(&session);
 
     let split = gtk::Paned::builder()
         .orientation(gtk::Orientation::Horizontal)
         .start_child(&sidebar)
-        .end_child(&placeholder)
+        .end_child(&terminal)
         .resize_start_child(false)
         .shrink_start_child(false)
         .build();

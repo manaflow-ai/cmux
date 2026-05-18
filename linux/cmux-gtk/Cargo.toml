@@ -12,6 +12,7 @@ glib = "0.20"
 gtk = { package = "gtk4", version = "0.9", features = ["v4_12"] }
 cmux-core = { path = "../cmux-core" }
 notify-rust = "4"
+vte4 = "0.8"
 
 [lints]
 workspace = true
