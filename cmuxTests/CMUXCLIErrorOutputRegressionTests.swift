@@ -61,6 +61,48 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let stableSocketURL = try stableSocketURL()
+
+        if FileManager.default.fileExists(atPath: stableSocketURL.path) {
+            throw XCTSkip("Stable cmux socket already exists at \(stableSocketURL.path)")
+        }
+
+        let stableResponder = try UnixSocketResponder(path: stableSocketURL.path, response: "STABLE")
+        defer { stableResponder.stop() }
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "TAGGED")
+        defer { taggedResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug,
+            nestedIdentifierlessApp: true
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "TAGGED",
+            result.stdout
+        )
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -90,12 +132,36 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         return directory.appendingPathComponent("cmux.sock", isDirectory: false)
     }
 
-    private func fakeTaggedBundledCLIPath(sourceCLIPath: String, tagSlug: String) throws -> String {
+    private func fakeTaggedBundledCLIPath(
+        sourceCLIPath: String,
+        tagSlug: String,
+        nestedIdentifierlessApp: Bool = false
+    ) throws -> String {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-socket-\(UUID().uuidString)", isDirectory: true)
         let appURL = root.appendingPathComponent("cmux DEV \(tagSlug).app", isDirectory: true)
         let contentsURL = appURL.appendingPathComponent("Contents", isDirectory: true)
-        let binURL = contentsURL.appendingPathComponent("Resources/bin", isDirectory: true)
+        let binURL: URL
+        if nestedIdentifierlessApp {
+            let nestedContentsURL = contentsURL
+                .appendingPathComponent("Resources/NestedTool.app/Contents", isDirectory: true)
+            binURL = nestedContentsURL.appendingPathComponent("Resources/bin", isDirectory: true)
+            let nestedInfoData = try PropertyListSerialization.data(
+                fromPropertyList: [
+                    "CFBundleName": "NestedTool",
+                    "CFBundlePackageType": "APPL"
+                ],
+                format: .xml,
+                options: 0
+            )
+            try FileManager.default.createDirectory(
+                at: nestedContentsURL,
+                withIntermediateDirectories: true
+            )
+            try nestedInfoData.write(to: nestedContentsURL.appendingPathComponent("Info.plist", isDirectory: false))
+        } else {
+            binURL = contentsURL.appendingPathComponent("Resources/bin", isDirectory: true)
+        }
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
 
         let info: [String: Any] = [
