@@ -5928,7 +5928,9 @@ extension BrowserPanel {
         let config = WKSnapshotConfiguration()
         webView.takeSnapshot(with: config) { image, error in
             if let error = error {
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
+#if DEBUG
+                cmuxDebugLog("browser.snapshot.error error=\(error.localizedDescription)")
+#endif
                 completion(nil)
                 return
             }
@@ -6031,7 +6033,9 @@ extension BrowserPanel {
                 let result = try await self.webView.evaluateJavaScript(js)
                 self.parseFindResult(result)
             } catch {
-                NSLog("Find: browser JS search error: %@", error.localizedDescription)
+#if DEBUG
+                cmuxDebugLog("browser.find.search.error error=\(error.localizedDescription)")
+#endif
             }
         }
     }
@@ -6042,7 +6046,9 @@ extension BrowserPanel {
             do {
                 _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
             } catch {
-                NSLog("Find: browser JS clear error: %@", error.localizedDescription)
+#if DEBUG
+                cmuxDebugLog("browser.find.clear.error error=\(error.localizedDescription)")
+#endif
             }
         }
     }
@@ -6975,10 +6981,12 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename)
         }
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("download.decideDestination file=\(safeFilename)")
-        #endif
-        NSLog("BrowserPanel download: temp path=%@", destURL.path)
+#endif
+#if DEBUG
+        cmuxDebugLog("download.tempPath path=\(destURL.path)")
+#endif
         completionHandler(destURL)
     }
 
@@ -6989,10 +6997,9 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             #endif
             return
         }
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("download.finished file=\(info.suggestedFilename)")
-        #endif
-        NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
+#endif
 
         // Show NSSavePanel on the next runloop iteration (safe context).
         DispatchQueue.main.async {
@@ -7010,9 +7017,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 do {
                     try? FileManager.default.removeItem(at: destURL)
                     try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    NSLog("BrowserPanel download saved: %@", destURL.path)
+#if DEBUG
+                    cmuxDebugLog("download.saved path=\(destURL.path)")
+#endif
                 } catch {
-                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+#if DEBUG
+                    cmuxDebugLog("download.moveFailed error=\(error.localizedDescription)")
+#endif
                     try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }
@@ -7026,10 +7037,9 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         notifyOnMain { [weak self] in
             self?.onDownloadFailed?(error)
         }
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
-        #endif
-        NSLog("BrowserPanel download failed: %@", error.localizedDescription)
+#endif
     }
 }
 
@@ -7264,7 +7274,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+#if DEBUG
+        cmuxDebugLog("browser.navigation.failed error=\(error.localizedDescription)")
+#endif
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
@@ -7273,7 +7285,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let nsError = error as NSError
-        NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
+#if DEBUG
+        cmuxDebugLog("browser.navigation.provisionalFailed error=\(error.localizedDescription)")
+#endif
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
@@ -7540,9 +7554,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
-              responseURL, mime, canShow ? 1 : 0,
-              navigationResponse.isForMainFrame ? 1 : 0)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.navigationResponse url=\(responseURL) mime=\(mime) " +
+            "canShow=\(canShow ? 1 : 0) isMainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)"
+        )
+#endif
 
         // Check if this response should be treated as a download.
         // Criteria: explicit Content-Disposition: attachment, or a MIME type
@@ -7550,20 +7567,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if let response = navigationResponse.response as? HTTPURLResponse {
             let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
             if contentDisposition.lowercased().hasPrefix("attachment") {
-                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
-                #if DEBUG
-                cmuxDebugLog("download.policy=download reason=content-disposition mime=\(mime)")
-                #endif
+#if DEBUG
+                cmuxDebugLog("download.policy=download reason=content-disposition mime=\(mime) url=\(responseURL)")
+#endif
                 decisionHandler(.download)
                 return
             }
         }
 
         if !canShow {
-            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
-            #if DEBUG
-            cmuxDebugLog("download.policy=download reason=cannotShowMIME mime=\(mime)")
-            #endif
+#if DEBUG
+            cmuxDebugLog("download.policy=download reason=cannotShowMIME mime=\(mime) url=\(responseURL)")
+#endif
             decisionHandler(.download)
             return
         }
@@ -7572,18 +7587,16 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("download.didBecome source=navigationAction")
-        #endif
-        NSLog("BrowserPanel download didBecome from navigationAction")
+#endif
         download.delegate = downloadDelegate
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("download.didBecome source=navigationResponse")
-        #endif
-        NSLog("BrowserPanel download didBecome from navigationResponse")
+#endif
         download.delegate = downloadDelegate
     }
 }
