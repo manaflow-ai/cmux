@@ -15268,12 +15268,13 @@ private extension NSWindow {
 #if DEBUG
             cmuxDebugLog(
                 "  → browser document editing command preflight " +
-                (result ? "resolved before window menu path" : "left unclaimed; continuing")
+                (result ? "resolved before window menu path" : "left unclaimed; suppressing replay")
             )
 #endif
-            if result {
-                return true
-            }
+            // The focused web view has already received this editing shortcut once.
+            // `CmuxWebView.performKeyEquivalent` also runs the main-menu fallback
+            // before returning, so falling through here would only replay WebKit.
+            return true
         }
 
         if let firstResponderWebView,
