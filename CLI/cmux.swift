@@ -4470,6 +4470,14 @@ struct CMUXCLI {
         let rest = commandArgs.first == nil ? [] : Array(commandArgs.dropFirst())
         switch subcommand {
         case "set":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: [
+                    "--workspace", "--surface", "--name", "--kind", "--checkpoint",
+                    "--checkpoint-id", "--source", "--cwd", "--shell",
+                ],
+                context: "surface resume set"
+            )
             let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
             var params = target.params
             let (name, rem1) = parseOption(target.remaining, name: "--name")
@@ -4508,6 +4516,11 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "show", "get":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: ["--workspace", "--surface"],
+                context: "surface resume \(subcommand)"
+            )
             let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
@@ -4521,6 +4534,11 @@ struct CMUXCLI {
             }
 
         case "clear":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: ["--workspace", "--surface", "--checkpoint", "--checkpoint-id", "--source"],
+                context: "surface resume clear"
+            )
             let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
             var params = target.params
             let (checkpoint, rem1) = parseOption(target.remaining, name: "--checkpoint")
@@ -4536,6 +4554,33 @@ struct CMUXCLI {
 
         default:
             throw CLIError(message: "Unsupported surface resume subcommand: \(subcommand)")
+        }
+    }
+
+    private func validateSurfaceResumeValueOptions(
+        _ args: [String],
+        optionNames: Set<String>,
+        context: String
+    ) throws {
+        var pastTerminator = false
+        for (index, arg) in args.enumerated() {
+            if pastTerminator {
+                continue
+            }
+            if arg == "--" {
+                pastTerminator = true
+                continue
+            }
+            guard optionNames.contains(arg) else { continue }
+            guard index + 1 < args.count else {
+                throw CLIError(message: "\(context): \(arg) requires a value")
+            }
+            let value = args[index + 1]
+            guard value != "--",
+                  !optionNames.contains(value),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "\(context): \(arg) requires a value")
+            }
         }
     }
 

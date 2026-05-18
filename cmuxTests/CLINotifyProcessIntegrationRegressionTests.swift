@@ -1573,6 +1573,60 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testSurfaceResumeSetCLIRejectsDanglingValueOptionsBeforeSocketRequest() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [(arguments: [String], expected: String)] = [
+            (
+                [
+                    "surface", "resume", "set",
+                    "--workspace", workspaceId,
+                    "--surface",
+                ],
+                "surface resume set: --surface requires a value"
+            ),
+            (
+                [
+                    "surface", "resume", "set",
+                    "--workspace", workspaceId,
+                    "--surface", surfaceId,
+                    "--shell",
+                ],
+                "surface resume set: --shell requires a value"
+            ),
+            (
+                [
+                    "surface", "resume", "set",
+                    "--workspace", workspaceId,
+                    "--surface", surfaceId,
+                    "--shell", "--",
+                ],
+                "surface resume set: --shell requires a value"
+            ),
+        ]
+
+        for item in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: item.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 1, result.stderr)
+            XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+            XCTAssertTrue(result.stderr.contains(item.expected), result.stderr)
+            XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+        }
+    }
+
     func testSurfaceResumeClearCLIRejectsMalformedGuardsBeforeClearing() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-clear-malformed")
