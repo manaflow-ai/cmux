@@ -16659,18 +16659,7 @@ struct CMUXCLI {
             if let mappedSession,
                let savedSignature = mappedSession.lastPreToolNeedsInputNotificationSignature,
                !savedSignature.isEmpty {
-                let savedSubtitle = mappedSession.lastSubtitle ?? summary.subtitle
-                let savedBody = mappedSession.lastBody ?? ""
-                let savedSummarySignature = needsInputNotificationSignature(
-                    subtitle: savedSubtitle,
-                    body: savedBody
-                )
-                let incomingSummarySignature = needsInputNotificationSignature(
-                    subtitle: summary.subtitle,
-                    body: summary.body
-                )
-                if savedSummarySignature == savedSignature,
-                   shouldUseSavedNeedsInputSummary(for: summary) || incomingSummarySignature == savedSignature {
+                if shouldSuppressPreToolNeedsInputDuplicate(summary: summary, savedSignature: savedSignature) {
                     clearLastNeedsInputSummaryBestEffort(
                         sessionStore: sessionStore,
                         sessionId: parsedInput.sessionId,
@@ -16991,6 +16980,14 @@ struct CMUXCLI {
 
     private func shouldUseSavedNeedsInputSummary(for summary: (subtitle: String, body: String)) -> Bool {
         summary.subtitle == "Waiting" || summary.subtitle == "Attention"
+    }
+
+    private func shouldSuppressPreToolNeedsInputDuplicate(
+        summary: (subtitle: String, body: String),
+        savedSignature: String
+    ) -> Bool {
+        shouldUseSavedNeedsInputSummary(for: summary) ||
+            needsInputNotificationSignature(subtitle: summary.subtitle, body: summary.body) == savedSignature
     }
 
     private func clearLastNeedsInputSummaryBestEffort(
