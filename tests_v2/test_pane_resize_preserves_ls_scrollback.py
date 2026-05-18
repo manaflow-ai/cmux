@@ -174,7 +174,7 @@ def _run_once(socket_path: str) -> int:
 
 
 def main() -> int:
-    env_socket = os.environ.get("CMUX_SOCKET")
+    env_socket = os.environ.get("CMUX_SOCKET_PATH")
     if env_socket:
         return _run_once(env_socket)
 

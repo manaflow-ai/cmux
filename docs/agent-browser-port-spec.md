@@ -407,8 +407,8 @@ Hard invariant:
 4. No regressions in existing window/workspace/surface workflows.
 
 Planned verification commands at implementation completion:
-1. `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v2.sh'`
-2. `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v1.sh'`
+1. `ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v2.sh'`
+2. `ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v1.sh'`
 
 ## Decision Log (Locked - February 12, 2026)
 

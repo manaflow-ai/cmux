@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
+import { DocsHeading } from "../../../components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -16,7 +17,7 @@ export default function OhMyOpenCodePage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
 
       <p>{t("intro")}</p>
 
@@ -31,13 +32,13 @@ export default function OhMyOpenCodePage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
-      <h2>{t("usage")}</h2>
+      <DocsHeading level={2} id="usage">{t("usage")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux omo
 cmux omo --continue
 cmux omo --model claude-sonnet-4-6`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
-      <h2>{t("whatYouGet")}</h2>
+      <DocsHeading level={2} id="what-you-get">{t("whatYouGet")}</DocsHeading>
       <p>{t("whatYouGetDesc")}</p>
       <ul>
         <li>{t("whatYouGet1")}</li>
@@ -47,7 +48,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
         <li>{t("whatYouGet5")}</li>
       </ul>
 
-      <h2>{t("firstRun")}</h2>
+      <DocsHeading level={2} id="first-run">{t("firstRun")}</DocsHeading>
       <p>{t("firstRunDesc")}</p>
       <ol>
         <li>{t("firstRunStep1")}</li>
@@ -57,7 +58,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
       </ol>
       <p>{t("firstRunSafe")}</p>
 
-      <h2>{t("howItWorks")}</h2>
+      <DocsHeading level={2} id="how-it-works">{t("howItWorks")}</DocsHeading>
       <p>{t("howItWorksDesc")}</p>
       <ul>
         <li>{t("shimStep1")}</li>
@@ -67,7 +68,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
         <li>{t("shimStep5")}</li>
       </ul>
 
-      <h2>{t("directories")}</h2>
+      <DocsHeading level={2} id="directories">{t("directories")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -82,7 +83,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
         </tbody>
       </table>
 
-      <h2>{t("shadowConfig")}</h2>
+      <DocsHeading level={2} id="shadow-config">{t("shadowConfig")}</DocsHeading>
       <p>{t("shadowConfigDesc")}</p>
       <ul>
         <li>{t("shadowStep1")}</li>
@@ -91,7 +92,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
         <li>{t("shadowStep4")}</li>
       </ul>
 
-      <h2>{t("envVars")}</h2>
+      <DocsHeading level={2} id="env-vars">{t("envVars")}</DocsHeading>
       <table>
         <thead>
           <tr>

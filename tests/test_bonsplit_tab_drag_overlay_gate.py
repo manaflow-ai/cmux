@@ -180,13 +180,15 @@ def main() -> int:
 
             client.seed_drag_pasteboard_fileurl()
             for event in DRAG_EVENTS:
-                assert_gate(client, event, expected=True, reason="file URL drag should be captured")
+                assert_gate(client, event, expected=False, reason="file URL drag should route to Bonsplit panes")
             for event in NON_DRAG_EVENTS + ["none"]:
                 assert_gate(client, event, expected=False, reason="non-drag events should pass through")
-            assert_drop_gate(client, "external", expected=True, reason="external file drags should be captured")
-            assert_drop_gate(client, "local", expected=True, reason="local file drags should be captured")
-            for event in DRAG_EVENTS + NON_DRAG_EVENTS + ["none"]:
-                assert_portal_gate(client, event, expected=False, reason="file drag should not trigger portal pass-through policy")
+            assert_drop_gate(client, "external", expected=False, reason="external file drags should route to Bonsplit panes")
+            assert_drop_gate(client, "local", expected=False, reason="local file drags should route to Bonsplit panes")
+            for event in DRAG_EVENTS:
+                assert_portal_gate(client, event, expected=True, reason="file drag should pass through terminal portal")
+            for event in NON_DRAG_EVENTS + ["none"]:
+                assert_portal_gate(client, event, expected=False, reason="stale file payload must not hijack non-drag portal events")
             assert_sidebar_gate(client, "active", expected=False, reason="file drag is not sidebar reorder payload")
             assert_sidebar_gate(client, "inactive", expected=False, reason="inactive sidebar drag state")
 
@@ -214,7 +216,7 @@ def main() -> int:
             assert_sidebar_gate(client, "active", expected=True, reason="sidebar reorder mix should keep sidebar outside overlay active")
             assert_sidebar_gate(client, "inactive", expected=False, reason="inactive sidebar drag state")
 
-            print("PASS: drag routing policy matrix preserves bonsplit/sidebar drags and external file-drop behavior")
+            print("PASS: drag routing policy matrix preserves bonsplit/sidebar drags and pane-level file preview drops")
             return 0
         finally:
             try:

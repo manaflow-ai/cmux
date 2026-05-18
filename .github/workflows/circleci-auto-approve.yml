@@ -1,0 +1,44 @@
+name: CircleCI Auto Approval
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  checks: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  approve-circleci:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: approve-circleci-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout trusted automation
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Approve CircleCI hold for trusted PR authors
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_ORG_READ_TOKEN: ${{ secrets.GITHUB_ORG_READ_TOKEN }}
+          CIRCLECI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_OWNER: ${{ github.event.pull_request.head.repo.owner.login }}
+          PR_HEAD_OWNER_ID: ${{ github.event.pull_request.head.repo.owner.id }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}
+          TRUSTED_GITHUB_ORG: ${{ vars.CIRCLECI_TRUSTED_GITHUB_ORG || 'manaflow-ai' }}
+          TRUSTED_GITHUB_USERS: ${{ vars.CIRCLECI_TRUSTED_GITHUB_USERS || 'lawrencecchen:54008264,austinywang:38676809' }}
+        run: python3 scripts/circleci_auto_approve.py

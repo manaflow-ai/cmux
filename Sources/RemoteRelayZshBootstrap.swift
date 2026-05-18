@@ -1,5 +1,16 @@
 import Foundation
 
+enum RemoteShellEnvironment {
+    static func utf8LocaleSetupLines() -> [String] {
+        [
+            "case \"${LC_ALL:-${LC_CTYPE:-${LANG:-}}}\" in",
+            "  *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;;",
+            "  *) export LANG='C.UTF-8'; export LC_CTYPE='C.UTF-8'; export LC_ALL='C.UTF-8' ;;",
+            "esac",
+        ]
+    }
+}
+
 struct RemoteRelayZshBootstrap {
     let shellStateDir: String
 

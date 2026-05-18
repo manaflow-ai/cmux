@@ -1,5 +1,13 @@
 export const blogPosts = [
   {
+    slug: "session-restore",
+    key: "sessionRestore",
+    title: "Session restore in cmux",
+    date: "2026-05-13",
+    summary:
+      "cmux restores layout, scrollback, browser history, and supported agent sessions when hooks have captured a resume token.",
+  },
+  {
     slug: "cmux-ssh",
     key: "cmuxSsh",
     title: "cmux SSH",

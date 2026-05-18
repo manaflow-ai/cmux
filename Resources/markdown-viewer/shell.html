@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en" data-color-mode="auto" data-light-theme="light" data-dark-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{{githubMarkdownCSS}}
+</style>
+<style id="hljs-light">
+{{highlightLightCSS}}
+</style>
+<style id="hljs-dark" disabled>
+{{highlightDarkCSS}}
+</style>
+<style>
+:root { color-scheme: light dark; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  /* Allow the whole document to be selected as one continuous range. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+body {
+  /* Match GitHub's reading column padding for a docs-y feel while
+     still letting the panel use full width on narrow splits. */
+  padding: 18px 28px 32px 28px;
+}
+.markdown-body {
+  background: transparent;
+  /* GitHub uses 16px on github.com for body text; keep that exact
+     metric so headings, line-height, and spacing match. */
+  font-size: 15px;
+  /* The package sets max-width via wrapper class on github.com; we
+     let it span the panel and just cap it to a comfortable reading
+     width on very wide splits. */
+  max-width: 980px;
+  margin: 0 auto;
+}
+/* Fenced code blocks: github-markdown-css already styles `pre`; we
+   add highlight.js's hljs class so the syntax theme applies. */
+.markdown-body pre code.hljs {
+  padding: 16px;
+  background: transparent;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.markdown-body pre {
+  padding: 0; /* hljs class already pads */
+  overflow: auto;
+}
+.cmux-code-block {
+  position: relative;
+  margin: 0 0 16px 0;
+}
+.cmux-code-block pre {
+  margin: 0;
+}
+.cmux-code-block .markdown-body pre,
+.markdown-body .cmux-code-block pre {
+  margin: 0;
+}
+.cmux-code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  padding: 3px 7px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+  box-shadow: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.cmux-code-block:hover .cmux-code-copy-button,
+.cmux-code-copy-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cmux-code-copy-button:hover,
+.cmux-code-copy-button:focus-visible {
+  color: var(--fgColor-default);
+  background: var(--bgColor-muted);
+}
+/* Mermaid + Vega-Lite blocks. Both libs render into these containers
+   lazily; the .cmux-source <pre> holds the raw block source for the
+   library to read, hidden from view. */
+.cmux-mermaid, .cmux-vega {
+  display: block;
+  margin: 0.6em 0 0.9em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.cmux-mermaid svg, .cmux-vega canvas, .cmux-vega svg {
+  max-width: 100%;
+  height: auto;
+}
+.cmux-mermaid .cmux-source, .cmux-vega .cmux-source { display: none; }
+.markdown-body code[data-cmux-file] {
+  cursor: default;
+  border-bottom: 1px dotted var(--fgColor-muted);
+}
+.markdown-body code[data-cmux-file][data-cmux-file-exists="1"] {
+  cursor: pointer;
+  color: var(--fgColor-accent);
+  border-bottom-color: var(--fgColor-accent);
+}
+.markdown-body a[data-cmux-file-exists="1"]::after,
+.markdown-body code[data-cmux-file][data-cmux-file-exists="1"]::after {
+  content: " ↗";
+  font-size: 0.82em;
+  opacity: 0.65;
+}
+.cmux-frontmatter {
+  margin: 0 0 16px 0;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+}
+.cmux-frontmatter summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+.cmux-frontmatter summary::-webkit-details-marker {
+  display: none;
+}
+.cmux-frontmatter summary::before {
+  content: "▸";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.82;
+  transform: translateY(0.5px);
+}
+.cmux-frontmatter[open] summary {
+  border-bottom: 1px solid var(--borderColor-default);
+}
+.cmux-frontmatter[open] summary::before {
+  content: "▾";
+}
+.cmux-frontmatter pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.cmux-frontmatter pre code.hljs {
+  padding: 10px 12px;
+  background: transparent;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.cmux-render-error {
+  color: #f85149;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  padding: 8px 12px;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  margin: 0.6em 0;
+  text-align: left;
+}
+/* Custom selection color that reads on both themes. */
+::selection { background: rgba(56, 139, 253, 0.4); }
+/* Smooth-anchor scroll for heading links. */
+html { scroll-behavior: smooth; }
+/* Loading shimmer while the first render is in flight. */
+#content:empty::before {
+  content: "";
+  display: block;
+  height: 1px;
+}
+</style>
+</head>
+<body>
+<article id="content" class="markdown-body"><p style="color:#f85149">Loading markdown shell…</p></article>
+<script>
+{{markedJS}}
+</script>
+<script>
+{{highlightJS}}
+</script>
+<script>
+(function() {
+  var contentEl = document.getElementById('content');
+  var lightSheet = document.getElementById('hljs-light');
+  var darkSheet  = document.getElementById('hljs-dark');
+  function showBootError(message) {
+    if (!contentEl) { return; }
+    contentEl.textContent = '';
+    var pre = document.createElement('pre');
+    pre.style.color = '#f85149';
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.textContent = 'Markdown viewer error: ' + String(message);
+    contentEl.appendChild(pre);
+  }
+  window.onerror = function(message, source, lineno, colno, error) {
+    showBootError((error && error.stack) || message);
+  };
+  window.onunhandledrejection = function(ev) {
+    showBootError((ev.reason && ev.reason.stack) || ev.reason || 'unhandled rejection');
+  };
+  if (!window.marked || !window.hljs) {
+    showBootError('marked/highlight libraries did not load');
+  }
+
+  function escapeHtml(s) {
+    // Let WebKit's HTML serializer do escaping rather than trying
+    // to keep a hand-written entity table correct.
+    var div = document.createElement('div');
+    div.textContent = String(s == null ? '' : s);
+    return div.innerHTML;
+  }
+
+  function escapeDataAttribute(s) {
+    // Store raw local paths in data attributes as percent-encoded
+    // strings. This avoids attribute-escaping footguns entirely.
+    return encodeURIComponent(String(s == null ? '' : s));
+  }
+
+  function unescapeDataAttribute(s) {
+    try { return decodeURIComponent(String(s || '')); }
+    catch (e) { return String(s || ''); }
+  }
+
+  function stripQueryFragment(path) {
+    var s = String(path || '');
+    var qi = s.indexOf('?');
+    var hi = s.indexOf('#');
+    var cut = -1;
+    if (qi >= 0 && hi >= 0) { cut = Math.min(qi, hi); }
+    else if (qi >= 0) { cut = qi; }
+    else if (hi >= 0) { cut = hi; }
+    return cut >= 0 ? s.slice(0, cut) : s;
+  }
+  function isMarkdownPathLike(path) {
+    var s = stripQueryFragment(path).trim();
+    if (!s) { return false; }
+    var colon = s.indexOf(':');
+    if (colon > 0) {
+      var scheme = s.slice(0, colon).toLowerCase();
+      if (scheme !== 'file') { return false; }
+    }
+    var slash = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    var leaf = slash >= 0 ? s.slice(slash + 1) : s;
+    var dot = leaf.lastIndexOf('.');
+    if (dot < 0) { return false; }
+    var ext = leaf.slice(dot + 1).toLowerCase();
+    return ext === 'md' || ext === 'markdown' || ext === 'mkd' || ext === 'mdx';
+  }
+
+  function extractFrontmatter(markdown) {
+    var source = String(markdown == null ? '' : markdown).replace(/^\uFEFF/, '');
+    var match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/);
+    if (!match) {
+      return { frontmatter: '', body: source };
+    }
+    return {
+      frontmatter: match[1] || '',
+      body: source.slice(match[0].length)
+    };
+  }
+
+  function renderFrontmatter(frontmatter) {
+    var raw = String(frontmatter || '');
+    if (!raw.trim()) { return ''; }
+    var highlighted;
+    try {
+      if (hljs.getLanguage('yaml')) {
+        highlighted = hljs.highlight(raw, { language: 'yaml', ignoreIllegals: true }).value;
+      } else {
+        highlighted = escapeHtml(raw);
+      }
+    } catch (e) {
+      highlighted = escapeHtml(raw);
+    }
+    return '<details class="cmux-frontmatter">'
+      + '<summary><span>Show frontmatter</span></summary>'
+      + '<pre><code class="hljs language-yaml">' + highlighted + '</code></pre>'
+      + '</details>';
+  }
+
+  function copyTextToClipboard(text) {
+    var value = String(text == null ? '' : text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(value).catch(function() {
+        return fallbackCopyText(value);
+      });
+    }
+    return fallbackCopyText(value);
+  }
+
+  function fallbackCopyText(text) {
+    return new Promise(function(resolve, reject) {
+      try {
+        var textarea = document.createElement('textarea');
+        textarea.value = String(text == null ? '' : text);
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        ok ? resolve() : reject(new Error('copy failed'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function compactForProtocolCheck(value) {
+    var raw = String(value || '');
+    var out = '';
+    for (var i = 0; i < raw.length; i++) {
+      var code = raw.charCodeAt(i);
+      if (code <= 32 || code === 127) { continue; }
+      out += raw.charAt(i).toLowerCase();
+    }
+    return out;
+  }
+
+  function isSafeURLAttribute(name, value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return true; }
+
+    // Reject before URL parsing so whitespace-obfuscated active
+    // protocols do not get normalized into something executable.
+    var compact = compactForProtocolCheck(raw);
+    if (
+      compact.indexOf('javascript:') === 0 ||
+      compact.indexOf('vbscript:') === 0 ||
+      compact.indexOf('data:') === 0
+    ) {
+      return false;
+    }
+
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      var protocol = (parsed.protocol || '').toLowerCase();
+      if (name === 'href') {
+        return protocol === 'http:' ||
+          protocol === 'https:' ||
+          protocol === 'file:' ||
+          protocol === 'mailto:' ||
+          protocol === 'tel:';
+      }
+      return protocol === 'http:' || protocol === 'https:' || protocol === 'file:';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function sanitizeRenderedHTML(html) {
+    var template = document.createElement('template');
+    template.innerHTML = String(html || '');
+
+    var blockedTags = {
+      script: true,
+      iframe: true,
+      object: true,
+      embed: true,
+      link: true,
+      meta: true,
+      base: true,
+      form: true,
+      button: true,
+      textarea: true,
+      select: true,
+      option: true,
+      svg: true,
+      math: true
+    };
+
+    var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+    var elements = [];
+    while (walker.nextNode()) {
+      elements.push(walker.currentNode);
+    }
+
+    elements.forEach(function(el) {
+      var tag = String(el.tagName || '').toLowerCase();
+      if (blockedTags[tag]) {
+        el.remove();
+        return;
+      }
+
+      if (tag === 'input') {
+        var inputType = String(el.getAttribute('type') || '').toLowerCase();
+        if (inputType !== 'checkbox') {
+          el.remove();
+          return;
+        }
+        Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+          var name = String(attr.name || '').toLowerCase();
+          if (name !== 'type' && name !== 'checked' && name !== 'disabled') {
+            el.removeAttribute(attr.name);
+          }
+        });
+        el.setAttribute('disabled', '');
+        return;
+      }
+
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (
+          name.indexOf('on') === 0 ||
+          name === 'style' ||
+          name === 'srcdoc' ||
+          name === 'autofocus' ||
+          name === 'formaction' ||
+          name === 'xlink:href'
+        ) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if ((name === 'href' || name === 'src') && !isSafeURLAttribute(name, attr.value)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+
+      if (tag === 'a') {
+        el.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+
+    return template.innerHTML;
+  }
+
+  // Configure marked: GitHub-flavored, with custom renderers for
+  // code (syntax-highlighted via highlight.js), headings (with
+  // GitHub-style slug ids for anchor links), and local markdown file
+  // detection in inline code spans.
+  // Note: when customizing via `marked.use({renderer})`, marked
+  // calls these methods with the *legacy* positional signature
+  // (text, level, raw / code, lang, escaped / href, title, text)
+  // — NOT a single token object. Inline children are already
+  // rendered to HTML and passed in as `text`.
+  var headingSlugCounts = Object.create(null);
+  function uniqueHeadingSlug(raw) {
+    var base = String(raw || '').toLowerCase()
+      .replace(/[^\w\- ]+/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (!base) { base = 'heading'; }
+    var count = headingSlugCounts[base] || 0;
+    headingSlugCounts[base] = count + 1;
+    return count === 0 ? base : base + '-' + count;
+  }
+
+  marked.use({
+    gfm: true,
+    breaks: false,
+    pedantic: false,
+    renderer: {
+      codespan(code) {
+        var raw = code || '';
+        if (isMarkdownPathLike(raw)) {
+          return '<code data-cmux-file="' + escapeDataAttribute(raw) + '">' + escapeHtml(raw) + '</code>';
+        }
+        return '<code>' + escapeHtml(raw) + '</code>';
+      },
+      code(code, infostring, escaped) {
+        var raw = code || '';
+        var langMatch = (infostring || '').match(/^[A-Za-z0-9_+\-.]+/);
+        var langName = langMatch ? langMatch[0].toLowerCase() : '';
+
+        // Mermaid: ```mermaid ... ``` -> div the lib will swap with SVG.
+        if (langName === 'mermaid') {
+          return '<div class="cmux-mermaid"><pre class="cmux-source">'
+            + escapeHtml(raw)
+            + '</pre></div>\n';
+        }
+        // Vega / Vega-Lite: ```vega-lite ... ``` (also vega, vegalite).
+        if (langName === 'vega' || langName === 'vega-lite' || langName === 'vegalite') {
+          var vegaMode = (langName === 'vega') ? 'vega' : 'vega-lite';
+          return '<div class="cmux-vega" data-vega-mode="' + vegaMode + '">'
+            + '<pre class="cmux-source">' + escapeHtml(raw) + '</pre></div>\n';
+        }
+
+        var highlighted;
+        try {
+          if (langName && hljs.getLanguage(langName)) {
+            highlighted = hljs.highlight(raw, { language: langName, ignoreIllegals: true }).value;
+          } else {
+            highlighted = hljs.highlightAuto(raw).value;
+          }
+        } catch (e) {
+          highlighted = escapeHtml(raw);
+        }
+        var langClass = langName ? ' language-' + langName : '';
+        return '<pre><code class="hljs' + langClass + '">' + highlighted + '</code></pre>\n';
+      },
+      heading(text, level, raw) {
+        var slug = uniqueHeadingSlug(raw);
+        return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
+      }
+    }
+  });
+
+  // Lazy-loader: ask Swift to ship a library only when a document
+  // actually contains a block that needs it.
+  var libState = {};   // name -> 'pending' | 'ready'
+  var libQueue = {};   // name -> [callbacks]
+  function loadLib(name, cb) {
+    if (libState[name] === 'ready') { cb(); return; }
+    (libQueue[name] = libQueue[name] || []).push(cb);
+    if (libState[name] !== 'pending') {
+      libState[name] = 'pending';
+      try {
+        window.webkit.messageHandlers.cmuxLib.postMessage({ lib: name });
+      } catch (e) {
+        libState[name] = undefined;
+        renderLibError(name, 'bridge unavailable');
+      }
+    }
+  }
+  window.__cmuxLibLoaded = function(name) {
+    libState[name] = 'ready';
+    var q = libQueue[name] || [];
+    libQueue[name] = [];
+    q.forEach(function(cb) { try { cb(); } catch (e) { /* ignore */ } });
+  };
+
+  function renderLibError(libName, msg) {
+    var sel = libName === 'mermaid' ? '.cmux-mermaid' : '.cmux-vega';
+    contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
+      el.setAttribute('data-rendered', '1');
+      el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
+    });
+  }
+
+  function markdownScroller() {
+    return document.scrollingElement || document.documentElement || document.body;
+  }
+
+  function markdownScrollY() {
+    var scroller = markdownScroller();
+    return Math.max(0, window.scrollY || scroller.scrollTop || 0);
+  }
+
+  function markdownMaxScrollY() {
+    var scroller = markdownScroller();
+    return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  }
+
+  function clampScrollY(y) {
+    return Math.max(0, Math.min(markdownMaxScrollY(), y));
+  }
+
+  function setMarkdownScrollY(y) {
+    var targetY = clampScrollY(y);
+    var scroller = markdownScroller();
+    var root = document.documentElement;
+    var previousBehavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    try {
+      scroller.scrollTop = targetY;
+      if (Math.abs((scroller.scrollTop || 0) - targetY) > 1) {
+        window.scrollTo(0, targetY);
+      }
+    } finally {
+      root.style.scrollBehavior = previousBehavior;
+    }
+  }
+
+  function firstVisibleMarkdownAnchor() {
+    var x = Math.max(24, Math.min(window.innerWidth - 24, Math.floor(window.innerWidth * 0.45)));
+    var yValues = [16, 48, 96, Math.floor(window.innerHeight * 0.25)];
+    for (var i = 0; i < yValues.length; i++) {
+      var y = Math.max(0, Math.min(window.innerHeight - 1, yValues[i]));
+      var element = document.elementFromPoint(x, y);
+      if (!element || !contentEl.contains(element)) { continue; }
+      var anchor = element.closest('[id]');
+      if (anchor && anchor !== contentEl && contentEl.contains(anchor) && anchor.id) {
+        return {
+          id: anchor.id,
+          top: anchor.getBoundingClientRect().top
+        };
+      }
+    }
+    return null;
+  }
+
+  function captureMarkdownScrollState() {
+    var y = markdownScrollY();
+    var maxY = markdownMaxScrollY();
+    return {
+      anchor: firstVisibleMarkdownAnchor(),
+      nearTop: y <= 2,
+      nearBottom: maxY - y <= 2,
+      ratio: maxY > 0 ? y / maxY : 0
+    };
+  }
+
+  function restoreMarkdownScrollState(state) {
+    if (!state) { return; }
+    function apply() {
+      var targetY;
+      if (state.nearTop) {
+        targetY = 0;
+      } else if (state.nearBottom) {
+        targetY = markdownMaxScrollY();
+      } else if (state.anchor && state.anchor.id) {
+        var anchor = document.getElementById(state.anchor.id);
+        if (anchor) {
+          targetY = markdownScrollY() + anchor.getBoundingClientRect().top - state.anchor.top;
+        }
+      }
+      if (typeof targetY !== 'number' || !isFinite(targetY)) {
+        targetY = markdownMaxScrollY() * state.ratio;
+      }
+      setMarkdownScrollY(targetY);
+    }
+    apply();
+    window.requestAnimationFrame(function() {
+      apply();
+      window.requestAnimationFrame(apply);
+    });
+  }
+
+  var mermaidInitialized = false;
+  function renderMermaidBlocks() {
+    if (typeof mermaid === 'undefined') { renderLibError('mermaid', 'library missing'); return; }
+    try {
+      if (!mermaidInitialized) {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: darkMql.matches ? 'dark' : 'default',
+          securityLevel: 'strict',
+          fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+        });
+        mermaidInitialized = true;
+      }
+    } catch (e) { /* ignore reinit failure */ }
+
+    var blocks = contentEl.querySelectorAll('.cmux-mermaid:not([data-rendered])');
+    Array.prototype.forEach.call(blocks, function(el, i) {
+      el.setAttribute('data-rendered', '1');
+      var srcEl = el.querySelector('.cmux-source');
+      var src = srcEl ? srcEl.textContent : el.textContent;
+      var id = 'cmux-mermaid-' + Date.now() + '-' + i + '-' + Math.floor(Math.random() * 1e6);
+      try {
+        mermaid.render(id, src).then(function(res) {
+          el.innerHTML = res.svg;
+          if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
+        }).catch(function(err) {
+          el.innerHTML = '<div class="cmux-render-error">Mermaid: '
+            + escapeHtml(String((err && err.message) || err)) + '</div>';
+        });
+      } catch (err) {
+        el.innerHTML = '<div class="cmux-render-error">Mermaid: '
+          + escapeHtml(String((err && err.message) || err)) + '</div>';
+      }
+    });
+  }
+
+  function vegaPathSegments(path) {
+    return String(path || '')
+      .replace(/\[[^\]]+\]/g, '')
+      .split('.')
+      .filter(Boolean)
+      .map(function(segment) { return segment.toLowerCase(); });
+  }
+
+  function isVegaExternalReferencePath(path, key) {
+    var segments = vegaPathSegments(path);
+    var lowerKey = String(key || '').toLowerCase();
+    var parent = segments.length > 1 ? segments[segments.length - 2] : '';
+
+    // Vega/Vega-Lite loader positions. Inline rows under `values` and
+    // top-level `datasets` may legitimately have fields named url/href/src;
+    // those are handled by skipping those inline-data containers below.
+    if (lowerKey === 'url' && parent === 'data') { return true; }
+    if ((lowerKey === 'url' || lowerKey === 'href' || lowerKey === 'src') && segments.indexOf('marks') >= 0) {
+      return true;
+    }
+    return false;
+  }
+
+  function firstVegaExternalReference(value, path, seen) {
+    if (value == null || typeof value !== 'object') { return null; }
+    seen = seen || [];
+    if (seen.indexOf(value) >= 0) { return null; }
+    seen.push(value);
+
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        var arrayHit = firstVegaExternalReference(value[i], path + '[' + i + ']', seen);
+        if (arrayHit) { return arrayHit; }
+      }
+      return null;
+    }
+
+    for (var key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) { continue; }
+      var child = value[key];
+      var childPath = path ? path + '.' + key : key;
+      var lower = String(key || '').toLowerCase();
+
+      // Inline data containers can contain arbitrary user columns named
+      // "url", "href", or "src". They do not cause fetches by themselves.
+      if (lower === 'values') { continue; }
+      if (lower === 'datasets') {
+        if (child && typeof child === 'object' && !Array.isArray(child)) {
+          for (var datasetName in child) {
+            if (!Object.prototype.hasOwnProperty.call(child, datasetName)) { continue; }
+            var dataset = child[datasetName];
+            if (dataset && typeof dataset === 'object' && !Array.isArray(dataset)) {
+              if (typeof dataset.url === 'string' && dataset.url.trim()) {
+                return childPath + '.' + datasetName + '.url';
+              }
+            }
+          }
+        }
+        continue;
+      }
+
+      if ((lower === 'url' || lower === 'href' || lower === 'src') && isVegaExternalReferencePath(childPath, lower)) {
+        if (typeof child === 'string') {
+          if (child.trim()) { return childPath; }
+        } else if (child != null) {
+          return childPath;
+        }
+      }
+
+      var hit = firstVegaExternalReference(child, childPath, seen);
+      if (hit) { return hit; }
+    }
+    return null;
+  }
+
+  function renderVegaBlocks() {
+    if (typeof vegaEmbed === 'undefined') { renderLibError('vega-lite', 'library missing'); return; }
+    var isDark = darkMql.matches;
+    var blocks = contentEl.querySelectorAll('.cmux-vega:not([data-rendered])');
+    Array.prototype.forEach.call(blocks, function(el) {
+      el.setAttribute('data-rendered', '1');
+      var srcEl = el.querySelector('.cmux-source');
+      var raw = srcEl ? srcEl.textContent : el.textContent;
+      var mode = el.getAttribute('data-vega-mode') === 'vega' ? 'vega' : 'vega-lite';
+      try {
+        var spec = JSON.parse(raw);
+        var externalRef = firstVegaExternalReference(spec, 'spec', []);
+        if (externalRef) {
+          throw new Error('external resource references are not allowed at ' + externalRef);
+        }
+        el.innerHTML = '';
+        var opts = { mode: mode, actions: false, renderer: 'svg' };
+        if (isDark) { opts.theme = 'dark'; }
+        vegaEmbed(el, spec, opts).catch(function(err) {
+          el.innerHTML = '<div class="cmux-render-error">Vega: '
+            + escapeHtml(String((err && err.message) || err)) + '</div>';
+        });
+      } catch (e) {
+        el.innerHTML = '<div class="cmux-render-error">Vega spec: '
+          + escapeHtml(String((e && e.message) || e)) + '</div>';
+      }
+    });
+  }
+
+  function postProcessSpecialBlocks() {
+    if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
+      loadLib('mermaid', renderMermaidBlocks);
+    }
+    if (contentEl.querySelector('.cmux-vega:not([data-rendered])')) {
+      loadLib('vega-lite', renderVegaBlocks);
+    }
+    addCodeCopyButtons();
+    markMarkdownFileLinks();
+  }
+
+  function addCodeCopyButtons() {
+    contentEl.querySelectorAll('pre > code.hljs').forEach(function(code) {
+      var pre = code.parentElement;
+      if (!pre || pre.closest('.cmux-source') || pre.closest('.cmux-frontmatter')) { return; }
+      if (pre.parentElement && pre.parentElement.classList.contains('cmux-code-block')) { return; }
+
+      var wrapper = document.createElement('div');
+      wrapper.className = 'cmux-code-block';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cmux-code-copy-button';
+      button.textContent = 'Copy';
+      button.setAttribute('aria-label', 'Copy code');
+      button.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        copyTextToClipboard(code.textContent || '').then(function() {
+          button.textContent = 'Copied';
+          button.setAttribute('data-copied', '1');
+          window.setTimeout(function() {
+            button.textContent = 'Copy';
+            button.removeAttribute('data-copied');
+          }, 1200);
+        }).catch(function() {
+          button.textContent = 'Failed';
+          window.setTimeout(function() { button.textContent = 'Copy'; }, 1200);
+        });
+      });
+      wrapper.appendChild(button);
+    });
+  }
+
+  // Local markdown file links and inline-code spans.
+  // Resolution is lazy: hover/focus asks Swift whether the path exists
+  // relative to the current markdown file (and PWD fallback). Click
+  // opens a new cmux markdown tab when it resolves.
+  var mdFileResolveCache = {}; // raw path -> { exists, path }
+  var mdFileResolvePending = {}; // requestId -> { rawPath, elements }
+  var mdFileRequestSeq = 0;
+
+  function markdownCandidateForElement(el) {
+    if (!el) { return null; }
+    if (el.matches && el.matches('code[data-cmux-file]')) {
+      return unescapeDataAttribute(el.getAttribute('data-cmux-file'));
+    }
+    if (el.matches && el.matches('a[href]')) {
+      var href = el.getAttribute('href') || '';
+      if (isMarkdownPathLike(href)) { return href; }
+    }
+    return null;
+  }
+
+  function applyResolvedMarkdownFile(rawPath, result, elements) {
+    mdFileResolveCache[rawPath] = result;
+    (elements || []).forEach(function(el) {
+      if (!el) { return; }
+      el.setAttribute('data-cmux-file-checked', '1');
+      if (result && result.exists) {
+        el.setAttribute('data-cmux-file-exists', '1');
+      } else {
+        el.removeAttribute('data-cmux-file-exists');
+      }
+    });
+  }
+
+  function resolveMarkdownCandidate(el, openAfterResolve) {
+    var rawPath = markdownCandidateForElement(el);
+    if (!rawPath) { return false; }
+    var cached = mdFileResolveCache[rawPath];
+    if (cached) {
+      applyResolvedMarkdownFile(rawPath, cached, [el]);
+      if (openAfterResolve && cached.exists) { openMarkdownCandidate(rawPath); }
+      return cached.exists;
+    }
+    var requestId = 'mdfile-' + (++mdFileRequestSeq);
+    mdFileResolvePending[requestId] = { rawPath: rawPath, elements: [el], openAfterResolve: !!openAfterResolve };
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({
+        action: 'resolveMarkdownFile',
+        requestId: requestId,
+        path: rawPath
+      });
+    } catch (e) { /* no bridge */ }
+    return false;
+  }
+
+  window.__cmuxMarkdownFileResolved = function(result) {
+    var pending = result && mdFileResolvePending[result.requestId];
+    if (!pending) { return; }
+    delete mdFileResolvePending[result.requestId];
+    applyResolvedMarkdownFile(pending.rawPath, result, pending.elements);
+    if (pending.openAfterResolve && result.exists) {
+      openMarkdownCandidate(pending.rawPath);
+    }
+  };
+
+  function openMarkdownCandidate(rawPath) {
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath });
+    } catch (e) { /* no bridge */ }
+  }
+
+  function markMarkdownFileLinks() {
+    contentEl.querySelectorAll('a[href]').forEach(function(a) {
+      var href = a.getAttribute('href') || '';
+      if (isMarkdownPathLike(href)) {
+        a.setAttribute('data-cmux-file-candidate', href);
+        // Eagerly resolve visible markdown links so the user gets
+        // immediate affordance; inline code spans remain lazy-on-hover.
+        resolveMarkdownCandidate(a, false);
+      }
+    });
+  }
+
+  contentEl.addEventListener('mouseover', function(ev) {
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    if (el) { resolveMarkdownCandidate(el, false); }
+  });
+  contentEl.addEventListener('focusin', function(ev) {
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    if (el) { resolveMarkdownCandidate(el, false); }
+  });
+  contentEl.addEventListener('click', function(ev) {
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    var rawPath = markdownCandidateForElement(el);
+    if (!rawPath) { return; }
+    // For markdown-looking paths, always stop WebKit navigation first.
+    // If resolution fails, the click is intentionally a no-op rather
+    // than loading raw file:// text into the viewer or opening a browser.
+    ev.preventDefault();
+    ev.stopPropagation();
+    // Do not require the hover/resolve cache to be warm. Swift's
+    // openMarkdownFile action resolves and no-ops for missing files,
+    // so click can be deterministic and immediate.
+    openMarkdownCandidate(rawPath);
+  }, true);
+
+  window.__cmuxRenderMarkdown = function(md) {
+    try {
+      headingSlugCounts = Object.create(null);
+      var documentParts = extractFrontmatter(md || '');
+      var html = renderFrontmatter(documentParts.frontmatter)
+        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
+      var didReplaceContent = contentEl.innerHTML !== html;
+      var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
+      if (didReplaceContent) {
+        contentEl.innerHTML = html;
+      }
+      postProcessSpecialBlocks();
+      if (didReplaceContent) {
+        restoreMarkdownScrollState(scrollState);
+      }
+    } catch (e) {
+      contentEl.innerHTML =
+        '<div style="color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px">'
+        + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))
+        + '</div><pre><code>' + escapeHtml(md || '') + '</code></pre>';
+    }
+  };
+
+  window.__cmuxRenderedHTML = function() {
+    if (!contentEl) { return ''; }
+    var clone = contentEl.cloneNode(true);
+    clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
+      el.remove();
+    });
+    clone.querySelectorAll('*').forEach(function(el) {
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (name.indexOf('data-cmux-') === 0) {
+          el.removeAttribute(attr.name);
+        }
+      });
+      if (String(el.getAttribute('title') || '').indexOf('Open markdown file: ') === 0) {
+        el.removeAttribute('title');
+      }
+    });
+    return clone.innerHTML;
+  };
+
+  window.__cmuxRenderedText = function() {
+    return contentEl ? (contentEl.innerText || contentEl.textContent || '') : '';
+  };
+
+  var darkMql = window.matchMedia('(prefers-color-scheme: dark)');
+  window.__cmuxApplyTheme = function() {
+    var isDark = darkMql.matches;
+    if (lightSheet && darkSheet) {
+      lightSheet.disabled = !!isDark;
+      darkSheet.disabled  = !isDark;
+    }
+    // Mermaid caches its theme; force re-init on next render so
+    // freshly added diagrams pick up the new palette.
+    mermaidInitialized = false;
+  };
+  if (darkMql.addEventListener) {
+    darkMql.addEventListener('change', window.__cmuxApplyTheme);
+  } else if (darkMql.addListener) {
+    darkMql.addListener(window.__cmuxApplyTheme);
+  }
+  window.__cmuxApplyTheme();
+})();
+</script>
+</body>
+</html>

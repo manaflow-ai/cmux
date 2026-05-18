@@ -85,7 +85,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
         DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.clearDetectedUpdate()
+            viewModel?.dismissDetectedAvailableUpdate()
         }
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue

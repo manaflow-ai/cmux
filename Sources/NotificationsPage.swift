@@ -13,8 +13,10 @@ struct NotificationsPage: View {
             header
             Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 emptyState
+            } else if notificationStore.notifications.isEmpty {
+                workspaceUnreadIndicatorState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -74,7 +76,7 @@ struct NotificationsPage: View {
 
             Spacer()
 
-            if !notificationStore.notifications.isEmpty {
+            if notificationStore.notificationMenuSnapshot.hasNotifications {
                 jumpToUnreadButton
 
                 Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
@@ -97,6 +99,17 @@ struct NotificationsPage: View {
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var workspaceUnreadIndicatorState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "bell.badge")
+                .font(.system(size: 32))
+                .foregroundColor(.secondary)
+            Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                .font(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -141,7 +154,7 @@ struct NotificationsPage: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 }
 
