@@ -7,8 +7,11 @@ enum SessionSnapshotSchema {
 }
 
 enum SessionPersistencePolicy {
+    static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
     static let defaultSidebarWidth: Double = 220
+    static let defaultMinimumSidebarWidth: Double = 220
     static let minimumSidebarWidth: Double = 220
+    static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -19,10 +22,32 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
-    static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
+    static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let fallback = defaultSidebarWidth
         guard let candidate, candidate.isFinite else { return fallback }
-        return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
+        return min(max(candidate, resolvedMinimumSidebarWidth(defaults: defaults)), maximumSidebarWidth)
+    }
+
+    static func resolvedMinimumSidebarWidth(defaults: UserDefaults = .standard) -> Double {
+        guard let candidate = storedSidebarMinimumWidth(defaults: defaults) else {
+            return defaultMinimumSidebarWidth
+        }
+        return sanitizedMinimumSidebarWidth(candidate)
+    }
+
+    static func sanitizedMinimumSidebarWidth(_ candidate: Double) -> Double {
+        guard candidate.isFinite else { return defaultMinimumSidebarWidth }
+        return min(max(candidate, sidebarMinimumWidthRange.lowerBound), sidebarMinimumWidthRange.upperBound)
+    }
+
+    private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {
+        if let value = defaults.object(forKey: sidebarMinimumWidthKey) as? NSNumber {
+            return value.doubleValue
+        }
+        if let value = defaults.string(forKey: sidebarMinimumWidthKey) {
+            return Double(value)
+        }
+        return nil
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {

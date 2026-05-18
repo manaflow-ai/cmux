@@ -183,6 +183,17 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
+    func testTitlebarControlsListenForWindowGeometryChanges() {
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willEnterFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEnterFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willExitFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didExitFullScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeScreenNotification))
+        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
+    }
+
     func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
