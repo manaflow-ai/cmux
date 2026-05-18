@@ -13625,13 +13625,16 @@ class TerminalController {
                 )
             }
 
+            let windowNumber = targetWindow.windowNumber
+
+            @MainActor
             func makeEvent(_ type: NSEvent.EventType, _ point: NSPoint, eventNumber: Int) -> NSEvent? {
                 NSEvent.mouseEvent(
                     with: type,
                     location: point,
                     modifierFlags: [],
                     timestamp: requestTimestamp + (Double(eventNumber) * 0.001),
-                    windowNumber: targetWindow.windowNumber,
+                    windowNumber: windowNumber,
                     context: nil,
                     eventNumber: eventNumber,
                     clickCount: 1,
@@ -13639,6 +13642,7 @@ class TerminalController {
                 )
             }
 
+            @MainActor
             func post(_ type: NSEvent.EventType, _ point: NSPoint, eventNumber: Int) {
                 guard let event = makeEvent(type, point, eventNumber: eventNumber) else { return }
                 NSApp.postEvent(event, atStart: false)
