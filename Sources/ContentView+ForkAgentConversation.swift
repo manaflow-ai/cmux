@@ -115,7 +115,12 @@ extension ContentView {
                 return
             }
             guard let postProbeContext = focusedPanelContext,
-                  postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == effectiveTTYWasReportedInCurrentSession,
+                  Self.commandPaletteForkPostProbeTTYStillMatches(
+                    expectedTTYWasReportedInCurrentSession: effectiveTTYWasReportedInCurrentSession,
+                    currentTTYWasReportedInCurrentSession: postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId),
+                    expectedTTYName: effectiveTTYName,
+                    currentTTYName: postProbeContext.workspace.surfaceTTYNames[panelId]
+                  ),
                   Self.commandPaletteForkPostProbeContextStillMatches(
                     expectedWorkspaceId: workspaceId,
                     expectedPanelId: panelId,
@@ -233,6 +238,20 @@ extension ContentView {
             && commandPaletteNormalizedTTYName(currentTTYName) == commandPaletteNormalizedTTYName(expectedTTYName)
     }
 
+    static func commandPaletteForkPostProbeTTYStillMatches(
+        expectedTTYWasReportedInCurrentSession: Bool,
+        currentTTYWasReportedInCurrentSession: Bool,
+        expectedTTYName: String?,
+        currentTTYName: String?
+    ) -> Bool {
+        if expectedTTYWasReportedInCurrentSession == currentTTYWasReportedInCurrentSession {
+            return true
+        }
+        return !expectedTTYWasReportedInCurrentSession &&
+            currentTTYWasReportedInCurrentSession &&
+            commandPaletteNormalizedTTYName(currentTTYName) == commandPaletteNormalizedTTYName(expectedTTYName)
+    }
+
     static func commandPaletteProcessDetectionFallbackScope(
         workspaceId: UUID,
         panelId: UUID,
@@ -241,8 +260,7 @@ extension ContentView {
         ttyName: String?
     ) -> RestorableAgentProcessDetectionScope? {
         guard !isRemoteTerminal else { return nil }
-        guard ttyWasReportedInCurrentSession,
-              let normalizedTTYName = commandPaletteNormalizedTTYName(ttyName) else {
+        guard let normalizedTTYName = commandPaletteNormalizedTTYName(ttyName) else {
             return nil
         }
         return RestorableAgentProcessDetectionScope(

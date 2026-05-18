@@ -796,7 +796,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testProcessDetectionFallbackScopeOnlyUsesFreshLocalTTY() throws {
+    func testProcessDetectionFallbackScopeUsesFocusedLocalTTY() throws {
         let workspaceId = UUID()
         let panelId = UUID()
         let localScope = try XCTUnwrap(
@@ -812,6 +812,18 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(localScope.workspaceId, workspaceId)
         XCTAssertEqual(localScope.panelId, panelId)
         XCTAssertEqual(localScope.ttyName, "ttys001")
+        let staleLocalScope = try XCTUnwrap(
+            ContentView.commandPaletteProcessDetectionFallbackScope(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                isRemoteTerminal: false,
+                ttyWasReportedInCurrentSession: false,
+                ttyName: "ttys002"
+            )
+        )
+        XCTAssertEqual(staleLocalScope.workspaceId, workspaceId)
+        XCTAssertEqual(staleLocalScope.panelId, panelId)
+        XCTAssertEqual(staleLocalScope.ttyName, "ttys002")
         XCTAssertNil(
             ContentView.commandPaletteProcessDetectionFallbackScope(
                 workspaceId: workspaceId,
@@ -826,8 +838,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
-                ttyWasReportedInCurrentSession: false,
-                ttyName: "ttys001"
+                ttyWasReportedInCurrentSession: true,
+                ttyName: nil
             )
         )
     }
@@ -954,6 +966,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(state?.wasReportedInCurrentSession, true)
     }
 
+    func testForkProbeAcceptsProcessDetectedSnapshotWhenStaleFallbackTTYBecomesFresh() {
+        let state = ContentView.commandPaletteForkableAgentProbeTTYState(
+            snapshotWasProcessDetected: true,
+            requestedTTYName: "ttys001",
+            requestedTTYWasReportedInCurrentSession: false,
+            currentTTYName: " ttys001 ",
+            currentTTYWasReportedInCurrentSession: true
+        )
+
+        XCTAssertEqual(state?.cacheValue, "ttys001")
+        XCTAssertEqual(state?.wasReportedInCurrentSession, true)
+    }
+
     func testForkProbeRejectsFallbackOnlySnapshotAcrossTTYRefresh() {
         let state = ContentView.commandPaletteForkableAgentProbeTTYState(
             snapshotWasProcessDetected: false,
@@ -964,6 +989,33 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertNil(state)
+    }
+
+    func testForkPostProbeTTYAllowsFresheningSameTTY() {
+        XCTAssertTrue(
+            ContentView.commandPaletteForkPostProbeTTYStillMatches(
+                expectedTTYWasReportedInCurrentSession: false,
+                currentTTYWasReportedInCurrentSession: true,
+                expectedTTYName: "ttys001",
+                currentTTYName: " ttys001 "
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeTTYStillMatches(
+                expectedTTYWasReportedInCurrentSession: false,
+                currentTTYWasReportedInCurrentSession: true,
+                expectedTTYName: "ttys001",
+                currentTTYName: "ttys002"
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeTTYStillMatches(
+                expectedTTYWasReportedInCurrentSession: true,
+                currentTTYWasReportedInCurrentSession: false,
+                expectedTTYName: "ttys001",
+                currentTTYName: "ttys001"
+            )
+        )
     }
 
     func testForkableAgentFallbackSnapshotKeepsOpenCodeVisibleWhileProbeRuns() {
@@ -1025,6 +1077,24 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                supportedRemoteContextsByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): false
+                ],
+                supportedTTYNamesByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): ""
+                ],
+                supportedTTYFreshByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): false
+                ],
                 unsupportedSnapshotFingerprintsByPanelKey: [
                     ContentView.commandPaletteForkableAgentPanelKey(
                         workspaceId: workspaceId,
@@ -1039,6 +1109,30 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                supportedRemoteContextsByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): false
+                ],
+                supportedTTYNamesByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): ""
+                ],
+                supportedTTYFreshByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): false
+                ],
+                unsupportedSnapshotFingerprintsByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): ContentView.commandPaletteForkSnapshotFingerprint(directOpenCode)
+                ],
                 fallbackSnapshot: directOpenCode,
                 isRemoteTerminal: true
             )
@@ -1049,6 +1143,92 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelId: panelId,
                 supportedPanelKeys: [],
                 fallbackSnapshot: omoOpenCode
+            )
+        )
+    }
+
+    func testForkableAgentUnsupportedCacheRequiresMatchingContext() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let directOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(directOpenCode)
+        let unsupported = [panelKey: fingerprint]
+        let cachedRemote = [panelKey: false]
+        let cachedTTY = [panelKey: "ttys001"]
+        let cachedTTYFresh = [panelKey: true]
+
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                supportedRemoteContextsByPanelKey: cachedRemote,
+                supportedTTYNamesByPanelKey: cachedTTY,
+                supportedTTYFreshByPanelKey: cachedTTYFresh,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupported,
+                fallbackSnapshot: directOpenCode,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                supportedRemoteContextsByPanelKey: cachedRemote,
+                supportedTTYNamesByPanelKey: cachedTTY,
+                supportedTTYFreshByPanelKey: cachedTTYFresh,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupported,
+                fallbackSnapshot: directOpenCode,
+                isRemoteTerminal: true,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                supportedRemoteContextsByPanelKey: cachedRemote,
+                supportedTTYNamesByPanelKey: cachedTTY,
+                supportedTTYFreshByPanelKey: cachedTTYFresh,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupported,
+                fallbackSnapshot: directOpenCode,
+                ttyName: "ttys002",
+                ttyWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                supportedRemoteContextsByPanelKey: cachedRemote,
+                supportedTTYNamesByPanelKey: cachedTTY,
+                supportedTTYFreshByPanelKey: cachedTTYFresh,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupported,
+                fallbackSnapshot: directOpenCode,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: false
             )
         )
     }

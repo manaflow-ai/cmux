@@ -5954,7 +5954,17 @@ struct ContentView: View {
             }
             if let fallbackSnapshot {
                 let fallbackFingerprint = commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
-                guard unsupportedSnapshotFingerprintsByPanelKey[panelKey] != fallbackFingerprint else {
+                guard !commandPaletteUnsupportedForkCacheMatches(
+                    panelKey: panelKey,
+                    unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                    cachedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                    cachedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                    cachedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                    fallbackFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal,
+                    ttyName: ttyName,
+                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession
+                ) else {
                     return false
                 }
                 return commandPaletteSnapshotForkAvailability(
@@ -5969,7 +5979,17 @@ struct ContentView: View {
         }
         if let fallbackSnapshot {
             let fallbackFingerprint = commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
-            guard unsupportedSnapshotFingerprintsByPanelKey[panelKey] != fallbackFingerprint else {
+            guard !commandPaletteUnsupportedForkCacheMatches(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                cachedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: supportedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: supportedTTYFreshByPanelKey,
+                fallbackFingerprint: fallbackFingerprint,
+                isRemoteTerminal: isRemoteTerminal,
+                ttyName: ttyName,
+                ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession
+            ) else {
                 return false
             }
             switch commandPaletteSnapshotForkAvailability(
@@ -5983,6 +6003,28 @@ struct ContentView: View {
             }
         }
         return false
+    }
+
+    static func commandPaletteUnsupportedForkCacheMatches(
+        panelKey: String,
+        unsupportedSnapshotFingerprintsByPanelKey: [String: String],
+        cachedRemoteContextsByPanelKey: [String: Bool],
+        cachedTTYNamesByPanelKey: [String: String],
+        cachedTTYFreshByPanelKey: [String: Bool],
+        fallbackFingerprint: String,
+        isRemoteTerminal: Bool,
+        ttyName: String?,
+        ttyWasReportedInCurrentSession: Bool?
+    ) -> Bool {
+        guard unsupportedSnapshotFingerprintsByPanelKey[panelKey] == fallbackFingerprint,
+              cachedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+              cachedTTYNamesByPanelKey[panelKey] == commandPaletteTTYCacheValue(ttyName) else {
+            return false
+        }
+        guard let ttyWasReportedInCurrentSession else {
+            return true
+        }
+        return cachedTTYFreshByPanelKey[panelKey] == ttyWasReportedInCurrentSession
     }
 
     static func commandPaletteForkableAgentProbeCacheIsFresh(
@@ -6072,7 +6114,17 @@ struct ContentView: View {
                 clearCommandPaletteForkableAgentCache(for: panelKey)
                 return
             case .requiresProbe:
-                if commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey[panelKey] == fallbackFingerprint,
+                if Self.commandPaletteUnsupportedForkCacheMatches(
+                    panelKey: panelKey,
+                    unsupportedSnapshotFingerprintsByPanelKey: commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey,
+                    cachedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                    cachedTTYNamesByPanelKey: commandPaletteForkableAgentTTYNamesByPanelKey,
+                    cachedTTYFreshByPanelKey: commandPaletteForkableAgentTTYFreshByPanelKey,
+                    fallbackFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal,
+                    ttyName: ttyName,
+                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession
+                ),
                    !panelChanged {
                     return
                 }
@@ -6272,20 +6324,19 @@ struct ContentView: View {
     ) -> (cacheValue: String, wasReportedInCurrentSession: Bool)? {
         let requestedTTYName = commandPaletteNormalizedTTYName(requestedTTYName)
         let currentTTYName = commandPaletteNormalizedTTYName(currentTTYName)
-        let usedTTYFallbackScope = requestedTTYName != nil && requestedTTYWasReportedInCurrentSession
+        let usedTTYFallbackScope = requestedTTYName != nil
         if snapshotWasProcessDetected && !usedTTYFallbackScope {
             return (
                 commandPaletteTTYCacheValue(currentTTYName),
                 currentTTYWasReportedInCurrentSession
             )
         }
-        guard requestedTTYName == currentTTYName,
-              requestedTTYWasReportedInCurrentSession == currentTTYWasReportedInCurrentSession else {
+        guard requestedTTYName == currentTTYName else {
             return nil
         }
         return (
             commandPaletteTTYCacheValue(requestedTTYName),
-            requestedTTYWasReportedInCurrentSession
+            currentTTYWasReportedInCurrentSession
         )
     }
 
