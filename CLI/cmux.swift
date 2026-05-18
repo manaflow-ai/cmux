@@ -4522,7 +4522,10 @@ struct CMUXCLI {
             var params = target.params
             let (checkpoint, rem1) = parseOption(target.remaining, name: "--checkpoint")
             let (checkpointID, rem2) = parseOption(rem1, name: "--checkpoint-id")
-            let (source, _) = parseOption(rem2, name: "--source")
+            let (source, remaining) = parseOption(rem2, name: "--source")
+            if let unexpected = remaining.first {
+                throw CLIError(message: "surface resume clear: unexpected argument '\(unexpected)'")
+            }
             if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
             if let source { params["source"] = source }
             let payload = try client.sendV2(method: "surface.resume.clear", params: params)

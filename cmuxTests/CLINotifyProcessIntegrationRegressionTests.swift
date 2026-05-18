@@ -1403,6 +1403,54 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testSurfaceResumeClearCLIRejectsMalformedGuardsBeforeClearing() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-malformed")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTFail("Malformed clear args should fail before socket request, saw \(method)")
+            return self.v2Response(id: id, ok: true, result: ["cleared": true])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "clear",
+                "--workspace", "11111111-1111-1111-1111-111111111111",
+                "--surface", "22222222-2222-2222-2222-222222222222",
+                "--checkpoint",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("surface resume clear: unexpected argument '--checkpoint'"))
+        wait(for: [serverHandled], timeout: 2)
+        XCTAssertFalse(
+            state.commands.contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+            },
+            "Malformed clear args should not send a clear request, saw \(state.commands)"
+        )
+    }
+
     func testSurfaceResumeClearCLINormalizesWindowIndex() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-clear-window")
