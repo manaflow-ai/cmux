@@ -18729,7 +18729,7 @@ struct CMUXCLI {
         ) {
             return grokSummary
         }
-        if let grokSummary = summarizeGrokHookExecutionNotification(
+        if let grokSummary = summarizeGrokInternalSessionNotification(
             def: def,
             message: normalizedMessage,
             parsedInput: parsedInput,
@@ -18770,7 +18770,7 @@ struct CMUXCLI {
         )
     }
 
-    private func summarizeGrokHookExecutionNotification(
+    private func summarizeGrokInternalSessionNotification(
         def: AgentHookDef,
         message: String,
         parsedInput: ClaudeHookParsedInput,
@@ -18778,7 +18778,7 @@ struct CMUXCLI {
         env: [String: String]
     ) -> AgentHookNotificationSummary? {
         guard def.name == "grok",
-              isGrokHookExecutionNotification(message),
+              isGrokInternalSessionNotification(message),
               let body = latestGrokAssistantMessage(
                 cwd: cwd,
                 sessionId: parsedInput.sessionId,
@@ -18794,9 +18794,20 @@ struct CMUXCLI {
         )
     }
 
-    private func isGrokHookExecutionNotification(_ message: String) -> Bool {
+    private func normalizedAgentHookNotificationMessage(parsedInput: ClaudeHookParsedInput) -> String? {
+        guard let object = parsedInput.object else {
+            return parsedInput.rawFallback.map(normalizedSingleLine)
+        }
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let messageCandidates = [
+            firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+        ]
+        return messageCandidates.compactMap { $0 }.first.map(normalizedSingleLine)
+    }
+
+    private func isGrokInternalSessionNotification(_ message: String) -> Bool {
         message.hasPrefix("SessionNotification {")
-            && message.contains("HookExecution")
     }
 
     private func isGrokGenericTurnCompletion(_ message: String) -> Bool {
@@ -21470,10 +21481,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
 
+                let notificationCwd = hookCwd ?? mapped?.cwd
+                if def.name == "grok",
+                   let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input),
+                   isGrokInternalSessionNotification(notificationMessage),
+                   latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
+                    print("{}")
+                    return
+                }
+
                 var summary = summarizeAgentHookNotification(
                     def: def,
                     parsedInput: input,
-                    cwd: hookCwd ?? mapped?.cwd,
+                    cwd: notificationCwd,
                     env: env
                 )
                 if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
@@ -21497,7 +21517,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: notificationCwd,
                         pid: pid,
                         launchCommand: launchCommand,
                         lastSubtitle: summary.subtitle,

@@ -343,6 +343,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
 
+        let preAssistantInternalCommandStart = state.commands.count
+        let preAssistantInternal = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"grok-before-assistant","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: session_start } }"}"#
+        )
+        XCTAssertFalse(preAssistantInternal.timedOut, preAssistantInternal.stderr)
+        XCTAssertEqual(preAssistantInternal.status, 0, preAssistantInternal.stderr)
+        XCTAssertEqual(preAssistantInternal.stdout, "{}\n")
+
+        let preAssistantInternalCommands = Array(state.commands.dropFirst(preAssistantInternalCommandStart))
+        XCTAssertFalse(
+            preAssistantInternalCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok internal session notifications should not notify before there is an assistant response, saw \(preAssistantInternalCommands)"
+        )
+
         let assistantMessage = "**42.** That's the answer, according to Deep Thought."
         try writeGrokAssistantTranscript(
             grokHome: grokHome,
@@ -396,7 +411,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let hookExecutionCommandStart = state.commands.count
         let hookExecution = runGrokHook(
             "notification",
-            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: stop } }"}"#
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: MemoryFlushCompleted { result: written } }"}"#
         )
         XCTAssertFalse(hookExecution.timedOut, hookExecution.stderr)
         XCTAssertEqual(hookExecution.status, 0, hookExecution.stderr)
