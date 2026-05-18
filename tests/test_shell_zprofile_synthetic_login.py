@@ -42,6 +42,7 @@ def run_startup_case(
     )
 
     env = dict(os.environ)
+    env.pop("GHOSTTY_ZSH_ZDOTDIR", None)
     env["HOME"] = str(home)
     env["ZDOTDIR"] = str(wrapper_dir)
     env["CMUX_ZSH_ZDOTDIR"] = str(orig)
