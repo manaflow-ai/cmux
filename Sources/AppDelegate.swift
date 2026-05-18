@@ -1644,8 +1644,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ),
                 body: String(
                     localized: "crashBreadcrumb.body",
-                    defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
-                )
+                    defaultValue: "Diagnostic file saved. Click to reveal it in Finder."
+                ),
+                clickAction: .revealInFinder(path: pendingCrash.fileURL.path)
             )
             GhosttyCrashBreadcrumb.markShown(pendingCrash)
         }
@@ -6736,10 +6737,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        cmuxDebugLog("file.preview.externalOpen source=\(debugSource) path=\(filePath)")
+        cmuxDebugLog("file.externalOpen source=\(debugSource) path=\(filePath)")
 #endif
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
-        return true
+        return !workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        ).isEmpty
     }
 
     @discardableResult
@@ -7434,11 +7439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.showNotificationsPopoverFromMenuBar()
             },
             onOpenNotification: { [weak self] notification in
-                _ = self?.openNotification(
-                    tabId: notification.tabId,
-                    surfaceId: notification.surfaceId,
-                    notificationId: notification.id
-                )
+                _ = self?.openTerminalNotification(notification)
             },
             onJumpToLatestUnread: { [weak self] in
                 self?.jumpToLatestUnread()
@@ -10626,13 +10627,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Prefer the latest unread that we can actually open. In early startup (especially on the VM),
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
-        for notification in notificationStore.notifications where !notification.isRead && notification.id != excludedNotificationId {
-            if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
+        for notification in notificationStore.notifications
+            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId) {
+            if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
         _ = openLatestWorkspaceUnread()
         return nil
+    }
+
+    static func shouldOpenFromJumpToLatestUnread(
+        _ notification: TerminalNotification,
+        excludingNotificationId excludedNotificationId: UUID? = nil
+    ) -> Bool {
+        guard !notification.isRead, notification.id != excludedNotificationId else { return false }
+        return notification.clickAction == nil
     }
 
     private func openLatestWorkspaceUnread() -> Bool {
@@ -11477,6 +11487,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !normalizedFlags.contains(.command),
            let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
            ghosttyView.hasMarkedText() {
+            return false
+        }
+
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
+            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
+            flags: event.modifierFlags
+        ) {
             return false
         }
 
@@ -13855,6 +13874,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return nil
             }()
+            if let clickAction = TerminalNotificationClickAction(userInfo: response.notification.request.content.userInfo) {
+                Task { @MainActor in
+                    let didPerform = self.performTerminalNotificationClickAction(clickAction)
+                    if didPerform, let notificationId {
+                        self.notificationStore?.markRead(id: notificationId)
+                    }
+                }
+                return
+            }
             DispatchQueue.main.async {
                 _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
             }
@@ -14161,6 +14189,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    @MainActor
+    func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
+        if let clickAction = notification.clickAction {
+            let didPerform = performTerminalNotificationClickAction(clickAction)
+            if didPerform {
+                notificationStore?.markRead(id: notification.id)
+            }
+            return didPerform
+        }
+        return openNotification(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            notificationId: notification.id
+        )
+    }
+
+    @discardableResult
+    @MainActor
+    private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
+        switch action {
+        case .revealInFinder(let path):
+            return revealInFinder(path: path)
+        }
+    }
+
+    @discardableResult
+    @MainActor
+    private func revealInFinder(path: String) -> Bool {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        guard !expandedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        let fileURL = URL(fileURLWithPath: expandedPath)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            return true
+        }
+        let directoryURL = fileURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: directoryURL.path) {
+            return NSWorkspace.shared.open(directoryURL)
+        }
+        return false
+    }
+
+    @discardableResult
     func openNotification(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
 #if DEBUG
         let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
@@ -14445,6 +14519,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -15059,6 +15134,7 @@ private extension NSWindow {
             self.firstResponder as? NSTextView,
             in: self
         )
+        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -15121,6 +15197,34 @@ private extension NSWindow {
             }
         }
 
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
+#endif
+                return false
+            }
+            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
+            defer {
+                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
+                    0,
+                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
+                )
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
         if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
@@ -15136,7 +15240,6 @@ private extension NSWindow {
             return true
         }
 
-        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowserOmnibar: firstResponderOmnibarPanelId != nil,
