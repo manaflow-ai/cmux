@@ -2843,13 +2843,18 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         slot.setPortalHidden(true)
 
         XCTAssertTrue(slot.isPortalHidden)
+        XCTAssertEqual(slot.alphaValue, 0, accuracy: 0.001)
         XCTAssertFalse(
+            slot.isHidden,
+            "Direct portal hides should keep the WKWebView-hosting branch in the AppKit tree"
+        )
+        XCTAssertTrue(
             contentView.bounds.intersects(slot.frame),
-            "Direct portal hides should visually suppress the slot even before the next registry geometry sync"
+            "Direct portal hides should keep the render layer in its last visible geometry"
         )
         XCTAssertFalse(
             window.firstResponder === inspectorView,
-            "Hiding a browser slot should yield any owned inspector responder before it goes off-screen"
+            "Hiding a browser slot should yield any owned inspector responder before it is visually suppressed"
         )
         if let firstResponderView = window.firstResponder as? NSView {
             XCTAssertFalse(
@@ -3361,19 +3366,23 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot, "Workspace hide should preserve the hosted WKWebView attachment")
         XCTAssertEqual(
             slot.alphaValue,
-            1,
+            0,
             accuracy: 0.001,
-            "Workspace hide should keep the WKWebView branch opaque instead of using AppKit hidden/alpha suppression"
+            "Workspace hide should visually suppress the portal slot without using AppKit hidden-state"
         )
         if let slotSuperview = slot.superview {
-            XCTAssertFalse(
+            XCTAssertTrue(
                 slotSuperview.bounds.intersects(slot.frame),
-                "A visually suppressed browser slot should stay attached but not occupy the visible portal host"
+                "A hidden portal slot should stay in-place so the WKWebView render tree remains attached to the window"
             )
         } else {
             XCTFail("Expected hidden portal slot to remain attached")
         }
-        let hiddenSlotHit = contentView.hitTest(NSPoint(x: slot.frame.midX, y: slot.frame.midY))
+        let hiddenPointInContent = contentView.convert(
+            slot.convert(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY), to: nil),
+            from: nil
+        )
+        let hiddenSlotHit = contentView.hitTest(hiddenPointInContent)
         XCTAssertFalse(
             hiddenSlotHit === slot || (hiddenSlotHit?.isDescendant(of: slot) ?? false),
             "A visually suppressed browser slot must not intercept events while hidden"

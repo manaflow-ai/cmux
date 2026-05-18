@@ -1525,33 +1525,15 @@ final class WindowBrowserSlotView: NSView {
         isPortalVisuallySuppressed
     }
 
-    fileprivate static func suppressedFrame(for targetFrame: NSRect, in hostBounds: NSRect) -> NSRect {
-        var suppressedFrame = targetFrame
-        suppressedFrame.origin.x = hostBounds.maxX + max(4096, hostBounds.width + targetFrame.width + 64)
-        return suppressedFrame
-    }
-
     func setPortalHidden(_ hidden: Bool) {
         let oldValue = isPortalVisuallySuppressed
         isPortalVisuallySuppressed = hidden
-        // Keep WKWebView's remote render layer opaque and attached across workspace switches.
+        // Keep WKWebView's remote render layer in-place and attached across workspace switches.
         super.isHidden = false
-        alphaValue = 1
-        if hidden {
-            applyPortalSuppressedGeometryIfNeeded()
-        }
+        alphaValue = hidden ? 0 : 1
 
         guard hidden, !oldValue, let window else { return }
         yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
-    }
-
-    private func applyPortalSuppressedGeometryIfNeeded() {
-        guard let superview else { return }
-        guard superview.bounds.intersects(frame) else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        frame = Self.suppressedFrame(for: frame, in: superview.bounds)
-        CATransaction.commit()
     }
 
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
@@ -1640,9 +1622,6 @@ final class WindowBrowserSlotView: NSView {
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if isPortalVisuallySuppressed {
-            applyPortalSuppressedGeometryIfNeeded()
-        }
         attachDropZoneOverlayIfNeeded()
         applyResolvedDropZoneOverlay()
     }
@@ -3777,14 +3756,10 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
         }
-        let presentationFrame =
-            shouldHide && !shouldPreserveVisibleOnTransientGeometry
-            ? WindowBrowserSlotView.suppressedFrame(for: targetFrame, in: hostBounds)
-            : targetFrame
-        if !Self.rectApproximatelyEqual(oldFrame, presentationFrame) {
+        if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            containerView.frame = presentationFrame
+            containerView.frame = targetFrame
             CATransaction.commit()
             refreshReasons.append("frame")
         }
