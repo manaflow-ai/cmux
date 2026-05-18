@@ -309,6 +309,12 @@ private extension View {
         // used by CI/local builds. Keep this modifier as a compatibility no-op.
         self
     }
+
+    func browserToolbarPopoverChrome(appColorScheme: ColorScheme) -> some View {
+        self
+            .environment(\.colorScheme, appColorScheme)
+            .background(Color(nsColor: .windowBackgroundColor))
+    }
 }
 
 func resolvedBrowserChromeBackgroundColor(
@@ -1227,6 +1233,7 @@ struct BrowserPanelView: View {
         .padding(.horizontal, browserProfilePopoverHorizontalPadding)
         .padding(.vertical, browserProfilePopoverVerticalPadding)
         .frame(minWidth: 208)
+        .browserToolbarPopoverChrome(appColorScheme: colorScheme)
     }
 
     private var browserThemeModePopover: some View {
@@ -1259,6 +1266,7 @@ struct BrowserPanelView: View {
         }
         .padding(8)
         .frame(minWidth: 128)
+        .browserToolbarPopoverChrome(appColorScheme: colorScheme)
     }
 
     private var browserThemeModeIconColor: Color {
@@ -1770,6 +1778,7 @@ struct BrowserPanelView: View {
         browserImportHintBody
             .padding(12)
             .frame(width: 300, alignment: .leading)
+            .browserToolbarPopoverChrome(appColorScheme: colorScheme)
     }
 
     private var browserImportHintBody: some View {
