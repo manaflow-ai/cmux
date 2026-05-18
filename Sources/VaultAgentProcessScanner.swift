@@ -609,10 +609,6 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment
             )
             guard observed.isCodexProcess else { continue }
-            guard normalized(processArguments.environment["CODEX_THREAD_ID"]) == nil,
-                  normalized(processArguments.environment["CODEX_SESSION_ID"]) == nil else {
-                continue
-            }
             let tail = codexLaunchTail(observed: observed)
             guard let command = codexSessionCommand(in: tail),
                   command.name == "fork" else {

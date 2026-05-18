@@ -3599,6 +3599,88 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(secondSnapshot.sessionId, parentSessionId)
     }
 
+    func testProcessDetectionCountsEnvBackedCodexForksAsMetadataAmbiguous() throws {
+        let envBackedWorkspaceId = UUID()
+        let envBackedPanelId = UUID()
+        let missingEnvWorkspaceId = UUID()
+        let missingEnvPanelId = UUID()
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-mixed-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let childSessionId = "019e3333-3333-7333-8333-333333333333"
+        let workingDirectory = "/tmp/codex fork repo"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: childSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 200),
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let envBackedProcess = makeTopProcess(
+            pid: 10_036,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_036,
+            workspaceId: envBackedWorkspaceId,
+            panelId: envBackedPanelId
+        )
+        let missingEnvProcess = makeTopProcess(
+            pid: 10_037,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_037,
+            workspaceId: missingEnvWorkspaceId,
+            panelId: missingEnvPanelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [envBackedProcess, missingEnvProcess],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == envBackedProcess.pid || pid == missingEnvProcess.pid else { return nil }
+                var environment = [
+                    "CODEX_HOME": codexHome.path,
+                    "PWD": workingDirectory
+                ]
+                if pid == envBackedProcess.pid {
+                    environment["CODEX_THREAD_ID"] = childSessionId
+                }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4",
+                        "stale fork prompt"
+                    ],
+                    environment: environment
+                )
+            }
+        )
+
+        let envBackedSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: envBackedWorkspaceId, panelId: envBackedPanelId)]?.snapshot
+        )
+        let missingEnvSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: missingEnvWorkspaceId, panelId: missingEnvPanelId)]?.snapshot
+        )
+        XCTAssertEqual(envBackedSnapshot.kind, .codex)
+        XCTAssertEqual(missingEnvSnapshot.kind, .codex)
+        XCTAssertEqual(envBackedSnapshot.sessionId, childSessionId)
+        XCTAssertEqual(missingEnvSnapshot.sessionId, parentSessionId)
+    }
+
     func testProcessDetectionKeepsCodexForkCommandWhenThreadEnvironmentMissing() throws {
         let workspaceId = UUID()
         let panelId = UUID()
