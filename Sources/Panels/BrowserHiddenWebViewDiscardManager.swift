@@ -35,7 +35,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
 
-    private var timer: DispatchSourceTimer?
+    private var discardTask: Task<Void, Never>?
     private var policyObserver: NSObjectProtocol?
     private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
     private var scheduleGeneration: UInt64 = 0
@@ -47,7 +47,7 @@ final class BrowserHiddenWebViewDiscardManager {
     var restoredSessionShouldRenderWebView: Bool?
 
     var hasScheduledDiscard: Bool {
-        timer != nil
+        discardTask != nil
     }
 
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
@@ -72,8 +72,8 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func scheduleIfNeeded(reason: String) {
         scheduleGeneration &+= 1
-        timer?.cancel()
-        timer = nil
+        discardTask?.cancel()
+        discardTask = nil
 
         guard let delegate else { return }
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
@@ -88,25 +88,27 @@ final class BrowserHiddenWebViewDiscardManager {
             return
         }
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + remaining)
-        timer.setEventHandler { [weak self] in
+        let task = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: Self.sleepNanoseconds(for: remaining))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             guard let self else { return }
             guard self.scheduleGeneration == generation else { return }
             guard let delegate = self.delegate else { return }
             guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
-            self.timer?.cancel()
-            self.timer = nil
+            self.discardTask = nil
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
         }
-        self.timer = timer
-        timer.resume()
+        discardTask = task
     }
 
     func cancel() {
         scheduleGeneration &+= 1
-        timer?.cancel()
-        timer = nil
+        discardTask?.cancel()
+        discardTask = nil
     }
 
     func installPolicyObserver() {
@@ -182,5 +184,9 @@ final class BrowserHiddenWebViewDiscardManager {
         guard policyState != nextPolicyState else { return }
         policyState = nextPolicyState
         delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")
+    }
+
+    private static func sleepNanoseconds(for interval: TimeInterval) -> UInt64 {
+        UInt64((max(0, interval) * 1_000_000_000).rounded(.up))
     }
 }
