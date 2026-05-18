@@ -220,7 +220,7 @@ def main() -> int:
             "tool_input": {
                 "questions": [
                     {
-                        "question": "Which approach should I use?",
+                        "question": "Which approach should I use for /tmp/private-plan with token sk123456789abcdef?",
                         "options": [
                             {"label": "Fast path"},
                             {"label": "Careful path"},
@@ -250,11 +250,20 @@ def main() -> int:
         if not has_command_with(
             server.commands,
             f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
-            "Which approach should I use?",
+            "<path>",
+            "<token>",
             "[Fast path]",
             "[Careful path]",
         ):
             print("FAIL: AskUserQuestion PreToolUse should register a target notification")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        if (
+            has_command_with(server.commands, "/tmp/private-plan")
+            or has_command_with(server.commands, "sk123456789abcdef")
+        ):
+            print("FAIL: AskUserQuestion notification should redact sensitive question text")
             print(f"commands={server.commands!r}")
             return 1
 
@@ -357,7 +366,7 @@ def main() -> int:
             "tool_input": {
                 "questions": [
                     {
-                        "question": "Should the notification still be delivered?",
+                        "question": "Should notification for admin@example.com still be delivered?",
                         "options": [
                             {"label": "Yes"},
                             {"label": "No"},
@@ -383,11 +392,16 @@ def main() -> int:
         if not has_command_with(
             server.commands,
             f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
-            "Should the notification still be delivered?",
+            "<email>",
             "[Yes]",
             "[No]",
         ):
             print("FAIL: status failure should not block AskUserQuestion notification")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        if has_command_with(server.commands, "admin@example.com"):
+            print("FAIL: status-failure AskUserQuestion notification should redact sensitive question text")
             print(f"commands={server.commands!r}")
             return 1
 
@@ -398,7 +412,7 @@ def main() -> int:
             "tool_input": {
                 "questions": [
                     {
-                        "question": "Should state failure still notify?",
+                        "question": "Should state failure still notify for /tmp/state-secret?",
                         "options": [
                             {"label": "Deliver"},
                             {"label": "Drop"},
@@ -422,11 +436,16 @@ def main() -> int:
         if not has_command_with(
             server.commands,
             f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
-            "Should state failure still notify?",
+            "<path>",
             "[Deliver]",
             "[Drop]",
         ):
             print("FAIL: state persistence failure should not block AskUserQuestion notification")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        if has_command_with(server.commands, "/tmp/state-secret"):
+            print("FAIL: state-failure AskUserQuestion notification should redact sensitive question text")
             print(f"commands={server.commands!r}")
             return 1
 

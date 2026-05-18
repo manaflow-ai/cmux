@@ -16936,7 +16936,7 @@ struct CMUXCLI {
               toolName == "AskUserQuestion" else {
             return nil
         }
-        let subtitle = String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting")
+        let subtitle = claudeWaitingSubtitle()
         let body = describeAskUserQuestion(object) ?? String(
             localized: "agent.claude.input.body.askingQuestion",
             defaultValue: "The assistant is asking a question"
@@ -17022,11 +17022,13 @@ struct CMUXCLI {
     }
 
     private func shouldUseSavedNeedsInputSummary(for summary: (subtitle: String, body: String)) -> Bool {
-        summary.subtitle == "Waiting" || isGenericNeedsInputAttention(summary)
+        summary.subtitle == "Waiting" ||
+            summary.subtitle == claudeWaitingSubtitle() ||
+            isGenericNeedsInputAttention(summary)
     }
 
     private func isGenericNeedsInputAttention(_ summary: (subtitle: String, body: String)) -> Bool {
-        guard summary.subtitle == "Attention" else { return false }
+        guard summary.subtitle == "Attention" || summary.subtitle == claudeAttentionSubtitle() else { return false }
         switch normalizedSingleLine(summary.body).lowercased() {
         case "claude needs your attention",
              "claude needs your input",
@@ -17041,6 +17043,14 @@ struct CMUXCLI {
         default:
             return false
         }
+    }
+
+    private func claudeWaitingSubtitle() -> String {
+        String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting")
+    }
+
+    private func claudeAttentionSubtitle() -> String {
+        String(localized: "agent.claude.input.subtitle.attention", defaultValue: "Attention")
     }
 
     private func shouldSuppressPreToolNeedsInputDuplicate(

@@ -20894,6 +20894,23 @@
         }
       }
     },
+    "agent.claude.input.subtitle.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意"
+          }
+        }
+      }
+    },
     "agent.claude.input.subtitle.waiting": {
       "extractionState": "manual",
       "localizations": {
