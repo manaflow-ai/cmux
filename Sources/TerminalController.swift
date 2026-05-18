@@ -17956,6 +17956,9 @@ class TerminalController {
     @MainActor
     private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
@@ -18109,6 +18112,14 @@ class TerminalController {
         }
     }
 
+    private func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
+        guard v2HasNonNullParam(params, "workspace_id"),
+              v2UUID(params, "workspace_id") == nil else {
+            return nil
+        }
+        return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+    }
+
     func clearMobileViewportReports(clientIDs: Set<String>) {
         guard !clientIDs.isEmpty else { return }
 
@@ -18192,6 +18203,9 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
         guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
@@ -18210,6 +18224,9 @@ class TerminalController {
     }
 
     private func v2MobileTerminalSnapshot(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
@@ -18237,6 +18254,9 @@ class TerminalController {
     private func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
         }
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error

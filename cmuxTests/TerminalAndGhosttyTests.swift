@@ -1229,6 +1229,61 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["workspace_count"])
     }
 
+    func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminal = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let badWorkspaceID = "workspace:not-a-uuid"
+        let requests: [(method: String, params: [String: Any])] = [
+            (
+                method: "mobile.attach_ticket.create",
+                params: ["workspace_id": badWorkspaceID]
+            ),
+            (
+                method: "terminal.create",
+                params: ["workspace_id": badWorkspaceID]
+            ),
+            (
+                method: "terminal.snapshot",
+                params: [
+                    "workspace_id": badWorkspaceID,
+                    "terminal_id": terminal.id.uuidString,
+                ]
+            ),
+            (
+                method: "terminal.input",
+                params: [
+                    "workspace_id": badWorkspaceID,
+                    "terminal_id": terminal.id.uuidString,
+                    "text": "echo should-not-send\n",
+                ]
+            ),
+        ]
+
+        for request in requests {
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: request.method,
+                    method: request.method,
+                    params: request.params,
+                    auth: nil
+                )
+            )
+
+            guard case let .failure(error) = response else {
+                XCTFail("\(request.method) should reject malformed workspace_id")
+                continue
+            }
+            XCTAssertEqual(error.code, "invalid_params", request.method)
+        }
+    }
+
     func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
