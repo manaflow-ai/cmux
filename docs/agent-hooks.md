@@ -92,8 +92,14 @@ isolated Codex environments in the right sidebar, add them to `cmux.json`:
 }
 ```
 
-Sessions from configured homes show their source label in Vault, and resuming
-one sets `CODEX_HOME` to the matching directory.
+When Vault scans more than one valid Codex home, sessions from every home show
+their source label, including the default home as `Default Codex`. When resuming
+a session from an additional home, cmux sets `CODEX_HOME` to the matching
+directory.
+
+Missing, unreadable, or empty additional homes do not block discovery from other
+homes. Empty homes simply contribute no sessions, and invalid paths have no
+effect until they are fixed or removed from `cmux.json`.
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
