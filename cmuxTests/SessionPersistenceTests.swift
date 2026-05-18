@@ -3772,6 +3772,32 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work'")
     }
 
+    func testTmuxProcessDetectedResumeBindingDropsFullClientProcessTitle() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client (/dev/ttys001)",
+                processPath: nil,
+                arguments: ["tmux: client (/dev/ttys001)", "attach-session", "-t", "work"],
+                environment: ["PWD": "/tmp/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.cwd, "/tmp/project")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsFullServerProcessTitle() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: server (/private/tmp/tmux-501/default)",
+            processPath: nil,
+            arguments: ["tmux: server (/private/tmp/tmux-501/default)"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testTmuxProcessDetectedResumeBindingRejectsServerProcessTitle() {
         let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
             processName: "tmux: server",

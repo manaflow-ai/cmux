@@ -873,6 +873,9 @@ private struct VaultObservedAgentProcess: Sendable {
 
     static func argumentLooksLikeTmux(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
+        if argumentLooksLikeTmuxClientProcessTitle(normalized) {
+            return true
+        }
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
         return basename == "tmux" || argumentLooksLikeTmuxClientProcessTitle(basename)
@@ -880,6 +883,9 @@ private struct VaultObservedAgentProcess: Sendable {
 
     static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
+        if normalized.hasPrefix("tmux:") {
+            return true
+        }
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
         return basename.hasPrefix("tmux:")
@@ -887,6 +893,9 @@ private struct VaultObservedAgentProcess: Sendable {
 
     static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
+        if normalized.hasPrefix("tmux: server") {
+            return true
+        }
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
         return basename.hasPrefix("tmux: server")
@@ -894,6 +903,9 @@ private struct VaultObservedAgentProcess: Sendable {
 
     private static func argumentLooksLikeTmuxClientProcessTitle(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
+        if normalized.hasPrefix("tmux: client") {
+            return true
+        }
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
         return basename.hasPrefix("tmux: client")
