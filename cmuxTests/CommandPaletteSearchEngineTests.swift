@@ -804,6 +804,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
+                ttyWasReportedInCurrentSession: true,
                 ttyName: " ttys001 "
             )
         )
@@ -811,22 +812,21 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(localScope.workspaceId, workspaceId)
         XCTAssertEqual(localScope.panelId, panelId)
         XCTAssertEqual(localScope.ttyName, "ttys001")
-        let staleLocalScope = try XCTUnwrap(
+        XCTAssertNil(
             ContentView.commandPaletteProcessDetectionFallbackScope(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
+                ttyWasReportedInCurrentSession: false,
                 ttyName: "ttys002"
             )
         )
-        XCTAssertEqual(staleLocalScope.workspaceId, workspaceId)
-        XCTAssertEqual(staleLocalScope.panelId, panelId)
-        XCTAssertEqual(staleLocalScope.ttyName, "ttys002")
         XCTAssertNil(
             ContentView.commandPaletteProcessDetectionFallbackScope(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: true,
+                ttyWasReportedInCurrentSession: true,
                 ttyName: "ttys001"
             )
         )
@@ -835,6 +835,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 workspaceId: workspaceId,
                 panelId: panelId,
                 isRemoteTerminal: false,
+                ttyWasReportedInCurrentSession: true,
                 ttyName: nil
             )
         )

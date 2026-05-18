@@ -45,6 +45,7 @@ extension ContentView {
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteTerminal: isInitialRemoteContext,
+                    ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession,
                     ttyName: ttyName
                 )
             )
@@ -66,6 +67,7 @@ extension ContentView {
                         workspaceId: workspaceId,
                         panelId: panelId,
                         isRemoteTerminal: isInitialRemoteContext,
+                        ttyWasReportedInCurrentSession: effectiveTTYWasReportedInCurrentSession,
                         ttyName: effectiveTTYName
                     )
                 )
@@ -254,9 +256,11 @@ extension ContentView {
         workspaceId: UUID,
         panelId: UUID,
         isRemoteTerminal: Bool,
+        ttyWasReportedInCurrentSession: Bool,
         ttyName: String?
     ) -> RestorableAgentProcessDetectionScope? {
         guard !isRemoteTerminal else { return nil }
+        guard ttyWasReportedInCurrentSession else { return nil }
         guard let normalizedTTYName = commandPaletteNormalizedTTYName(ttyName) else {
             return nil
         }
