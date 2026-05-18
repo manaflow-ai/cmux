@@ -17117,6 +17117,9 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient
     ) throws -> String {
+        if let candidate = normalizedUUIDHookIdentifier(raw) {
+            return candidate
+        }
         if let raw,
            !raw.isEmpty,
            let candidate = try? resolveWorkspaceId(raw, client: client),
@@ -17135,6 +17138,9 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
+        if let candidate = normalizedUUIDHookIdentifier(raw) {
+            return candidate
+        }
         if let raw,
            !raw.isEmpty,
            let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
@@ -17156,6 +17162,15 @@ struct CMUXCLI {
             }
         }
         return try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+    }
+
+    private func normalizedUUIDHookIdentifier(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              UUID(uuidString: trimmed) != nil else {
+            return nil
+        }
+        return trimmed
     }
 
     private struct CallerTerminalBinding {
@@ -21108,7 +21123,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
 
                 var summary = summarizeAgentHookNotification(def: def, parsedInput: input)
                 if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
@@ -21173,6 +21187,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 case nil:
                     break
                 }
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("\(def.name)-hook.notification.ignored", data: ["error": String(describing: error)])
@@ -21264,7 +21279,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        _ = try? client.send(command: line)
+        _ = try? client.send(command: line, responseTimeout: 0.75)
     }
 
     private func feedContextForEvent(
