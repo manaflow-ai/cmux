@@ -173,6 +173,27 @@ import UIKit
 }
 
 @MainActor
+@Test func expiredPairingURLPayloadIsRejectedBeforePreviewConnection() async throws {
+    let payload = try MobileSyncPairingPayload(
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        host: "127.0.0.1",
+        port: 49831,
+        expiresAt: Date(timeIntervalSince1970: 1),
+        transport: .debugLoopback
+    )
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    await store.connectPairingURL(try payload.encodedURL().absoluteString)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.connectionError == "Invalid pairing code.")
+}
+
+@MainActor
 @Test func wrappedAttachURLWhitespaceIsAccepted() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -1169,23 +1190,31 @@ import UIKit
 
 @Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
     var buffer = MobileTerminalInputSendBuffer()
+    let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+    let terminalA = MobileTerminalPreview.ID(rawValue: "terminal-a")
+    let terminalB = MobileTerminalPreview.ID(rawValue: "terminal-b")
 
-    let startsDrain = buffer.enqueue("p")
-    let appendsWhileDraining = buffer.enqueue("rint")
-    let appendsFinalCharacter = buffer.enqueue("f")
+    let startsDrain = buffer.enqueue("p", workspaceID: workspaceA, terminalID: terminalA)
+    let appendsWhileDraining = buffer.enqueue("rint", workspaceID: workspaceA, terminalID: terminalA)
+    let appendsFinalCharacter = buffer.enqueue("f", workspaceID: workspaceA, terminalID: terminalA)
     #expect(startsDrain)
     #expect(!appendsWhileDraining)
     #expect(!appendsFinalCharacter)
-    #expect(buffer.nextBatch() == "printf")
+    let firstBatch = buffer.nextBatch()
+    #expect(firstBatch?.workspaceID == workspaceA)
+    #expect(firstBatch?.terminalID == terminalA)
+    #expect(firstBatch?.text == "printf")
 
-    let appendsSecondBatch = buffer.enqueue(" 'one'")
+    let appendsSecondBatch = buffer.enqueue(" 'one'", workspaceID: workspaceA, terminalID: terminalA)
     #expect(!appendsSecondBatch)
-    #expect(buffer.nextBatch() == " 'one'")
+    #expect(buffer.nextBatch()?.text == " 'one'")
     #expect(buffer.nextBatch() == nil)
 
-    let restartsDrain = buffer.enqueue("\r")
+    let restartsDrain = buffer.enqueue("\r", workspaceID: workspaceA, terminalID: terminalB)
     #expect(restartsDrain)
-    #expect(buffer.nextBatch() == "\r")
+    let terminalBBatch = buffer.nextBatch()
+    #expect(terminalBBatch?.terminalID == terminalB)
+    #expect(terminalBBatch?.text == "\r")
 }
 
 @Test func terminalBottomActionModifierOutputsMatchReferenceAccessoryControls() {

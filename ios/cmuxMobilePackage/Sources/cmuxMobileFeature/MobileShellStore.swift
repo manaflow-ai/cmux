@@ -154,25 +154,51 @@ enum MobileTerminalSnapshotRequestPolicy {
 }
 
 struct MobileTerminalInputSendBuffer: Equatable, Sendable {
-    private(set) var pendingText = ""
+    struct Chunk: Equatable, Sendable {
+        var workspaceID: MobileWorkspacePreview.ID
+        var terminalID: MobileTerminalPreview.ID
+        var text: String
+    }
+
+    private(set) var pendingChunks: [Chunk] = []
     private(set) var isDraining = false
 
-    mutating func enqueue(_ text: String) -> Bool {
+    mutating func enqueue(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) -> Bool {
         guard !text.isEmpty else { return false }
-        pendingText += text
+        if var last = pendingChunks.last,
+           last.workspaceID == workspaceID,
+           last.terminalID == terminalID {
+            last.text += text
+            pendingChunks[pendingChunks.count - 1] = last
+        } else {
+            pendingChunks.append(
+                Chunk(
+                    workspaceID: workspaceID,
+                    terminalID: terminalID,
+                    text: text
+                )
+            )
+        }
         guard !isDraining else { return false }
         isDraining = true
         return true
     }
 
-    mutating func nextBatch() -> String? {
-        guard !pendingText.isEmpty else {
+    mutating func nextBatch() -> Chunk? {
+        guard !pendingChunks.isEmpty else {
             isDraining = false
             return nil
         }
-        let text = pendingText
-        pendingText = ""
-        return text
+        return pendingChunks.removeFirst()
+    }
+
+    mutating func clear() {
+        pendingChunks.removeAll()
+        isDraining = false
     }
 }
 
@@ -434,6 +460,7 @@ public final class CMUXMobileShellStore {
         needsSelectedTerminalSnapshotRefresh = false
         cancelSelectedTerminalSnapshotRefresh()
         cancelRemoteOperationTasks()
+        rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
         viewportSettlingRefreshesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
@@ -750,7 +777,18 @@ public final class CMUXMobileShellStore {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
-        guard rawTerminalInputBuffer.enqueue(text) else { return }
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            #if DEBUG
+            mobileShellLog.info("skip raw terminal input enqueue selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return
+        }
+        guard rawTerminalInputBuffer.enqueue(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        ) else { return }
         Task { @MainActor [weak self] in
             await self?.drainRawTerminalInputBuffer()
         }
@@ -758,16 +796,33 @@ public final class CMUXMobileShellStore {
 
     public func submitTerminalRawInput(_ text: String) async {
         guard !text.isEmpty else { return }
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            return
+        }
+        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    private func submitTerminalRawInput(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard !text.isEmpty else { return }
         guard remoteClient != nil else {
             appendPreviewInput(Self.previewLine(forRawTerminalInput: text))
             return
         }
-        await sendRemoteTerminalInput(text)
+        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func drainRawTerminalInputBuffer() async {
-        while let text = rawTerminalInputBuffer.nextBatch() {
-            await submitTerminalRawInput(text)
+        while let chunk = rawTerminalInputBuffer.nextBatch() {
+            await submitTerminalRawInput(
+                chunk.text,
+                workspaceID: chunk.workspaceID,
+                terminalID: chunk.terminalID
+            )
         }
     }
 
@@ -775,6 +830,7 @@ public final class CMUXMobileShellStore {
         let generation = UUID()
         connectionGeneration = generation
         cancelRemoteOperationTasks()
+        rawTerminalInputBuffer.clear()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -868,6 +924,7 @@ public final class CMUXMobileShellStore {
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         remoteClient = nil
+        rawTerminalInputBuffer.clear()
     }
 
     private func cancelRemoteOperationTasks() {
@@ -1159,21 +1216,33 @@ public final class CMUXMobileShellStore {
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
-        guard let client = remoteClient,
-              let workspace = selectedWorkspace,
-              let terminalID = selectedTerminalID?.rawValue else {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
             #if DEBUG
-            mobileShellLog.info("skip remote terminal input remoteClient=\(self.remoteClient == nil ? 0 : 1, privacy: .public) selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            mobileShellLog.info("skip remote terminal input selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return
+        }
+        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    private func sendRemoteTerminalInput(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal input remoteClient=0")
             #endif
             return
         }
         let generation = connectionGeneration
         do {
             #if DEBUG
-            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspace.id.rawValue, privacy: .private) terminal=\(terminalID, privacy: .private)")
+            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
-            let terminalPreviewID = MobileTerminalPreview.ID(rawValue: terminalID)
-            let key = viewportKey(workspaceID: workspace.id, terminalID: terminalPreviewID)
+            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
             viewportSettlingRefreshesByTerminalKey[key] = max(
                 viewportSettlingRefreshesByTerminalKey[key] ?? 0,
                 Self.inputSettlingRefreshCount
@@ -1182,14 +1251,16 @@ public final class CMUXMobileShellStore {
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
                     params: [
-                        "workspace_id": workspace.id.rawValue,
-                        "surface_id": terminalID,
+                        "workspace_id": workspaceID.rawValue,
+                        "surface_id": terminalID.rawValue,
                         "text": text,
                     ]
                 )
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            scheduleSelectedTerminalSnapshotRefresh()
+            if selectedWorkspace?.id == workspaceID, selectedTerminalID == terminalID {
+                scheduleSelectedTerminalSnapshotRefresh()
+            }
         } catch {
             guard generation == connectionGeneration else { return }
             connectionError = Self.localizedConnectionError(for: error)
@@ -1547,7 +1618,7 @@ private enum CmxAttachTicketInput {
             kind: payload.transport,
             endpoint: .hostPort(host: payload.host, port: payload.port)
         )
-        return try CmxAttachTicket(
+        let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
             terminalID: nil,
             macDeviceID: payload.macDeviceID,
@@ -1555,6 +1626,8 @@ private enum CmxAttachTicketInput {
             routes: [route],
             expiresAt: payload.expiresAt
         )
+        try ticket.validate()
+        return ticket
     }
 
     private static func base64URLDecode(_ value: String) -> Data? {

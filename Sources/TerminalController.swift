@@ -17967,14 +17967,24 @@ class TerminalController {
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
+        let terminalPanel: TerminalPanel?
+        if let surfaceId = resolved.surfaceId {
+            guard let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
+                return .err(
+                    code: "invalid_request",
+                    message: "terminal_id does not reference a terminal",
+                    data: nil
+                )
+            }
+            terminalPanel = panel
+        } else {
+            terminalPanel = nil
+        }
 
         do {
-            let terminalID = resolved.surfaceId.flatMap { surfaceID in
-                resolved.workspace.terminalPanel(for: surfaceID)?.id.uuidString
-            }
             let payload = try await MobileHostService.shared.createAttachTicket(
                 workspaceID: resolved.workspace.id.uuidString,
-                terminalID: terminalID,
+                terminalID: terminalPanel?.id.uuidString,
                 ttl: ttl
             )
             return .ok(payload)
@@ -17995,11 +18005,12 @@ class TerminalController {
 
     private func v2MobileWorkspaceList(
         params: [String: Any],
+        tabManager resolvedTabManager: TabManager? = nil,
         createdWorkspaceID: String? = nil,
         createdTerminalID: String? = nil
     ) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
 
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
@@ -18167,7 +18178,7 @@ class TerminalController {
 
     private func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
         guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -18179,7 +18190,8 @@ class TerminalController {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
         return v2MobileWorkspaceList(
-            params: ["workspace_id": workspace.id.uuidString],
+            params: params,
+            tabManager: tabManager,
             createdTerminalID: terminal.id.uuidString
         )
     }
