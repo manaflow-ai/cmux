@@ -58,6 +58,7 @@ struct FeedHistoryLoadMoreRow: View {
     let action: () -> Void
 
     @State private var isVisible = false
+    @State private var didAutoRequestLoad = false
 
     var body: some View {
         Button(action: action) {
@@ -83,10 +84,7 @@ struct FeedHistoryLoadMoreRow: View {
         }
         .onDisappear {
             isVisible = false
-        }
-        .onChange(of: isLoading) { _, loading in
-            guard !loading else { return }
-            requestLoadIfVisible()
+            didAutoRequestLoad = false
         }
     }
 
@@ -98,7 +96,8 @@ struct FeedHistoryLoadMoreRow: View {
     }
 
     private func requestLoadIfVisible() {
-        guard isVisible, !isLoading else { return }
+        guard isVisible, !isLoading, !didAutoRequestLoad else { return }
+        didAutoRequestLoad = true
         action()
     }
 }
