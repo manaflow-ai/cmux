@@ -3697,12 +3697,15 @@ final class WindowBrowserPortal: NSObject {
             frameInHost.origin.y.isFinite &&
             frameInHost.size.width.isFinite &&
             frameInHost.size.height.isFinite
-        let clampedFrame = frameInHost.intersection(hostBounds)
+        let clampedFrame = hasFiniteFrame ? frameInHost.intersection(hostBounds) : .zero
         let hasVisibleIntersection =
+            hasFiniteFrame &&
             !clampedFrame.isNull &&
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
-        let targetFrame = hasVisibleIntersection ? clampedFrame : frameInHost
+        let targetFrame = hasFiniteFrame
+            ? (hasVisibleIntersection ? clampedFrame : frameInHost)
+            : .zero
         let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
         let outsideHostBounds = !hasVisibleIntersection
