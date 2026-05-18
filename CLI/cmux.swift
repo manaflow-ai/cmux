@@ -18720,21 +18720,23 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = normalizedSingleLine(message)
-        if let grokSummary = summarizeGrokGenericCompletionNotification(
+        if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
             parsedInput: parsedInput,
             cwd: cwd,
-            env: env
+            env: env,
+            matchesMessage: isGrokGenericTurnCompletion
         ) {
             return grokSummary
         }
-        if let grokSummary = summarizeGrokInternalSessionNotification(
+        if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
             parsedInput: parsedInput,
             cwd: cwd,
-            env: env
+            env: env,
+            matchesMessage: isGrokInternalSessionNotification
         ) {
             return grokSummary
         }
@@ -18746,39 +18748,16 @@ struct CMUXCLI {
         )
     }
 
-    private func summarizeGrokGenericCompletionNotification(
+    private func summarizeGrokAssistantCompletionNotification(
         def: AgentHookDef,
         message: String,
         parsedInput: ClaudeHookParsedInput,
         cwd: String?,
-        env: [String: String]
+        env: [String: String],
+        matchesMessage: (String) -> Bool
     ) -> AgentHookNotificationSummary? {
         guard def.name == "grok",
-              isGrokGenericTurnCompletion(message),
-              let body = latestGrokAssistantMessage(
-                cwd: cwd,
-                sessionId: parsedInput.sessionId,
-                env: env
-              ) else {
-            return nil
-        }
-        return AgentHookNotificationSummary(
-            subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
-            body: truncate(normalizedSingleLine(body), maxLength: 180),
-            status: .idle,
-            isFallback: false
-        )
-    }
-
-    private func summarizeGrokInternalSessionNotification(
-        def: AgentHookDef,
-        message: String,
-        parsedInput: ClaudeHookParsedInput,
-        cwd: String?,
-        env: [String: String]
-    ) -> AgentHookNotificationSummary? {
-        guard def.name == "grok",
-              isGrokInternalSessionNotification(message),
+              matchesMessage(message),
               let body = latestGrokAssistantMessage(
                 cwd: cwd,
                 sessionId: parsedInput.sessionId,
