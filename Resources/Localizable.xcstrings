@@ -54,6 +54,7 @@
     "debug.bonsplitTabBarDebug.solidBgExtra": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Solid bg extra" } }, "ja": { "stringUnit": { "state": "translated", "value": "単色背景の追加幅" } } } },
     "debug.bonsplitTabBarDebug.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ" } } } },
     "debug.menu.bonsplitTabBarDebug": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug…" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ…" } } } },
+    "uiTest.bonsplit.action.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "UITest Action %lld" } }, "ja": { "stringUnit": { "state": "translated", "value": "UIテストアクション %lld" } } } },
     "mode.compact": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Compact" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } } } },
     "mode.expanded": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Expanded" } }, "ja": { "stringUnit": { "state": "translated", "value": "拡張" } } } },
     "mode.system": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "System" } }, "ja": { "stringUnit": { "state": "translated", "value": "システム" } } } },
