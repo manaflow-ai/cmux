@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   actionRecipe,
@@ -45,6 +48,42 @@ describe("cloud action recipes", () => {
     expect(setupScript).toContain("postCreateCommand");
     expect(startScript).toContain("postStartCommand");
     expect(startScript).toContain("postAttachCommand");
+  });
+
+  test("devcontainer lifecycle reader accepts JSONC config files", () => {
+    const recipe = actionRecipe("hexclave/stack-auth:fresh-env");
+    if (!recipe) throw new Error("missing recipe");
+
+    const helper = extractDevcontainerReader(recipe.setupScript({ ref: "dev", mode: "full" }));
+    const dir = mkdtempSync(join(tmpdir(), "cmux-actions-devcontainer-"));
+    try {
+      mkdirSync(join(dir, ".devcontainer"));
+      writeFileSync(
+        join(dir, ".devcontainer", "devcontainer.json"),
+        [
+          "{",
+          "  // devcontainer files are JSONC, not strict JSON",
+          "  \"postCreateCommand\": [",
+          "    \"echo preparing\",",
+          "  ],",
+          "}",
+        ].join("\n"),
+      );
+      const helperPath = join(dir, "read-devcontainer-command.mjs");
+      const outputPath = join(dir, "postCreateCommand.sh");
+      writeFileSync(helperPath, helper);
+
+      const result = spawnSync(process.execPath, [helperPath, "postCreateCommand", outputPath], {
+        cwd: dir,
+        encoding: "utf8",
+      });
+
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+      expect(readFileSync(outputPath, "utf8")).toContain("echo preparing");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("start script checks out the requested ref and waits for expected ports", () => {
@@ -136,3 +175,9 @@ describe("cloud action recipes", () => {
     expect(result.instructions.join("\n")).toContain("cmux actions run hexclave/stack-auth:fresh-env");
   });
 });
+
+function extractDevcontainerReader(script: string): string {
+  const match = script.match(/cat >\/workspace\/\.cmux-actions\/read-devcontainer-command\.mjs <<'NODE'\n([\s\S]*?)\nNODE/);
+  if (!match?.[1]) throw new Error("missing devcontainer reader heredoc");
+  return match[1];
+}

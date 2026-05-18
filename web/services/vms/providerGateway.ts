@@ -71,7 +71,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   snapshot: (provider, vmId, name) =>
-    providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
+    providerEffect(provider, "snapshot", async () => {
+      const driver = getProvider(provider);
+      if (typeof driver.snapshot !== "function") {
+        throw new Error("snapshot operation is not supported by this provider");
+      }
+      return await driver.snapshot(vmId, name);
+    }),
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
   openSSH: (provider, vmId) =>

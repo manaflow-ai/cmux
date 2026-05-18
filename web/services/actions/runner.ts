@@ -1,14 +1,14 @@
+import * as Effect from "effect/Effect";
 import { assertVmCreateEnabled } from "../vms/config";
 import type { AuthedUser } from "../vms/auth";
 import {
-  isVmBillingTeamResolutionError,
   resolveVmEntitlements,
   type VmBillingTeamResolutionError,
 } from "../vms/entitlements";
 import type { ExecResult } from "../vms/drivers";
 import { resolveVmImage } from "../vms/images/resolver";
 import { createVm, destroyVm, execVm, runVmWorkflow, snapshotVm, type VmEntry } from "../vms/workflows";
-import { findFreestyleActionSnapshotByName } from "./freestyleSnapshots";
+import { findFreestyleActionSnapshotByName, type FreestyleActionSnapshot } from "./freestyleSnapshots";
 import { actionRecipe, normalizeActionRef, normalizeActionRunMode, type ActionPort } from "./recipes";
 
 type ActionRunnerDependencies = {
@@ -18,7 +18,6 @@ type ActionRunnerDependencies = {
     requestedImage?: string,
   ) => { readonly image: string; readonly imageVersion?: string | null };
   readonly resolveVmEntitlements: typeof resolveVmEntitlements;
-  readonly isVmBillingTeamResolutionError: (err: unknown) => boolean;
   readonly findFreestyleActionSnapshotByName: typeof findFreestyleActionSnapshotByName;
   readonly createVm: (input: Parameters<typeof createVm>[0]) => unknown;
   readonly destroyVm: (input: Parameters<typeof destroyVm>[0]) => unknown;
@@ -31,7 +30,6 @@ const defaultActionRunnerDependencies: ActionRunnerDependencies = {
   assertVmCreateEnabled,
   resolveVmImage,
   resolveVmEntitlements,
-  isVmBillingTeamResolutionError,
   findFreestyleActionSnapshotByName,
   createVm,
   destroyVm,
@@ -118,10 +116,6 @@ export async function runAction(input: {
   const mode = normalizeActionRunMode(input.request.mode);
   const dryRun = input.request.dryRun === true;
   const keep = input.request.keep === true;
-  const baseImage = resolveActionBaseImage(dependencies);
-  const cacheName = recipe.cacheName({ ref, mode, baseImage: baseImage.image });
-  const setupScript = recipe.setupScript({ ref, mode });
-  const startScript = recipe.startScript({ ref, mode });
 
   if (dryRun) {
     return {
@@ -137,6 +131,11 @@ export async function runAction(input: {
       instructions: dryRunInstructions(recipe.id),
     };
   }
+
+  const baseImage = resolveActionBaseImage(dependencies);
+  const cacheName = recipe.cacheName({ ref, mode, baseImage: baseImage.image });
+  const setupScript = recipe.setupScript({ ref, mode });
+  const startScript = recipe.startScript({ ref, mode });
 
   const entitlements = dependencies.resolveVmEntitlements(input.user, process.env, {
     requestedBillingTeamId: input.requestedBillingTeamId ?? null,
@@ -180,11 +179,17 @@ export async function runAction(input: {
         dependencies,
       });
       setupRan = true;
-      await dependencies.runVmWorkflow(dependencies.snapshotVm({
-        userId: input.user.id,
-        providerVmId: vm.providerVmId,
-        name: cacheName,
-      }));
+      try {
+        await dependencies.runVmWorkflow(dependencies.snapshotVm({
+          userId: input.user.id,
+          providerVmId: vm.providerVmId,
+          name: cacheName,
+        }));
+      } catch {
+        console.warn("Cloud action setup cache snapshot failed; continuing with the live VM.", {
+          action: recipe.id,
+        });
+      }
     }
 
     await runCheckedExec({
@@ -201,7 +206,16 @@ export async function runAction(input: {
       await dependencies.runVmWorkflow(dependencies.destroyVm({ userId: input.user.id, providerVmId: vm.providerVmId }))
         .catch(() => undefined);
     }
-    throw err;
+    if (isActionRunError(err)) throw err;
+    throw new ActionRunError(
+      "actions_run_failed",
+      500,
+      "The action VM could not finish setup.",
+      keep
+        ? `Run \`cmux vm ssh ${vm.providerVmId}\` to inspect the VM. Logs are under /workspace/.cmux-actions/logs.`
+        : "Retry with `--keep` to preserve the VM for inspection. Logs are under /workspace/.cmux-actions/logs when the VM is kept.",
+      { phase: "run", vmKept: keep },
+    );
   }
 
   return {
@@ -262,9 +276,9 @@ async function findCachedSnapshot(input: {
   readonly cacheName: string;
   readonly action: string;
   readonly dependencies: ActionRunnerDependencies;
-}): Promise<Awaited<ReturnType<typeof findFreestyleActionSnapshotByName>>> {
+}): Promise<FreestyleActionSnapshot | null> {
   try {
-    return await input.dependencies.findFreestyleActionSnapshotByName(input.cacheName);
+    return await Effect.runPromise(input.dependencies.findFreestyleActionSnapshotByName(input.cacheName));
   } catch {
     throw new ActionRunError(
       "actions_cache_unavailable",

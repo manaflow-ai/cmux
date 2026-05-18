@@ -1561,7 +1561,7 @@ class TerminalController {
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
-        if method.hasPrefix("vm.") || method.hasPrefix("actions.") || socketWorkerV2Methods.contains(method) {
+        if method.hasPrefix("vm.") || method == "actions.run" || socketWorkerV2Methods.contains(method) {
             return .socketWorker
         }
         return .mainActor
@@ -1665,7 +1665,7 @@ class TerminalController {
             }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
-        case let method where method.hasPrefix("vm.") || method.hasPrefix("actions."):
+        case let method where method.hasPrefix("vm.") || method == "actions.run":
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")

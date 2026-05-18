@@ -1,4 +1,6 @@
 import { Freestyle } from "freestyle";
+import * as Data from "effect/Data";
+import * as Effect from "effect/Effect";
 
 export type FreestyleActionSnapshot = {
   readonly id: string;
@@ -23,27 +25,60 @@ type FreestyleSnapshotListResponse = {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
-export async function findFreestyleActionSnapshotByName(
+export class FreestyleActionSnapshotLookupError extends Data.TaggedError("FreestyleActionSnapshotLookupError")<{
+  readonly kind: "request" | "http" | "response";
+  readonly status?: number;
+  readonly cause?: unknown;
+}> {}
+
+export function findFreestyleActionSnapshotByName(
   name: string,
-): Promise<FreestyleActionSnapshot | null> {
-  const fs = new Freestyle({ fetch: fetchWithTimeout(DEFAULT_TIMEOUT_MS) });
-  const response = await fs.fetch(freestyleSnapshotListURL(), { method: "GET" });
-  if (!response.ok) {
-    throw new Error(`action cache lookup failed: HTTP ${response.status}`);
-  }
-  const json = await response.json() as FreestyleSnapshotListResponse;
+): Effect.Effect<FreestyleActionSnapshot | null, FreestyleActionSnapshotLookupError> {
+  return Effect.gen(function* () {
+    const fs = yield* Effect.try({
+      try: () =>
+        new Freestyle({
+          apiKey: process.env.FREESTYLE_API_KEY ?? "missing-freestyle-api-key",
+          fetch: fetchWithTimeout(DEFAULT_TIMEOUT_MS),
+        }),
+      catch: (cause) => new FreestyleActionSnapshotLookupError({ kind: "request", cause }),
+    });
+    const response = yield* Effect.tryPromise({
+      try: () => fs.fetch(freestyleSnapshotListURL(), { method: "GET" }),
+      catch: (cause) => new FreestyleActionSnapshotLookupError({ kind: "request", cause }),
+    });
+    if (!response.ok) {
+      return yield* Effect.fail(new FreestyleActionSnapshotLookupError({
+        kind: "http",
+        status: response.status,
+      }));
+    }
+    const json = yield* Effect.tryPromise({
+      try: () => response.json() as Promise<FreestyleSnapshotListResponse>,
+      catch: (cause) => new FreestyleActionSnapshotLookupError({ kind: "response", cause }),
+    });
+    return selectReusableSnapshot(name, json);
+  });
+}
+
+function selectReusableSnapshot(
+  name: string,
+  json: FreestyleSnapshotListResponse,
+): FreestyleActionSnapshot | null {
   const matches = (json.snapshots ?? [])
     .filter((snapshot) => snapshot.name === name && snapshot.deleted !== true)
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-  const latest = matches[0];
+  const latest = matches.find(isReusableSnapshot);
   if (!latest) return null;
-  const state = (latest.state ?? latest.status ?? "").toLowerCase();
-  if (["failed", "error"].includes(state)) {
-    throw new Error("action cache snapshot is unavailable");
-  }
   const id = latest.snapshotId ?? latest.id;
   if (!id || !latest.name || !latest.createdAt) return null;
   return { id, name: latest.name, createdAt: latest.createdAt };
+}
+
+function isReusableSnapshot(snapshot: FreestyleSnapshotRecord): boolean {
+  const state = (snapshot.state ?? snapshot.status ?? "").trim().toLowerCase();
+  if (!state) return true;
+  return ["ready", "completed", "complete", "succeeded", "success", "active"].includes(state);
 }
 
 function freestyleSnapshotListURL(): string {

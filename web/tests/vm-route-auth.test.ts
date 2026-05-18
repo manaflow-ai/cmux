@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import {
+  VmCreateCreditsInsufficientError,
+  VmLimitExceededError,
   VmNotFoundError as WorkflowVmNotFoundError,
   VmProviderOperationError as WorkflowVmProviderOperationError,
 } from "../services/vms/errors";
@@ -585,6 +587,82 @@ describe("VM REST auth", () => {
 
       expect(response.status).toBe(502);
       expect(finalizedStatus).toBe(502);
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("maps workflow active-limit errors to actionable responses without leaking team ids", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm", {
+          method: "POST",
+          headers: { origin: "https://cmux.test" },
+          body: "{}",
+        }),
+        "/api/actions/run",
+        { "cmux.actions.operation": "run" },
+        "/api/actions/run POST failed",
+        async () => {
+          throw new VmLimitExceededError({
+            kind: "active_vms",
+            billingTeamId: "team-secret-should-not-leak",
+            limit: 5,
+          });
+        },
+      );
+
+      expect(response.status).toBe(402);
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_active_limit_exceeded",
+        limit: 5,
+        details: { limit: 5 },
+      });
+      expect(payload.message).toContain("5 active Cloud VMs");
+      expect(payload.action).toContain("cmux vm ls");
+      expectNoCloudVmImplementationLeaks(payload);
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("maps workflow credit errors without leaking billing provider identifiers", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm", {
+          method: "POST",
+          headers: { origin: "https://cmux.test" },
+          body: "{}",
+        }),
+        "/api/actions/run",
+        { "cmux.actions.operation": "run" },
+        "/api/actions/run POST failed",
+        async () => {
+          throw new VmCreateCreditsInsufficientError({
+            itemId: "item-secret-should-not-leak",
+            billingCustomerId: "customer-secret-should-not-leak",
+            amount: 1,
+          });
+        },
+      );
+
+      expect(response.status).toBe(402);
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_create_credits_insufficient",
+        amount: 1,
+        details: { amount: 1 },
+      });
+      expect(payload.message).toContain("create credits");
+      expect(payload.action).toContain("Upgrade");
+      expectNoCloudVmImplementationLeaks(payload);
     } finally {
       console.error = originalError;
     }
