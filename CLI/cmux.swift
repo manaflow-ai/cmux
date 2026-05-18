@@ -491,6 +491,8 @@ private final class ClaudeHookSessionStore {
         isRestorable: Bool? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
+        lastPreToolNeedsInputNotificationSignature: String? = nil,
+        clearLastPreToolNeedsInputNotificationSignature: Bool = false,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -541,6 +543,11 @@ private final class ClaudeHookSessionStore {
             if let body = normalizeOptional(lastBody) {
                 record.lastBody = body
             }
+            if clearLastPreToolNeedsInputNotificationSignature {
+                record.lastPreToolNeedsInputNotificationSignature = nil
+            } else if let signature = normalizeOptional(lastPreToolNeedsInputNotificationSignature) {
+                record.lastPreToolNeedsInputNotificationSignature = signature
+            }
             record.updatedAt = now
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
@@ -554,13 +561,13 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func markPreToolNeedsInputNotificationPublished(sessionId: String?, signature: String) throws {
+    func clearPreToolNeedsInputNotificationSignature(sessionId: String?) throws {
         guard let normalizedSessionId = normalizeOptional(sessionId) else {
             return
         }
         try withLockedState { state in
             guard var record = state.sessions[normalizedSessionId] else { return }
-            record.lastPreToolNeedsInputNotificationSignature = signature
+            record.lastPreToolNeedsInputNotificationSignature = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
@@ -16887,7 +16894,12 @@ struct CMUXCLI {
                     turnId: parsedInput.turnId
                 )
             }
-            try sessionStore.clearLastNeedsInputSummary(sessionId: parsedInput.sessionId)
+            clearLastNeedsInputSummaryBestEffort(
+                sessionStore: sessionStore,
+                sessionId: parsedInput.sessionId,
+                telemetry: telemetry,
+                stage: "claude-hook.prompt-submit.clear-needs-input-summary"
+            )
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
@@ -16921,16 +16933,27 @@ struct CMUXCLI {
                 return
             }
             if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+               let savedSignature = mappedSession.lastPreToolNeedsInputNotificationSignature,
+               !savedSignature.isEmpty {
                 let savedSubtitle = mappedSession.lastSubtitle ?? summary.subtitle
-                let savedSignature = needsInputNotificationSignature(subtitle: savedSubtitle, body: savedBody)
-                if mappedSession.lastPreToolNeedsInputNotificationSignature == savedSignature {
-                    try sessionStore.clearLastNeedsInputSummary(sessionId: parsedInput.sessionId)
+                let savedBody = mappedSession.lastBody ?? ""
+                if needsInputNotificationSignature(subtitle: savedSubtitle, body: savedBody) == savedSignature {
+                    clearLastNeedsInputSummaryBestEffort(
+                        sessionStore: sessionStore,
+                        sessionId: parsedInput.sessionId,
+                        telemetry: telemetry,
+                        stage: "claude-hook.notification.clear-duplicate-needs-input-summary"
+                    )
                     telemetry.breadcrumb("claude-hook.notification.duplicate-pre-tool-needs-input")
                     print("OK")
                     return
                 }
+            }
+
+            if let mappedSession,
+               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
+               shouldUseSavedNeedsInputSummary(for: summary) {
+                let savedSubtitle = mappedSession.lastSubtitle ?? summary.subtitle
                 summary = (subtitle: savedSubtitle, body: savedBody)
             }
 
@@ -16950,7 +16973,8 @@ struct CMUXCLI {
                 cwd: parsedInput.cwd,
                 transcriptPath: parsedInput.transcriptPath,
                 subtitle: summary.subtitle,
-                body: summary.body
+                body: summary.body,
+                telemetry: telemetry
             )
             print(response)
 
@@ -17054,13 +17078,19 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     subtitle: needsInput.subtitle,
                     body: needsInput.body,
-                    markPreToolNeedsInput: true
+                    markPreToolNeedsInput: true,
+                    telemetry: telemetry
                 )
                 print("OK")
                 return
             }
 
-            try sessionStore.clearLastNeedsInputSummary(sessionId: parsedInput.sessionId)
+            clearLastNeedsInputSummaryBestEffort(
+                sessionStore: sessionStore,
+                sessionId: parsedInput.sessionId,
+                telemetry: telemetry,
+                stage: "claude-hook.pre-tool-use.clear-needs-input-summary"
+            )
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
 
             let statusValue: String
@@ -17169,13 +17199,20 @@ struct CMUXCLI {
         transcriptPath: String?,
         subtitle: String,
         body: String,
-        markPreToolNeedsInput: Bool = false
+        markPreToolNeedsInput: Bool = false,
+        telemetry: CLISocketSentryTelemetry
     ) throws -> String {
         let title = String(
             localized: "cli.claude-hook.notification.title",
             defaultValue: "Claude Code"
         )
         let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+        let preToolNeedsInputSignature: String?
+        if markPreToolNeedsInput {
+            preToolNeedsInputSignature = needsInputNotificationSignature(subtitle: subtitle, body: body)
+        } else {
+            preToolNeedsInputSignature = nil
+        }
 
         if let sessionId {
             try sessionStore.upsert(
@@ -17185,31 +17222,68 @@ struct CMUXCLI {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 lastSubtitle: subtitle,
-                lastBody: body
+                lastBody: body,
+                lastPreToolNeedsInputNotificationSignature: preToolNeedsInputSignature,
+                clearLastPreToolNeedsInputNotificationSignature: !markPreToolNeedsInput
             )
         }
 
         let statusValue = String(localized: "agent.claude.input.status.needsInput", defaultValue: "Needs input")
-        try setClaudeStatus(
-            client: client,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            value: statusValue,
-            icon: "bell.fill",
-            color: "#4C8DFF"
-        )
-        let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-        if markPreToolNeedsInput {
-            try sessionStore.markPreToolNeedsInputNotificationPublished(
-                sessionId: sessionId,
-                signature: needsInputNotificationSignature(subtitle: subtitle, body: body)
+        do {
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                value: statusValue,
+                icon: "bell.fill",
+                color: "#4C8DFF"
             )
+            return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+        } catch {
+            if markPreToolNeedsInput {
+                clearPreToolNeedsInputNotificationSignatureBestEffort(
+                    sessionStore: sessionStore,
+                    sessionId: sessionId,
+                    telemetry: telemetry,
+                    stage: "claude-hook.publish-needs-input.rollback-pre-tool-signature"
+                )
+            }
+            throw error
         }
-        return response
     }
 
     private func needsInputNotificationSignature(subtitle: String, body: String) -> String {
         "\(subtitle)\n\(body)"
+    }
+
+    private func shouldUseSavedNeedsInputSummary(for summary: (subtitle: String, body: String)) -> Bool {
+        summary.subtitle == "Waiting" || summary.subtitle == "Attention"
+    }
+
+    private func clearLastNeedsInputSummaryBestEffort(
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        telemetry: CLISocketSentryTelemetry,
+        stage: String
+    ) {
+        do {
+            try sessionStore.clearLastNeedsInputSummary(sessionId: sessionId)
+        } catch {
+            telemetry.captureError(stage: stage, error: error)
+        }
+    }
+
+    private func clearPreToolNeedsInputNotificationSignatureBestEffort(
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        telemetry: CLISocketSentryTelemetry,
+        stage: String
+    ) {
+        do {
+            try sessionStore.clearPreToolNeedsInputNotificationSignature(sessionId: sessionId)
+        } catch {
+            telemetry.captureError(stage: stage, error: error)
+        }
     }
 
     private func shouldApplyClaudeHookVisibleMutation(

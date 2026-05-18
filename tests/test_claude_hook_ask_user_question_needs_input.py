@@ -241,7 +241,7 @@ def main() -> int:
         notification_payload = {
             "session_id": session_id,
             "hook_event_name": "Notification",
-            "message": "Claude needs your input",
+            "message": "入力が必要です",
         }
         run_claude_hook(
             cli_path,
