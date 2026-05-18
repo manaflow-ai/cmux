@@ -1118,36 +1118,10 @@ import UIKit
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
     )
-    var responseFrames = [
-        try rpcWorkspaceListFrame(
-            workspaceID: "workspace-main",
-            title: "cmux",
-            terminalID: "terminal-build"
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "workspace-main",
-            terminalID: "terminal-build",
-            visibleLines: ["initial"]
-        ),
-        try rpcWorkspaceCreateFrame(),
-    ]
-    for _ in 0..<8 {
-        responseFrames.append(
-            try rpcSnapshotResultFrame(
-                workspaceID: "workspace-3",
-                terminalID: "workspace-3-terminal-1",
-                visibleLines: [
-                    "$ cmux ios",
-                    "workspace: Workspace 3",
-                    "terminal: Terminal 1",
-                ]
-            )
-        )
-    }
-    let responses = ScriptedTransportResponses(responseFrames)
+    let router = RemoteCreateWorkspaceRouter()
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
+        transportFactory: RequestAwareTransportFactory(router: router)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
@@ -2395,6 +2369,51 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
             )
         case "terminal.create":
             return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "workspace-main",
+                title: "cmux",
+                terminalID: "terminal-build"
+            )
+        case "workspace.create":
+            return try rpcWorkspaceCreateFrame()
+        case "terminal.snapshot":
+            if request.workspaceID == "workspace-3",
+               request.terminalID == "workspace-3-terminal-1" {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: "workspace-3",
+                    terminalID: "workspace-3-terminal-1",
+                    visibleLines: [
+                        "$ cmux ios",
+                        "workspace: Workspace 3",
+                        "terminal: Terminal 1",
+                    ]
+                )
+            }
+            return try rpcSnapshotResultFrame(
+                workspaceID: "workspace-main",
+                terminalID: "terminal-build",
+                visibleLines: ["initial"]
+            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
