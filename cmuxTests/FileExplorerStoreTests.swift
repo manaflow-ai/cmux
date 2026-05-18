@@ -919,6 +919,22 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(refreshedSnapshot.results.map(\.relativePath), ["editable.txt"])
     }
 
+    func testUnsupportedSearchScopeTakesPrecedenceOverEmptyRoot() {
+        let controller = FileSearchController()
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: "", scope: .unsupported, contentRevision: 0)
+
+        XCTAssertEqual(snapshots.last?.status, .unsupported)
+        XCTAssertEqual(snapshots.last?.isSearching, false)
+
+        controller.search(query: "needle", rootPath: "", scope: .local, contentRevision: 0)
+
+        XCTAssertEqual(snapshots.last?.status, .noMatches)
+        XCTAssertEqual(snapshots.last?.isSearching, false)
+    }
+
     func testFindPresentationKeepsSearchHiddenWhileRootIsLoading() throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()

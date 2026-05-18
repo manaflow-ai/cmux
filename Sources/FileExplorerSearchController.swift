@@ -393,6 +393,10 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
+        guard scope != .unsupported else {
+            emit(status: .unsupported, isSearching: false)
+            return
+        }
         guard !rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
             return
