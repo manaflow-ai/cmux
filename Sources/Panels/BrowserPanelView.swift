@@ -714,6 +714,10 @@ struct BrowserPanelView: View {
             if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
                 browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
             }
+            panel.noteWebViewVisibility(
+                isVisibleInUI && isCurrentPaneOwner,
+                reason: "view.onAppear"
+            )
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
             applyPendingAddressBarFocusRequestIfNeeded()
@@ -774,6 +778,11 @@ struct BrowserPanelView: View {
             }
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
+            let effectiveVisibility = visibleInUI && isCurrentPaneOwner
+            panel.noteWebViewVisibility(
+                effectiveVisibility,
+                reason: effectiveVisibility ? "view.visible" : "view.hidden"
+            )
             if visibleInUI {
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
                 return
@@ -6726,6 +6735,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 bounds: host.bounds,
                 reason: "update"
             )
+        if portalHostAccepted || didReleasePortalHost {
+            let lifecycleVisibleInUI = portalHostAccepted && coordinator.desiredPortalVisibleInUI
+            let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
+            panel.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
+        }
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
             cmuxDebugLog(
