@@ -712,6 +712,23 @@ def main() -> int:
         bad_escape = run_cli(cli_path, ["settings", "import", str(bad_escape_path)], home)
         assert_fails(failures, "settings import unsupported TOML escape", bad_escape, "Unsupported TOML string escape: \\q")
 
+        before_bad_basic_string = read_config(home)
+        bad_basic_string_path = home / "bad-basic-string.toml"
+        bad_basic_string_path.write_text('app.preferredEditor = "unterminated\n', encoding="utf-8")
+        bad_basic_string = run_cli(cli_path, ["settings", "import", str(bad_basic_string_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects invalid TOML basic string",
+            bad_basic_string,
+            "Invalid TOML basic string",
+        )
+        after_bad_basic_string = read_config(home)
+        if after_bad_basic_string != before_bad_basic_string:
+            failures.append(
+                "failed invalid TOML basic string import changed cmux.json: "
+                f"before={before_bad_basic_string} after={after_bad_basic_string}"
+            )
+
         bad_multiline_basic_path = home / "bad-multiline-basic.toml"
         bad_multiline_basic_path.write_text('app.preferredEditor = """vim"""\n', encoding="utf-8")
         bad_multiline_basic = run_cli(cli_path, ["settings", "import", str(bad_multiline_basic_path)], home)
