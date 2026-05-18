@@ -4117,6 +4117,27 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
     }
 
+    func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "-L", "dev", "attach-session", "-t", "work"],
+                environment: [
+                    "PWD": "/tmp/project",
+                    "TMUX": "/tmp/tmux-current,123,0",
+                    "TMUX_TMPDIR": "/var/folders/custom-tmux",
+                ]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+        XCTAssertEqual(binding.environment, ["TMUX_TMPDIR": "/var/folders/custom-tmux"])
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertTrue(startupInput.contains("'TMUX_TMPDIR=/var/folders/custom-tmux'"), startupInput)
+        XCTAssertFalse(startupInput.contains("TMUX="), startupInput)
+    }
+
     func testTmuxProcessDetectedResumeBindingParsesAttachAlias() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

@@ -17,6 +17,7 @@ enum TmuxResumeParser {
 
         let command = invocation.argv.map(shellSingleQuoted).joined(separator: " ")
         let cwd = normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
+        let resumeEnvironment = tmuxResumeEnvironment(from: environment)
         return SurfaceResumeBindingSnapshot(
             name: invocation.sessionName.map { "tmux \($0)" } ?? "tmux",
             kind: "tmux",
@@ -24,6 +25,7 @@ enum TmuxResumeParser {
             cwd: cwd,
             checkpointId: invocation.sessionName,
             source: "process-detected",
+            environment: resumeEnvironment,
             autoResume: true,
             updatedAt: capturedAt
         )
@@ -311,6 +313,11 @@ enum TmuxResumeParser {
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func tmuxResumeEnvironment(from environment: [String: String]) -> [String: String]? {
+        guard let tmuxTmpDir = normalized(environment["TMUX_TMPDIR"]) else { return nil }
+        return ["TMUX_TMPDIR": tmuxTmpDir]
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
