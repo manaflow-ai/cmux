@@ -9023,6 +9023,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
+               let requestedActionButtonCount = Int(rawActionButtonCount),
+               requestedActionButtonCount > 0 {
+                guard let cmuxConfigStore = context.cmuxConfigStore else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Missing cmux config store"])
+                    return
+                }
+                let actionButtonCount = min(requestedActionButtonCount, 32)
+                let buttons = (1...actionButtonCount).map { index in
+                    let actionTitle = String(
+                        format: String(
+                            localized: "uiTest.bonsplit.action.title",
+                            defaultValue: "UITest Action %lld"
+                        ),
+                        Int64(index)
+                    )
+                    return CmuxSurfaceTabBarButton.actionReference(
+                        "cmux-ui-test-action-\(index)",
+                        title: actionTitle,
+                        icon: .symbol("circle.fill"),
+                        tooltip: actionTitle
+                    )
+                }
+                workspace.applySurfaceTabBarButtons(
+                    buttons,
+                    sourcePath: nil,
+                    globalConfigPath: cmuxConfigStore.globalConfigPath,
+                    terminalCommandSourcePaths: [:],
+                    workspaceCommands: [:]
+                )
+            }
             if startWithHiddenSidebar {
                 context.sidebarState.isVisible = false
             }
