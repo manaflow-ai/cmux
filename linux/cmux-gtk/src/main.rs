@@ -1,5 +1,7 @@
+mod terminal;
+
 use adw::prelude::*;
-use cmux_core::APP_ID;
+use cmux_core::{terminal::{TerminalCommand, TerminalSession}, APP_ID};
 use gtk::glib;
 
 fn main() -> glib::ExitCode {
@@ -16,9 +18,8 @@ fn build_ui(app: &adw::Application) {
     sidebar.append(&gtk::Label::new(Some("Workspace 2")));
     sidebar.add_css_class("navigation-sidebar");
 
-    let placeholder = gtk::Label::new(Some("cmux Linux terminal surface placeholder"));
-    placeholder.set_hexpand(true);
-    placeholder.set_vexpand(true);
+    let session = TerminalSession::new("workspace-1", "Workspace 1", TerminalCommand::user_shell());
+    let placeholder = terminal::placeholder(&session);
 
     let split = gtk::Paned::builder()
         .orientation(gtk::Orientation::Horizontal)
