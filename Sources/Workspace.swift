@@ -14573,10 +14573,7 @@ extension Workspace: BonsplitDelegate {
                 )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
-            case .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
-                 .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
-                 .rightSidebarFeed, .rightSidebarDock:
-                // Right-sidebar actions return through the shared AppDelegate path above.
+            default:
                 break
             }
             return

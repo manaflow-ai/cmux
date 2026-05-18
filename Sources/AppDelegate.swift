@@ -13304,12 +13304,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
-            if executeBuiltInRightSidebarAction(
-                builtIn,
-                preferredWindow: preferredWindow,
-                onExecuted: onExecuted
-            ) {
-                return true
+            if builtIn.rightSidebarRemoteCommand != nil {
+                return executeBuiltInRightSidebarAction(
+                    builtIn,
+                    preferredWindow: preferredWindow,
+                    onExecuted: onExecuted
+                )
             }
             switch builtIn {
             case .newWorkspace:
@@ -13363,9 +13363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
-            case .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
-                 .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
-                 .rightSidebarFeed, .rightSidebarDock:
+            default:
                 return false
             }
         case .command, .agent, .workspaceCommand:
