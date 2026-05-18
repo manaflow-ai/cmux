@@ -863,7 +863,7 @@ extension Workspace {
             ) else {
                 return nil
             }
-            if let resumeBinding, !resumeBinding.isProcessDetected {
+            if let resumeBinding {
                 surfaceResumeBindingsByPanelId[terminalPanel.id] = resumeBinding
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)

@@ -172,7 +172,7 @@ enum AgentResumeCommandBuilder {
             if args.first == "codex-teams" {
                 args.removeFirst()
             }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
             return [original.executable, "codex-teams", "resume", sessionId] + preserved
         case "omo":
             let original = commandParts(
@@ -213,8 +213,8 @@ enum AgentResumeCommandBuilder {
             )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
-            return [original.executable, "resume", sessionId] + preserved
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
+            return [original.executable, "resume"] + preserved + [sessionId]
         case .pi:
             return resumeWithOption(
                 kind: "pi",
