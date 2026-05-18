@@ -1058,7 +1058,7 @@ import UIKit
     let router = StaleSnapshotSelectionRouter(route: route)
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
-        transportFactory: RequestAwareSnapshotTransportFactory(router: router)
+        transportFactory: RequestAwareTransportFactory(router: router)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
@@ -1194,32 +1194,10 @@ import UIKit
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
     )
-    var responseFrames = [
-        try rpcTwoWorkspaceListFrame(),
-        try rpcSnapshotResultFrame(
-            workspaceID: "workspace-main",
-            terminalID: "terminal-build",
-            visibleLines: ["initial"]
-        ),
-        try rpcTerminalCreateScopedFrame(),
-    ]
-    for _ in 0..<8 {
-        responseFrames.append(
-            try rpcSnapshotResultFrame(
-                workspaceID: "workspace-main",
-                terminalID: "workspace-main-terminal-2",
-                visibleLines: [
-                    "$ cmux ios",
-                    "workspace: cmux",
-                    "terminal: Terminal 2",
-                ]
-            )
-        )
-    }
-    let responses = ScriptedTransportResponses(responseFrames)
+    let router = RemoteCreateTerminalRouter()
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
+        transportFactory: RequestAwareTransportFactory(router: router)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
@@ -2229,15 +2207,21 @@ private struct FailingRouteTransportFactory: CmxByteTransportFactory {
     }
 }
 
-private struct RequestAwareSnapshotTransportFactory: CmxByteTransportFactory {
-    let router: StaleSnapshotSelectionRouter
+private protocol RequestAwareTransportRouter: Actor {
+    func record(_ request: RecordedRPCRequest)
+    func sentRequests() -> [RecordedRPCRequest]
+    func response(for request: RecordedRPCRequest) async throws -> Data?
+}
+
+private struct RequestAwareTransportFactory: CmxByteTransportFactory {
+    let router: any RequestAwareTransportRouter
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        RequestAwareSnapshotTransport(router: router)
+        RequestAwareTransport(router: router)
     }
 }
 
-private actor StaleSnapshotSelectionRouter {
+private actor StaleSnapshotSelectionRouter: RequestAwareTransportRouter {
     private let route: CmxAttachRoute
     private var staleSnapshotRequested = false
     private var staleSnapshotReleased = false
@@ -2377,11 +2361,51 @@ private actor StaleSnapshotSelectionRouter {
     }
 }
 
-private actor RequestAwareSnapshotTransport: CmxByteTransport {
-    private let router: StaleSnapshotSelectionRouter
+private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcTwoWorkspaceListFrame()
+        case "terminal.snapshot":
+            if request.workspaceID == "workspace-main", request.terminalID == "workspace-main-terminal-2" {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: "workspace-main",
+                    terminalID: "workspace-main-terminal-2",
+                    visibleLines: [
+                        "$ cmux ios",
+                        "workspace: cmux",
+                        "terminal: Terminal 2",
+                    ]
+                )
+            }
+            return try rpcSnapshotResultFrame(
+                workspaceID: "workspace-main",
+                terminalID: "terminal-build",
+                visibleLines: ["initial"]
+            )
+        case "terminal.create":
+            return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor RequestAwareTransport: CmxByteTransport {
+    private let router: any RequestAwareTransportRouter
     private var request: RecordedRPCRequest?
 
-    init(router: StaleSnapshotSelectionRouter) {
+    init(router: any RequestAwareTransportRouter) {
         self.router = router
     }
 
