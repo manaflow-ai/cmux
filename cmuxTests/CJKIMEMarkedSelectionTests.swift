@@ -905,6 +905,50 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         }
     }
 
+    private func assertInputSourceShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText(
+        _ inputSourceId: String,
+        candidateCommandProbeNames: Set<String>,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let view = GhosttyNSView(frame: .zero)
+
+        for probe in noMarkedNavigationKeyProbes where candidateCommandProbeNames.contains(probe.name) {
+            let event = try keyEvent(
+                text: probe.text,
+                keyCode: probe.keyCode,
+                modifierFlags: [.shift],
+                windowNumber: 0
+            )
+
+            XCTAssertTrue(
+                view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                    markedTextBefore: "",
+                    markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                    markedTextAfter: "",
+                    markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                    accumulatedText: [],
+                    event: event,
+                    textInputHandledEvent: true,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) Shift-\(probe.name) candidate key handled by NSTextInputContext must not leak to Ghostty",
+                file: file,
+                line: line
+            )
+
+            XCTAssertTrue(
+                view.shouldRouteTextInputKeyEquivalentToKeyDown(
+                    event,
+                    inputSourceId: inputSourceId
+                ),
+                "\(inputSourceId) Shift-\(probe.name) candidate key should reach NSTextInputContext before terminal routing",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     func testSimplifiedChinesePinyinForwardsUnhandledNavigationAndSpaceKeysWithoutComposition() throws {
         try assertApplePinyinInputSourceForwardsUnhandledNavigationAndSpaceKeysWithoutComposition(
             "com.apple.inputmethod.SCIM.ITABC"
@@ -950,6 +994,20 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
     func testTraditionalChinesePinyinModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText() throws {
         try assertApplePinyinInputSourceModifiedCandidateCommandsDoNotStayInTextInputWithoutMarkedText(
             "com.apple.inputmethod.TCIM.Pinyin"
+        )
+    }
+
+    func testSimplifiedChinesePinyinShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertInputSourceShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.SCIM.ITABC",
+            candidateCommandProbeNames: pinyinCandidateCommandProbeNames
+        )
+    }
+
+    func testTraditionalChinesePinyinShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertInputSourceShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Pinyin",
+            candidateCommandProbeNames: pinyinCandidateCommandProbeNames
         )
     }
 
@@ -1007,6 +1065,13 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 "Zhuyin candidate \(probe.name) should reach NSTextInputContext before terminal routing"
             )
         }
+    }
+
+    func testZhuyinShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText() throws {
+        try assertInputSourceShiftModifiedCandidateCommandsStayInTextInputWithoutMarkedText(
+            "com.apple.inputmethod.TCIM.Zhuyin",
+            candidateCommandProbeNames: zhuyinCandidateCommandProbeNames
+        )
     }
 
     func testZhuyinHandledNonCandidateCommandsForwardWithoutMarkedText() throws {
