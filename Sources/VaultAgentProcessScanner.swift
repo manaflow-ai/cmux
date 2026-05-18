@@ -853,7 +853,12 @@ extension RestorableAgentSessionIndex {
 
     private static func codexSessionCreatedAt(meta: CodexSessionMetaLine) -> Date? {
         guard let timestamp = normalized(meta.timestamp) else { return nil }
-        return ISO8601DateFormatter().date(from: timestamp)
+        if let date = ISO8601DateFormatter().date(from: timestamp) {
+            return date
+        }
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalFormatter.date(from: timestamp)
     }
 
     private static func firstLineData(fileURL: URL) -> Data? {

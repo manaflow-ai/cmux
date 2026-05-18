@@ -3522,6 +3522,80 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectionParsesFractionalCodexForkSessionMetadataTimestamp() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-fractional-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let workingDirectory = "/tmp/codex fork repo"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: "019e2222-2222-7222-8222-222222222222",
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            rawTimestamp: "2026-05-17T00:00:00.100Z",
+            modifiedAt: Date(timeIntervalSince1970: 400)
+        )
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: "019e3333-3333-7333-8333-333333333333",
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            rawTimestamp: "2026-05-17T00:00:00.200Z",
+            modifiedAt: Date(timeIntervalSince1970: 100)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_038,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_038,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4",
+                        "stale fork prompt"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, "019e3333-3333-7333-8333-333333333333")
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '019e3333-3333-7333-8333-333333333333' '--model' 'gpt-5.4'"
+        )
+    }
+
     func testProcessDetectionDoesNotShareCodexForkMetadataAcrossAmbiguousPanes() throws {
         let firstWorkspaceId = UUID()
         let firstPanelId = UUID()
@@ -5443,6 +5517,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         forkedFromId: String?,
         cwd: String,
         createdAt: Date? = nil,
+        rawTimestamp: String? = nil,
         modifiedAt: Date
     ) throws {
         let directory = codexHome
@@ -5460,7 +5535,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             payload["forked_from_id"] = forkedFromId
         }
         let object: [String: Any] = [
-            "timestamp": ISO8601DateFormatter().string(from: createdAt ?? modifiedAt),
+            "timestamp": rawTimestamp ?? ISO8601DateFormatter().string(from: createdAt ?? modifiedAt),
             "type": "session_meta",
             "payload": payload,
         ]
