@@ -33,8 +33,16 @@ beforeEach(() => {
 });
 
 describe("Stack VM billing gateway", () => {
-  test("resolves the default free-plan initial create-credit grant", () => {
+  test("does not resolve free-plan create credits by default", () => {
     const gateway = makeStackVmBillingGateway({});
+
+    expect(gateway.resolveInitialCreateCreditGrant(createInput())).toEqual({ kind: "none" });
+  });
+
+  test("resolves configured free-plan initial create-credit grants", () => {
+    const gateway = makeStackVmBillingGateway({
+      CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+    });
 
     expect(gateway.resolveInitialCreateCreditGrant(createInput())).toEqual({
       kind: "stack_item",
@@ -65,8 +73,20 @@ describe("Stack VM billing gateway", () => {
     expect(increaseQuantity).toHaveBeenCalledWith(20);
   });
 
-  test("consumes the default free-plan Stack Auth create-credit item", async () => {
+  test("does not consume a free-plan Stack Auth create-credit item by default", async () => {
+    stackConfigured = false;
     const gateway = makeStackVmBillingGateway({});
+
+    const reservation = await Effect.runPromise(gateway.reserveCreate(createInput()));
+
+    expect(reservation).toEqual({ kind: "none" });
+    expect(getItem).not.toHaveBeenCalled();
+  });
+
+  test("consumes a configured free-plan Stack Auth create-credit item", async () => {
+    const gateway = makeStackVmBillingGateway({
+      CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+    });
 
     const reservation = await Effect.runPromise(gateway.reserveCreate(createInput()));
 
@@ -162,7 +182,9 @@ describe("Stack VM billing gateway", () => {
 
   test("fails before provider create when Stack Auth create credits are exhausted", async () => {
     tryDecreaseQuantity.mockResolvedValue(false);
-    const gateway = makeStackVmBillingGateway({});
+    const gateway = makeStackVmBillingGateway({
+      CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
+    });
 
     const error = await Effect.runPromise(
       gateway.reserveCreate(createInput()).pipe(Effect.flip),

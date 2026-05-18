@@ -1070,6 +1070,7 @@ struct ContentView: View {
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
@@ -1094,15 +1095,18 @@ struct ContentView: View {
     @State private var commandPaletteWorkspaceDescriptionHeight: CGFloat = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
     @State private var commandPaletteSelectedResultIndex: Int = 0
     @State private var commandPaletteSelectionAnchorCommandID: String?
-    @State private var commandPaletteHoveredResultIndex: Int?
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+    @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
+    @State private var commandPaletteSearchIndexBuildTask: Task<Void, Never>?
+    @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResults: [CommandPaletteSearchResult] = []
+    @State private var commandPaletteVisibleResultsVersion: UInt64 = 0
     @State private var commandPaletteVisibleResultsScope: CommandPaletteListScope?
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
@@ -1117,6 +1121,14 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
+    @State private var commandPaletteForkableAgentActivePanelKey: String?
+    @State private var commandPaletteForkableAgentProbeIDsByPanelKey: [String: UUID] = [:]
+    @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
+    @State var commandPaletteForkableAgentSnapshotsByPanelKey: [String: SessionRestorableAgentSnapshot] = [:]
+    @State var commandPaletteForkableAgentSnapshotFingerprintsByPanelKey: [String: String] = [:]
+    @State var commandPaletteForkableAgentRemoteContextsByPanelKey: [String: Bool] = [:]
+    @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
+    @State private var commandPaletteForkableAgentProbeFingerprintsByPanelKey: [String: String] = [:]
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -1138,11 +1150,6 @@ struct ContentView: View {
         case workspaceDescriptionInput(CommandPaletteWorkspaceDescriptionTarget)
     }
 
-    private enum CommandPaletteListScope: String {
-        case commands
-        case switcher
-    }
-
     enum CommandPalettePendingActivation: Equatable {
         case selected(requestID: UInt64, fallbackSelectedIndex: Int, preferredCommandID: String?)
         case command(requestID: UInt64, commandID: String)
@@ -1151,6 +1158,11 @@ struct ContentView: View {
     enum CommandPaletteResolvedActivation: Equatable {
         case selected(index: Int)
         case command(commandID: String)
+    }
+
+    struct CommandPalettePendingActivationResolutionResult: Equatable {
+        let resolvedActivation: CommandPaletteResolvedActivation?
+        let shouldClearPendingActivation: Bool
     }
 
     private struct CommandPaletteRenameTarget: Equatable {
@@ -1225,16 +1237,6 @@ struct ContentView: View {
         case selectAll
     }
 
-    private enum CommandPaletteTrailingLabelStyle {
-        case shortcut
-        case kind
-    }
-
-    private struct CommandPaletteTrailingLabel {
-        let text: String
-        let style: CommandPaletteTrailingLabelStyle
-    }
-
     private struct CommandPaletteInputFocusPolicy {
         let focusTarget: CommandPaletteInputFocusTarget
         let selectionBehavior: CommandPaletteTextSelectionBehavior
@@ -1259,11 +1261,6 @@ struct ContentView: View {
         var searchableTexts: [String] {
             [title, subtitle] + keywords
         }
-    }
-
-    private struct CommandPaletteUsageEntry: Codable, Sendable {
-        var useCount: Int
-        var lastUsedAt: TimeInterval
     }
 
     static func tmuxWorkspacePaneExactRect(
@@ -1468,6 +1465,7 @@ struct ContentView: View {
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
         static let panelHasPane = "panel.hasPane"
+        static let panelHasForkableAgent = "panel.hasForkableAgent"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -1475,7 +1473,6 @@ struct ContentView: View {
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
         static let browserDisabled = "browser.disabled"
-        static let supportedFileRoutingDisabled = "filePreview.supportedFileRoutingDisabled"
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
@@ -1532,12 +1529,6 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
-    private struct CommandPaletteResolvedSearchMatch: Sendable {
-        let commandID: String
-        let score: Int
-        let titleMatchIndices: Set<Int>
-    }
-
     private struct CommandPaletteSwitcherWindowContext {
         let windowId: UUID
         let tabManager: TabManager
@@ -1573,7 +1564,7 @@ struct ContentView: View {
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
-    private static let commandPaletteVisiblePreviewCandidateLimit = 192
+    private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
     private static let minimumRightSidebarWidth: CGFloat = 276
@@ -3717,16 +3708,7 @@ struct ContentView: View {
     }
 
     private var commandPaletteCommandListView: some View {
-        let visibleResults = commandPaletteVisibleResults
-        let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListIdentity = Self.commandPaletteListIdentity(for: commandPaletteQuery)
-        let shouldShowEmptyState = commandPaletteShouldShowEmptyState
-        let commandPaletteListMaxHeight: CGFloat = 450
-        let commandPaletteRowHeight: CGFloat = 24
-        let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty ? commandPaletteEmptyStateHeight : CGFloat(visibleResults.count) * commandPaletteRowHeight
-        let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             HStack(spacing: 8) {
                 CommandPaletteSearchFieldRepresentable(
                     placeholder: commandPaletteSearchPlaceholder,
@@ -3744,75 +3726,10 @@ struct ContentView: View {
 
             Divider()
 
-            ScrollView {
-                // Rebuild the full results container on scope transitions so
-                // stale switcher rows cannot linger above command-mode results.
-                VStack(spacing: 0) {
-                    if visibleResults.isEmpty {
-                        if shouldShowEmptyState {
-                            Text(commandPaletteEmptyStateText)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                        } else {
-                            Color.clear
-                                .frame(maxWidth: .infinity)
-                                .frame(height: commandPaletteEmptyStateHeight)
-                        }
-                    } else {
-                        ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
-                            let isSelected = index == selectedIndex
-                            let isHovered = commandPaletteHoveredResultIndex == index
-                            let trailingLabel = commandPaletteTrailingLabel(for: result.command)
-                            let rowBackground: Color = isSelected
-                                ? cmuxAccentColor().opacity(0.12)
-                                : (isHovered ? Color.primary.opacity(0.08) : .clear)
-
-                            Button {
-                                runCommandPaletteResult(commandID: result.id)
-                            } label: {
-                                Self.commandPaletteResultLabelContent(
-                                    title: result.command.title,
-                                    matchedIndices: result.titleMatchIndices,
-                                    trailingLabel: trailingLabel
-                                )
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(rowBackground)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
-                            .accessibilityValue(result.id)
-                            .id(index)
-                            .onHover { hovering in
-                                if hovering {
-                                    commandPaletteHoveredResultIndex = index
-                                } else if commandPaletteHoveredResultIndex == index {
-                                    commandPaletteHoveredResultIndex = nil
-                                }
-                            }
-                        }
-                    }
-                }
-                .scrollTargetLayout()
-            }
-            .id(commandPaletteListIdentity)
-            .frame(height: commandPaletteListHeight)
-            .scrollPosition(
-                id: Binding(
-                    get: { commandPaletteScrollTargetIndex },
-                    // Ignore passive readback so manual scrolling doesn't mutate selection-follow state.
-                    set: { _ in }
-                ),
-                anchor: commandPaletteScrollTargetAnchor
+            CommandPaletteCommandListRenderView(
+                renderModel: commandPaletteOverlayRenderModel,
+                onRunResult: runCommandPaletteResult(commandID:)
             )
-            .onChange(of: commandPaletteSelectedResultIndex) { _ in
-                updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: true)
-            }
 
             // Keep Esc-to-close behavior without showing footer controls.
             Button(action: { dismissCommandPalette() }) {
@@ -3825,14 +3742,12 @@ struct ContentView: View {
             .accessibilityHidden(true)
         }
         .onAppear {
-            commandPaletteHoveredResultIndex = nil
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             resetCommandPaletteSearchFocus()
         }
         .onChange(of: commandPaletteQuery) { oldValue, newValue in
             commandPaletteSelectedResultIndex = 0
             commandPaletteSelectionAnchorCommandID = nil
-            commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
             if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
@@ -3844,6 +3759,7 @@ struct ContentView: View {
                 commandPaletteVisibleResults = []
                 commandPaletteVisibleResultsScope = nil
                 commandPaletteVisibleResultsFingerprint = nil
+                commandPaletteVisibleResultsVersion &+= 1
             }
             scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
@@ -3872,12 +3788,12 @@ struct ContentView: View {
             syncCommandPaletteSelectionAnchorFromCurrentResults()
             let visibleResultCount = commandPaletteVisibleResults.count
             updateCommandPaletteScrollTarget(resultCount: visibleResultCount, animated: false)
-            if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResultCount {
-                commandPaletteHoveredResultIndex = nil
-            }
+            syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteSelectedResultIndex) { _ in
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: true)
+            syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
         }
     }
@@ -5050,6 +4966,7 @@ struct ContentView: View {
         if commandPaletteTerminalOpenTargetAvailability != terminalOpenTargets {
             commandPaletteTerminalOpenTargetAvailability = terminalOpenTargets
         }
+        refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: scope)
         let commandsContext = scope == .commands
             ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
             : nil
@@ -5067,7 +4984,10 @@ struct ContentView: View {
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
-        commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
+            entries,
+            keyedBy: \.id
+        )
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
                 payload: entry.id,
@@ -5077,9 +4997,17 @@ struct ContentView: View {
             )
         }
         commandPaletteSearchCorpus = searchCorpus
-        commandPaletteSearchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
+        commandPaletteSearchCorpusByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
+            searchCorpus,
+            keyedBy: \.payload
+        )
         cachedCommandPaletteScope = scope
         cachedCommandPaletteFingerprint = fingerprint
+        scheduleCommandPaletteSearchIndexBuild(
+            entries: searchCorpus,
+            scope: scope,
+            fingerprint: fingerprint
+        )
     }
 
     private func cancelCommandPaletteSearch() {
@@ -5087,35 +5015,50 @@ struct ContentView: View {
         commandPaletteSearchTask = nil
     }
 
-    nonisolated private static func commandPaletteResolvedSearchMatches(
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        usageHistory: [String: CommandPaletteUsageEntry],
-        queryIsEmpty: Bool,
-        historyTimestamp: TimeInterval,
-        shouldCancel: @escaping () -> Bool = { false }
-    ) -> [CommandPaletteResolvedSearchMatch] {
-        let results = CommandPaletteSearchEngine.search(
-            entries: searchCorpus,
-            query: query,
-            historyBoost: { commandId, _ in
-                Self.commandPaletteHistoryBoost(
-                    for: commandId,
-                    queryIsEmpty: queryIsEmpty,
-                    history: usageHistory,
-                    now: historyTimestamp
-                )
-            },
-            shouldCancel: shouldCancel
-        )
+    private func cancelCommandPaletteSearchIndexBuild() {
+        commandPaletteSearchIndexBuildTask?.cancel()
+        commandPaletteSearchIndexBuildTask = nil
+        commandPaletteSearchIndexBuildGeneration &+= 1
+    }
 
-        return results.map { result in
-            CommandPaletteResolvedSearchMatch(
-                commandID: result.payload,
-                score: result.score,
-                titleMatchIndices: result.titleMatchIndices
-            )
+    private func scheduleCommandPaletteSearchIndexBuild(
+        entries: [CommandPaletteSearchCorpusEntry<String>],
+        scope: CommandPaletteListScope,
+        fingerprint: Int?
+    ) {
+        cancelCommandPaletteSearchIndexBuild()
+        commandPaletteNucleoSearchIndex = nil
+        let generation = commandPaletteSearchIndexBuildGeneration
+        commandPaletteSearchIndexBuildTask = Task.detached(priority: .userInitiated) {
+            let index = CommandPaletteNucleoSearchIndex(entries: entries)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard commandPaletteSearchIndexBuildGeneration == generation,
+                      cachedCommandPaletteScope == scope,
+                      cachedCommandPaletteFingerprint == fingerprint else {
+                    return
+                }
+                commandPaletteNucleoSearchIndex = index
+                commandPaletteSearchIndexBuildTask = nil
+                guard index != nil else { return }
+                if isCommandPalettePresented,
+                   Self.commandPaletteListScope(for: commandPaletteQuery) == scope {
+                    scheduleCommandPaletteResultsRefresh(
+                        query: commandPaletteQuery,
+                        preservePendingActivation: true
+                    )
+                }
+            }
         }
+    }
+
+    nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
+        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
+              commandId == "palette.forkAgentConversationRight" else {
+            return 0
+        }
+        return 10_000
     }
 
     private static func commandPaletteMaterializedSearchResults(
@@ -5140,164 +5083,59 @@ struct ContentView: View {
         commandPaletteVisibleResults = results
         commandPaletteVisibleResultsScope = scope
         commandPaletteVisibleResultsFingerprint = fingerprint
+        commandPaletteVisibleResultsVersion &+= 1
+        syncCommandPaletteOverlayCommandListState()
     }
 
-    private func refreshPendingCommandPaletteVisibleResults(
-        scope: CommandPaletteListScope,
-        fingerprint: Int?,
-        query: String,
-        usageHistory: [String: CommandPaletteUsageEntry],
-        queryIsEmpty: Bool,
-        historyTimestamp: TimeInterval
-    ) {
-        let candidateCommandIDs: [String]
-        if commandPaletteVisibleResultsScope == scope,
-           commandPaletteVisibleResultsFingerprint == fingerprint {
-            candidateCommandIDs = Self.commandPalettePreviewCandidateCommandIDs(
-                resultIDs: commandPaletteVisibleResults.map(\.id),
-                limit: Self.commandPaletteVisiblePreviewCandidateLimit
+    private func commandPaletteRenderTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteRenderTrailingLabel? {
+        if let shortcutHint = command.shortcutHint {
+            return CommandPaletteRenderTrailingLabel(text: shortcutHint, style: .shortcut)
+        }
+
+        if let kindLabel = command.kindLabel {
+            return CommandPaletteRenderTrailingLabel(text: kindLabel, style: .kind)
+        }
+        return nil
+    }
+
+    private func commandPaletteOverlayCommandListStateSnapshot() -> CommandPaletteCommandListRenderState {
+        let rows = commandPaletteVisibleResults.map { result in
+            CommandPaletteRenderResultRow(
+                id: result.id,
+                title: result.command.title,
+                matchedIndices: result.titleMatchIndices,
+                trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)
             )
-        } else {
-            candidateCommandIDs = []
         }
-
-        let previewMatches = Self.commandPalettePreviewSearchMatches(
-            scope: scope,
-            searchCorpus: commandPaletteSearchCorpus,
-            candidateCommandIDs: candidateCommandIDs,
-            searchCorpusByID: commandPaletteSearchCorpusByID,
-            query: query,
-            usageHistory: usageHistory,
-            queryIsEmpty: queryIsEmpty,
-            historyTimestamp: historyTimestamp,
-            resultLimit: Self.commandPaletteVisiblePreviewResultLimit
-        )
-        let previewResults = Self.commandPaletteMaterializedSearchResults(
-            matches: previewMatches,
-            commandsByID: commandPaletteSearchCommandsByID
-        )
-        setCommandPaletteVisibleResults(
-            previewResults,
-            scope: scope,
-            fingerprint: fingerprint
+        let selectedIndex = commandPaletteSelectedIndex(resultCount: rows.count)
+        return CommandPaletteCommandListRenderState(
+            resultsVersion: commandPaletteVisibleResultsVersion,
+            emptyStateText: commandPaletteEmptyStateText,
+            listIdentity: Self.commandPaletteListIdentity(for: commandPaletteQuery),
+            rows: rows,
+            selectedIndex: selectedIndex,
+            shouldShowEmptyState: commandPaletteShouldShowEmptyState,
+            scrollTargetID: commandPaletteScrollTargetID(rows: rows),
+            scrollTargetAnchor: commandPaletteScrollTargetAnchor
         )
     }
 
-    nonisolated private static func commandPalettePreviewSearchMatches(
-        scope: CommandPaletteListScope,
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        candidateCommandIDs: [String],
-        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        usageHistory: [String: CommandPaletteUsageEntry],
-        queryIsEmpty: Bool,
-        historyTimestamp: TimeInterval,
-        resultLimit: Int
-    ) -> [CommandPaletteResolvedSearchMatch] {
-        guard resultLimit > 0 else {
-            return []
+    private func commandPaletteScrollTargetID(rows: [CommandPaletteRenderResultRow]) -> String? {
+        guard let index = commandPaletteScrollTargetIndex,
+              rows.indices.contains(index) else {
+            return nil
         }
-
-        if scope == .commands {
-            let matches = commandPaletteResolvedSearchMatches(
-                searchCorpus: searchCorpus,
-                query: query,
-                usageHistory: usageHistory,
-                queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp
-            )
-            guard matches.count > resultLimit else {
-                return matches
-            }
-            return Array(matches.prefix(resultLimit))
-        }
-
-        guard !candidateCommandIDs.isEmpty else {
-            return []
-        }
-
-        var seenCommandIDs: Set<String> = []
-        let previewEntries: [CommandPaletteSearchCorpusEntry<String>] = candidateCommandIDs.compactMap { commandID in
-            guard seenCommandIDs.insert(commandID).inserted else { return nil }
-            return searchCorpusByID[commandID]
-        }
-        guard !previewEntries.isEmpty else {
-            return []
-        }
-
-        let matches = commandPaletteResolvedSearchMatches(
-            searchCorpus: previewEntries,
-            query: query,
-            usageHistory: usageHistory,
-            queryIsEmpty: queryIsEmpty,
-            historyTimestamp: historyTimestamp
-        )
-        guard matches.count > resultLimit else {
-            return matches
-        }
-        return Array(matches.prefix(resultLimit))
+        return rows[index].id
     }
 
-    nonisolated static func commandPaletteCommandPreviewMatchCommandIDsForTests(
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        candidateCommandIDs: [String],
-        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        resultLimit: Int
-    ) -> [String] {
-        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
-        return commandPalettePreviewSearchMatches(
-            scope: .commands,
-            searchCorpus: searchCorpus,
-            candidateCommandIDs: candidateCommandIDs,
-            searchCorpusByID: searchCorpusByID,
-            query: query,
-            usageHistory: [:],
-            queryIsEmpty: preparedQuery.isEmpty,
-            historyTimestamp: 0,
-            resultLimit: resultLimit
-        ).map(\.commandID)
-    }
-
-    static func commandPalettePreviewCandidateCommandIDs(
-        resultIDs: [String],
-        limit: Int
-    ) -> [String] {
-        guard limit > 0 else { return [] }
-        guard resultIDs.count > limit else { return resultIDs }
-        return Array(resultIDs.prefix(limit))
-    }
-
-    static func commandPaletteShouldSynchronouslySeedResults(
-        hasVisibleResultsForScope: Bool
-    ) -> Bool {
-        !hasVisibleResultsForScope
-    }
-
-    static func commandPaletteShouldPreserveEmptyStateWhileSearchPending(
-        isSearchPending: Bool,
-        visibleResultsScopeMatches: Bool,
-        resolvedSearchScopeMatches: Bool,
-        resolvedSearchFingerprintMatches: Bool,
-        resolvedResultsAreEmpty: Bool
-    ) -> Bool {
-        guard isSearchPending,
-              visibleResultsScopeMatches,
-              resolvedSearchScopeMatches,
-              resolvedSearchFingerprintMatches,
-              resolvedResultsAreEmpty else {
-            return false
-        }
-
-        // The visible list is already empty at the call site. Keep the no-match
-        // message stable across any same-corpus pending query, including edits
-        // in the middle of the search text that are not prefix refinements.
-        return true
+    private func syncCommandPaletteOverlayCommandListState() {
+        commandPaletteOverlayRenderModel.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
     }
 
     private func scheduleCommandPaletteResultsRefresh(
         query: String? = nil,
-        forceSearchCorpusRefresh: Bool = false
+        forceSearchCorpusRefresh: Bool = false,
+        preservePendingActivation: Bool = false
     ) {
         let effectiveQuery = Self.commandPaletteRefreshQuery(
             stateQuery: commandPaletteQuery,
@@ -5318,25 +5156,49 @@ struct ContentView: View {
         let requestID = commandPaletteSearchRequestID
         let fingerprint = cachedCommandPaletteFingerprint
         let searchCorpus = commandPaletteSearchCorpus
+        let searchCorpusByID = commandPaletteSearchCorpusByID
+        let searchIndex = commandPaletteNucleoSearchIndex
         let commandsByID = commandPaletteSearchCommandsByID
         let usageHistory = commandPaletteUsageHistoryByCommandId
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
-        commandPalettePendingActivation = nil
+        let additionalScoreBoost: (String, Bool) -> Int = { commandId, _ in
+            Self.commandPaletteForkPriorityBoost(commandId: commandId, query: matchingQuery)
+        }
+        let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
+        if preservePendingActivation {
+            commandPalettePendingActivation = Self.commandPalettePendingActivation(
+                commandPalettePendingActivation,
+                rebasedTo: requestID
+            )
+        } else {
+            commandPalettePendingActivation = nil
+        }
         cancelCommandPaletteSearch()
-        if Self.commandPaletteShouldSynchronouslySeedResults(
-            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope
+        if CommandPaletteSearchOrchestrator.shouldSynchronouslySeedResults(
+            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope,
+            hasSearchIndex: searchIndex != nil,
+            corpusCount: searchCorpus.count
         ) {
-            let matches = Self.commandPaletteResolvedSearchMatches(
+            let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+                searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
+                searchCorpusByID: searchCorpusByID,
                 query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp
+                historyTimestamp: historyTimestamp,
+                additionalScoreBoost: additionalScoreBoost
             )
             cachedCommandPaletteResults = Self.commandPaletteMaterializedSearchResults(
                 matches: matches,
                 commandsByID: commandsByID
+            )
+            let resultIDs = cachedCommandPaletteResults.map(\.id)
+            let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
+                commandPalettePendingActivation,
+                requestID: requestID,
+                resultIDs: resultIDs
             )
             commandPaletteResolvedSearchRequestID = requestID
             commandPaletteResolvedSearchScope = scope
@@ -5348,26 +5210,93 @@ struct ContentView: View {
                 scope: scope,
                 fingerprint: fingerprint
             )
+            if pendingActivationResolution.shouldClearPendingActivation {
+                commandPalettePendingActivation = nil
+            }
             commandPaletteResultsRevision &+= 1
+            if let resolvedActivation = pendingActivationResolution.resolvedActivation {
+                runCommandPaletteResolvedActivation(resolvedActivation)
+            }
             return
         }
-        refreshPendingCommandPaletteVisibleResults(
-            scope: scope,
-            fingerprint: fingerprint,
-            query: matchingQuery,
-            usageHistory: usageHistory,
-            queryIsEmpty: queryIsEmpty,
-            historyTimestamp: historyTimestamp
-        )
+        let previewCandidateCommandIDs: [String]
+        if commandPaletteVisibleResultsScope == scope,
+           commandPaletteVisibleResultsFingerprint == fingerprint,
+           !commandPaletteVisibleResults.isEmpty {
+            previewCandidateCommandIDs = CommandPaletteSearchOrchestrator.previewCandidateCommandIDs(
+                resultIDs: commandPaletteVisibleResults.map(\.id),
+                limit: Self.commandPaletteVisiblePreviewCandidateLimit
+            )
+        } else {
+            previewCandidateCommandIDs = []
+        }
+        let shouldApplyPreviewResults = scope == .commands || !previewCandidateCommandIDs.isEmpty
         isCommandPaletteSearchPending = true
+        syncCommandPaletteOverlayCommandListState()
 
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
-            let matches = Self.commandPaletteResolvedSearchMatches(
+            let previewMatches = shouldApplyPreviewResults
+                ? CommandPaletteSearchOrchestrator.previewSearchMatches(
+                    scope: scope,
+                    searchIndex: searchIndex,
+                    searchCorpus: searchCorpus,
+                    candidateCommandIDs: previewCandidateCommandIDs,
+                    searchCorpusByID: searchCorpusByID,
+                    query: matchingQuery,
+                    usageHistory: usageHistory,
+                    queryIsEmpty: queryIsEmpty,
+                    historyTimestamp: historyTimestamp,
+                    additionalScoreBoost: additionalScoreBoost,
+                    resultLimit: visiblePreviewResultLimit
+                )
+                : []
+
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                let currentScope = Self.commandPaletteListScope(for: commandPaletteQuery)
+                let currentMatchingQuery = Self.commandPaletteQueryForMatching(
+                    query: commandPaletteQuery,
+                    scope: currentScope
+                )
+                let shouldApplyPreview = commandPaletteSearchRequestID == requestID
+                    && isCommandPalettePresented
+                    && currentScope == scope
+                    && currentMatchingQuery == matchingQuery
+                    && cachedCommandPaletteFingerprint == fingerprint
+                    && isCommandPaletteSearchPending
+                guard shouldApplyPreview else {
+                    return
+                }
+                guard shouldApplyPreviewResults else {
+                    return
+                }
+
+                let previewResults = Self.commandPaletteMaterializedSearchResults(
+                    matches: previewMatches,
+                    commandsByID: commandPaletteSearchCommandsByID
+                )
+                setCommandPaletteVisibleResults(
+                    previewResults,
+                    scope: scope,
+                    fingerprint: fingerprint
+                )
+                updateCommandPaletteScrollTarget(resultCount: previewResults.count, animated: false)
+                syncCommandPaletteOverlayCommandListState()
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
+
+            guard !Task.isCancelled else { return }
+
+            let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+                searchIndex: searchIndex,
                 searchCorpus: searchCorpus,
+                searchCorpusByID: searchCorpusByID,
                 query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
+                additionalScoreBoost: additionalScoreBoost,
                 shouldCancel: { Task.isCancelled }
             )
 
@@ -5393,9 +5322,8 @@ struct ContentView: View {
                     commandsByID: commandPaletteSearchCommandsByID
                 )
                 let resultIDs = cachedCommandPaletteResults.map(\.id)
-                let pendingActivation = commandPalettePendingActivation
-                let resolvedActivation = Self.commandPaletteResolvedPendingActivation(
-                    pendingActivation,
+                let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
+                    commandPalettePendingActivation,
                     requestID: requestID,
                     resultIDs: resultIDs
                 )
@@ -5409,14 +5337,14 @@ struct ContentView: View {
                     scope: scope,
                     fingerprint: fingerprint
                 )
-                if Self.commandPalettePendingActivationRequestID(pendingActivation) == requestID {
+                if pendingActivationResolution.shouldClearPendingActivation {
                     commandPalettePendingActivation = nil
                 }
                 commandPaletteResultsRevision &+= 1
                 if commandPaletteSearchRequestID == requestID {
                     commandPaletteSearchTask = nil
                 }
-                if let resolvedActivation {
+                if let resolvedActivation = pendingActivationResolution.resolvedActivation {
                     runCommandPaletteResolvedActivation(resolvedActivation)
                 }
             }
@@ -5518,7 +5446,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private static func commandPaletteTrailingLabelView(_ trailingLabel: CommandPaletteTrailingLabel?) -> some View {
+    private static func commandPaletteRenderTrailingLabelView(_ trailingLabel: CommandPaletteRenderTrailingLabel?) -> some View {
         if let trailingLabel {
             switch trailingLabel.style {
             case .shortcut:
@@ -5540,10 +5468,10 @@ struct ContentView: View {
         }
     }
 
-    private static func commandPaletteResultLabelContent(
+    static func commandPaletteRenderResultLabelContent(
         title: String,
         matchedIndices: Set<Int>,
-        trailingLabel: CommandPaletteTrailingLabel?
+        trailingLabel: CommandPaletteRenderTrailingLabel?
     ) -> some View {
         HStack(spacing: 8) {
             commandPaletteHighlightedTitleText(
@@ -5553,19 +5481,8 @@ struct ContentView: View {
                 .font(.system(size: 13, weight: .regular))
                 .lineLimit(1)
             Spacer()
-            commandPaletteTrailingLabelView(trailingLabel)
+            commandPaletteRenderTrailingLabelView(trailingLabel)
         }
-    }
-
-    private func commandPaletteTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteTrailingLabel? {
-        if let shortcutHint = command.shortcutHint {
-            return CommandPaletteTrailingLabel(text: shortcutHint, style: .shortcut)
-        }
-
-        if let kindLabel = command.kindLabel {
-            return CommandPaletteTrailingLabel(text: kindLabel, style: .kind)
-        }
-        return nil
     }
 
     private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
@@ -5870,6 +5787,274 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
+    static func commandPaletteForkableAgentPanelKey(workspaceId: UUID, panelId: UUID) -> String {
+        "\(workspaceId.uuidString):\(panelId.uuidString)"
+    }
+
+    private enum CommandPaletteForkSnapshotAvailability {
+        case unsupported
+        case supportedWithoutProbe
+        case requiresProbe
+    }
+
+    private static func commandPaletteSnapshotForkAvailability(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        isRemoteTerminal: Bool = false
+    ) -> CommandPaletteForkSnapshotAvailability {
+        guard snapshot.forkCommand != nil else { return .unsupported }
+        if isRemoteTerminal,
+           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
+            return .unsupported
+        }
+        switch snapshot.kind {
+        case .claude, .codex:
+            return .supportedWithoutProbe
+        case .opencode:
+            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+        default:
+            return .unsupported
+        }
+    }
+
+    static func commandPaletteForkSnapshotFingerprint(
+        _ snapshot: SessionRestorableAgentSnapshot
+    ) -> String {
+        let launchCommand = snapshot.launchCommand
+        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
+        let parts: [String] = [
+            snapshot.kind.rawValue,
+            snapshot.sessionId,
+            snapshot.workingDirectory ?? "",
+            launchCommand?.launcher ?? "",
+            launchCommand?.executablePath ?? "",
+            launchArguments,
+            launchCommand?.workingDirectory ?? "",
+            launchCommand?.source ?? "",
+            snapshot.forkCommand ?? ""
+        ]
+        return parts.joined(separator: "\u{1e}")
+    }
+
+    static func commandPaletteForkCacheFingerprint(
+        snapshot: SessionRestorableAgentSnapshot,
+        fallbackFingerprint: String?
+    ) -> String {
+        fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
+    }
+
+    static func commandPalettePanelHasForkableAgent(
+        workspaceId: UUID,
+        panelId: UUID,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false
+    ) -> Bool {
+        let panelKey = commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        if supportedPanelKeys.contains(panelKey) {
+            if let fallbackSnapshot {
+                return commandPaletteSnapshotForkAvailability(
+                    fallbackSnapshot,
+                    isRemoteTerminal: isRemoteTerminal
+                ) != .unsupported
+            }
+            guard let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey] else {
+                return true
+            }
+            return supportedRemoteContext == isRemoteTerminal
+        }
+        if let fallbackSnapshot {
+            return commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) == .supportedWithoutProbe
+        }
+        return false
+    }
+
+    private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
+        guard scope == .commands,
+              let panelContext = focusedPanelContext,
+              panelContext.panel.panelType == .terminal else {
+            commandPaletteForkableAgentActivePanelKey = nil
+            cancelCommandPaletteForkableAgentAvailabilityProbe()
+            return
+        }
+
+        let workspaceId = panelContext.workspace.id
+        let panelId = panelContext.panelId
+        let isRemoteTerminal = panelContext.workspace.isRemoteTerminalSurface(panelId)
+        let panelKey = Self.commandPaletteForkableAgentPanelKey(workspaceId: workspaceId, panelId: panelId)
+        let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
+        commandPaletteForkableAgentActivePanelKey = panelKey
+        let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+
+        if let fallbackSnapshot {
+            let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
+            if let cachedFingerprint = commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey],
+               cachedFingerprint != fallbackFingerprint {
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+            }
+            switch Self.commandPaletteSnapshotForkAvailability(
+                fallbackSnapshot,
+                isRemoteTerminal: isRemoteTerminal
+            ) {
+            case .supportedWithoutProbe:
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = fallbackSnapshot
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = fallbackFingerprint
+                commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                return
+            case .unsupported:
+                cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
+                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                return
+            case .requiresProbe:
+                if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
+                   commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] == fallbackFingerprint,
+                   commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+                   !panelChanged {
+                    return
+                }
+                startCommandPaletteForkableAgentAvailabilityProbe(
+                    panelKey: panelKey,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    fallbackSnapshot: fallbackSnapshot,
+                    fallbackFingerprint: fallbackFingerprint,
+                    isRemoteTerminal: isRemoteTerminal
+                )
+                return
+            }
+        }
+
+        if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
+           commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+           !panelChanged {
+            return
+        }
+
+        startCommandPaletteForkableAgentAvailabilityProbe(
+            panelKey: panelKey,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: nil,
+            fallbackFingerprint: nil,
+            isRemoteTerminal: isRemoteTerminal
+        )
+    }
+
+    private func startCommandPaletteForkableAgentAvailabilityProbe(
+        panelKey: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        fallbackFingerprint: String?,
+        isRemoteTerminal: Bool
+    ) {
+        let probeFingerprint = "\(fallbackFingerprint ?? "")\u{1f}\(isRemoteTerminal ? "remote" : "local")"
+        if let task = commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] {
+            guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] != probeFingerprint else { return }
+            task.cancel()
+            commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+            commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        }
+        let probeID = UUID()
+        commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] = probeID
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
+
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
+            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard !Task.isCancelled else { return }
+            let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
+            let supportsFork: Bool
+            if let snapshot {
+                supportsFork = await AgentForkSupport.supportsFork(
+                    snapshot: snapshot,
+                    isRemoteContext: isRemoteTerminal
+                )
+            } else {
+                supportsFork = false
+            }
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
+                guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                if let fallbackFingerprint,
+                   let currentContext = focusedPanelContext,
+                   currentContext.workspace.id == workspaceId,
+                   currentContext.panelId == panelId,
+                   let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
+                   Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot) != fallbackFingerprint {
+                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                    return
+                }
+                let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
+                let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
+                let shouldRefreshResults: Bool
+                if supportsFork {
+                    shouldRefreshResults = !wasSupported
+                    commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
+                    commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
+                    if let snapshot {
+                        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
+                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+                            snapshot: snapshot,
+                            fallbackFingerprint: fallbackFingerprint
+                        )
+                    }
+                } else {
+                    shouldRefreshResults = wasSupported || hadCachedSnapshot
+                    commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+                    commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+                }
+                commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                if shouldRefreshResults,
+                   isCommandPalettePresented,
+                   commandPaletteForkableAgentActivePanelKey == panelKey {
+                    scheduleCommandPaletteResultsRefresh(
+                        query: commandPaletteQuery,
+                        forceSearchCorpusRefresh: true
+                    )
+                }
+            }
+        }
+    }
+
+    private func cancelCommandPaletteForkableAgentAvailabilityProbe() {
+        for task in commandPaletteForkableAgentAvailabilityTasksByPanelKey.values {
+            task.cancel()
+        }
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeAll()
+        commandPaletteForkableAgentProbeIDsByPanelKey.removeAll()
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeAll()
+    }
+
+    private func cancelCommandPaletteForkableAgentAvailabilityProbe(for panelKey: String) {
+        commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)?.cancel()
+        commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+    }
+
     private func commandPaletteCommandsContext(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
     ) -> CommandPaletteCommandsContext {
@@ -6013,10 +6198,6 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
-        snapshot.setBool(
-            CommandPaletteContextKeys.supportedFileRoutingDisabled,
-            !CmdClickSupportedFileRouteSettings.isEnabled()
-        )
 
         if let workspace = tabManager.selectedWorkspace {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
@@ -6055,11 +6236,24 @@ struct ContentView: View {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
+            let panelIsRemoteTerminal = workspace.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
+            let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasForkableAgent,
+                Self.commandPalettePanelHasForkableAgent(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
+                    supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+                    fallbackSnapshot: fallbackForkableSnapshot,
+                    isRemoteTerminal: panelIsRemoteTerminal
+                )
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
@@ -6332,6 +6526,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleUnread",
+                title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                keywords: ["toggle", "mark", "read", "unread", "notification"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.markOldestUnreadAndJumpNext",
                 title: constant(
                     String(
@@ -6410,24 +6613,6 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
                 keywords: ["browser", "enable", "embedded", "open"],
                 when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.disableSupportedFileRouting",
-                title: constant(String(localized: "command.disableSupportedFileRouting.title", defaultValue: "Disable Cmd-click File Previews")),
-                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
-                keywords: ["file", "preview", "disable", "external", "editor", "pdf", "image", "audio", "video"],
-                when: { !$0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.enableSupportedFileRouting",
-                title: constant(String(localized: "command.enableSupportedFileRouting.title", defaultValue: "Enable Cmd-click File Previews")),
-                subtitle: constant(String(localized: "command.supportedFileRouting.subtitle", defaultValue: "File Preview")),
-                keywords: ["file", "preview", "enable", "cmux", "pdf", "image", "audio", "video"],
-                when: { $0.bool(CommandPaletteContextKeys.supportedFileRoutingDisabled) }
             )
         )
         contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
@@ -6941,6 +7126,66 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationRight",
+                title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "right", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationLeft",
+                title: constant(String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "left", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationTop",
+                title: constant(String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "top", "up", "above", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationBottom",
+                title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationNewWorkspace",
+                title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
+                subtitle: workspaceSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "workspace"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
                 title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
                 subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
@@ -7224,6 +7469,11 @@ struct ContentView: View {
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
         }
+        registry.register(commandId: "palette.toggleUnread") {
+            AppDelegate.shared?.toggleFocusedNotificationUnread(
+                preferredWindow: observedWindow
+            )
+        }
         registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
             AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
                 preferredWindow: observedWindow
@@ -7265,12 +7515,6 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.enableBrowser") {
             BrowserAvailabilitySettings.setDisabled(false)
-        }
-        registry.register(commandId: "palette.disableSupportedFileRouting") {
-            CmdClickSupportedFileRouteSettings.setEnabled(false)
-        }
-        registry.register(commandId: "palette.enableSupportedFileRouting") {
-            CmdClickSupportedFileRouteSettings.setEnabled(true)
         }
         registerSettingsToggleCommandHandlers(&registry)
 
@@ -7520,6 +7764,21 @@ struct ContentView: View {
                 tabManager.createSplit(direction: .right)
             }
         }
+        registry.register(commandId: "palette.forkAgentConversationRight") {
+            forkFocusedAgentConversationRight()
+        }
+        registry.register(commandId: "palette.forkAgentConversationLeft") {
+            forkFocusedAgentConversationLeft()
+        }
+        registry.register(commandId: "palette.forkAgentConversationTop") {
+            forkFocusedAgentConversationTop()
+        }
+        registry.register(commandId: "palette.forkAgentConversationBottom") {
+            forkFocusedAgentConversationBottom()
+        }
+        registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
+            forkFocusedAgentConversationToNewWorkspace()
+        }
         registry.register(commandId: "palette.terminalSplitDown") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.splitDown.configID) {
                 tabManager.createSplit(direction: .down)
@@ -7678,6 +7937,24 @@ struct ContentView: View {
         }
     }
 
+    static func commandPalettePendingActivation(
+        _ pendingActivation: CommandPalettePendingActivation?,
+        rebasedTo requestID: UInt64
+    ) -> CommandPalettePendingActivation? {
+        switch pendingActivation {
+        case .selected(_, let fallbackSelectedIndex, let preferredCommandID):
+            return .selected(
+                requestID: requestID,
+                fallbackSelectedIndex: fallbackSelectedIndex,
+                preferredCommandID: preferredCommandID
+            )
+        case .command(_, let commandID):
+            return .command(requestID: requestID, commandID: commandID)
+        case nil:
+            return nil
+        }
+    }
+
     static func commandPaletteResolvedPendingActivation(
         _ pendingActivation: CommandPalettePendingActivation?,
         requestID: UInt64,
@@ -7698,6 +7975,21 @@ struct ContentView: View {
         case nil:
             return nil
         }
+    }
+
+    static func commandPalettePendingActivationResolution(
+        _ pendingActivation: CommandPalettePendingActivation?,
+        requestID: UInt64,
+        resultIDs: [String]
+    ) -> CommandPalettePendingActivationResolutionResult {
+        CommandPalettePendingActivationResolutionResult(
+            resolvedActivation: commandPaletteResolvedPendingActivation(
+                pendingActivation,
+                requestID: requestID,
+                resultIDs: resultIDs
+            ),
+            shouldClearPendingActivation: commandPalettePendingActivationRequestID(pendingActivation) == requestID
+        )
     }
 
     static func commandPaletteContextFingerprint(
@@ -7824,6 +8116,8 @@ struct ContentView: View {
         } else {
             syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
+        updateCommandPaletteScrollTarget(resultCount: count, animated: true)
+        syncCommandPaletteOverlayCommandListState()
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
@@ -7884,7 +8178,7 @@ struct ContentView: View {
             return true
         }
 
-        return Self.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+        return CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
             isSearchPending: isCommandPaletteSearchPending,
             visibleResultsScopeMatches: commandPaletteVisibleResultsScope == commandPaletteListScope,
             resolvedSearchScopeMatches: commandPaletteResolvedSearchScope == commandPaletteListScope,
@@ -8110,7 +8404,7 @@ struct ContentView: View {
                     commandId: result.command.id,
                     title: result.command.title,
                     shortcutHint: result.command.shortcutHint,
-                    trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
+                    trailingLabel: commandPaletteRenderTrailingLabel(for: result.command)?.text,
                     score: result.score
                 )
         }
@@ -8133,6 +8427,7 @@ struct ContentView: View {
             commandPaletteRestoreFocusTarget = nil
         }
         isCommandPalettePresented = true
+        commandPaletteForkableAgentActivePanelKey = nil
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
     }
@@ -8145,11 +8440,11 @@ struct ContentView: View {
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
-        commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
@@ -8178,6 +8473,9 @@ struct ContentView: View {
         }
 #endif
         cancelCommandPaletteSearch()
+        cancelCommandPaletteSearchIndexBuild()
+        cancelCommandPaletteForkableAgentAvailabilityProbe()
+        commandPaletteForkableAgentActivePanelKey = nil
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands
@@ -8187,7 +8485,6 @@ struct ContentView: View {
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
-        commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
@@ -8197,10 +8494,12 @@ struct ContentView: View {
         commandPaletteSearchCorpus = []
         commandPaletteSearchCorpusByID = [:]
         commandPaletteSearchCommandsByID = [:]
+        commandPaletteNucleoSearchIndex = nil
         cachedCommandPaletteResults = []
         commandPaletteVisibleResults = []
         commandPaletteVisibleResultsScope = nil
         commandPaletteVisibleResultsFingerprint = nil
+        commandPaletteVisibleResultsVersion &+= 1
         cachedCommandPaletteScope = nil
         cachedCommandPaletteFingerprint = nil
         commandPalettePendingTextSelectionBehavior = nil
@@ -8211,6 +8510,7 @@ struct ContentView: View {
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
         commandPaletteResultsRevision &+= 1
+        syncCommandPaletteOverlayCommandListState()
         if let window = observedWindow {
             _ = window.makeFirstResponder(nil)
         }
@@ -8575,24 +8875,8 @@ struct ContentView: View {
         persistCommandPaletteUsageHistory(history)
     }
 
-    nonisolated private static func commandPaletteHistoryBoost(
-        for commandId: String,
-        queryIsEmpty: Bool,
-        history: [String: CommandPaletteUsageEntry],
-        now: TimeInterval
-    ) -> Int {
-        guard let entry = history[commandId] else { return 0 }
-
-        let ageDays = max(0, now - entry.lastUsedAt) / 86_400
-        let recencyBoost = max(0, 320 - Int(ageDays * 20))
-        let countBoost = min(180, entry.useCount * 12)
-        let totalBoost = recencyBoost + countBoost
-
-        return queryIsEmpty ? totalBoost : max(0, totalBoost / 3)
-    }
-
     private func commandPaletteHistoryBoost(for commandId: String, queryIsEmpty: Bool) -> Int {
-        Self.commandPaletteHistoryBoost(
+        CommandPaletteSearchOrchestrator.historyBoost(
             for: commandId,
             queryIsEmpty: queryIsEmpty,
             history: commandPaletteUsageHistoryByCommandId,
