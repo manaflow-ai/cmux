@@ -1,6 +1,12 @@
 import XCTest
 import Darwin
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension CLINotifyProcessIntegrationRegressionTests {
     func testActionsListDoesNotRequireSocket() throws {
         let cliPath = try bundledCLIPath()
@@ -357,5 +363,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["actions.run"]
         )
+    }
+
+    func testActionsRunTimeoutCoversColdStartBudget() {
+        XCTAssertGreaterThanOrEqual(VMClient.actionRunTimeoutSeconds, 30 * 60)
+        XCTAssertLessThanOrEqual(VMClient.actionRunTimeoutSeconds, 40 * 60)
     }
 }
