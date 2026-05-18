@@ -106547,7 +106547,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal.statusBar persistent pinned bottom status bar statusline hardstatus command refresh interval rows claude codex tokens cost branch"
+            "value": "terminal.statusBar persistent pinned bottom status bar statusline hardstatus command refresh interval rows claude codex tokens cost branch ターミナル ステータスバー ステータスライン 固定 下部 コマンド 更新間隔 行 トークン コスト ブランチ"
           }
         }
       }

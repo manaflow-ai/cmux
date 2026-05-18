@@ -507,10 +507,6 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[TerminalStatusBarSettings.refreshIntervalKey] = .double(
                 TerminalStatusBarSettings.normalizedRefreshInterval(value)
             )
-        } else if let value = jsonInt(section["refreshInterval"]) {
-            snapshot.managedUserDefaults[TerminalStatusBarSettings.refreshIntervalKey] = .double(
-                TerminalStatusBarSettings.normalizedRefreshInterval(Double(value))
-            )
         } else if section.keys.contains("refreshInterval") {
             logInvalid("terminal.statusBar.refreshInterval", sourcePath: sourcePath)
         }
