@@ -14442,6 +14442,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -14922,6 +14923,7 @@ private extension NSWindow {
             self.firstResponder as? NSTextView,
             in: self
         )
+        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -14984,6 +14986,34 @@ private extension NSWindow {
             }
         }
 
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
+#endif
+                return false
+            }
+            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
+            defer {
+                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
+                    0,
+                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
+                )
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
         if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
@@ -14999,7 +15029,6 @@ private extension NSWindow {
             return true
         }
 
-        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowserOmnibar: firstResponderOmnibarPanelId != nil,
