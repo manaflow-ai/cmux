@@ -10623,13 +10623,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Prefer the latest unread that we can actually open. In early startup (especially on the VM),
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
-        for notification in notificationStore.notifications where !notification.isRead && notification.id != excludedNotificationId {
+        for notification in notificationStore.notifications
+            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId) {
             if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
         _ = openLatestWorkspaceUnread()
         return nil
+    }
+
+    static func shouldOpenFromJumpToLatestUnread(
+        _ notification: TerminalNotification,
+        excludingNotificationId excludedNotificationId: UUID? = nil
+    ) -> Bool {
+        guard !notification.isRead, notification.id != excludedNotificationId else { return false }
+        return notification.clickAction == nil
     }
 
     private func openLatestWorkspaceUnread() -> Bool {
@@ -14184,6 +14193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    @MainActor
     private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
         switch action {
         case .revealInFinder(let path):
@@ -14192,6 +14202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    @MainActor
     private func revealInFinder(path: String) -> Bool {
         let expandedPath = (path as NSString).expandingTildeInPath
         guard !expandedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

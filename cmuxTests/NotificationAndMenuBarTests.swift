@@ -671,6 +671,40 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(store.notifications.first).isRead)
     }
 
+    func testJumpToLatestUnreadSkipsClickActionNotifications() {
+        let clickActionNotification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "Diagnostic",
+            body: "Diagnostic file saved",
+            createdAt: Date(),
+            isRead: false,
+            clickAction: .revealInFinder(path: "/tmp/cmux-crash.ghosttycrash")
+        )
+        let terminalNotification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Done",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        var readNotification = terminalNotification
+        readNotification.isRead = true
+
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(clickActionNotification))
+        XCTAssertTrue(AppDelegate.shouldOpenFromJumpToLatestUnread(terminalNotification))
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(readNotification))
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(
+            terminalNotification,
+            excludingNotificationId: terminalNotification.id
+        ))
+    }
+
     func testDockBadgeLabelEnabledAndCounted() {
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 1, isEnabled: true), "1")
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 42, isEnabled: true), "42")
