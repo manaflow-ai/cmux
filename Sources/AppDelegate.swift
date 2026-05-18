@@ -3724,7 +3724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
-        let writePrimarySnapshotBlock = { () -> Bool in
+        let writePrimarySnapshotBlock = { () -> SessionSnapshotWriteResult in
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -3733,17 +3733,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if let snapshot {
-                return SessionPersistenceStore.save(snapshot)
+                return SessionPersistenceStore.saveResult(snapshot)
             } else if removeWhenEmpty {
                 SessionPersistenceStore.removeSnapshot()
             }
-            return false
+            return .unchanged
         }
 
         let writeAllSnapshotsBlock = {
-            if writePrimarySnapshotBlock(), let snapshot {
-                SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
+            guard let snapshot else {
+                _ = writePrimarySnapshotBlock()
+                return
             }
+            guard writePrimarySnapshotBlock() != .failed else { return }
+            SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
         }
 
         if synchronously {

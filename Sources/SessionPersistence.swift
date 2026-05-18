@@ -384,6 +384,21 @@ nonisolated struct WorkspaceSessionSnapshotEnvelope: Codable, Sendable {
     var workspace: SessionWorkspaceSnapshot
 }
 
+nonisolated enum SessionSnapshotWriteResult: Equatable, Sendable {
+    case written
+    case unchanged
+    case failed
+
+    var succeeded: Bool {
+        switch self {
+        case .written, .unchanged:
+            true
+        case .failed:
+            false
+        }
+    }
+}
+
 enum SessionPersistenceStore {
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
@@ -397,18 +412,22 @@ enum SessionPersistenceStore {
 
     @discardableResult
     static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
+        saveResult(snapshot, fileURL: fileURL).succeeded
+    }
+
+    static func saveResult(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> SessionSnapshotWriteResult {
+        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return .failed }
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
             let data = try encodedSnapshotData(snapshot)
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
+                return .unchanged
             }
             try data.write(to: fileURL, options: .atomic)
-            return true
+            return .written
         } catch {
-            return false
+            return .failed
         }
     }
 

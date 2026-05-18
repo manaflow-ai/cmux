@@ -98,6 +98,20 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
+    func testSaveResultDistinguishesUnchangedFromFailedWrites() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+
+        XCTAssertEqual(SessionPersistenceStore.saveResult(snapshot, fileURL: snapshotURL), .written)
+        XCTAssertEqual(SessionPersistenceStore.saveResult(snapshot, fileURL: snapshotURL), .unchanged)
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
