@@ -389,13 +389,13 @@ def exercise_entire_shortcut_action_span(cli_path: str, failures: list[str]) -> 
         alias_payload = parse_json(failures, "shortcut alias get canonical toggleFileExplorer", alias_get)
         if isinstance(alias_payload, dict):
             assert_equal(failures, "shortcut alias canonical action", alias_payload.get("action"), "toggleFileExplorer")
-            assert_equal(failures, "shortcut alias canonical value", alias_payload.get("value"), "cmd+option+j")
+            assert_equal(failures, "shortcut alias canonical value", alias_payload.get("value"), "cmd+opt+j")
 
         case_set = run_cli(cli_path, ["settings", "shortcuts", "set", "OPENSETTINGS", "cmd+option+,"], home)
         assert_ok(failures, "shortcut action set is case-insensitive", case_set)
         case_get = run_cli(cli_path, ["settings", "shortcuts", "get", "openSettings"], home)
         assert_ok(failures, "shortcut action get after case-insensitive set", case_get)
-        assert_equal(failures, "shortcut action case-insensitive value", case_get.stdout.strip(), "cmd+option+,")
+        assert_equal(failures, "shortcut action case-insensitive value", case_get.stdout.strip(), "cmd+opt+,")
 
         numbered_surface = run_cli(cli_path, ["settings", "shortcuts", "set", "selectSurfaceByNumber", "ctrl+9"], home)
         assert_ok(failures, "shortcut numbered surface set", numbered_surface)
@@ -782,7 +782,7 @@ openSettings = "cmd+option+,"
             failures.append(f"sectioned TOML did not import app.appearance: {sectioned_config}")
         if sectioned_config.get("rightSidebar", {}).get("beta", {}).get("dock", {}).get("enabled") is not True:
             failures.append(f"sectioned TOML did not import rightSidebar.beta.dock.enabled: {sectioned_config}")
-        if sectioned_config.get("shortcuts", {}).get("bindings", {}).get("openSettings") != "cmd+option+,":
+        if sectioned_config.get("shortcuts", {}).get("bindings", {}).get("openSettings") != "cmd+opt+,":
             failures.append(f"sectioned TOML did not import shortcut binding: {sectioned_config}")
 
         chord = run_cli(cli_path, ["settings", "shortcuts", "set", "openSettings", "cmd+k, cmd+c"], home)
@@ -825,7 +825,7 @@ openSettings = "cmd+option+,"
         assert_ok(failures, "shortcut import accepts final-state swap", shortcut_swap_import)
         swap_config = read_config(home)
         swap_bindings = swap_config.get("shortcuts", {}).get("bindings", {})
-        if swap_bindings.get("focusLeft") != "cmd+option+l" or swap_bindings.get("focusRight") != "cmd+option+h":
+        if swap_bindings.get("focusLeft") != "cmd+opt+l" or swap_bindings.get("focusRight") != "cmd+opt+h":
             failures.append(f"shortcut import swap did not persist the final bindings: {swap_config}")
 
         before_shortcut_import = read_config(home)

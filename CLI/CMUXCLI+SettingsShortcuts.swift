@@ -136,7 +136,7 @@ extension CMUXCLI {
             var tokens: [String] = []
             if command { tokens.append("cmd") }
             if shift { tokens.append("shift") }
-            if option { tokens.append("option") }
+            if option { tokens.append("opt") }
             if control { tokens.append("ctrl") }
             tokens.append(displayKey)
             return tokens.joined(separator: "+")
