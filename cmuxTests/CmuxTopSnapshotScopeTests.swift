@@ -313,6 +313,69 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         )
     }
 
+    func testUnavailableMemorySourcesAreExposedInAggregatePayloads() throws {
+        let unavailablePID = 1111
+        let fallbackPID = 2222
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: unavailablePID,
+                    parentPID: 0,
+                    name: "codex",
+                    path: nil,
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil,
+                    cmuxAttributionReason: nil,
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 1,
+                    memoryBytes: 0,
+                    memorySource: .unavailable,
+                    residentBytes: 0,
+                    residentMemorySource: .unavailable,
+                    virtualBytes: 0,
+                    threadCount: 1
+                ),
+                CmuxTopProcessInfo(
+                    pid: fallbackPID,
+                    parentPID: 0,
+                    name: "codex",
+                    path: nil,
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil,
+                    cmuxAttributionReason: nil,
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 2,
+                    memoryBytes: 2048,
+                    memorySource: .residentSize,
+                    residentBytes: 1024,
+                    residentMemorySource: .rusageResidentSize,
+                    virtualBytes: 4096,
+                    threadCount: 1
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: false
+        )
+
+        let summary = snapshot.summaryPayload(for: [unavailablePID, fallbackPID])
+        assertUnavailableMemoryPayload(summary, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
+
+        let program = try XCTUnwrap(snapshot.programSummaryPayload(for: [unavailablePID, fallbackPID]).first)
+        let programResources = try XCTUnwrap(program["resources"] as? [String: Any])
+        assertUnavailableMemoryPayload(programResources, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
+
+        let codingAgent = try XCTUnwrap(
+            snapshot.codingAgentSummaryPayload(for: [unavailablePID, fallbackPID])
+                .first { $0["id"] as? String == "codex" }
+        )
+        let codingAgentResources = try XCTUnwrap(codingAgent["resources"] as? [String: Any])
+        assertUnavailableMemoryPayload(codingAgentResources, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
+    }
+
     func testKernProcArgsWorkspaceID() {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let bytes = kernProcArgs(environment: [
@@ -842,6 +905,23 @@ while allocations:
         let surface = try firstSurface(in: windows)
         let webviews = try XCTUnwrap(surface["webviews"] as? [[String: Any]])
         return try XCTUnwrap(webviews.first)
+    }
+
+    private func assertUnavailableMemoryPayload(
+        _ payload: [String: Any],
+        unavailablePID: Int,
+        fallbackPID: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(intArray(payload["memory_source_fallback_pids"]), [fallbackPID], file: file, line: line)
+        XCTAssertEqual(int(payload["memory_source_fallback_count"]), 1, file: file, line: line)
+        XCTAssertEqual(intArray(payload["resident_memory_source_fallback_pids"]), [fallbackPID], file: file, line: line)
+        XCTAssertEqual(int(payload["resident_memory_source_fallback_count"]), 1, file: file, line: line)
+        XCTAssertEqual(intArray(payload["unavailable_memory_pids"]), [unavailablePID], file: file, line: line)
+        XCTAssertEqual(int(payload["unavailable_memory_count"]), 1, file: file, line: line)
+        XCTAssertEqual(intArray(payload["unavailable_resident_memory_pids"]), [unavailablePID], file: file, line: line)
+        XCTAssertEqual(int(payload["unavailable_resident_memory_count"]), 1, file: file, line: line)
     }
 
     private func int64(_ raw: Any?) -> Int64 {

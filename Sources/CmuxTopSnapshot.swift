@@ -13,6 +13,8 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     var missingPIDs: [Int] = []
     var memorySourceFallbackPIDs: [Int] = []
     var residentMemorySourceFallbackPIDs: [Int] = []
+    var unavailableMemoryPIDs: [Int] = []
+    var unavailableResidentMemoryPIDs: [Int] = []
 
     func payload() -> [String: Any] {
         [
@@ -26,7 +28,11 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
             "memory_source_fallback_pids": memorySourceFallbackPIDs,
             "memory_source_fallback_count": memorySourceFallbackPIDs.count,
             "resident_memory_source_fallback_pids": residentMemorySourceFallbackPIDs,
-            "resident_memory_source_fallback_count": residentMemorySourceFallbackPIDs.count
+            "resident_memory_source_fallback_count": residentMemorySourceFallbackPIDs.count,
+            "unavailable_memory_pids": unavailableMemoryPIDs,
+            "unavailable_memory_count": unavailableMemoryPIDs.count,
+            "unavailable_resident_memory_pids": unavailableResidentMemoryPIDs,
+            "unavailable_resident_memory_count": unavailableResidentMemoryPIDs.count
         ]
     }
 
@@ -262,9 +268,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             summary.processCount += 1
             if process.memorySource == .residentSize {
                 summary.memorySourceFallbackPIDs.append(pid)
+            } else if process.memorySource == .unavailable {
+                summary.unavailableMemoryPIDs.append(pid)
             }
             if process.residentMemorySource == .rusageResidentSize {
                 summary.residentMemorySourceFallbackPIDs.append(pid)
+            } else if process.residentMemorySource == .unavailable {
+                summary.unavailableResidentMemoryPIDs.append(pid)
             }
         }
 
@@ -387,6 +397,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var seenProcessIds: Set<Int> = []
         var memorySourceFallbackPIDs: [Int] = []
         var residentMemorySourceFallbackPIDs: [Int] = []
+        var unavailableMemoryPIDs: [Int] = []
+        var unavailableResidentMemoryPIDs: [Int] = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
@@ -396,9 +408,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processIds.append(process.pid)
             if process.memorySource == .residentSize {
                 memorySourceFallbackPIDs.append(process.pid)
+            } else if process.memorySource == .unavailable {
+                unavailableMemoryPIDs.append(process.pid)
             }
             if process.residentMemorySource == .rusageResidentSize {
                 residentMemorySourceFallbackPIDs.append(process.pid)
+            } else if process.residentMemorySource == .unavailable {
+                unavailableResidentMemoryPIDs.append(process.pid)
             }
         }
 
@@ -414,7 +430,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     processCount: sortedProcessIds.count,
                     pids: sortedProcessIds,
                     memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted(),
-                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted()
+                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted(),
+                    unavailableMemoryPIDs: unavailableMemoryPIDs.sorted(),
+                    unavailableResidentMemoryPIDs: unavailableResidentMemoryPIDs.sorted()
                 ).payload()
             ]
         }
@@ -429,6 +447,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var seenProcessIds: Set<Int> = []
         var memorySourceFallbackPIDs: [Int] = []
         var residentMemorySourceFallbackPIDs: [Int] = []
+        var unavailableMemoryPIDs: [Int] = []
+        var unavailableResidentMemoryPIDs: [Int] = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
@@ -438,9 +458,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processIds.append(process.pid)
             if process.memorySource == .residentSize {
                 memorySourceFallbackPIDs.append(process.pid)
+            } else if process.memorySource == .unavailable {
+                unavailableMemoryPIDs.append(process.pid)
             }
             if process.residentMemorySource == .rusageResidentSize {
                 residentMemorySourceFallbackPIDs.append(process.pid)
+            } else if process.residentMemorySource == .unavailable {
+                unavailableResidentMemoryPIDs.append(process.pid)
             }
         }
 
@@ -457,7 +481,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     processCount: sortedProcessIds.count,
                     pids: sortedProcessIds,
                     memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted(),
-                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted()
+                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted(),
+                    unavailableMemoryPIDs: unavailableMemoryPIDs.sorted(),
+                    unavailableResidentMemoryPIDs: unavailableResidentMemoryPIDs.sorted()
                 ).payload()
             ]
         }

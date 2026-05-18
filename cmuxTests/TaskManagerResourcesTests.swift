@@ -23,6 +23,10 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(int(payload["memory_source_fallback_count"]), 1)
         XCTAssertEqual(intArray(payload["resident_memory_source_fallback_pids"]), [404])
         XCTAssertEqual(int(payload["resident_memory_source_fallback_count"]), 1)
+        XCTAssertEqual(intArray(payload["unavailable_memory_pids"]), [505])
+        XCTAssertEqual(int(payload["unavailable_memory_count"]), 1)
+        XCTAssertEqual(intArray(payload["unavailable_resident_memory_pids"]), [606])
+        XCTAssertEqual(int(payload["unavailable_resident_memory_count"]), 1)
     }
 
     func testAttributedPayloadReturnsUnmodifiedPayloadForSingleOccurrence() {
@@ -553,6 +557,8 @@ final class TaskManagerResourcesTests: XCTestCase {
         summary.missingPIDs = [202]
         summary.memorySourceFallbackPIDs = [303]
         summary.residentMemorySourceFallbackPIDs = [404]
+        summary.unavailableMemoryPIDs = [505]
+        summary.unavailableResidentMemoryPIDs = [606]
         return summary
     }
 
@@ -608,6 +614,10 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(int(payload["memory_source_fallback_count"]), 1, file: file, line: line)
         XCTAssertEqual(intArray(payload["resident_memory_source_fallback_pids"]), [404], file: file, line: line)
         XCTAssertEqual(int(payload["resident_memory_source_fallback_count"]), 1, file: file, line: line)
+        XCTAssertEqual(intArray(payload["unavailable_memory_pids"]), [505], file: file, line: line)
+        XCTAssertEqual(int(payload["unavailable_memory_count"]), 1, file: file, line: line)
+        XCTAssertEqual(intArray(payload["unavailable_resident_memory_pids"]), [606], file: file, line: line)
+        XCTAssertEqual(int(payload["unavailable_resident_memory_count"]), 1, file: file, line: line)
     }
 
     private func double(_ raw: Any?) -> Double {
