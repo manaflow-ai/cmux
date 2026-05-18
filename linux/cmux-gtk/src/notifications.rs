@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! FreeDesktop notification integration for Linux desktops.
 
 use notify_rust::{Notification, NotificationHandle};
