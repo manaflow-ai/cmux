@@ -474,7 +474,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             fallbackPath: nil,
             userDefaults: defaults,
             notificationCenter: notificationCenter,
-            startWatching: false
+            startWatching: true
         )
         XCTAssertEqual(defaults.string(forKey: defaultsKey), "#000000")
 
@@ -709,7 +709,7 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             fallbackPath: nil,
             userDefaults: defaults,
             notificationCenter: notificationCenter,
-            startWatching: false
+            startWatching: true
         )
 
         let stalePath = "legacy.removedSetting"
