@@ -88,7 +88,7 @@ struct MarkdownPanelView: View {
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
-                handle: panel.rendererHandle,
+                session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -211,8 +211,8 @@ struct MarkdownPanelView: View {
 
     private func copyAsHTML() {
         Task { @MainActor in
-            guard let html = await panel.rendererHandle.renderedHTML(markdown: panel.content) else { return }
-            let text = await panel.rendererHandle.renderedText() ?? panel.content
+            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
+            let text = await panel.rendererSession.renderedText() ?? panel.content
             let pb = NSPasteboard.general
             pb.clearContents()
             // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
@@ -300,54 +300,5 @@ private struct MarkdownPanelToolbar: View {
             label: title,
             action: action
         )
-    }
-}
-
-// MARK: - Renderer handle
-
-/// Lightweight reference object MarkdownPanel owns so the view can talk to
-/// the underlying WKWebView (primarily to fetch the rendered
-/// HTML for "Copy as HTML"). Owned by MarkdownPanel so transient SwiftUI
-/// view recreation does not reload the web view.
-@MainActor
-final class MarkdownWebRendererHandle {
-    private var storedCoordinator: MarkdownWebRenderer.Coordinator?
-
-    func coordinator() -> MarkdownWebRenderer.Coordinator {
-        if let storedCoordinator {
-            return storedCoordinator
-        }
-        let coordinator = MarkdownWebRenderer.Coordinator()
-        storedCoordinator = coordinator
-        return coordinator
-    }
-
-    func close() {
-        storedCoordinator?.close()
-        storedCoordinator = nil
-    }
-
-    func renderedHTML(markdown: String? = nil) async -> String? {
-        guard let coordinator = storedCoordinator else { return nil }
-        return await coordinator.renderedHTML(markdown: markdown)
-    }
-
-    func renderedText() async -> String? {
-        guard let coordinator = storedCoordinator else { return nil }
-        return await coordinator.renderedText()
-    }
-}
-
-@MainActor
-final class MarkdownWebView: WKWebView {
-    var onPointerDown: (() -> Void)?
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        super.mouseDown(with: event)
     }
 }

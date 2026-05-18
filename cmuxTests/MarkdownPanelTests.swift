@@ -117,8 +117,8 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.isDirty)
     }
 
-    func testMarkdownRendererHandleReusesCoordinatorAcrossViewRecreation() {
-        let handle = MarkdownWebRendererHandle()
+    func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {
+        let session = MarkdownRendererSession()
         let panelId = UUID()
         let workspaceId = UUID()
         let filePath = FileManager.default.temporaryDirectory
@@ -133,7 +133,7 @@ final class MarkdownPanelTests: XCTestCase {
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
-            handle: handle,
+            session: session,
             onRequestPanelFocus: {}
         )
         let firstCoordinator = firstRenderer.makeCoordinator()
@@ -145,7 +145,7 @@ final class MarkdownPanelTests: XCTestCase {
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
-            handle: handle,
+            session: session,
             onRequestPanelFocus: {}
         )
         let recreatedCoordinator = recreatedRenderer.makeCoordinator()

@@ -18,6 +18,20 @@ private final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageH
     }
 }
 
+@MainActor
+final class MarkdownWebView: WKWebView {
+    var onPointerDown: (() -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onPointerDown?()
+        super.mouseDown(with: event)
+    }
+}
+
 struct MarkdownWebTheme: Equatable {
     let isDark: Bool
     let background: String
@@ -60,15 +74,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
-    let handle: MarkdownWebRendererHandle
+    let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        let c = handle.coordinator()
-        c.panelId = panelId
-        c.workspaceId = workspaceId
-        c.filePath = filePath
-        return c
+        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -113,11 +123,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Re-bind the handle in case SwiftUI recreated the representable
-        // wrapper while keeping the same NSView around.
-        context.coordinator.panelId = panelId
-        context.coordinator.workspaceId = workspaceId
-        context.coordinator.filePath = filePath
+        // Re-bind panel metadata in case SwiftUI recreated the wrapper while
+        // the panel-owned renderer session kept the same coordinator.
+        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
@@ -162,13 +170,20 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
 
+        func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
+            self.panelId = panelId
+            self.workspaceId = workspaceId
+            self.filePath = filePath
+        }
+
         func close() {
-            guard let webView else { return }
-            webView.stopLoading()
-            webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-            webView.navigationDelegate = nil
-            webView.uiDelegate = nil
-            webView.onPointerDown = nil
+            if let webView {
+                webView.stopLoading()
+                webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+                webView.navigationDelegate = nil
+                webView.uiDelegate = nil
+                webView.onPointerDown = nil
+            }
             self.webView = nil
             isLoaded = false
             webContentProcessRecoveryAttempts = 0
@@ -585,6 +600,37 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             return false
         }
+    }
+}
+
+/// Panel-owned renderer session for a markdown preview.
+///
+/// SwiftUI may recreate `MarkdownWebRenderer` wrappers during split/tab layout
+/// updates. The session keeps the WebKit coordinator identity tied to the
+/// logical `MarkdownPanel` instead of the transient representable instance.
+@MainActor
+final class MarkdownRendererSession {
+    private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
+
+    func coordinator(
+        panelId: UUID,
+        workspaceId: UUID,
+        filePath: String
+    ) -> MarkdownWebRenderer.Coordinator {
+        ownedCoordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        return ownedCoordinator
+    }
+
+    func close() {
+        ownedCoordinator.close()
+    }
+
+    func renderedHTML(markdown: String? = nil) async -> String? {
+        await ownedCoordinator.renderedHTML(markdown: markdown)
+    }
+
+    func renderedText() async -> String? {
+        await ownedCoordinator.renderedText()
     }
 }
 
