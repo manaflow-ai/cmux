@@ -10274,12 +10274,26 @@ struct VerticalTabsSidebar: View {
         let contextMenuHasLatestNotifications = contextMenuWorkspaceIds.contains {
             notificationStore.latestNotification(forTabId: $0) != nil
         }
+        let previousVisibleWorkspaceId: UUID? = {
+            guard !isHiddenSection,
+                  index > 0,
+                  renderContext.tabs.indices.contains(index - 1) else {
+                return nil
+            }
+            return renderContext.tabs[index - 1].id
+        }()
+        let canMoveDown = !isHiddenSection && index < renderContext.workspaceCount - 1
+        let canCloseOtherContextMenuWorkspaces = !isHiddenSection &&
+            renderContext.workspaceCount > 1 &&
+            contextMenuWorkspaceIds.count < renderContext.workspaceCount
 
         let row = TabItemView(
             tab: tab,
             index: index,
             isActive: tabManager.selectedTabId == tab.id,
-            visibleWorkspaceIds: renderContext.workspaceIds,
+            previousVisibleWorkspaceId: previousVisibleWorkspaceId,
+            canMoveDown: canMoveDown,
+            canCloseOtherContextMenuWorkspaces: canCloseOtherContextMenuWorkspaces,
             workspaceShortcutDigit: isHiddenSection ? nil : WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -12739,7 +12753,9 @@ private struct TabItemView: View, Equatable {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
         lhs.isActive == rhs.isActive &&
-        lhs.visibleWorkspaceIds == rhs.visibleWorkspaceIds &&
+        lhs.previousVisibleWorkspaceId == rhs.previousVisibleWorkspaceId &&
+        lhs.canMoveDown == rhs.canMoveDown &&
+        lhs.canCloseOtherContextMenuWorkspaces == rhs.canCloseOtherContextMenuWorkspaces &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -12767,7 +12783,9 @@ private struct TabItemView: View, Equatable {
     let tab: Tab
     let index: Int
     let isActive: Bool
-    let visibleWorkspaceIds: [UUID]
+    let previousVisibleWorkspaceId: UUID?
+    let canMoveDown: Bool
+    let canCloseOtherContextMenuWorkspaces: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -13697,7 +13715,7 @@ private struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(isHiddenWorkspace || index >= visibleWorkspaceIds.count - 1)
+        .disabled(!canMoveDown)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             actions.moveWorkspacesToTop(Set(targetIds))
@@ -13747,12 +13765,12 @@ private struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherTabs(targetIds)
         }
-        .disabled(isHiddenWorkspace || visibleWorkspaceIds.count <= 1 || targetIds.count >= visibleWorkspaceIds.count)
+        .disabled(!canCloseOtherContextMenuWorkspaces)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
         }
-        .disabled(isHiddenWorkspace || index >= visibleWorkspaceIds.count - 1)
+        .disabled(!canMoveDown)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeTabsAbove(tabId: tab.id)
@@ -13835,12 +13853,10 @@ private struct TabItemView: View, Equatable {
         }
 
         guard indicator.edge == .bottom,
-              let currentIndex = visibleWorkspaceIds.firstIndex(of: tab.id),
-              currentIndex > 0
-        else {
+              let previousVisibleWorkspaceId else {
             return false
         }
-        return visibleWorkspaceIds[currentIndex - 1] == indicator.tabId
+        return previousVisibleWorkspaceId == indicator.tabId
     }
 
     private var accessibilityTitle: String {
