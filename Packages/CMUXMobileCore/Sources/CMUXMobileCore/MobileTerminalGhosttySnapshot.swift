@@ -321,9 +321,11 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
     ) throws -> MobileTerminalGhosttySnapshot {
         let gridSize = try MobileTerminalGridSize(columns: columns, rows: rows)
         let visible = paddedRows(lines: visibleLines, columns: columns, rows: rows)
+        let cursorRow = max(0, min(rows - 1, visibleLines.count - 1))
+        let cursorSourceRow = visible.indices.contains(cursorRow) ? visible[cursorRow] : nil
         let resolvedCursor = cursor ?? MobileTerminalGhosttyCursor(
-            column: min(columns - 1, visibleLines.last?.count ?? 0),
-            row: max(0, min(rows - 1, visibleLines.count - 1)),
+            column: cursorColumn(from: cursorSourceRow, columns: columns),
+            row: cursorRow,
             isVisible: modes.cursorVisible
         )
         return try MobileTerminalGhosttySnapshot(
@@ -507,14 +509,31 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         return Array(shiftedRows.prefix(count))
     }
 
+    private static func cursorColumn(from row: MobileTerminalGhosttyRow?, columns: Int) -> Int {
+        guard let row, columns > 0 else { return 0 }
+        var lastOccupiedColumn = 0
+        for (index, cell) in row.cells.enumerated() {
+            guard !cell.text.isEmpty, !cell.isSpacer else { continue }
+            switch cell.width {
+            case .wide:
+                lastOccupiedColumn = max(lastOccupiedColumn, index + 2)
+            case .narrow:
+                lastOccupiedColumn = max(lastOccupiedColumn, index + 1)
+            case .spacerHead, .spacerTail:
+                break
+            }
+        }
+        return min(columns - 1, lastOccupiedColumn)
+    }
+
     private static func row(from line: String, columns: Int) -> MobileTerminalGhosttyRow {
         var cells: [MobileTerminalGhosttyCell] = []
         for character in line {
             let width = terminalDisplayWidth(of: character)
             switch width {
             case 0:
-                guard !cells.isEmpty else { continue }
-                cells[cells.count - 1].text.append(character)
+                guard let targetIndex = cells.lastIndex(where: { !$0.isSpacer }) else { continue }
+                cells[targetIndex].text.append(character)
             case 2:
                 guard cells.count + 2 <= columns else { break }
                 cells.append(MobileTerminalGhosttyCell(text: String(character), width: .wide))
@@ -714,7 +733,11 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             case 0:
                 guard column > 0 else { return }
                 ensureCellStorage(row: row, through: column - 1)
-                rows[row][column - 1].text.append(character)
+                for targetColumn in stride(from: column - 1, through: 0, by: -1) {
+                    guard !rows[row][targetColumn].isSpacer else { continue }
+                    rows[row][targetColumn].text.append(character)
+                    return
+                }
             case 2:
                 if column >= resolvedColumns - 1 {
                     guard wrapsOverflow else { return }
@@ -1237,6 +1260,17 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
 
     private static func isRegionalIndicatorScalar(_ scalar: UnicodeScalar) -> Bool {
         (0x1F1E6...0x1F1FF).contains(scalar.value)
+    }
+}
+
+private extension MobileTerminalGhosttyCell {
+    var isSpacer: Bool {
+        switch width {
+        case .spacerHead, .spacerTail:
+            return true
+        case .narrow, .wide:
+            return false
+        }
     }
 }
 

@@ -5698,6 +5698,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_size(createdSurface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            lastUncappedPixelWidth = wpx
+            lastUncappedPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }

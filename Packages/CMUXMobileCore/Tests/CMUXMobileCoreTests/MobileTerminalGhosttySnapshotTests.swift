@@ -119,6 +119,32 @@ import Testing
     let cells = snapshot.visibleRows[0].cells
     #expect(snapshot.renderedVisibleLines == ["ab界d"])
     #expect(cells.map(\.width) == [.narrow, .narrow, .wide, .spacerTail, .narrow])
+    #expect(snapshot.cursor.column == 4)
+}
+
+@Test func fixtureBuilderPlacesFallbackCursorAfterWideLastGlyph() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fixture(
+        terminalID: "terminal-fixture-wide-cursor",
+        columns: 5,
+        rows: 1,
+        visibleLines: ["ab界"]
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["ab界"])
+    #expect(snapshot.cursor.column == 4)
+}
+
+@Test func fixtureBuilderUsesContentRowForPartialViewportCursor() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fixture(
+        terminalID: "terminal-fixture-partial-cursor",
+        columns: 5,
+        rows: 3,
+        visibleLines: ["ab界"]
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["ab界", "", ""])
+    #expect(snapshot.cursor.row == 0)
+    #expect(snapshot.cursor.column == 4)
 }
 
 @Test func ghosttyTextBuilderPadsVisibleRowsAndLimitsScrollback() throws {

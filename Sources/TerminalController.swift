@@ -17996,7 +17996,7 @@ class TerminalController {
             return .err(
                 code: "internal_error",
                 message: "Failed to create mobile attach ticket",
-                data: nil
+                data: ["error": String(describing: error)]
             )
         }
     }
