@@ -6567,13 +6567,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator: Coordinator,
         generation: Int,
         visibleInUI: Bool,
-        reason: String
+        reason: String,
+        requireDesiredVisibilityMatch: Bool = true
     ) {
         let browserPanel = panel
         Task { @MainActor [weak coordinator] in
             guard let coordinator else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard coordinator.desiredPortalVisibleInUI == visibleInUI else { return }
+            guard !requireDesiredVisibilityMatch ||
+                coordinator.desiredPortalVisibleInUI == visibleInUI else { return }
             browserPanel.noteWebViewVisibility(visibleInUI, reason: reason)
         }
     }
@@ -6843,7 +6845,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator: coordinator,
                 generation: generation,
                 visibleInUI: lifecycleVisibleInUI,
-                reason: lifecycleReason
+                reason: lifecycleReason,
+                requireDesiredVisibilityMatch: portalHostAccepted
             )
         }
 #if DEBUG
