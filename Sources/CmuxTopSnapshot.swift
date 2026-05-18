@@ -566,6 +566,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             memoryBytes = 0
             memorySource = .unavailable
         }
+        let residentBytes: Int64
+        if let taskInfo {
+            residentBytes = int64Clamped(taskInfo.pti_resident_size)
+        } else if let resourceUsage {
+            residentBytes = int64Clamped(resourceUsage.ri_resident_size)
+        } else {
+            residentBytes = 0
+        }
         let cpuSampleKey: CmuxTopProcessScopeCacheKey?
         if let taskInfo {
             let currentCPUSample = cpuSample(from: taskInfo, sampledAtNanoseconds: sampledAtNanoseconds)
@@ -589,7 +597,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             cpuPercent: 0,
             memoryBytes: memoryBytes,
             memorySource: memorySource,
-            residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
+            residentBytes: residentBytes,
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
         ), cpuSampleKey)
@@ -633,10 +641,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var info = rusage_info_v2()
         let result = withUnsafeMutableBytes(of: &info) { rawBuffer -> Int32 in
             guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+            // proc_pid_rusage imports as rusage_info_t *; callers pass the concrete
+            // rusage struct address cast to that opaque buffer type.
+            let buffer = unsafeBitCast(baseAddress, to: UnsafeMutablePointer<rusage_info_t?>.self)
             return proc_pid_rusage(
                 pid_t(pid),
                 RUSAGE_INFO_V2,
-                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+                buffer
             )
         }
         return result == 0 ? info : nil

@@ -766,7 +766,7 @@ enum CLIIDFormat: String {
 
 private enum TopSortKey: Equatable {
     case cpu
-    case rss
+    case memory
     case proc
 }
 
@@ -11478,7 +11478,7 @@ struct CMUXCLI {
         case "cpu", "cpu%":
             return .cpu
         case "rss", "mem", "memory", "ram":
-            return .rss
+            return .memory
         case "proc", "process", "processes", "count":
             return .proc
         default:
@@ -12176,7 +12176,7 @@ struct CMUXCLI {
         case .cpu:
             let value = topDouble(resources["cpu_percent"])
             return value.isFinite ? value : 0
-        case .rss:
+        case .memory:
             return Double(topMemoryBytes(resources))
         case .proc:
             return Double(topInt(resources["process_count"]) ?? 0)

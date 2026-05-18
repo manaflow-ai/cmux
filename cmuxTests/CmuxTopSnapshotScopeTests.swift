@@ -752,10 +752,13 @@ while allocations:
         var info = rusage_info_v2()
         let result = withUnsafeMutableBytes(of: &info) { rawBuffer -> Int32 in
             guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+            // proc_pid_rusage imports as rusage_info_t *; callers pass the concrete
+            // rusage struct address cast to that opaque buffer type.
+            let buffer = unsafeBitCast(baseAddress, to: UnsafeMutablePointer<rusage_info_t?>.self)
             return proc_pid_rusage(
                 pid_t(pid),
                 RUSAGE_INFO_V2,
-                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+                buffer
             )
         }
         guard result == 0 else { return nil }
