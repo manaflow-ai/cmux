@@ -77,6 +77,36 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testCursorResumeCommandDropsCapturedNodeRuntimeFlags() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .cursor,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "~/.cursor",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "cursor",
+                executablePath: "/usr/local/bin/agent",
+                arguments: [
+                    "/usr/local/bin/agent",
+                    "agent",
+                    "--use-system-ca",
+                    "--model",
+                    "gpt-5.4",
+                    "--resume",
+                    "old-chat"
+                ],
+                workingDirectory: "~/.cursor",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '~/.cursor' && '/usr/local/bin/agent' '--resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
+        )
+    }
+
     func testAdditionalHookAgentResumeCommandsUseVerifiedCLIResumeFlags() {
         let cursor = SessionRestorableAgentSnapshot(
             kind: .cursor,
