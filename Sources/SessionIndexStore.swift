@@ -605,6 +605,7 @@ final class SessionIndexStore: ObservableObject {
 
     private struct ClaudeSessionRoot: Hashable {
         let configDir: String
+        let resumeConfigDirectory: String?
 
         var projectsRoot: String {
             (configDir as NSString).appendingPathComponent("projects")
@@ -615,12 +616,13 @@ final class SessionIndexStore: ObservableObject {
         let url: URL
         let mtime: Date
         let dirName: String
+        let resumeConfigDirectory: String?
         let prefilteredByRipgrep: Bool
     }
 
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
         let fm = FileManager.default
-        var roots: [String] = []
+        var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
 
         func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
@@ -635,11 +637,20 @@ final class SessionIndexStore: ObservableObject {
                   isDirectory.boolValue else {
                 return
             }
-            if requireConfigured, !isLikelyConfiguredClaudeRoot(standardized) {
+            let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
+                standardized,
+                fileManager: fm
+            )
+            if requireConfigured, resumeConfigDirectory == nil {
                 return
             }
             guard seen.insert(standardized).inserted else { return }
-            roots.append(standardized)
+            roots.append(
+                ClaudeSessionRoot(
+                    configDir: standardized,
+                    resumeConfigDirectory: resumeConfigDirectory
+                )
+            )
         }
 
         let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
@@ -660,18 +671,7 @@ final class SessionIndexStore: ObservableObject {
             requireConfigured: false
         )
 
-        return roots.map(ClaudeSessionRoot.init(configDir:))
-    }
-
-    nonisolated private static func isLikelyConfiguredClaudeRoot(_ configDir: String) -> Bool {
-        let configPath = (configDir as NSString).appendingPathComponent(".claude.json")
-        guard let data = FileManager.default.contents(atPath: configPath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
-        }
-        return obj["oauthAccount"] != nil
-            || obj["primaryApiKey"] != nil
-            || obj["apiKey"] != nil
+        return roots
     }
 
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
@@ -824,6 +824,7 @@ final class SessionIndexStore: ObservableObject {
                         url: url,
                         mtime: mtime,
                         dirName: dirName,
+                        resumeConfigDirectory: root.resumeConfigDirectory,
                         prefilteredByRipgrep: prefilteredByRipgrep
                     )
                 )
@@ -1201,6 +1202,7 @@ final class SessionIndexStore: ObservableObject {
                             url: url,
                             mtime: mtime,
                             dirName: dirName,
+                            resumeConfigDirectory: root.resumeConfigDirectory,
                             prefilteredByRipgrep: true
                         )
                     )
@@ -1254,7 +1256,11 @@ final class SessionIndexStore: ObservableObject {
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (idx, cached, true)
+                        return (
+                            idx,
+                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                            true
+                        )
                     }
                     let head = SessionIndexCore.readFileHead(url: candidate.url, byteCap: SessionIndexCore.headByteCap)
                     let tail = SessionIndexCore.readFileTail(url: candidate.url, byteCap: SessionIndexCore.tailByteCap)
@@ -1266,7 +1272,11 @@ final class SessionIndexStore: ObservableObject {
                     }
                     if let cached {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (idx, cached, true)
+                        return (
+                            idx,
+                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                            true
+                        )
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
@@ -1281,7 +1291,11 @@ final class SessionIndexStore: ObservableObject {
                         pullRequest: parsed.pr,
                         modified: candidate.mtime,
                         fileURL: candidate.url,
-                        specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
+                        specifics: .claude(
+                            model: parsed.model,
+                            permissionMode: parsed.permissionMode,
+                            configDirectoryForResume: candidate.resumeConfigDirectory
+                        )
                     )
                     if needle.isEmpty {
                         ClaudeMetadataCache.shared.put(
