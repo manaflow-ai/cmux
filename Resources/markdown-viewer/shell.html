@@ -339,6 +339,11 @@ html { scroll-behavior: smooth; }
     return out;
   }
 
+  function isSafeDataImageURL(value) {
+    var raw = String(value || '').trim();
+    return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=\s]+$/i.test(raw);
+  }
+
   function isSafeURLAttribute(name, value) {
     var raw = String(value || '').trim();
     if (!raw) { return true; }
@@ -348,10 +353,12 @@ html { scroll-behavior: smooth; }
     var compact = compactForProtocolCheck(raw);
     if (
       compact.indexOf('javascript:') === 0 ||
-      compact.indexOf('vbscript:') === 0 ||
-      compact.indexOf('data:') === 0
+      compact.indexOf('vbscript:') === 0
     ) {
       return false;
+    }
+    if (compact.indexOf('data:') === 0) {
+      return name === 'src' && isSafeDataImageURL(raw);
     }
 
     try {
