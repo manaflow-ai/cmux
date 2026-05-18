@@ -974,8 +974,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-        let surfaceTTYNames: [UUID: String]
-        let currentSessionReportedTTYPanelIds: Set<UUID>
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -1000,9 +998,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil,
-                            surfaceTTYNames: [:],
-                            currentSessionReportedTTYPanelIds: []
+                            remoteDaemonStatus: nil
                         )
                     )
                     .eraseToAnyPublisher()
@@ -1014,11 +1010,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$remoteConnectionDetail
                     )
                     .combineLatest(workspace.$remoteDaemonStatus)
-                    .combineLatest(
-                        workspace.$surfaceTTYNames,
-                        workspace.$currentSessionReportedTTYPanelIds
-                    )
-                    .map { values, surfaceTTYNames, currentSessionReportedTTYPanelIds in
+                    .map { values in
                         let (workspaceValues, remoteDaemonStatus) = values
                         let (
                             currentDirectory,
@@ -1032,9 +1024,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus,
-                            surfaceTTYNames: surfaceTTYNames,
-                            currentSessionReportedTTYPanelIds: currentSessionReportedTTYPanelIds
+                            remoteDaemonStatus: remoteDaemonStatus
                         )
                     }
                     .eraseToAnyPublisher()
@@ -5961,8 +5951,10 @@ struct ContentView: View {
             commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] != nil ||
             commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] != nil
         if hasForkableAgentCache,
-           (commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] ?? "") != ttyCacheValue ||
-           commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] != ttyWasReportedInCurrentSession {
+           (
+               (commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] ?? "") != ttyCacheValue ||
+               commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] != ttyWasReportedInCurrentSession
+           ) {
             cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
             commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
             commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
