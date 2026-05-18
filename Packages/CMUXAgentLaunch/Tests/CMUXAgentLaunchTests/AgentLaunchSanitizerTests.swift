@@ -69,6 +69,35 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Stops Codex variadic add-dir before resume subcommand")
+    func stopsCodexVariadicAddDirBeforeResumeSubcommand() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "/tmp/shared",
+                    "resume",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "/tmp/shared",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
     @Test("Drops Pi session selectors and prompt while preserving configuration")
     func dropsPiSessionSelectorsAndPrompt() {
         #expect(
