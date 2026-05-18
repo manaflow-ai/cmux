@@ -228,6 +228,65 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         }
     }
 
+    func testSurfaceResumePayloadIncludesEnvironment() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let environment = ["EMPTY": "", "SPACED": "  keep exact  "]
+        let setResult = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "tmux attach -t dogfood",
+                "environment": environment,
+            ]
+        )
+        let setBinding = try XCTUnwrap(setResult["resume_binding"] as? [String: Any])
+        let setEnvironment = try XCTUnwrap(setBinding["environment"] as? [String: Any])
+        XCTAssertEqual(setEnvironment["EMPTY"] as? String, "")
+        XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+            ]
+        )
+        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        let getEnvironment = try XCTUnwrap(getBinding["environment"] as? [String: Any])
+        XCTAssertEqual(getEnvironment["EMPTY"] as? String, "")
+        XCTAssertEqual(getEnvironment["SPACED"] as? String, "  keep exact  ")
+    }
+
     func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

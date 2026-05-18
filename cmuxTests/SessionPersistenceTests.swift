@@ -3590,6 +3590,21 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testSurfaceResumeBindingPreservesExactEnvironmentValues() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            environment: [
+                " EMPTY ": "",
+                "SPACED": "  keep exact  ",
+                "PLAIN": "value",
+            ]
+        )
+
+        XCTAssertEqual(binding.environment?["EMPTY"], "")
+        XCTAssertEqual(binding.environment?["SPACED"], "  keep exact  ")
+        XCTAssertEqual(binding.environment?["PLAIN"], "value")
+    }
+
     @MainActor
     func testRestoreRunsSurfaceResumeBindingFromBindingCwd() throws {
         let source = Workspace()

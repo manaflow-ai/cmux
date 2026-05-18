@@ -273,9 +273,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         guard let environment else { return nil }
         let normalized = environment.reduce(into: [String: String]()) { result, item in
             let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty, !value.isEmpty else { return }
-            result[key] = value
+            guard !key.isEmpty else { return }
+            result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
     }

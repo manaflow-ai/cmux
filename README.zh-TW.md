@@ -236,15 +236,33 @@ cmux 是一個基礎元件，而非完整方案。它提供終端機、瀏覽器
 
 cmux NIGHTLY 是一個獨立的應用程式，擁有自己的 bundle ID，因此可以與穩定版並行執行。每次從最新的 `main` 提交自動建構，並透過自己的 Sparkle 來源自動更新。
 
-## 工作階段還原（目前行為）
+## 工作階段還原
 
-重新啟動時，cmux 目前僅還原應用程式佈局和中繼資料：
+退出 cmux 會保存目前工作階段。重新啟動時，cmux 會還原應用程式管理的狀態：
 - 視窗/工作區/窗格佈局
 - 工作目錄
 - 終端機捲動緩衝區（盡力而為）
 - 瀏覽器 URL 和瀏覽歷程
 
-cmux **不會**還原終端機應用程式內的即時程序狀態。例如，活躍的 Claude Code/tmux/vim 工作階段在重新啟動後尚無法恢復。
+cmux 不會為任意即時程序狀態做檢查點。tmux、vim、shell 和未支援的終端機應用程式會以一般終端機重新開啟。
+
+當 hooks 已保存原生工作階段 ID 時，支援的 agent 工作階段可以還原：
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+進階使用者和整合可以把自訂還原命令綁定到目前終端機 surface。這適合 tmux 工作階段或自訂 agent CLI 這類有持久狀態的工具：
+
+```bash
+cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+這個綁定會關聯到 cmux surface，並在啟用自動還原時於工作階段還原後執行。
 
 ## Star 歷史
 

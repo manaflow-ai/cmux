@@ -236,15 +236,33 @@ Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se pril
 
 cmux NIGHTLY je zasebna aplikacija sa vlastitim bundle ID-om, tako da radi uporedo sa stabilnom verzijom. Automatski se gradi iz najnovijeg `main` commita i ažurira se putem vlastitog Sparkle feeda.
 
-## Vraćanje sesije (trenutno ponašanje)
+## Vraćanje sesije
 
-Prilikom ponovnog pokretanja, cmux trenutno vraća samo raspored aplikacije i metapodatke:
+Kada zatvorite cmux, trenutna sesija se sprema. Pri ponovnom pokretanju cmux vraća stanje kojim upravlja aplikacija:
 - Raspored prozora/radnih prostora/panela
 - Radne direktorije
 - Scrollback terminala (po mogućnosti)
 - URL preglednika i historija navigacije
 
-cmux **ne** vraća stanje živih procesa unutar terminalnih aplikacija. Na primjer, aktivne sesije Claude Code/tmux/vim se još ne nastavljaju nakon restarta.
+cmux ne pravi checkpoint proizvoljnog stanja živih procesa. tmux, vim, shellovi i nepodržane terminalne aplikacije ponovo se otvaraju kao obični terminali.
+
+Podržane agent sesije mogu se nastaviti kada hooks spreme izvorni ID sesije:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Napredni korisnici i integracije mogu vezati prilagođenu komandu za nastavak na trenutni terminal surface. To je korisno za alate s vlastitim trajnim stanjem, poput tmux sesija ili prilagođenih agent CLI alata:
+
+```bash
+cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Binding je vezan za cmux surface i pokreće se nakon vraćanja sesije kada je automatski nastavak uključen.
 
 ## Historija zvjezdica
 

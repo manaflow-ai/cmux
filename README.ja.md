@@ -236,15 +236,33 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 
 cmux NIGHTLYは独自のバンドルIDを持つ別のアプリなので、安定版と並行して実行できます。最新の`main`コミットから自動的にビルドされ、独自のSparkleフィード経由で自動更新されます。
 
-## セッション復元（現在の動作）
+## セッション復元
 
-再起動時、cmuxは現在アプリのレイアウトとメタデータのみを復元します：
+終了すると、cmuxは現在のセッションを保存します。再起動時にcmuxはアプリが管理する状態を復元します：
 - ウィンドウ/ワークスペース/ペインのレイアウト
 - 作業ディレクトリ
 - ターミナルのスクロールバック（ベストエフォート）
 - ブラウザのURLとナビゲーション履歴
 
-cmuxはターミナルアプリ内のライブプロセスの状態を復元**しません**。例えば、アクティブなClaude Code/tmux/vimセッションは再起動後にまだ再開されません。
+cmuxは任意のライブプロセス状態をチェックポイントしません。tmux、vim、シェル、未対応のターミナルアプリは通常のターミナルとして再度開きます。
+
+対応エージェントは、フックがネイティブセッションIDを保存している場合に復元できます：
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+上級ユーザーや連携機能は、現在のターミナルサーフェスにカスタム復元コマンドを紐づけられます。tmuxセッションやカスタムエージェントCLIのように、独自の永続状態を持つツールに使います：
+
+```bash
+cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+この紐づけはcmuxサーフェスに保存され、自動復元が有効な場合にセッション復元後に実行されます。
 
 ## Star History
 

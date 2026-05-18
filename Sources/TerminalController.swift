@@ -6267,6 +6267,7 @@ class TerminalController {
             "cwd": v2OrNull(binding.cwd),
             "checkpoint_id": v2OrNull(binding.checkpointId),
             "source": v2OrNull(binding.source),
+            "environment": v2OrNull(binding.environment),
             "updated_at": binding.updatedAt
         ]
     }

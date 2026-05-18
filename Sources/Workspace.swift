@@ -14175,7 +14175,7 @@ extension Workspace: BonsplitDelegate {
             let restorableAgentResumeState = restoredAgentResumeStatesByPanelId[panelId]
             let resumeBinding = effectiveSurfaceResumeBinding(
                 panelId: panelId,
-                surfaceResumeBindingIndex: .empty
+                surfaceResumeBindingIndex: nil
             )
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(

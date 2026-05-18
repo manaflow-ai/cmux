@@ -236,15 +236,33 @@ Browserens udviklerværktøjsgenveje følger Safaris standarder og kan tilpasses
 
 cmux NIGHTLY er en separat app med sit eget bundle-ID, så den kører side om side med den stabile version. Bygges automatisk fra det seneste `main`-commit og opdaterer sig selv automatisk via sit eget Sparkle-feed.
 
-## Sessionsgenoprettelse (nuværende adfærd)
+## Sessionsgenoprettelse
 
-Ved genstart genopretter cmux i øjeblikket kun app-layout og metadata:
+Når du afslutter cmux, gemmes den aktuelle session. Ved genstart genopretter cmux app-ejet tilstand:
 - Vindue/workspace/panel-layout
 - Arbejdsmapper
 - Terminal-scrollback (best effort)
 - Browser-URL og navigationshistorik
 
-cmux genopretter **ikke** aktive procestilstande i terminalapps. For eksempel genoptages aktive Claude Code/tmux/vim-sessioner endnu ikke efter genstart.
+cmux tager ikke checkpoints af vilkårlig aktiv procestilstand. tmux, vim, shells og ikke-understøttede terminalapps åbnes igen som normale terminaler.
+
+Understøttede agent-sessioner kan genoptages, når hooks har gemt et native sessions-ID:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Avancerede brugere og integrationer kan knytte en brugerdefineret genoptagelseskommando til den aktuelle terminal-surface. Det er nyttigt for værktøjer med egen varig tilstand, som tmux-sessioner eller brugerdefinerede agent-CLI'er:
+
+```bash
+cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Bindingen er knyttet til cmux-surfacen og køres efter sessionsgenoprettelse, når automatisk genoptagelse er slået til.
 
 ## Stjernehistorik
 

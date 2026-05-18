@@ -236,15 +236,33 @@ Os atalhos de ferramentas do desenvolvedor do navegador seguem os padrões do Sa
 
 O cmux NIGHTLY é um app separado com seu próprio bundle ID, então roda ao lado da versão estável. Construído automaticamente a partir do último commit em `main` e se atualiza automaticamente via seu próprio feed Sparkle.
 
-## Restauração de sessão (comportamento atual)
+## Restauração de sessão
 
-Ao reiniciar, o cmux atualmente restaura apenas o layout do app e metadados:
+Ao sair, o cmux salva a sessão atual. Ao abrir novamente, o cmux restaura o estado pertencente ao app:
 - Layout de janelas/workspaces/painéis
 - Diretórios de trabalho
 - Histórico de rolagem do terminal (melhor esforço)
 - URL do navegador e histórico de navegação
 
-O cmux **não** restaura o estado de processos ativos dentro de apps de terminal. Por exemplo, sessões ativas de Claude Code/tmux/vim não são retomadas após reiniciar ainda.
+O cmux não cria checkpoints de processos ativos arbitrários. tmux, vim, shells e apps de terminal sem suporte reabrem como terminais normais.
+
+Sessões de agentes compatíveis podem ser retomadas quando os hooks salvam um ID de sessão nativo:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Usuários avançados e integrações podem associar um comando personalizado de retomada à surface de terminal atual. Isso é útil para ferramentas com estado durável próprio, como sessões tmux ou CLIs de agentes customizados:
+
+```bash
+cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+A associação fica ligada à surface do cmux e roda depois da restauração da sessão quando a retomada automática está ativada.
 
 ## Histórico de Estrelas
 
