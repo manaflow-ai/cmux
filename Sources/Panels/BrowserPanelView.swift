@@ -389,6 +389,8 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    let usesProvidedPaneContext: Bool = false
+    let embeddedCloseAction: (() -> Void)? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
@@ -543,6 +545,9 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        if usesProvidedPaneContext {
+            return true
+        }
         guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
             return false
         }
@@ -856,6 +861,7 @@ struct BrowserPanelView: View {
                 browserProfileButton
                 browserThemeModeButton
                 developerToolsButton
+                embeddedCloseButton
             }
         }
         .padding(.horizontal, 8)
@@ -977,6 +983,24 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    @ViewBuilder
+    private var embeddedCloseButton: some View {
+        if let embeddedCloseAction {
+            Button(action: embeddedCloseAction) {
+                Image(systemName: "sidebar.trailing")
+                    .symbolRenderingMode(.monochrome)
+                    .cmuxFlatSymbolColorRendering()
+                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .foregroundStyle(devToolsColorOption.color)
+                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            }
+            .buttonStyle(OmnibarAddressButtonStyle())
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            .safeHelp(String(localized: "terminalSidekick.collapse", defaultValue: "Collapse Sidekick"))
+            .accessibilityIdentifier("TerminalSidekickCollapseButton")
+        }
     }
 
     private var browserProfileButton: some View {
@@ -1267,6 +1291,7 @@ struct BrowserPanelView: View {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
+                    usesProvidedPaneContext: usesProvidedPaneContext,
                     shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
                     useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
@@ -4457,6 +4482,7 @@ private struct OmnibarSuggestionsView: View {
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
     let paneId: PaneID
+    let usesProvidedPaneContext: Bool
     let shouldAttachWebView: Bool
     let useLocalInlineHosting: Bool
     let shouldFocusWebView: Bool
@@ -6847,6 +6873,14 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        if usesProvidedPaneContext {
+            return BrowserPaneDropContext(
+                workspaceId: panel.workspaceId,
+                panelId: panel.id,
+                paneId: paneId
+            )
+        }
+
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),

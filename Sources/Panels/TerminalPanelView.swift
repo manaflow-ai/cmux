@@ -2,7 +2,6 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
-import WebKit
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -57,17 +56,18 @@ struct TerminalPanelView: View {
                     onDrag: resizeSidekick,
                     onEndDrag: finishSidekickResize
                 )
-                TerminalSidekickView(
-                    snapshot: TerminalSidekickBrowserSnapshot(browserPanel: sidekickPanel),
-                    webView: sidekickPanel.webView,
-                    onGoBack: { sidekickPanel.goBack() },
-                    onGoForward: { sidekickPanel.goForward() },
-                    onReload: { sidekickPanel.reload() },
-                    onStopLoading: { sidekickPanel.stopLoading() },
-                    onNavigate: { panel.navigateSidekick(input: $0) },
-                    onRecordCurrentURL: { panel.recordSidekickCurrentURL($0) },
-                    onClose: { panel.closeSidekick() }
+                BrowserPanelView(
+                    panel: sidekickPanel,
+                    paneId: paneId,
+                    isFocused: false,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority + 1,
+                    onRequestPanelFocus: onFocus,
+                    usesProvidedPaneContext: true,
+                    embeddedCloseAction: { panel.closeSidekick() }
                 )
+                .environment(\.paneDropZone, nil)
+                .accessibilityIdentifier("TerminalSidekickDrawer")
                 .frame(width: sidekickWidth)
                 .frame(maxHeight: .infinity)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -213,201 +213,6 @@ private struct TerminalSidekickDivider: View {
         )
         .accessibilityIdentifier("TerminalSidekickResizeDivider")
         .accessibilityLabel(String(localized: "terminalSidekick.resizeDivider", defaultValue: "Resize Sidekick"))
-    }
-}
-
-private struct TerminalSidekickBrowserSnapshot: Equatable {
-    let canGoBack: Bool
-    let canGoForward: Bool
-    let isLoading: Bool
-    let shouldRenderWebView: Bool
-    let currentURL: URL?
-    let preferredAddressText: String?
-    let webViewInstanceID: UUID
-
-    @MainActor
-    init(browserPanel: BrowserPanel) {
-        self.canGoBack = browserPanel.canGoBack
-        self.canGoForward = browserPanel.canGoForward
-        self.isLoading = browserPanel.isLoading
-        self.shouldRenderWebView = browserPanel.shouldRenderWebView
-        self.currentURL = browserPanel.currentURL
-        self.preferredAddressText = browserPanel.preferredURLStringForOmnibar()
-        self.webViewInstanceID = browserPanel.webViewInstanceID
-    }
-}
-
-private struct TerminalSidekickView: View {
-    let snapshot: TerminalSidekickBrowserSnapshot
-    let webView: WKWebView
-    let onGoBack: () -> Void
-    let onGoForward: () -> Void
-    let onReload: () -> Void
-    let onStopLoading: () -> Void
-    let onNavigate: (String) -> Void
-    let onRecordCurrentURL: (URL?) -> Void
-    let onClose: () -> Void
-    @State private var addressText = ""
-    @FocusState private var addressFocused: Bool
-
-    private let toolbarButtonSize: CGFloat = 26
-
-    var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            content
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .accessibilityIdentifier("TerminalSidekickDrawer")
-        .accessibilityLabel(String(localized: "terminalSidekick.accessibilityLabel", defaultValue: "Terminal sidekick browser"))
-        .onAppear {
-            syncAddressFromSnapshot()
-        }
-        .onChange(of: snapshot.currentURL) { _, url in
-            onRecordCurrentURL(url)
-            guard !addressFocused else { return }
-            syncAddressFromSnapshot()
-        }
-        .onChange(of: snapshot.preferredAddressText) { _, _ in
-            guard !addressFocused else { return }
-            syncAddressFromSnapshot()
-        }
-        .onChange(of: addressFocused) { _, focused in
-            if focused {
-                addressText = snapshot.preferredAddressText ?? addressText
-            } else {
-                syncAddressFromSnapshot()
-            }
-        }
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 4) {
-            toolbarButton(
-                systemName: "chevron.left",
-                help: String(localized: "browser.goBack", defaultValue: "Go Back"),
-                action: onGoBack
-            )
-            .disabled(!snapshot.canGoBack)
-            .opacity(snapshot.canGoBack ? 1 : 0.4)
-
-            toolbarButton(
-                systemName: "chevron.right",
-                help: String(localized: "browser.goForward", defaultValue: "Go Forward"),
-                action: onGoForward
-            )
-            .disabled(!snapshot.canGoForward)
-            .opacity(snapshot.canGoForward ? 1 : 0.4)
-
-            toolbarButton(
-                systemName: snapshot.isLoading ? "xmark" : "arrow.clockwise",
-                help: snapshot.isLoading
-                    ? String(localized: "browser.stop", defaultValue: "Stop")
-                    : String(localized: "browser.reload", defaultValue: "Reload"),
-                action: {
-                    if snapshot.isLoading {
-                        onStopLoading()
-                    } else {
-                        onReload()
-                    }
-                }
-            )
-
-            TextField(
-                String(localized: "terminalSidekick.addressPlaceholder", defaultValue: "Enter URL or search"),
-                text: $addressText
-            )
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .focused($addressFocused)
-            .onSubmit(commitAddress)
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .accessibilityIdentifier("TerminalSidekickAddressField")
-            .accessibilityLabel(String(localized: "terminalSidekick.addressLabel", defaultValue: "Sidekick address"))
-
-            toolbarButton(
-                systemName: "arrow.right.circle.fill",
-                help: String(localized: "terminalSidekick.open", defaultValue: "Open in Sidekick"),
-                action: commitAddress
-            )
-            .disabled(addressText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(addressText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
-
-            toolbarButton(
-                systemName: "sidebar.trailing",
-                help: String(localized: "terminalSidekick.collapse", defaultValue: "Collapse Sidekick"),
-                action: onClose
-            )
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if snapshot.shouldRenderWebView {
-            TerminalSidekickWebViewRepresentable(webView: webView)
-                .id(snapshot.webViewInstanceID)
-                .accessibilityIdentifier("TerminalSidekickWebView")
-        } else {
-            Color(nsColor: .textBackgroundColor)
-                .accessibilityIdentifier("TerminalSidekickBlankWebView")
-        }
-    }
-
-    private func toolbarButton(
-        systemName: String,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: toolbarButtonSize, height: toolbarButtonSize)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(TerminalSidekickToolbarButtonStyle())
-        .safeHelp(help)
-    }
-
-    private func commitAddress() {
-        let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onNavigate(trimmed)
-        addressFocused = false
-    }
-
-    private func syncAddressFromSnapshot() {
-        addressText = snapshot.preferredAddressText ?? ""
-    }
-}
-
-private struct TerminalSidekickToolbarButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(Color.primary.opacity(configuration.isPressed ? 0.65 : 0.9))
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(configuration.isPressed ? Color.primary.opacity(0.12) : Color.clear)
-            )
-    }
-}
-
-private struct TerminalSidekickWebViewRepresentable: NSViewRepresentable {
-    let webView: WKWebView
-
-    func makeNSView(context: Context) -> WKWebView {
-        webView
-    }
-
-    func updateNSView(_ nsView: WKWebView, context: Context) {
-        nsView.allowsBackForwardNavigationGestures = true
     }
 }
 

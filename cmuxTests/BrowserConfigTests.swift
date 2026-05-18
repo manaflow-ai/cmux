@@ -2537,6 +2537,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -2579,6 +2580,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -2640,6 +2642,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -2723,6 +2726,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            usesProvidedPaneContext: false,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
