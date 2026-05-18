@@ -5888,7 +5888,7 @@ struct ContentView: View {
                     return commandPaletteSnapshotForkAvailability(
                         fallbackSnapshot,
                         isRemoteTerminal: isRemoteTerminal
-                    ) == .supportedWithoutProbe
+                    ) != .unsupported
                 }
                 return false
             }
@@ -5907,7 +5907,7 @@ struct ContentView: View {
             return commandPaletteSnapshotForkAvailability(
                 fallbackSnapshot,
                 isRemoteTerminal: isRemoteTerminal
-            ) == .supportedWithoutProbe
+            ) != .unsupported
         }
         return false
     }

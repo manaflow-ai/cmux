@@ -915,7 +915,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkableAgentFallbackSnapshotUsesSynchronousSupportOnly() {
+    func testForkableAgentFallbackSnapshotKeepsOpenCodeVisibleWhileProbeRuns() {
         let workspaceId = UUID()
         let panelId = UUID()
         let codex = SessionRestorableAgentSnapshot(
@@ -961,7 +961,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 fallbackSnapshot: codex
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
