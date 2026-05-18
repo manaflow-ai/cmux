@@ -14210,10 +14210,12 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
-            case .newTerminal, .newBrowser, .splitRight, .splitDown,
-                 .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
+            case .newTerminal, .newBrowser, .splitRight, .splitDown:
+                break
+            case .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
                  .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
                  .rightSidebarFeed, .rightSidebarDock:
+                // Right-sidebar actions return through the shared AppDelegate path above.
                 break
             }
             return
