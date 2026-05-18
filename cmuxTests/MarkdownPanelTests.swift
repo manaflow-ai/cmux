@@ -108,15 +108,18 @@ final class MarkdownPanelTests: XCTestCase {
             eagerLoadTerminal: false
         )
         defer {
+            TerminalController.shared.setActiveTabManager(nil)
             for panel in workspace.panels.values {
                 panel.close()
             }
         }
+        TerminalController.shared.setActiveTabManager(manager)
 
 #if DEBUG
         appDelegate.registerMainWindowContextForTesting(tabManager: manager)
 #else
         XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+        return
 #endif
 
         XCTAssertTrue(
