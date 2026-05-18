@@ -839,7 +839,16 @@ enum BrowserInsecureHTTPSettings {
     }
 }
 
-class BrowserSSLErrorBypassStore {
+// `@unchecked Sendable` is required here because this type is a shared
+// mutable singleton accessed from completion-handler-style `WKNavigationDelegate`
+// callbacks (`didReceive challenge:` and `decidePolicyFor navigationAction:`),
+// which are synchronous and cannot `await` an actor without wrapping every
+// call site in a detached `Task` and changing observable navigation timing.
+// Thread-safety is provided by the internal `NSLock` guarding all access to
+// `bypassedHosts` and `pendingTokens`; no other state is mutated. Per the
+// cmux-swift-actor-isolation rule, `@unchecked Sendable` with this documented
+// reason is the accepted shape when an actor boundary is not viable.
+final class BrowserSSLErrorBypassStore: @unchecked Sendable {
     static let shared = BrowserSSLErrorBypassStore()
     private var bypassedHosts: Set<String> = []
     private var pendingTokens: [String: (host: String, expires: Date)] = [:]
@@ -6428,9 +6437,21 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            let failedHost = URL(string: failedURL)?.host {
             let store = BrowserSSLErrorBypassStore.shared
             let token = store.createPendingToken(for: failedHost)
-            let escapedToken = escapeHTML(token)
+            // Build the bypass URL server-side so URLComponents handles all
+            // percent-encoding. This eliminates JS-string-injection risk that
+            // would otherwise exist if `failedURL` contained a `'` character
+            // and were interpolated into the inline-JS single-quoted string.
+            var bypassComponents = URLComponents()
+            bypassComponents.scheme = "cmux-browser-action"
+            bypassComponents.host = "bypass-ssl"
+            bypassComponents.queryItems = [
+                URLQueryItem(name: "token", value: token),
+                URLQueryItem(name: "url", value: failedURL),
+            ]
+            let bypassURLString = bypassComponents.url?.absoluteString ?? ""
+            let escapedBypassURL = escapeHTML(bypassURLString)
             bypassButtonHTML = """
-                <button class="bypass" onclick="window.location.href='cmux-browser-action://bypass-ssl?token=\(escapedToken)&url=' + encodeURIComponent('\(escapedURL)')">\(escapedBypassLabel)</button>
+                <button class="bypass" onclick="window.location.href='\(escapedBypassURL)'">\(escapedBypassLabel)</button>
             """
             // Auto-reload the page before the token expires so a user who
             // leaves the SSL error page open for days never returns to a
