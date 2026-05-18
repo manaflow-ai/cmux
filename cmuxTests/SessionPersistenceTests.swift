@@ -3862,6 +3862,57 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectionKeepsCodexForkWithoutExplicitSessionId() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_031
+        let process = makeTopProcess(
+            pid: 10_131,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        "--last",
+                        "--model",
+                        "gpt-5.4",
+                        "stale fork prompt"
+                    ],
+                    environment: [
+                        "CODEX_HOME": "/tmp/codex home",
+                        "CODEX_THREAD_ID": "019e1eca-ee32-7001-ab30-edcae57430bb",
+                        "PWD": "/tmp/codex fork repo"
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, "019e1eca-ee32-7001-ab30-edcae57430bb")
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
+        )
+    }
+
     func testProcessDetectionIgnoresStaleCodexForkParentThreadEnvironmentWhenMetadataHasChild() throws {
         let workspaceId = UUID()
         let panelId = UUID()

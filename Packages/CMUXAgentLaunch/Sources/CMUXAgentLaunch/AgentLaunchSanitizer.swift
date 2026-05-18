@@ -156,7 +156,7 @@ public enum AgentLaunchSanitizer {
 
     private struct CodexForkCommand {
         let forkIndex: Int
-        let sessionIndex: Int
+        let sessionIndex: Int?
     }
 
     private static func codexForkCommand(in args: [String]) -> CodexForkCommand? {
@@ -167,10 +167,10 @@ public enum AgentLaunchSanitizer {
                 return nil
             }
             if !arg.hasPrefix("-") || arg == "-" {
-                guard arg == "fork",
-                      let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
+                guard arg == "fork" else {
                     return nil
                 }
+                let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index)
                 return CodexForkCommand(forkIndex: index, sessionIndex: sessionIndex)
             }
             let width = optionWidth(args, index: index, policy: codexPolicy)
@@ -178,9 +178,8 @@ public enum AgentLaunchSanitizer {
                 let end = min(args.count, index + width)
                 if index + 2 < end {
                     for candidateIndex in (index + 2)..<end where args[candidateIndex] == "fork" {
-                        if let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex) {
-                            return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
-                        }
+                        let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex)
+                        return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
                     }
                 }
             }
@@ -301,7 +300,8 @@ public enum AgentLaunchSanitizer {
                 index += 1
                 continue
             }
-            if index == forkCommand.sessionIndex {
+            if let sessionIndex = forkCommand.sessionIndex,
+               sessionIndex == index {
                 index += 1
                 while index < args.count, !args[index].hasPrefix("-") {
                     index += 1
@@ -325,12 +325,13 @@ public enum AgentLaunchSanitizer {
                 continue
             }
             if codexPolicy.variadicOptions.contains(arg),
-               forkCommand.sessionIndex > index,
-               forkCommand.sessionIndex < end {
-                if forkCommand.sessionIndex > index + 1 {
-                    result.append(contentsOf: args[index..<forkCommand.sessionIndex])
+               let sessionIndex = forkCommand.sessionIndex,
+               sessionIndex > index,
+               sessionIndex < end {
+                if sessionIndex > index + 1 {
+                    result.append(contentsOf: args[index..<sessionIndex])
                 }
-                index = forkCommand.sessionIndex
+                index = sessionIndex
                 continue
             }
             result.append(contentsOf: args[index..<end])

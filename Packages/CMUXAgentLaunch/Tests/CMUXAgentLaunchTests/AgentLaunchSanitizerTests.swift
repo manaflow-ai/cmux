@@ -65,6 +65,32 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves Codex fork launch context without explicit session")
+    func preservesCodexForkLaunchContextWithoutExplicitSession() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "fork",
+                    "--last",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
     @Test("Detects Codex fork after startup image options")
     func detectsCodexForkAfterStartupImageOptions() {
         #expect(
