@@ -1059,8 +1059,6 @@ struct ContentView: View {
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var titlebarTrafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var titlebarTrafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
@@ -2314,14 +2312,6 @@ struct ContentView: View {
             leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
                 titlebarLeftControlsTopInset,
                 range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
-            trafficLightsXOffset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarTrafficLightsXOffset,
-                range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
-            ),
-            trafficLightsYOffset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarTrafficLightsYOffset,
-                range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
             ),
             trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
                 titlebarTrafficLightTabBarInset,
@@ -9490,8 +9480,6 @@ struct VerticalTabsSidebar: View {
                 titlebarLeftControlsTopInset,
                 range: MinimalModeTitlebarDebugSettings.topInsetRange
             ),
-            trafficLightsXOffset: MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset,
-            trafficLightsYOffset: MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset,
             trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
             trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
         )

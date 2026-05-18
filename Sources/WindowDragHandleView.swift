@@ -475,22 +475,16 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 enum MinimalModeTitlebarDebugSettings {
     static let leftControlsLeadingInsetKey = "titlebarDebug.leftControlsLeadingInset"
     static let leftControlsTopInsetKey = "titlebarDebug.leftControlsTopInset"
-    static let trafficLightsXOffsetKey = "titlebarDebug.trafficLightsXOffset"
-    static let trafficLightsYOffsetKey = "titlebarDebug.trafficLightsYOffset"
     static let trafficLightTabBarInsetKey = "titlebarDebug.trafficLightTabBarInset"
     static let trafficLightTitlebarLeadingInsetKey = "titlebarDebug.trafficLightTitlebarLeadingInset"
 
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = -2.0
-    static let defaultTrafficLightsXOffset = 0.0
-    static let defaultTrafficLightsYOffset = 1.7
     static let defaultTrafficLightTabBarInset = 80.0
     static let defaultTrafficLightTitlebarLeadingInset = 78.0
 
     static let horizontalInsetRange: ClosedRange<Double> = 0...180
     static let topInsetRange: ClosedRange<Double> = -8...32
-    static let trafficLightOffsetRange: ClosedRange<Double> = -48...96
-    static let trafficLightYOffsetRange: ClosedRange<Double> = -24...24
     static let leftControlsXOffsetRange: ClosedRange<Double> = (
         horizontalInsetRange.lowerBound - defaultLeftControlsLeadingInset
     )...(
@@ -558,18 +552,6 @@ enum MinimalModeTitlebarDebugSettings {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: Double(leftControlsLeadingInset(defaults: defaults)),
             leftControlsTopInset: Double(leftControlsTopInset(defaults: defaults)),
-            trafficLightsXOffset: storedDouble(
-                defaults: defaults,
-                key: trafficLightsXOffsetKey,
-                fallback: defaultTrafficLightsXOffset,
-                range: trafficLightOffsetRange
-            ),
-            trafficLightsYOffset: storedDouble(
-                defaults: defaults,
-                key: trafficLightsYOffsetKey,
-                fallback: defaultTrafficLightsYOffset,
-                range: trafficLightYOffsetRange
-            ),
             trafficLightTabBarLeadingInset: Double(trafficLightTabBarLeadingInset(defaults: defaults)),
             trafficLightTitlebarLeadingInset: Double(trafficLightTitlebarLeadingInset(defaults: defaults))
         )
@@ -599,8 +581,6 @@ enum MinimalModeTitlebarDebugSettings {
 struct MinimalModeTitlebarDebugSnapshot: Equatable {
     let leftControlsLeadingInset: Double
     let leftControlsTopInset: Double
-    let trafficLightsXOffset: Double
-    let trafficLightsYOffset: Double
     let trafficLightTabBarLeadingInset: Double
     let trafficLightTitlebarLeadingInset: Double
 }
