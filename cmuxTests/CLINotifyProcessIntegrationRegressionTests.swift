@@ -971,7 +971,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testCodexTeamsPromptPublishesCodexTeamsResumeBinding() throws {
+    func testCodexTeamsForkPromptPublishesResumeBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-team-resume")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -981,6 +981,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let workspaceId = "33333333-3333-3333-3333-333333333333"
         let surfaceId = "44444444-4444-4444-4444-444444444444"
         let sessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let parentSessionId = "019dad34-d218-7943-b81a-parent-session"
         let ttyName = "ttys-test-codex-teams-resume"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1008,8 +1009,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "arguments": [
                             "/usr/local/bin/cmux",
                             "codex-teams",
+                            "fork",
+                            parentSessionId,
                             "--model",
                             "gpt-5.4",
+                            "stale fork prompt",
+                            "--sandbox",
+                            "danger-full-access",
                             "initial prompt should not replay"
                         ],
                         "workingDirectory": root.path,
@@ -1066,8 +1072,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
             "/usr/local/bin/cmux",
             "codex-teams",
+            "fork",
+            parentSessionId,
             "--model",
             "gpt-5.4",
+            "stale fork prompt",
+            "--sandbox",
+            "danger-full-access",
             "initial prompt should not replay"
         ])
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
@@ -1095,7 +1106,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(
             request["command"] as? String,
-            "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4'"
+            "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 

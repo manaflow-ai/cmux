@@ -1978,6 +1978,38 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsResumeCommandDropsOriginalForkTarget() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019child-session",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "fork",
+                    "019parent-session",
+                    "--model",
+                    "gpt-5.4",
+                    "stale fork prompt",
+                    "--sandbox",
+                    "danger-full-access"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019child-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+    }
+
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -3586,6 +3618,34 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreRetainsProcessDetectedSurfaceResumeBindingBeforeRedetection() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t restored",
+                cwd: "/tmp/project",
+                checkpointId: "restored",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let immediateSnapshot = restored.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "restored")
+        XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t restored")
     }
 
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
