@@ -3103,7 +3103,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         let paths = GhosttyApp.loadedCJKScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
-            appSupportDirectory: appSupport
+            appSupportDirectory: appSupport,
+            environment: [:]
         )
 
         XCTAssertTrue(paths.contains(taggedConfig.path))
@@ -3131,7 +3132,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
-            appSupportDirectory: appSupport
+            appSupportDirectory: appSupport,
+            environment: [:]
         )
 
         XCTAssertTrue(paths.contains(nativeConfig.path))

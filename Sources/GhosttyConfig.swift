@@ -103,16 +103,18 @@ struct GhosttyConfig {
 
     private static func cmuxConfigPaths(
         fileManager: FileManager = .default,
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return []
         }
 
-        return GhosttyApp.cmuxAppSupportConfigURLs(
+        return GhosttyApp.cmuxAppSupportConfigURLsForRuntimeLoad(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupport,
-            fileManager: fileManager
+            fileManager: fileManager,
+            environment: environment
         ).map(\.path)
     }
 
@@ -166,18 +168,19 @@ struct GhosttyConfig {
 
     private static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
         var config = GhosttyConfig()
+        let shouldLoadUserConfig = GhosttyApp.shouldLoadUserGhosttyConfig()
 
         // Match Ghostty's default load order on macOS.
-        let configPaths = [
+        let configPaths = shouldLoadUserConfig ? [
             "~/.config/ghostty/config",
             "~/.config/ghostty/config.ghostty",
             "~/Library/Application Support/com.mitchellh.ghostty/config",
             "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-        ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths()
+        ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths() : []
 
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
-        if startupPreviewProfile.loadsRealUserConfig {
+        if startupPreviewProfile.loadsRealUserConfig, shouldLoadUserConfig {
             for path in configPaths {
                 if let contents = readConfigFile(at: path) {
                     config.parse(
@@ -202,19 +205,27 @@ struct GhosttyConfig {
                 contents,
                 loadingThemesImmediatelyFor: preferredColorScheme
             )
+        } else if config.theme == nil {
+            config.applyCmuxDefaultAppearance(
+                environment: ProcessInfo.processInfo.environment,
+                bundleResourceURL: Bundle.main.resourceURL,
+                preferredColorScheme: preferredColorScheme
+            )
         }
         #else
-        for path in configPaths {
-            if let contents = readConfigFile(at: path) {
-                config.parse(
-                    contents,
-                    loadingThemesImmediatelyFor: preferredColorScheme
-                )
+        if shouldLoadUserConfig {
+            for path in configPaths {
+                if let contents = readConfigFile(at: path) {
+                    config.parse(
+                        contents,
+                        loadingThemesImmediatelyFor: preferredColorScheme
+                    )
+                }
             }
         }
 
         if config.theme == nil,
-           GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
+           (!shouldLoadUserConfig || GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths)) {
             config.applyCmuxDefaultAppearance(
                 environment: ProcessInfo.processInfo.environment,
                 bundleResourceURL: Bundle.main.resourceURL,

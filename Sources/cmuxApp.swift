@@ -6,9 +6,9 @@ import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject private var sidebarState = SidebarState()
-    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @StateObject private var notificationStore: TerminalNotificationStore
+    @StateObject private var sidebarState: SidebarState
+    @StateObject private var keyboardShortcutSettingsObserver: KeyboardShortcutSettingsObserver
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
@@ -37,7 +37,17 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
-        _tabManager = StateObject(wrappedValue: TabManager())
+        let initialTabManager = TabManager(
+            createInitialWorkspace: !SessionRestorePolicy.isRunningUnderAppHostedXCTest()
+        )
+        let initialNotificationStore = TerminalNotificationStore.shared
+        let initialSidebarState = SidebarState()
+        let initialShortcutObserver = KeyboardShortcutSettingsObserver.shared
+
+        _tabManager = StateObject(wrappedValue: initialTabManager)
+        _notificationStore = StateObject(wrappedValue: initialNotificationStore)
+        _sidebarState = StateObject(wrappedValue: initialSidebarState)
+        _keyboardShortcutSettingsObserver = StateObject(wrappedValue: initialShortcutObserver)
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -62,7 +72,11 @@ struct cmuxApp: App {
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        appDelegate.configure(
+            tabManager: initialTabManager,
+            notificationStore: initialNotificationStore,
+            sidebarState: initialSidebarState
+        )
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -842,6 +856,7 @@ struct cmuxApp: App {
     }
 
     private func bootstrapMainWindowScene() {
+        guard !SessionRestorePolicy.isRunningUnderAppHostedXCTest() else { return }
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         applyAppearance()
     }
@@ -1140,6 +1155,11 @@ private struct MainWindowBootstrapView: View {
             .background(WindowAccessor { window in
                 window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
                 window.isRestorable = false
+                if SessionRestorePolicy.isRunningUnderAppHostedXCTest() {
+                    window.setFrame(NSRect(x: -10_000, y: -10_000, width: 1, height: 1), display: false)
+                    window.alphaValue = 0.01
+                    return
+                }
                 window.orderOut(nil)
                 Task { @MainActor [weak window] in
                     window?.orderOut(nil)

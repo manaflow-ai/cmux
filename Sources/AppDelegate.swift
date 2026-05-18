@@ -692,6 +692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var appHostedXCTestKeepaliveWindow: NSWindow?
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
@@ -1009,10 +1010,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        let isRunningUnderAppHostedXCTest = SessionRestorePolicy.isRunningUnderAppHostedXCTest(environment: env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
+            installAppHostedXCTestKeepaliveWindowIfNeeded()
         } else {
             syncActivationPolicy()
         }
@@ -1150,8 +1153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
-        refreshGhosttyGotoSplitShortcuts()
-        installGhosttyConfigObserver()
+        if !isRunningUnderAppHostedXCTest {
+            refreshGhosttyGotoSplitShortcuts()
+            installGhosttyConfigObserver()
+        }
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
@@ -1162,7 +1167,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
-        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        if !isRunningUnderAppHostedXCTest {
+            scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        }
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1239,6 +1246,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+    }
+
+    private func installAppHostedXCTestKeepaliveWindowIfNeeded() {
+        guard SessionRestorePolicy.isRunningUnderAppHostedXCTest() else { return }
+        guard appHostedXCTestKeepaliveWindow == nil else { return }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.xctest.keepalive")
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.alphaValue = 0.01
+        window.ignoresMouseEvents = true
+        window.orderFrontRegardless()
+        appHostedXCTestKeepaliveWindow = window
     }
 
 #if DEBUG

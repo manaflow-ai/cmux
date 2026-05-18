@@ -1692,6 +1692,21 @@ class GhosttyApp {
     private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
+    private static let runtimeCallbackTargetLock = NSLock()
+    private static weak var runtimeCallbackTargetStorage: GhosttyApp?
+
+    private static func setRuntimeCallbackTarget(_ target: GhosttyApp) {
+        runtimeCallbackTargetLock.lock()
+        runtimeCallbackTargetStorage = target
+        runtimeCallbackTargetLock.unlock()
+    }
+
+    private static func runtimeCallbackTarget() -> GhosttyApp? {
+        runtimeCallbackTargetLock.lock()
+        defer { runtimeCallbackTargetLock.unlock() }
+        return runtimeCallbackTargetStorage
+    }
+
     private static func resolveBackgroundLogURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
@@ -1930,6 +1945,7 @@ class GhosttyApp {
     }
 
     private init() {
+        guard !SessionRestorePolicy.isRunningUnderAppHostedXCTest() else { return }
         initializeGhostty()
     }
 
@@ -1999,12 +2015,17 @@ class GhosttyApp {
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
+        Self.setRuntimeCallbackTarget(self)
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            guard let userdata else { return }
+            Unmanaged<GhosttyApp>.fromOpaque(userdata)
+                .takeUnretainedValue()
+                .scheduleTick()
         }
-        runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+        runtimeConfig.action_cb = { _, target, action in
+            guard let app = GhosttyApp.runtimeCallbackTarget() else { return false }
+            return app.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
@@ -2257,11 +2278,14 @@ class GhosttyApp {
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
-            ghostty_config_load_default_files(config)
-            loadLegacyGhosttyConfigIfNeeded(config)
-            loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-            ghostty_config_load_recursive_files(config)
-            if Self.shouldApplyManagedDefaultAppearance() {
+            let shouldLoadUserConfig = Self.shouldLoadUserGhosttyConfig()
+            if shouldLoadUserConfig {
+                ghostty_config_load_default_files(config)
+                loadLegacyGhosttyConfigIfNeeded(config)
+                loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+                ghostty_config_load_recursive_files(config)
+            }
+            if !shouldLoadUserConfig || Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
                     preferredColorScheme: preferredColorScheme
@@ -2275,11 +2299,14 @@ class GhosttyApp {
             )
         }
         #else
-        ghostty_config_load_default_files(config)
-        loadLegacyGhosttyConfigIfNeeded(config)
-        loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        ghostty_config_load_recursive_files(config)
-        if Self.shouldApplyManagedDefaultAppearance() {
+        let shouldLoadUserConfig = Self.shouldLoadUserGhosttyConfig()
+        if shouldLoadUserConfig {
+            ghostty_config_load_default_files(config)
+            loadLegacyGhosttyConfigIfNeeded(config)
+            loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+            ghostty_config_load_recursive_files(config)
+        }
+        if !shouldLoadUserConfig || Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
                 preferredColorScheme: preferredColorScheme
@@ -2761,7 +2788,8 @@ class GhosttyApp {
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first
+        ).first,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         var paths = [
             "~/.config/ghostty/config",
@@ -2777,24 +2805,27 @@ class GhosttyApp {
         guard let bundleId = currentBundleIdentifier,
               !bundleId.isEmpty else { return paths }
 
-        let appSupportConfigURLs = cmuxAppSupportConfigURLs(
+        let appSupportConfigURLs = cmuxAppSupportConfigURLsForRuntimeLoad(
             currentBundleIdentifier: bundleId,
-            appSupportDirectory: appSupportDirectory
+            appSupportDirectory: appSupportDirectory,
+            environment: environment
         )
         paths.append(contentsOf: appSupportConfigURLs.map(\.path))
 
-        let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
-        let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
-        let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        if shouldLoadCmuxAppSupportGhosttyConfig(environment: environment) {
+            let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
+            let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
+            let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
 
-        let releaseConfigSize = configFileSize(at: releaseConfig)
-        let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
+            let releaseConfigSize = configFileSize(at: releaseConfig)
+            let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
 
-        if shouldLoadLegacyGhosttyConfig(
-            newConfigFileSize: releaseConfigSize,
-            legacyConfigFileSize: releaseLegacyConfigSize
-        ), !paths.contains(releaseLegacyConfig.path) {
-            paths.append(releaseLegacyConfig.path)
+            if shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: releaseConfigSize,
+                legacyConfigFileSize: releaseLegacyConfigSize
+            ), !paths.contains(releaseLegacyConfig.path) {
+                paths.append(releaseLegacyConfig.path)
+            }
         }
 
         return paths
@@ -2805,11 +2836,13 @@ class GhosttyApp {
         appSupportDirectory: URL? = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first
+        ).first,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
+            appSupportDirectory: appSupportDirectory,
+            environment: environment
         )
     }
 
@@ -2966,6 +2999,32 @@ class GhosttyApp {
         )
     }
 
+    static func shouldLoadCmuxAppSupportGhosttyConfig(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        !SessionRestorePolicy.isRunningUnderAutomatedTests(environment: environment)
+    }
+
+    static func shouldLoadUserGhosttyConfig(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        !SessionRestorePolicy.isRunningUnderAppHostedXCTest(environment: environment)
+    }
+
+    static func cmuxAppSupportConfigURLsForRuntimeLoad(
+        currentBundleIdentifier: String?,
+        appSupportDirectory: URL,
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [URL] {
+        guard shouldLoadCmuxAppSupportGhosttyConfig(environment: environment) else { return [] }
+        return cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+    }
+
     static func shouldApplyDefaultBackgroundUpdate(
         currentScope: GhosttyDefaultBackgroundUpdateScope,
         incomingScope: GhosttyDefaultBackgroundUpdateScope
@@ -3054,7 +3113,7 @@ class GhosttyApp {
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
               !currentBundleIdentifier.isEmpty else { return }
-        let urls = Self.cmuxAppSupportConfigURLs(
+        let urls = Self.cmuxAppSupportConfigURLsForRuntimeLoad(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupport,
             fileManager: fm
