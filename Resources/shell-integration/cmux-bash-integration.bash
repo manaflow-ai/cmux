@@ -72,10 +72,10 @@ _cmux_relay_rpc_bg() {
     local relay_cli=""
     _cmux_socket_uses_remote_relay || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
-    {
+    # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+    ( set -m; {
         "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true
-    } >/dev/null 2>&1 &
-    disown 2>/dev/null || true
+    } >/dev/null 2>&1 & )
 }
 
 _cmux_relay_rpc() {
@@ -380,9 +380,13 @@ _cmux_report_tty_once() {
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
         _CMUX_TTY_REPORTED=1
-        {
+        # Run in its own process group so bash's stopped-job cleanup
+        # (triggered by Ctrl-Z on a foreground job) cannot SIGHUP this
+        # background subshell and the suspended job along with it.
+        # See https://github.com/manaflow-ai/cmux/issues/2105
+        ( set -m; {
             _cmux_send "$payload"
-        } >/dev/null 2>&1 & disown
+        } >/dev/null 2>&1 & )
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -400,9 +404,10 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    {
+    # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+    ( set -m; {
         _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    } >/dev/null 2>&1 & )
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -423,9 +428,10 @@ _cmux_ports_kick() {
     fi
     _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     if _cmux_socket_is_unix; then
-        {
+        # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+        ( set -m; {
             _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
-        } >/dev/null 2>&1 & disown
+        } >/dev/null 2>&1 & )
     else
         _cmux_ports_kick_via_relay "$reason"
     fi
@@ -521,9 +527,10 @@ _cmux_emit_pr_command_hint() {
         local quoted_target="${_CMUX_LAST_PR_TARGET//\"/\\\"}"
         payload+=" --target=\"$quoted_target\""
     fi
-    {
+    # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+    ( set -m; {
         _cmux_send "$payload"
-    } >/dev/null 2>&1 & disown
+    } >/dev/null 2>&1 & )
     _CMUX_LAST_PR_ACTION=""
     _CMUX_LAST_PR_TARGET=""
 }
@@ -771,15 +778,28 @@ _cmux_run_pr_probe_with_timeout() {
     local repo_path="$1"
     local force_probe="${2:-0}"
     local probe_pid=""
+    local status_file=""
     local started_at=""
     local now=""
     started_at="$(_cmux_now)"
     now=$started_at
 
-    (
-        _cmux_report_pr_for_path "$repo_path" "$force_probe"
-    ) &
-    probe_pid=$!
+    status_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-pr-probe-status.XXXXXX" 2>/dev/null || true)"
+    [[ -n "$status_file" ]] || return 1
+
+    # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+    probe_pid=$(
+        set -m
+        (
+            _cmux_report_pr_for_path "$repo_path" "$force_probe"
+            echo $? > "$status_file"
+        ) &
+        echo $!
+    )
+    if [[ -z "$probe_pid" ]]; then
+        /bin/rm -f -- "$status_file" >/dev/null 2>&1 || true
+        return 1
+    fi
 
     while kill -0 "$probe_pid" >/dev/null 2>&1; do
         sleep 1
@@ -791,14 +811,22 @@ _cmux_run_pr_probe_with_timeout() {
                 _cmux_kill_process_tree "$probe_pid" KILL
                 sleep 0.2
             fi
-            if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
-                wait "$probe_pid" >/dev/null 2>&1 || true
-            fi
+            /bin/rm -f -- "$status_file" >/dev/null 2>&1 || true
             return 1
         fi
     done
 
-    wait "$probe_pid"
+    # The probe is no longer a direct child (it was launched in a subshell
+    # for the isolated process group), so `wait` would fail. Read its
+    # exit status from the status file written by the probe itself.
+    sleep 0.05
+    local probe_status=1
+    if [[ -s "$status_file" ]]; then
+        probe_status="$(/bin/cat "$status_file" 2>/dev/null || echo 1)"
+    fi
+    [[ "$probe_status" =~ ^[0-9]+$ ]] || probe_status=1
+    /bin/rm -f -- "$status_file" >/dev/null 2>&1 || true
+    return "$probe_status"
 }
 
 _cmux_halt_pr_poll_loop() {
@@ -842,31 +870,36 @@ _cmux_start_pr_poll_loop() {
     fi
     _CMUX_PR_POLL_PWD="$watch_pwd"
 
-    {
-        local signal_path=""
-        signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
-        while :; do
-            kill -0 "$watch_shell_pid" 2>/dev/null || break
-            local force_probe=0
-            if [[ -n "$signal_path" && -f "$signal_path" ]]; then
-                force_probe=1
-                /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
-            fi
-            _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
-
-            local slept=0
-            while (( slept < interval )); do
-                kill -0 "$watch_shell_pid" 2>/dev/null || exit 0
+    # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+    # `set -m` inside the command substitution gives the inner `&` its own
+    # process group; `echo $!` relays the PID so we can still kill -0 / kill it.
+    _CMUX_PR_POLL_PID=$(
+        set -m
+        {
+            local signal_path=""
+            signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+            while :; do
+                kill -0 "$watch_shell_pid" 2>/dev/null || break
+                local force_probe=0
                 if [[ -n "$signal_path" && -f "$signal_path" ]]; then
-                    break
+                    force_probe=1
+                    /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
                 fi
-                sleep 1
-                slept=$(( slept + 1 ))
+                _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
+
+                local slept=0
+                while (( slept < interval )); do
+                    kill -0 "$watch_shell_pid" 2>/dev/null || exit 0
+                    if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+                        break
+                    fi
+                    sleep 1
+                    slept=$(( slept + 1 ))
+                done
             done
-        done
-    } >/dev/null 2>&1 &
-    _CMUX_PR_POLL_PID=$!
-    disown "$_CMUX_PR_POLL_PID" 2>/dev/null || disown
+        } >/dev/null 2>&1 &
+        echo $!
+    )
 }
 
 _cmux_bash_cleanup() {
@@ -1012,10 +1045,11 @@ _cmux_prompt_command() {
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        {
+        # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+        ( set -m; {
             local qpwd="${pwd//\"/\\\"}"
             _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 & disown
+        } >/dev/null 2>&1 & )
     fi
 
     # Branch can change via aliases/tools while an older probe is still in flight.
@@ -1059,22 +1093,27 @@ _cmux_prompt_command() {
     if [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
-        {
-            # Skip git operations if not in a git repository to avoid TCC prompts
-            git rev-parse --git-dir >/dev/null 2>&1 || return 0
-            local branch dirty_opt=""
-            branch=$(git branch --show-current 2>/dev/null)
-            if [[ -n "$branch" ]]; then
-                local first
-                first=$(git status --porcelain -uno 2>/dev/null | head -1)
-                [[ -n "$first" ]] && dirty_opt="--status=dirty"
-                _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-            else
-                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-            fi
-        } >/dev/null 2>&1 &
-        _CMUX_GIT_JOB_PID=$!
-        disown
+        # Isolated process group: see issue #2105 (Ctrl-Z stopped-job SIGHUP).
+        # `set -m` inside the command substitution gives the inner `&` its own
+        # process group; `echo $!` relays the PID so kill -0 / kill still work.
+        _CMUX_GIT_JOB_PID=$(
+            set -m
+            {
+                # Skip git operations if not in a git repository to avoid TCC prompts
+                git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+                local branch dirty_opt=""
+                branch=$(git branch --show-current 2>/dev/null)
+                if [[ -n "$branch" ]]; then
+                    local first
+                    first=$(git status --porcelain -uno 2>/dev/null | head -1)
+                    [[ -n "$first" ]] && dirty_opt="--status=dirty"
+                    _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                else
+                    _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                fi
+            } >/dev/null 2>&1 &
+            echo $!
+        )
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 
