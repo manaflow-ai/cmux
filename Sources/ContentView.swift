@@ -7221,18 +7221,10 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
-                commandId: "palette.canvasScrollingColumns",
-                title: constant(String(localized: "command.canvasScrollingColumns.title", defaultValue: "Use Scrolling Columns Canvas")),
+                commandId: "palette.canvas",
+                title: constant(String(localized: "command.canvas.title", defaultValue: "Show Canvas")),
                 subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
-                keywords: ["canvas", "overview", "scrolling", "columns", "niri", "layout"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.canvasFreeform",
-                title: constant(String(localized: "command.canvasFreeform.title", defaultValue: "Use Freeform Canvas")),
-                subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
-                keywords: ["canvas", "overview", "freeform", "move", "layout"]
+                keywords: ["canvas", "overview", "freeform", "niri", "columns", "move", "layout"]
             )
         )
         contributions.append(
@@ -7796,6 +7788,13 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registry.register(commandId: "palette.canvas") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.enterCanvasOverview()
+        }
         registry.register(commandId: "palette.canvasScrollingColumns") {
             guard let workspace = tabManager.selectedWorkspace else {
                 NSSound.beep()
@@ -7808,7 +7807,7 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            workspace.enterCanvasOverview(policy: .freeform)
+            workspace.enterCanvasOverview()
         }
         registry.register(commandId: "palette.equalizeSplits") {
             if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {

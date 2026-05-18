@@ -763,12 +763,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        openCanvasCommandFromPalette(app, query: "Freeform Canvas")
+        openCanvasCommandFromPalette(app, query: "Canvas")
         XCTAssertTrue(
             waitForDataMatch(timeout: 8.0) { data in
-                data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "freeform"
+                data["canvasOverviewActive"] == "true"
             },
-            "Expected command palette to enter freeform canvas. data=\(loadData() ?? [:])"
+            "Expected command palette to enter canvas. data=\(loadData() ?? [:])"
         )
 
         let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch
@@ -852,15 +852,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             waitForDataMatch(timeout: 6.0) { data in
                 data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "scrollingColumns"
             },
-            "Expected Ctrl+Cmd+Shift+C to enter scrolling columns canvas. data=\(loadData() ?? [:])"
+            "Expected Ctrl+Cmd+Shift+C to arrange the canvas as columns. data=\(loadData() ?? [:])"
         )
 
         app.typeKey("f", modifierFlags: [.command, .control, .shift])
         XCTAssertTrue(
             waitForDataMatch(timeout: 6.0) { data in
-                data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "freeform"
+                data["canvasOverviewActive"] == "true"
             },
-            "Expected Ctrl+Cmd+Shift+F to return to freeform canvas. data=\(loadData() ?? [:])"
+            "Expected Ctrl+Cmd+Shift+F to keep the canvas open. data=\(loadData() ?? [:])"
         )
 
         let focusedTerminalCard = canvasCard(app, paneId: terminalPaneId)

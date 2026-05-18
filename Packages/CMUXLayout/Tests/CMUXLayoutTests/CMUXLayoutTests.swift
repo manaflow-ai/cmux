@@ -3915,6 +3915,68 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCanvasViewportPanningAllowsUnboundedOrigin() {
+        let controller = WorkspaceLayoutController()
+
+        controller.panCanvasViewport(
+            screenDelta: CGSize(width: 100, height: -50),
+            scale: 0.5,
+            viewportSize: CGSize(width: 1_200, height: 800)
+        )
+
+        let viewport = controller.canvasViewport
+        XCTAssertEqual(viewport.visibleRect.x, -200, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.y, 100, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.width, 2_400, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.height, 1_600, accuracy: 0.0001)
+    }
+
+    func testCanvasVisibleItemsCullFarOffscreenFrames() {
+        let visibleID = LayoutItemID()
+        let farID = LayoutItemID()
+        let items = [
+            CanvasItem(
+                id: visibleID,
+                content: .group([]),
+                frame: PixelRect(x: 20, y: 20, width: 300, height: 200)
+            ),
+            CanvasItem(
+                id: farID,
+                content: .group([]),
+                frame: PixelRect(x: 1_000_000, y: 1_000_000, width: 300, height: 200)
+            )
+        ]
+
+        let visible = CanvasGeometryEngine.visibleItems(
+            items,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800)),
+            viewportSize: CGSize(width: 1_200, height: 800),
+            scale: 1
+        )
+
+        XCTAssertEqual(visible.map(\.id), [visibleID])
+    }
+
+    func testCanvasVisibleDocumentRectTracksViewportOnly() {
+        let viewport = CanvasViewport(
+            visibleRect: PixelRect(x: -10_000, y: 25_000, width: 1_200, height: 800),
+            scale: 0.5
+        )
+
+        let rect = CanvasGeometryEngine.visibleDocumentRect(
+            viewport: viewport,
+            viewportSize: CGSize(width: 1_000, height: 600),
+            scale: 0.5,
+            overscanScreenPoints: 100
+        )
+
+        XCTAssertEqual(rect.origin.x, -10_200, accuracy: 0.0001)
+        XCTAssertEqual(rect.origin.y, 24_800, accuracy: 0.0001)
+        XCTAssertEqual(rect.width, 2_400, accuracy: 0.0001)
+        XCTAssertEqual(rect.height, 1_600, accuracy: 0.0001)
+    }
+
+    @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()
         let initial = controller.canvasSnapshot()

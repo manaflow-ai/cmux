@@ -136,8 +136,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
-      { id: "canvasFreeform", combos: [["⌃", "⌘", "⇧", "F"]], description: { en: "Open freeform canvas", ja: "自由配置キャンバスを開く" } },
-      { id: "canvasScrollingColumns", combos: [["⌃", "⌘", "⇧", "C"]], description: { en: "Open Niri columns canvas", ja: "Niri列キャンバスを開く" } },
+      { id: "canvasFreeform", combos: [["⌃", "⌘", "⇧", "F"]], description: { en: "Open canvas", ja: "キャンバスを開く" } },
+      { id: "canvasScrollingColumns", combos: [["⌃", "⌘", "⇧", "C"]], description: { en: "Arrange canvas as columns", ja: "キャンバスを列に整列" } },
     ],
   },
   {

@@ -65,6 +65,26 @@ public struct CanvasViewport: Codable, Sendable, Equatable {
         self.scale = Self.normalizedScale(scale)
     }
 
+    public mutating func setVisibleRect(_ rect: PixelRect) {
+        visibleRect = PixelRect(
+            x: rect.x.isFinite ? rect.x : 0,
+            y: rect.y.isFinite ? rect.y : 0,
+            width: max(1, rect.width.isFinite ? rect.width : visibleRect.width),
+            height: max(1, rect.height.isFinite ? rect.height : visibleRect.height)
+        )
+    }
+
+    public mutating func panBy(dx: Double, dy: Double) {
+        setVisibleRect(
+            PixelRect(
+                x: visibleRect.x + (dx.isFinite ? dx : 0),
+                y: visibleRect.y + (dy.isFinite ? dy : 0),
+                width: visibleRect.width,
+                height: visibleRect.height
+            )
+        )
+    }
+
     private static func normalizedScale(_ scale: Double) -> Double {
         guard scale.isFinite else { return 1 }
         return max(minimumScale, scale)

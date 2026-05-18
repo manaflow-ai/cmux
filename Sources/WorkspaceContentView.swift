@@ -577,6 +577,80 @@ private final class CanvasDragEventMonitorView: NSView {
     }
 }
 
+private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
+    var onPan: (CGSize) -> Void
+
+    func makeNSView(context: Context) -> CanvasPanEventMonitorView {
+        let view = CanvasPanEventMonitorView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasPanEventMonitorView, context: Context) {
+        nsView.onPan = onPan
+        nsView.installMonitorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasPanEventMonitorView, coordinator: ()) {
+        nsView.removeMonitor()
+    }
+}
+
+private final class CanvasPanEventMonitorView: NSView {
+    var onPan: ((CGSize) -> Void)?
+
+    private var monitor: Any?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeMonitor()
+        } else {
+            installMonitorIfNeeded()
+        }
+    }
+
+    func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
+
+    func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window,
+              event.window === window,
+              !WorkspaceCanvasDragHitRegionRegistry.isPointerDragActive(in: window),
+              !WorkspaceCanvasResizeHitRegionRegistry.isPointerResizeActive(in: window) else {
+            return event
+        }
+        let localPoint = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(localPoint) else { return event }
+
+        let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+        guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
+        onPan?(delta)
+        return nil
+    }
+
+    deinit {
+        removeMonitor()
+    }
+}
+
 private struct CanvasHeaderDragInteractionLayer: NSViewRepresentable {
     var onDragChanged: (CGSize) -> Void
     var onDragEnded: () -> Void
@@ -1770,20 +1844,16 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
             return lhs.id.description < rhs.id.description
         }
-        let modeIdentifier = document.policy == .scrollingColumns
-            ? "WorkspaceCanvasMode.columns"
-            : "WorkspaceCanvasMode.freeform"
-
         ZStack(alignment: .topLeading) {
             CanvasMetalSceneBackdrop(backgroundColor: appearance.backgroundColor)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    Text(modeTitle(for: document.policy))
+                    Text(String(localized: "canvas.mode.canvas", defaultValue: "Canvas"))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(canvasForegroundColor.opacity(0.68))
-                        .accessibilityIdentifier(modeIdentifier)
+                        .accessibilityIdentifier("WorkspaceCanvasMode.canvas")
 
                     Text("\(Int(document.viewport.scale * 100))%")
                         .font(.system(size: 11, weight: .regular, design: .monospaced))
@@ -1821,12 +1891,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
-                switch document.policy {
-                case .scrollingColumns:
-                    scrollingColumns(items, renderModes: renderModes)
-                case .freeform:
-                    freeformCanvas(items, renderModes: renderModes)
-                }
+                canvasViewport(items, renderModes: renderModes)
             }
         }
         .accessibilityIdentifier("WorkspaceCanvasOverview")
@@ -1899,21 +1964,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .accessibilityLabel(label)
     }
 
-    private func scrollingColumns(_ items: [CanvasItem], renderModes: [LayoutItemID: CanvasRenderMode]) -> some View {
-        ScrollView([.horizontal, .vertical], showsIndicators: false) {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(items) { item in
-                    canvasCard(item, renderMode: renderModes[item.id] ?? .previewTexture)
-                        .frame(width: columnCardSize(for: item.frame).width, height: columnCardSize(for: item.frame).height)
-                }
-            }
-            .padding(.horizontal, canvasPadding)
-            .padding(.bottom, canvasPadding)
-            .frame(maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    private func freeformCanvas(_ items: [CanvasItem], renderModes: [LayoutItemID: CanvasRenderMode]) -> some View {
+    private func canvasViewport(_ items: [CanvasItem], renderModes: [LayoutItemID: CanvasRenderMode]) -> some View {
         GeometryReader { proxy in
             let scale = freeformScale
             let renderedItems = items.map { item in
@@ -1926,94 +1977,113 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 }
                 return renderedItem
             }
-            let contentBounds = freeformContentBounds(for: renderedItems, scale: scale, viewportSize: proxy.size)
+            let documentBounds = CanvasGeometryEngine.visibleDocumentRect(
+                viewport: controller.canvasViewport,
+                viewportSize: proxy.size,
+                scale: scale
+            )
+            let visibleItems = CanvasGeometryEngine.visibleItems(
+                renderedItems,
+                viewport: controller.canvasViewport,
+                viewportSize: proxy.size,
+                scale: scale
+            )
             let viewportOrigin = CGPoint(
                 x: CGFloat(controller.canvasViewport.visibleRect.x),
                 y: CGFloat(controller.canvasViewport.visibleRect.y)
             )
             let transform = CanvasTransform(
-                documentBounds: contentBounds.documentBounds,
+                documentBounds: documentBounds,
                 scale: scale,
                 padding: canvasPadding,
                 documentOrigin: viewportOrigin
             )
 
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                ZStack(alignment: .topLeading) {
-                    canvasGridOverlay(transform: transform, contentSize: contentBounds.size)
+            ZStack(alignment: .topLeading) {
+                canvasGridOverlay(transform: transform, contentSize: proxy.size)
 
-                    ForEach(renderedItems) { item in
-                        let itemFrame = item.frame
-                        let canvasRect = transform.canvasRect(forDocumentFrame: itemFrame)
-                        let size = freeformCardSize(for: itemFrame, scale: scale)
+                ForEach(visibleItems) { item in
+                    let itemFrame = item.frame
+                    let canvasRect = transform.canvasRect(forDocumentFrame: itemFrame)
+                    let size = freeformCardSize(for: itemFrame, scale: scale)
 
-                        canvasCard(
-                            item,
-                            dragScale: scale,
-                            documentBounds: contentBounds.documentBounds,
-                            renderMode: renderModes[item.id] ?? .previewTexture
+                    canvasCard(
+                        item,
+                        dragScale: scale,
+                        documentBounds: documentBounds,
+                        renderMode: renderModes[item.id] ?? .previewTexture
+                    )
+                        .frame(width: size.width, height: size.height)
+                        .position(
+                            x: canvasRect.minX + (size.width / 2),
+                            y: canvasRect.minY + (size.height / 2)
                         )
-                            .frame(width: size.width, height: size.height)
-                            .position(
-                                x: canvasRect.minX + (size.width / 2),
-                                y: canvasRect.minY + (size.height / 2)
-                            )
-                    }
-
-                    canvasAlignmentGuideOverlay(activeAlignmentGuides, transform: transform)
-
-                    CanvasResizeEventMonitorLayer(
-                        onResizeChanged: { itemID, handle, translation in
-                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
-                                return
-                            }
-                            updateFreeformResize(
-                                for: item,
-                                scale: scale,
-                                handle: handle,
-                                translation: translation
-                            )
-                        },
-                        onResizeEnded: { itemID, _ in
-                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
-                                return
-                            }
-                            endFreeformResize(for: item, scale: scale)
-                        }
-                    )
-                    .frame(width: 1, height: 1)
-                    .accessibilityHidden(true)
-
-                    CanvasDragEventMonitorLayer(
-                        onDragChanged: { itemID, translation in
-                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
-                                return
-                            }
-                            updateFreeformDrag(
-                                for: item,
-                                scale: scale,
-                                translation: translation
-                            )
-                        },
-                        onDragEnded: { itemID in
-                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
-                                return
-                            }
-                            endFreeformDrag(for: item)
-                        },
-                        onClick: { itemID in
-                            guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
-                                return
-                            }
-                            focusCanvasHeader(item: item, paneID: paneID(for: item))
-                        }
-                    )
-                    .frame(width: 1, height: 1)
-                    .accessibilityHidden(true)
                 }
-                .frame(width: contentBounds.size.width, height: contentBounds.size.height, alignment: .topLeading)
-                .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
+
+                canvasAlignmentGuideOverlay(activeAlignmentGuides, transform: transform)
+
+                CanvasPanEventMonitorLayer { delta in
+                    controller.panCanvasViewport(
+                        screenDelta: delta,
+                        scale: scale,
+                        viewportSize: proxy.size
+                    )
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .accessibilityHidden(true)
+
+                CanvasResizeEventMonitorLayer(
+                    onResizeChanged: { itemID, handle, translation in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        updateFreeformResize(
+                            for: item,
+                            scale: scale,
+                            handle: handle,
+                            translation: translation
+                        )
+                    },
+                    onResizeEnded: { itemID, _ in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        endFreeformResize(for: item, scale: scale)
+                    }
+                )
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
+
+                CanvasDragEventMonitorLayer(
+                    onDragChanged: { itemID, translation in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        updateFreeformDrag(
+                            for: item,
+                            scale: scale,
+                            translation: translation
+                        )
+                    },
+                    onDragEnded: { itemID in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        endFreeformDrag(for: item)
+                    },
+                    onClick: { itemID in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        focusCanvasHeader(item: item, paneID: paneID(for: item))
+                    }
+                )
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
+            .clipped()
         }
     }
 
@@ -2705,14 +2775,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         min(max(CGFloat(controller.canvasViewport.scale), 0.16), 0.72)
     }
 
-    private func columnCardSize(for frame: PixelRect) -> CGSize {
-        let scale = min(max(CGFloat(controller.canvasViewport.scale), 0.16), 0.72)
-        return CGSize(
-            width: max(300, min(560, CGFloat(frame.width) * scale)),
-            height: max(220, min(420, CGFloat(frame.height) * scale))
-        )
-    }
-
     private func freeformCardSize(for frame: PixelRect, scale: CGFloat) -> CGSize {
         CanvasGeometryEngine.cardSize(
             for: frame,
@@ -2772,21 +2834,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         )
     }
 
-    private func freeformContentBounds(
-        for items: [CanvasItem],
-        scale: CGFloat,
-        viewportSize: CGSize
-    ) -> (documentBounds: CGRect, size: CGSize) {
-        let bounds = CanvasGeometryEngine.viewportAnchoredContentBounds(
-            for: items,
-            scale: scale,
-            viewport: controller.canvasViewport,
-            viewportSize: viewportSize,
-            padding: canvasPadding
-        )
-        return (bounds.documentBounds, bounds.size)
-    }
-
     private func paneTabs(for item: CanvasItem) -> [SurfaceTab] {
         switch item.content {
         case .pane(let paneID):
@@ -2819,15 +2866,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
         case .group:
             return nil
-        }
-    }
-
-    private func modeTitle(for policy: CanvasLayoutPolicy) -> String {
-        switch policy {
-        case .scrollingColumns:
-            return String(localized: "canvas.mode.scrollingColumns", defaultValue: "Niri Columns")
-        case .freeform:
-            return String(localized: "canvas.mode.freeform", defaultValue: "Freeform")
         }
     }
 

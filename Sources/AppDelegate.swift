@@ -11895,7 +11895,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
         if matchConfiguredShortcut(event: event, action: .canvasFreeform) {
-            return performCanvasModeShortcut(policy: .freeform, event: event)
+            return performCanvasModeShortcut(event: event)
         }
         if matchConfiguredShortcut(event: event, action: .canvasScrollingColumns) {
             return performCanvasModeShortcut(policy: .scrollingColumns, event: event)
@@ -12793,7 +12793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func performCanvasModeShortcut(policy: CanvasLayoutPolicy, event: NSEvent) -> Bool {
+    private func performCanvasModeShortcut(policy: CanvasLayoutPolicy? = nil, event: NSEvent) -> Bool {
         let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
         guard let workspace = routedManager?.selectedWorkspace else {
             NSSound.beep()

@@ -11963,7 +11963,7 @@ final class Workspace: Identifiable, ObservableObject {
         CanvasOverviewZoom.defaultScale
     }
 
-    func enterCanvasOverview(policy: CanvasLayoutPolicy) {
+    func enterCanvasOverview(policy: CanvasLayoutPolicy? = nil) {
         layoutController.enterCanvasOverview(policy: policy, scale: CanvasOverviewZoom.defaultScale)
     }
 

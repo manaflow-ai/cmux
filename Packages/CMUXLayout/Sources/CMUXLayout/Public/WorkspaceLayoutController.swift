@@ -703,6 +703,20 @@ public final class WorkspaceLayoutController {
         canvasDocument.viewport.setScale(scale)
     }
 
+    public func panCanvasViewport(screenDelta: CGSize, scale: CGFloat, viewportSize: CGSize) {
+        let safeScale = max(0.0001, scale)
+        var viewport = canvasDocument.viewport
+        viewport.setVisibleRect(
+            PixelRect(
+                x: viewport.visibleRect.x - Double(screenDelta.width / safeScale),
+                y: viewport.visibleRect.y - Double(screenDelta.height / safeScale),
+                width: max(1, Double(viewportSize.width / safeScale)),
+                height: max(1, Double(viewportSize.height / safeScale))
+            )
+        )
+        canvasDocument.viewport = viewport
+    }
+
     public func enterCanvasOverview(
         policy: CanvasLayoutPolicy? = nil,
         scale: Double? = nil,

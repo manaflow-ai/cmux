@@ -71,7 +71,7 @@ extension ContentView {
             return .useSelectionForFind
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
-        case "palette.canvasFreeform":
+        case "palette.canvas", "palette.canvasFreeform":
             return .canvasFreeform
         case "palette.canvasScrollingColumns":
             return .canvasScrollingColumns

@@ -364,6 +364,40 @@ public enum CanvasGeometryEngine {
         )
     }
 
+    public static func visibleDocumentRect(
+        viewport: CanvasViewport,
+        viewportSize: CGSize,
+        scale: CGFloat,
+        overscanScreenPoints: CGFloat = 0
+    ) -> CGRect {
+        let safeScale = max(0.0001, scale)
+        let overscan = max(0, overscanScreenPoints) / safeScale
+        return CGRect(
+            x: CGFloat(viewport.visibleRect.x) - overscan,
+            y: CGFloat(viewport.visibleRect.y) - overscan,
+            width: max(1, viewportSize.width / safeScale) + (overscan * 2),
+            height: max(1, viewportSize.height / safeScale) + (overscan * 2)
+        )
+    }
+
+    public static func visibleItems(
+        _ items: [CanvasItem],
+        viewport: CanvasViewport,
+        viewportSize: CGSize,
+        scale: CGFloat,
+        overscanScreenPoints: CGFloat = 160
+    ) -> [CanvasItem] {
+        let visibleRect = visibleDocumentRect(
+            viewport: viewport,
+            viewportSize: viewportSize,
+            scale: scale,
+            overscanScreenPoints: overscanScreenPoints
+        )
+        return items.filter { item in
+            item.frame.cgRect.intersects(visibleRect)
+        }
+    }
+
     public static func cardSize(for frame: PixelRect, scale: CGFloat, minimumDisplaySize: CGSize) -> CGSize {
         CGSize(
             width: max(minimumDisplaySize.width, CGFloat(frame.width) * scale),
