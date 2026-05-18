@@ -3643,8 +3643,10 @@ class TerminalController {
             if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
                 let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
                 let url = browserPanel.currentURL?.absoluteString ?? ""
+                let webViewLifecycle = browserPanel.webViewLifecycleTopPayload()
                 item["url"] = url
                 item["browser_web_content_pid"] = v2OrNull(webContentPID)
+                item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
                 item["webviews"] = [
                     [
                         "kind": "webview",
@@ -3655,7 +3657,8 @@ class TerminalController {
                         "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                         "title": browserPanel.displayTitle,
                         "url": url,
-                        "pid": v2OrNull(webContentPID)
+                        "pid": v2OrNull(webContentPID),
+                        "lifecycle": webViewLifecycle
                     ] as [String: Any]
                 ]
             } else {
