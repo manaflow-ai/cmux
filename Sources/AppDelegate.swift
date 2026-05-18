@@ -6736,10 +6736,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        cmuxDebugLog("file.preview.externalOpen source=\(debugSource) path=\(filePath)")
+        cmuxDebugLog("file.externalOpen source=\(debugSource) path=\(filePath)")
 #endif
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
-        return true
+        return !workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        ).isEmpty
     }
 
     @discardableResult
@@ -15268,12 +15272,13 @@ private extension NSWindow {
 #if DEBUG
             cmuxDebugLog(
                 "  → browser document editing command preflight " +
-                (result ? "resolved before window menu path" : "left unclaimed; continuing")
+                (result ? "resolved before window menu path" : "left unclaimed; suppressing replay")
             )
 #endif
-            if result {
-                return true
-            }
+            // The focused web view has already received this editing shortcut once.
+            // `CmuxWebView.performKeyEquivalent` also runs the main-menu fallback
+            // before returning, so falling through here would only replay WebKit.
+            return true
         }
 
         if let firstResponderWebView,
