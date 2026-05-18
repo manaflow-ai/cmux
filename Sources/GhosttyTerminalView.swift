@@ -10623,7 +10623,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.synchronizeScrollView()
+            _ = self?.synchronizeGeometryAndContent()
         })
 
         observers.append(NotificationCenter.default.addObserver(

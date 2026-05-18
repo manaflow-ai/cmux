@@ -106637,7 +106637,7 @@
         }
       }
     },
-    "settings.terminal.statusBar.height.many": {
+    "settings.terminal.statusBar.height.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {

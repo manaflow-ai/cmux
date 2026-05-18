@@ -5109,6 +5109,7 @@ struct SettingsView: View {
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
+    @State private var terminalStatusBarCommandDraft = TerminalStatusBarSettings.defaultCommand
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
     @State private var notificationCustomSoundStatusMessage: String?
@@ -5119,6 +5120,11 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @FocusState private var focusedSettingsField: SettingsFocusField?
+
+    private enum SettingsFocusField: Hashable {
+        case terminalStatusBarCommand
+    }
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5239,13 +5245,23 @@ struct SettingsView: View {
 
     private var terminalStatusBarCommandBinding: Binding<String> {
         Binding(
-            get: { terminalStatusBarCommand },
+            get: { terminalStatusBarCommandDraft },
             set: { newValue in
-                guard terminalStatusBarCommand != newValue else { return }
-                terminalStatusBarCommand = newValue
-                TerminalStatusBarSettings.notifyDidChange()
+                terminalStatusBarCommandDraft = newValue
             }
         )
+    }
+
+    private func syncTerminalStatusBarCommandDraft() {
+        guard focusedSettingsField != .terminalStatusBarCommand else { return }
+        guard terminalStatusBarCommandDraft != terminalStatusBarCommand else { return }
+        terminalStatusBarCommandDraft = terminalStatusBarCommand
+    }
+
+    private func commitTerminalStatusBarCommandDraft() {
+        guard terminalStatusBarCommand != terminalStatusBarCommandDraft else { return }
+        terminalStatusBarCommand = terminalStatusBarCommandDraft
+        TerminalStatusBarSettings.notifyDidChange()
     }
 
     private var terminalStatusBarHeightRowsBinding: Binding<Int> {
@@ -5290,7 +5306,7 @@ struct SettingsView: View {
         if rows == 1 {
             return String(localized: "settings.terminal.statusBar.height.one", defaultValue: "1 row")
         }
-        let format = String(localized: "settings.terminal.statusBar.height.many", defaultValue: "%d rows")
+        let format = String(localized: "settings.terminal.statusBar.height.other", defaultValue: "%d rows")
         return String.localizedStringWithFormat(format, rows)
     }
 
@@ -6367,6 +6383,21 @@ struct SettingsView: View {
                                 text: terminalStatusBarCommandBinding
                             )
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedSettingsField, equals: .terminalStatusBarCommand)
+                            .onSubmit {
+                                commitTerminalStatusBarCommandDraft()
+                            }
+                            .onChange(of: focusedSettingsField) { oldValue, newValue in
+                                if oldValue == .terminalStatusBarCommand, newValue != .terminalStatusBarCommand {
+                                    commitTerminalStatusBarCommandDraft()
+                                }
+                            }
+                            .onChange(of: terminalStatusBarCommand) { _, _ in
+                                syncTerminalStatusBarCommandDraft()
+                            }
+                            .onAppear {
+                                syncTerminalStatusBarCommandDraft()
+                            }
                             .disabled(!terminalStatusBarEnabled)
                         }
 
@@ -7523,6 +7554,7 @@ struct SettingsView: View {
         terminalStatusBarEnabled = TerminalStatusBarSettings.defaultEnabled
         terminalStatusBarHeightRows = TerminalStatusBarSettings.defaultHeightRows
         terminalStatusBarCommand = TerminalStatusBarSettings.defaultCommand
+        terminalStatusBarCommandDraft = TerminalStatusBarSettings.defaultCommand
         terminalStatusBarRefreshInterval = TerminalStatusBarSettings.defaultRefreshInterval
         if previousTerminalStatusBarConfiguration != TerminalStatusBarConfiguration.current() {
             TerminalStatusBarSettings.notifyDidChange()
