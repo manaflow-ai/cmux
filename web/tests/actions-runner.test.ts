@@ -22,6 +22,8 @@ const resolveVmEntitlements = mock(() => {
 });
 let failCacheLookup = false;
 let execExitCode = 42;
+let execWorkflowThrowOnCall: number | null = null;
+let execWorkflowCalls = 0;
 let snapshotFails = false;
 const findFreestyleActionSnapshotByName = mock(() => {
   if (failCacheLookup) {
@@ -49,6 +51,10 @@ const runVmWorkflow = mock(async (workflow: unknown) => {
         createdAt: "2026-05-18T00:00:00.000Z",
       };
     case "exec":
+      execWorkflowCalls += 1;
+      if (execWorkflowThrowOnCall === execWorkflowCalls) {
+        throw new Error("provider timeout should stay server-side");
+      }
       return {
         exitCode: execExitCode,
         stdout: "",
@@ -75,6 +81,8 @@ beforeEach(() => {
   findFreestyleActionSnapshotByName.mockClear();
   failCacheLookup = false;
   execExitCode = 42;
+  execWorkflowThrowOnCall = null;
+  execWorkflowCalls = 0;
   snapshotFails = false;
   createVm.mockClear();
   execVm.mockClear();
@@ -141,12 +149,13 @@ describe("cloud action runner", () => {
     }));
   });
 
-  test("converts cache lookup failures into safe action errors", async () => {
+  test("continues without cache when cache lookup fails", async () => {
     failCacheLookup = true;
-    const originalError = console.error;
-    console.error = mock(() => {}) as unknown as typeof console.error;
+    execExitCode = 0;
+    const originalWarn = console.warn;
+    console.warn = mock(() => {}) as unknown as typeof console.warn;
     try {
-      await runAction({
+      const result = await runAction({
         request: {
           action: "hexclave/stack-auth:fresh-env",
           ref: "dev",
@@ -175,20 +184,56 @@ describe("cloud action runner", () => {
           snapshotVm,
         },
       });
+
+      expect(result.started).toBe(true);
+      expect(result.setupRan).toBe(true);
+      expect(result.cache.hit).toBe(false);
+      expect(console.warn).toHaveBeenCalled();
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(createVm).toHaveBeenCalled();
+    expect(execVm).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps start phase when exec workflow throws after setup", async () => {
+    execExitCode = 0;
+    execWorkflowThrowOnCall = 2;
+
+    try {
+      await runAction({
+        request: {
+          action: "hexclave/stack-auth:fresh-env",
+          ref: "dev",
+        },
+        user: testUser(),
+        dependencies: {
+          assertVmCreateEnabled,
+          resolveVmImage,
+          resolveVmEntitlements,
+          findFreestyleActionSnapshotByName,
+          createVm,
+          destroyVm,
+          execVm,
+          runVmWorkflow,
+          snapshotVm,
+        },
+      });
       throw new Error("expected action run to fail");
     } catch (err) {
       expect(isActionRunError(err)).toBe(true);
       if (!isActionRunError(err)) throw err;
-      expect(err.code).toBe("actions_cache_unavailable");
-      expect(err.message).not.toContain("vendor");
-      expect(err.action).toContain("--no-cache");
-      expect(err.details).toEqual({ phase: "cache_lookup" });
-      expect(console.error).toHaveBeenCalled();
-    } finally {
-      console.error = originalError;
+      expect(err.code).toBe("actions_start_failed");
+      expect(err.message).toBe("The action start step failed.");
+      expect(err.details).toEqual({ phase: "start", vmKept: false });
+      expect(JSON.stringify(err.details)).not.toContain("provider timeout");
     }
 
-    expect(createVm).not.toHaveBeenCalled();
+    expect(destroyVm).toHaveBeenCalledWith({
+      userId: "user-actions-runner",
+      providerVmId: "vm-actions-runner-fail",
+    });
   });
 
   test("dry-run does not require VM creation to be enabled", async () => {

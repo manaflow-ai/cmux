@@ -180,8 +180,10 @@ export async function runAction(input: {
   })) as VmEntry;
 
   let setupRan = false;
+  let currentPhase: "setup" | "start" = "setup";
   try {
     if (!cachedSnapshot) {
+      currentPhase = "setup";
       await runCheckedExec({
         userId: input.user.id,
         vmId: vm.providerVmId,
@@ -205,6 +207,7 @@ export async function runAction(input: {
       }
     }
 
+    currentPhase = "start";
     await runCheckedExec({
       userId: input.user.id,
       vmId: vm.providerVmId,
@@ -220,14 +223,13 @@ export async function runAction(input: {
         .catch(() => undefined);
     }
     if (isActionRunError(err)) throw err;
+    const phase = currentPhase;
     throw new ActionRunError(
-      "actions_run_failed",
+      `actions_${phase}_failed`,
       500,
-      "The action VM could not finish setup.",
-      keep
-        ? `Run \`cmux vm ssh ${vm.providerVmId}\` to inspect the VM. Logs are under /workspace/.cmux-actions/logs.`
-        : "Retry with `--keep` to preserve the VM for inspection. Logs are under /workspace/.cmux-actions/logs when the VM is kept.",
-      { phase: "run", vmKept: keep },
+      `The action ${phase} step failed.`,
+      actionFailureInspectionAction(vm.providerVmId, keep),
+      { phase, vmKept: keep },
     );
   }
 
@@ -262,27 +264,41 @@ async function runCheckedExec(input: {
   readonly keep: boolean;
   readonly dependencies: ActionRunnerDependencies;
 }) {
-  const result = await input.dependencies.runVmWorkflow(input.dependencies.execVm({
-    userId: input.userId,
-    providerVmId: input.vmId,
-    command: input.command,
-    timeoutMs: input.timeoutMs,
-  })) as ExecResult;
+  let result: ExecResult;
+  try {
+    result = await input.dependencies.runVmWorkflow(input.dependencies.execVm({
+      userId: input.userId,
+      providerVmId: input.vmId,
+      command: input.command,
+      timeoutMs: input.timeoutMs,
+    })) as ExecResult;
+  } catch {
+    throw new ActionRunError(
+      `actions_${input.phase}_failed`,
+      500,
+      `The action ${input.phase} step failed.`,
+      actionFailureInspectionAction(input.vmId, input.keep),
+      { phase: input.phase, vmKept: input.keep },
+    );
+  }
   if (result.exitCode === 0) return;
-  const action = input.keep
-    ? `Run \`cmux vm ssh ${input.vmId}\` to inspect the VM. Logs are under /workspace/.cmux-actions/logs.`
-    : "Retry with `--keep` to preserve a failed VM for inspection. Logs are under /workspace/.cmux-actions/logs when the VM is kept.";
   throw new ActionRunError(
     `actions_${input.phase}_failed`,
     500,
     `The action ${input.phase} step failed.`,
-    action,
+    actionFailureInspectionAction(input.vmId, input.keep),
     {
       phase: input.phase,
       exitCode: result.exitCode,
       vmKept: input.keep,
     },
   );
+}
+
+function actionFailureInspectionAction(vmId: string, keep: boolean): string {
+  return keep
+    ? `Run \`cmux vm ssh ${vmId}\` to inspect the VM. Logs are under /workspace/.cmux-actions/logs.`
+    : "Retry with `--keep` to preserve a failed VM for inspection. Logs are under /workspace/.cmux-actions/logs when the VM is kept.";
 }
 
 async function findCachedSnapshot(input: {
@@ -293,14 +309,11 @@ async function findCachedSnapshot(input: {
   try {
     return await Effect.runPromise(input.dependencies.findFreestyleActionSnapshotByName(input.cacheName));
   } catch (err) {
-    console.error("Cloud action cache lookup failed", { action: input.action, error: err });
-    throw new ActionRunError(
-      "actions_cache_unavailable",
-      503,
-      "The saved setup layer is not available right now.",
-      `Retry with \`cmux actions run ${input.action} --no-cache\` to rebuild it.`,
-      { phase: "cache_lookup" },
-    );
+    console.warn("Cloud action cache lookup failed; continuing without a saved setup layer.", {
+      action: input.action,
+      error: err,
+    });
+    return null;
   }
 }
 

@@ -54,6 +54,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.stdout, "")
     }
 
+    func testActionsRunHelpDoesNotRequireSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("actions-run-help-missing")
+        unlink(socketPath)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        for args in [["actions", "run", "--help"], ["actions", "run", "help"]] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: args,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertTrue(result.stdout.contains("Usage: cmux actions run <action>"), result.stdout)
+            XCTAssertTrue(result.stdout.contains("hexclave/stack-auth:fresh-env"), result.stdout)
+            XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        }
+    }
+
     func testVMSSHOpensManagedWorkspaceThroughSharedSSHPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh")
@@ -343,7 +368,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "setup_ran": false,
                     "started": false,
                     "ports": [
-                        ["name": "Bad", "port": 70_000, "url": "http://localhost:70000"],
+                        ["name": "Bad", "port": 8_100, "url": "http://localhost:8101"],
                     ],
                     "instructions": [],
                 ]
@@ -365,7 +390,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("invalid port"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("invalid port URL"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Bad"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("8100"), result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["actions.run"]

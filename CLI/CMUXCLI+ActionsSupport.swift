@@ -33,6 +33,7 @@ extension CMUXCLI {
         let sub = commandArgs.first?.lowercased() ?? "list"
         if sub != "run" { return true }
         let rest = Array(commandArgs.dropFirst())
+        if rest.contains(where: { Self.isActionsRunHelpToken($0) }) { return true }
         guard let action = rest.first else { return true }
         return isFlagToken(action)
     }
@@ -47,6 +48,10 @@ extension CMUXCLI {
             }
             printActionsList(jsonOutput: jsonOutput)
         case "run":
+            if rest.contains(where: { Self.isActionsRunHelpToken($0) }) {
+                printActionsRunUsage()
+                return
+            }
             throw CLIError(message: """
                 Usage: cmux actions run <action> [--ref <ref>] [--mode full|basic] [--dry-run] [--keep] [--no-cache] [--detach]
 
@@ -97,6 +102,10 @@ extension CMUXCLI {
         client: SocketClient,
         idFormat: CLIIDFormat
     ) throws {
+        if rest.contains(where: { Self.isActionsRunHelpToken($0) }) {
+            printActionsRunUsage()
+            return
+        }
         guard let action = rest.first, !Self.isFlagToken(action) else {
             throw CLIError(message: """
                 Usage: cmux actions run <action> [--ref <ref>] [--mode full|basic] [--dry-run] [--keep] [--no-cache] [--detach]
@@ -196,17 +205,40 @@ extension CMUXCLI {
         shouldClearIdempotency = true
     }
 
+    private static func isActionsRunHelpToken(_ token: String) -> Bool {
+        let lowered = token.lowercased()
+        return lowered == "help" || lowered == "--help" || lowered == "-h"
+    }
+
+    private func printActionsRunUsage() {
+        print("""
+            Usage: cmux actions run <action> [--ref <ref>] [--mode full|basic] [--dry-run] [--keep] [--no-cache] [--detach]
+
+            Try:
+              cmux actions run hexclave/stack-auth:fresh-env
+            """)
+    }
+
     private func validateActionRunResponse(_ response: [String: Any]) throws {
         guard let rawPorts = response["ports"] else { return }
         guard let ports = rawPorts as? [[String: Any]] else {
             throw CLIError(message: "Cloud action response included invalid port data.")
         }
         for port in ports {
-            guard port["name"] is String,
-                  port["url"] is String,
+            guard let name = port["name"] as? String,
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let urlString = port["url"] as? String,
                   let portNumber = Self.actionRunPortNumber(port["port"]),
                   (1...65_535).contains(portNumber) else {
                 throw CLIError(message: "Cloud action response included an invalid port.")
+            }
+            guard let components = URLComponents(string: urlString),
+                  let scheme = components.scheme,
+                  !scheme.isEmpty,
+                  let host = components.host,
+                  !host.isEmpty,
+                  components.port == portNumber else {
+                throw CLIError(message: "Cloud action response included an invalid port URL for \(name) (expected port \(portNumber)).")
             }
         }
     }
