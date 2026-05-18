@@ -373,9 +373,7 @@ nonisolated enum CmuxSettingsJSONPersistence {
         }
         shouldRemoveTemporaryFile = true
 
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporaryURL.path)
         try data.write(to: temporaryURL, options: [])
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporaryURL.path)
         try replaceItem(at: fileURL, withPrivateTemporaryItemAt: temporaryURL)
         shouldRemoveTemporaryFile = false
     }
