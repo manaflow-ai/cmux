@@ -531,7 +531,11 @@ public enum CmuxSettingsRegistry {
         if let int = value as? Int { return int }
         if let number = value as? NSNumber {
             let double = number.doubleValue
-            guard double.rounded() == double else { return nil }
+            guard double.isFinite, double.rounded() == double else { return nil }
+            guard number.compare(NSNumber(value: Int.min)) != .orderedAscending,
+                  number.compare(NSNumber(value: Int.max)) != .orderedDescending else {
+                return nil
+            }
             return number.intValue
         }
         return nil

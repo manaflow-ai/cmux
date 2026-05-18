@@ -975,6 +975,22 @@ openSettings = "cmd+option+,"
         if after_import != before_import:
             failures.append(f"failed import changed cmux.json: before={before_import} after={after_import}")
 
+        nonfinite_int_import_path = home / "nonfinite-int-import.toml"
+        nonfinite_int_import_path.write_text("automation.portBase = inf\n", encoding="utf-8")
+        nonfinite_int_import = run_cli(cli_path, ["settings", "import", str(nonfinite_int_import_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects non-finite integer",
+            nonfinite_int_import,
+            "automation.portBase expects an integer",
+        )
+        after_nonfinite_int_import = read_config(home)
+        if after_nonfinite_int_import != before_import:
+            failures.append(
+                "failed non-finite integer import changed cmux.json: "
+                f"before={before_import} after={after_nonfinite_int_import}"
+            )
+
         export_path = home / "settings-export.toml"
         exported = run_cli(cli_path, ["settings", "export", "--format", "toml", "--out", str(export_path)], home)
         assert_ok(failures, "settings export toml", exported)
