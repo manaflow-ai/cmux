@@ -60,6 +60,23 @@ extension CmuxTopProcessSnapshot {
         return CmuxTopProcessArguments(arguments: arguments, environment: environment)
     }
 
+    static func processOpenFilePaths(for pid: Int) -> [String] {
+        guard pid > 0, pid <= Int(Int32.max),
+              let output = processOutput(
+                  executablePath: "/usr/sbin/lsof",
+                  arguments: ["-nP", "-w", "-Fn", "-p", String(pid)]
+              ) else {
+            return []
+        }
+        return output
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard line.first == "n" else { return nil }
+                let path = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                return path.isEmpty ? nil : path
+            }
+    }
+
     private static func kernProcArgsBytes(for pid: Int) -> [UInt8]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
@@ -74,6 +91,27 @@ extension CmuxTopProcessSnapshot {
         }
         guard success else { return nil }
         return Array(buffer.prefix(Int(size)))
+    }
+
+    private static func processOutput(executablePath: String, arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
     }
 
     private static func skipString(in bytes: [UInt8], index: inout Int) {

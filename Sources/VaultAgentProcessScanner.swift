@@ -88,6 +88,7 @@ extension RestorableAgentSessionIndex {
         fallbackScope: RestorableAgentProcessDetectionScope? = nil,
         processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false),
         processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment,
+        processOpenFilePaths: (Int) -> [String] = CmuxTopProcessSnapshot.processOpenFilePaths,
         latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId,
         latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
@@ -106,6 +107,7 @@ extension RestorableAgentSessionIndex {
             candidates: candidates,
             capturedAt: capturedAt,
             fileManager: fileManager,
+            processOpenFilePaths: processOpenFilePaths,
             latestCodexForkSessionId: latestCodexForkSessionId
         ) {
             if let existing = resolved[key] {
@@ -586,6 +588,7 @@ extension RestorableAgentSessionIndex {
         candidates: [RestorableAgentProcessDetectionCandidate],
         capturedAt: TimeInterval,
         fileManager: FileManager,
+        processOpenFilePaths: (Int) -> [String],
         latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
@@ -653,6 +656,7 @@ extension RestorableAgentSessionIndex {
             )
             let command = codexSessionCommand(in: tail)
             let parentForkSessionId = command.flatMap { normalized($0.sessionId) }
+            let openFilePaths = command?.name == "fork" ? processOpenFilePaths(process.pid) : []
             let canUseForkMetadataFallback = command?.name == "fork"
                 && codexForkMetadataFallbackKey(
                     workingDirectory: workingDirectory,
@@ -664,6 +668,7 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment,
                 workingDirectory: workingDirectory,
                 fileManager: fileManager,
+                openFilePaths: openFilePaths,
                 latestCodexForkSessionId: latestCodexForkSessionId,
                 allowCodexForkMetadataFallback: canUseForkMetadataFallback
             ) else {
@@ -738,6 +743,7 @@ extension RestorableAgentSessionIndex {
         environment: [String: String],
         workingDirectory: String?,
         fileManager: FileManager,
+        openFilePaths: [String] = [],
         latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
         allowCodexForkMetadataFallback: Bool = true
     ) -> String? {
@@ -746,6 +752,7 @@ extension RestorableAgentSessionIndex {
             environment: environment,
             workingDirectory: workingDirectory,
             fileManager: fileManager,
+            openFilePaths: openFilePaths,
             latestCodexForkSessionId: latestCodexForkSessionId,
             allowCodexForkMetadataFallback: allowCodexForkMetadataFallback
         )?.sessionId
@@ -756,37 +763,57 @@ extension RestorableAgentSessionIndex {
         environment: [String: String],
         workingDirectory: String?,
         fileManager: FileManager,
+        openFilePaths: [String] = [],
         latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
         allowCodexForkMetadataFallback: Bool = true
     ) -> CodexSessionResolution? {
+        if let command = codexSessionCommand(in: tail),
+           command.name == "resume" || command.name == "fork" {
+            let commandSessionId = command.sessionId
+            if command.name == "fork" {
+                if let openSessionId = codexSessionIdFromOpenSessionFiles(
+                    openFilePaths,
+                    workingDirectory: workingDirectory,
+                    parentSessionId: commandSessionId,
+                    environment: environment,
+                    fileManager: fileManager
+                ) {
+                    return CodexSessionResolution(sessionId: openSessionId, isForkParentFallback: false)
+                }
+                // Codex fork processes can inherit the parent CODEX_THREAD_ID.
+                // Prefer the child id from rollout metadata when it exists so
+                // a forked pane can be forked again from its own conversation.
+                if allowCodexForkMetadataFallback,
+                   let forkSessionId = latestCodexForkSessionId(
+                       workingDirectory,
+                       commandSessionId,
+                       environment,
+                       fileManager
+                   ) {
+                    return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
+                }
+                if let threadId = normalized(environment["CODEX_THREAD_ID"]),
+                   threadId != commandSessionId {
+                    return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
+                }
+                if let sessionId = normalized(environment["CODEX_SESSION_ID"]),
+                   sessionId != commandSessionId {
+                    return CodexSessionResolution(sessionId: sessionId, isForkParentFallback: false)
+                }
+                return CodexSessionResolution(
+                    sessionId: commandSessionId,
+                    isForkParentFallback: true
+                )
+            }
+            return CodexSessionResolution(sessionId: commandSessionId, isForkParentFallback: false)
+        }
         if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
             return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
         }
         if let sessionId = normalized(environment["CODEX_SESSION_ID"]) {
             return CodexSessionResolution(sessionId: sessionId, isForkParentFallback: false)
         }
-        // Codex fork processes do not always publish CODEX_THREAD_ID, so keep
-        // the command session as a fallback instead of dropping the pane. When
-        // local metadata has the child fork id, prefer that so forked panes can
-        // be forked again instead of always re-forking the original parent.
-        guard let command = codexSessionCommand(in: tail),
-              command.name == "resume" || command.name == "fork" else {
-            return nil
-        }
-        if command.name == "fork",
-           allowCodexForkMetadataFallback,
-           let forkSessionId = latestCodexForkSessionId(
-               workingDirectory,
-               command.sessionId,
-               environment,
-               fileManager
-           ) {
-            return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
-        }
-        return CodexSessionResolution(
-            sessionId: command.sessionId,
-            isForkParentFallback: command.name == "fork"
-        )
+        return nil
     }
 
     private static func codexForkMetadataFallbackKey(
@@ -798,6 +825,55 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         return workingDirectory + "\u{1f}" + parentSessionId
+    }
+
+    private static func codexSessionIdFromOpenSessionFiles(
+        _ openFilePaths: [String],
+        workingDirectory: String?,
+        parentSessionId: String,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        guard let parentSessionId = normalized(parentSessionId) else { return nil }
+        let sessionsDirectory = codexHomeDirectory(environment: environment, fileManager: fileManager)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .standardizedFileURL
+            .path
+        let sessionsDirectoryPrefix = sessionsDirectory.hasSuffix("/") ? sessionsDirectory : sessionsDirectory + "/"
+        let standardizedWorkingDirectory = standardizedPath(workingDirectory)
+        var selectedMatchingDirectory: (sessionId: String, createdAt: Date)?
+        var selectedAnyDirectory: (sessionId: String, createdAt: Date)?
+
+        for rawPath in openFilePaths {
+            let fileURL = URL(
+                fileURLWithPath: (rawPath as NSString).expandingTildeInPath,
+                isDirectory: false
+            ).standardizedFileURL
+            guard fileURL.pathExtension == "jsonl",
+                  fileURL.path.hasPrefix(sessionsDirectoryPrefix),
+                  let meta = codexSessionMetaLine(fileURL: fileURL),
+                  meta.type == nil || meta.type == "session_meta",
+                  let payload = meta.payload,
+                  normalized(payload.forkedFromId) == parentSessionId,
+                  let sessionId = normalized(payload.id),
+                  sessionId != parentSessionId else {
+                continue
+            }
+            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+            let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
+            if selectedAnyDirectory == nil || createdAt > selectedAnyDirectory!.createdAt {
+                selectedAnyDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+            guard let standardizedWorkingDirectory,
+                  standardizedPath(payload.cwd) == standardizedWorkingDirectory else {
+                continue
+            }
+            if selectedMatchingDirectory == nil || createdAt > selectedMatchingDirectory!.createdAt {
+                selectedMatchingDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+        }
+
+        return (selectedMatchingDirectory ?? selectedAnyDirectory)?.sessionId
     }
 
     private struct CodexSessionMetaLine: Decodable {

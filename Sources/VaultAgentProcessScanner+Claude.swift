@@ -183,19 +183,21 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager
     ) -> String? {
         let environmentSessionId = normalized(environment["CLAUDE_SESSION_ID"])
-        let resumeSessionId = tail.hasClaudeForkSessionFlag
-            ? nil
-            : claudeResumeSessionIdValue(afterOption: "--resume", in: tail)
-                ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail)
+        let resumeSessionId = claudeResumeSessionIdValue(afterOption: "--resume", in: tail)
+            ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail)
         let processSessionFileSessionId = claudeSessionIdFromProcessSessionFile(
             processID: processID,
             environment: environment,
             fileManager: fileManager
         )
         if tail.hasClaudeForkSessionFlag {
+            let nonParentEnvironmentSessionId = environmentSessionId == resumeSessionId
+                ? nil
+                : environmentSessionId
             return claudeSessionIdValue(afterOption: "--session-id", in: tail)
                 ?? processSessionFileSessionId
-                ?? environmentSessionId
+                ?? nonParentEnvironmentSessionId
+                ?? resumeSessionId
         }
         return claudeSessionIdValue(afterOption: "--session-id", in: tail)
             ?? resumeSessionId
@@ -249,7 +251,78 @@ extension RestorableAgentSessionIndex {
            (processCWD as NSString).standardizingPath != (recordCWD as NSString).standardizingPath {
             return nil
         }
+        guard claudeTranscriptExists(
+            configDirectory: configDir,
+            sessionId: sessionId,
+            workingDirectory: normalized(record.cwd ?? environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]),
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
         return sessionId
+    }
+
+    private static func claudeTranscriptExists(
+        configDirectory: String,
+        sessionId: String,
+        workingDirectory: String?,
+        fileManager: FileManager
+    ) -> Bool {
+        guard claudeSessionIdIsSafeFilename(sessionId) else { return false }
+        let projectsURL = URL(fileURLWithPath: configDirectory, isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+        if let workingDirectory = normalized(workingDirectory) {
+            let projectURL = projectsURL.appendingPathComponent(
+                claudeProjectDirectoryName(for: workingDirectory),
+                isDirectory: true
+            )
+            if regularNonEmptyFileExists(
+                atPath: projectURL.appendingPathComponent("\(sessionId).jsonl").path,
+                fileManager: fileManager
+            ) {
+                return true
+            }
+        }
+        guard let projectDirectories = try? fileManager.contentsOfDirectory(
+            at: projectsURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+        for projectDirectory in projectDirectories {
+            let values = try? projectDirectory.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory != false else { continue }
+            if regularNonEmptyFileExists(
+                atPath: projectDirectory.appendingPathComponent("\(sessionId).jsonl").path,
+                fileManager: fileManager
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func claudeProjectDirectoryName(for workingDirectory: String) -> String {
+        (workingDirectory as NSString).standardizingPath.replacingOccurrences(of: "/", with: "-")
+    }
+
+    private static func claudeSessionIdIsSafeFilename(_ sessionId: String) -> Bool {
+        sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
+            && !sessionId.isEmpty
+            && sessionId != "."
+            && sessionId != ".."
+    }
+
+    private static func regularNonEmptyFileExists(atPath path: String, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attrs = try? fileManager.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
     }
 
     private static func claudeConfigDirectory(

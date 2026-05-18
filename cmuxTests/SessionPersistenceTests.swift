@@ -3306,6 +3306,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             sessionId: childSessionId,
             cwd: workingDirectory
         )
+        try writeClaudeTranscript(
+            configDir: configDir,
+            sessionId: childSessionId,
+            cwd: workingDirectory
+        )
         defer {
             try? fileManager.removeItem(at: configDir)
         }
@@ -3346,6 +3351,71 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
         XCTAssertTrue(snapshot.forkCommand?.contains(childSessionId) == true)
         XCTAssertFalse(snapshot.forkCommand?.contains(parentSessionId) == true)
+    }
+
+    func testProcessDetectionFallsBackToClaudeForkParentUntilProcessSessionTranscriptExists() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_141
+        let process = makeTopProcess(
+            pid: 10_141,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fileManager = FileManager.default
+        let configDir = fileManager.temporaryDirectory
+            .appendingPathComponent("claude-fork-child-without-transcript-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/claude fork repo"
+        let parentSessionId = "18f6c8c3-115b-40ff-8f6a-f8b0cc6352bf"
+        let childSessionId = "5f854a42-a167-45aa-b7d7-ab9fc32758c3"
+        try writeClaudeProcessSession(
+            configDir: configDir,
+            pid: process.pid,
+            sessionId: childSessionId,
+            cwd: workingDirectory
+        )
+        defer {
+            try? fileManager.removeItem(at: configDir)
+        }
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        parentSessionId,
+                        "--fork-session",
+                        "--dangerously-skip-permissions"
+                    ],
+                    environment: [
+                        "CLAUDE_CONFIG_DIR": configDir.path,
+                        "CLAUDE_SESSION_ID": parentSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, parentSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
+        XCTAssertTrue(snapshot.forkCommand?.contains(parentSessionId) == true)
+        XCTAssertFalse(snapshot.forkCommand?.contains(childSessionId) == true)
     }
 
     func testProcessDetectionUsesFocusedTTYFallbackForOpenCodeWithoutCMUXEnvironment() throws {
@@ -3496,6 +3566,179 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.forkCommand,
             "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+        )
+    }
+
+    func testProcessDetectionIgnoresStaleCodexForkParentThreadEnvironmentWhenMetadataHasChild() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_031
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-stale-fork-parent-env-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/codex fork repo"
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let childSessionId = "019e1eca-ee32-7001-ab30-edcae57430bb"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: childSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 200),
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_131,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "CODEX_THREAD_ID": parentSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, childSessionId)
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+        )
+    }
+
+    func testProcessDetectionUsesCodexOpenTranscriptFileForAmbiguousForkChild() throws {
+        let firstWorkspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondWorkspaceId = UUID()
+        let secondPanelId = UUID()
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-open-fork-transcript-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/codex fork repo"
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let firstChildSessionId = "019e1eca-ee32-7001-ab30-edcae57430bb"
+        let secondChildSessionId = "019e1f00-ee32-7001-ab30-edcae57430bb"
+        let firstTranscript = try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: firstChildSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 200),
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        let secondTranscript = try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: secondChildSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 300),
+            modifiedAt: Date(timeIntervalSince1970: 300)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let firstProcess = makeTopProcess(
+            pid: 10_132,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_132,
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId
+        )
+        let secondProcess = makeTopProcess(
+            pid: 10_133,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_133,
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [firstProcess, secondProcess],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == firstProcess.pid || pid == secondProcess.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "CODEX_THREAD_ID": parentSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            },
+            processOpenFilePaths: { pid in
+                switch pid {
+                case firstProcess.pid:
+                    return [firstTranscript.path]
+                case secondProcess.pid:
+                    return [secondTranscript.path]
+                default:
+                    return []
+                }
+            }
+        )
+
+        let firstSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: firstWorkspaceId, panelId: firstPanelId)]?.snapshot
+        )
+        let secondSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: secondWorkspaceId, panelId: secondPanelId)]?.snapshot
+        )
+        XCTAssertEqual(firstSnapshot.kind, .codex)
+        XCTAssertEqual(secondSnapshot.kind, .codex)
+        XCTAssertEqual(firstSnapshot.sessionId, firstChildSessionId)
+        XCTAssertEqual(secondSnapshot.sessionId, secondChildSessionId)
+        XCTAssertEqual(
+            firstSnapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+        )
+        XCTAssertEqual(
+            secondSnapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1f00-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
         )
     }
 
@@ -6012,6 +6255,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         return data.base64EncodedString()
     }
 
+    @discardableResult
     private func writeCodexSessionMeta(
         codexHome: URL,
         sessionId: String,
@@ -6020,7 +6264,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         createdAt: Date? = nil,
         rawTimestamp: String? = nil,
         modifiedAt: Date
-    ) throws {
+    ) throws -> URL {
         let directory = codexHome
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent("2026", isDirectory: true)
@@ -6044,6 +6288,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         data.append(0x0A)
         try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: fileURL.path)
+        return fileURL
     }
 
     private func writeClaudeProcessSession(
@@ -6065,6 +6310,35 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(
             to: directory.appendingPathComponent("\(pid).json", isDirectory: false),
+            options: .atomic
+        )
+    }
+
+    private func writeClaudeTranscript(
+        configDir: URL,
+        sessionId: String,
+        cwd: String
+    ) throws {
+        let projectDirectory = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                (cwd as NSString).standardizingPath.replacingOccurrences(of: "/", with: "-"),
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true)
+        let payload: [String: Any] = [
+            "type": "user",
+            "sessionId": sessionId,
+            "cwd": cwd,
+            "message": [
+                "role": "user",
+                "content": "test"
+            ],
+        ]
+        var data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        data.append(0x0A)
+        try data.write(
+            to: projectDirectory.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
             options: .atomic
         )
     }
