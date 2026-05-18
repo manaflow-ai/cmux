@@ -18,6 +18,7 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
         onClick={toggle}
         aria-expanded={open}
         aria-controls="docs-sidebar"
+        data-pagefind-ignore="all"
         className="fixed bottom-4 right-4 z-50 md:hidden w-10 h-10 rounded-full bg-foreground text-background flex items-center justify-center shadow-lg"
         aria-label={open ? "Close navigation" : "Open navigation"}
       >
@@ -53,6 +54,7 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
         id="docs-sidebar"
         role="navigation"
         aria-label="Documentation"
+        data-pagefind-ignore="all"
         style={{ height: "calc(100dvh - 3rem)" }}
         className={`fixed top-12 left-0 z-50 w-56 bg-background py-4 pr-4 overflow-y-auto transition-transform md:sticky md:top-12 md:z-20 md:shrink-0 md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
@@ -64,8 +66,16 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
       {/* Content */}
       <main className="flex-1 min-w-0 overflow-x-hidden">
         <div className="max-w-full px-6 pb-10 ml-0" data-dev="docs-content" style={{ paddingTop: 16 }}>
-          <div className="docs-content text-[15px]">{children}</div>
-          <DocsPager />
+          <div
+            className="docs-content text-[15px]"
+            data-pagefind-body
+            data-pagefind-meta="section:Docs"
+          >
+            {children}
+          </div>
+          <div data-pagefind-ignore="all">
+            <DocsPager />
+          </div>
         </div>
       </main>
     </div>
