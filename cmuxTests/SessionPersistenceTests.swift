@@ -1972,6 +1972,35 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexForkCommandPlacesSessionBeforeTrailingImageArguments() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e1eca-ee32-7001-ab30-edcae57430bb",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--image",
+                    "/tmp/screenshot-one.png",
+                    "/tmp/screenshot-two.png"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb' '--image' '/tmp/screenshot-one.png' '/tmp/screenshot-two.png'"
+        )
+    }
+
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -2238,7 +2267,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--image' '/tmp/screenshot.png' '--model' 'gpt-5.4' '019image-session'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019image-session' '--image' '/tmp/screenshot.png'"
         )
         XCTAssertEqual(
             codexFork.forkCommand,
@@ -2246,7 +2275,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--image' '/tmp/team screenshot.png' '--sandbox' 'danger-full-access' 'codex-teams-session'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' 'codex-teams-session' '--image' '/tmp/team screenshot.png'"
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
@@ -4619,7 +4648,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, parentSessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--image' '/tmp/a.png' '/tmp/b.png' '--model' 'gpt-5.4' '019dad34-d218-7943-b81a-eddac5c87951'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019dad34-d218-7943-b81a-eddac5c87951' '--image' '/tmp/a.png' '/tmp/b.png'"
         )
     }
 
@@ -4675,7 +4704,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, parentSessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '--image' '/tmp/a.png' '/tmp/b.png' '--sandbox' 'danger-full-access' '019dad34-d218-7943-b81a-eddac5c87951'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '019dad34-d218-7943-b81a-eddac5c87951' '--image' '/tmp/a.png' '/tmp/b.png'"
         )
     }
 

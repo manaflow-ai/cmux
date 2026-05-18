@@ -966,7 +966,7 @@ private func installFileDropOverlayWhenReady(
 }
 
 @MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     private struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
@@ -976,19 +976,31 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
     }
 
+    private struct ForkContextSnapshot: Equatable {
+        let workspaceId: UUID?
+        let surfaceTTYNames: [UUID: String]
+        let currentSessionReportedTTYPanelIds: Set<UUID>
+    }
+
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
+    @Published private(set) var forkContextGeneration: UInt64 = 0
     private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
+    private var directoryCancellable: AnyCancellable?
+    private var forkContextCancellable: AnyCancellable?
 
     func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
+        guard self.tabManager !== tabManager ||
+            directoryCancellable == nil ||
+            forkContextCancellable == nil else { return }
         self.tabManager = tabManager
-        cancellable = tabManager.$selectedTabId
+        let selectedWorkspace = tabManager.$selectedTabId
             .map { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
+
+        directoryCancellable = selectedWorkspace
             .map { workspace -> AnyPublisher<Snapshot, Never> in
                 guard let workspace else {
                     return Just(
@@ -1034,6 +1046,36 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
+            }
+
+        forkContextCancellable = selectedWorkspace
+            .map { workspace -> AnyPublisher<ForkContextSnapshot, Never> in
+                guard let workspace else {
+                    return Just(
+                        ForkContextSnapshot(
+                            workspaceId: nil,
+                            surfaceTTYNames: [:],
+                            currentSessionReportedTTYPanelIds: []
+                        )
+                    )
+                    .eraseToAnyPublisher()
+                }
+                return workspace.$surfaceTTYNames
+                    .combineLatest(workspace.$currentSessionReportedTTYPanelIds)
+                    .map { surfaceTTYNames, currentSessionReportedTTYPanelIds in
+                        ForkContextSnapshot(
+                            workspaceId: workspace.id,
+                            surfaceTTYNames: surfaceTTYNames,
+                            currentSessionReportedTTYPanelIds: currentSessionReportedTTYPanelIds
+                        )
+                    }
+                    .eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.forkContextGeneration &+= 1
             }
     }
 }
@@ -2722,6 +2764,17 @@ struct ContentView: View {
         // File explorer: keep the Combine subscription stable across body re-evaluations.
         view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
             syncFileExplorerDirectory()
+        })
+
+        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.forkContextGeneration) { _ in
+            guard isCommandPalettePresented,
+                  commandPaletteListScope == .commands else { return }
+            scheduleCommandPaletteResultsRefresh(
+                query: commandPaletteQuery,
+                forceSearchCorpusRefresh: true
+            )
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+            syncCommandPaletteDebugStateForObservedWindow()
         })
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in

@@ -208,9 +208,7 @@ enum AgentResumeCommandBuilder {
                 fallbackWorkingDirectory: workingDirectory
             ) else { return nil }
             return [original.executable, "resume"]
-                + codexWorkingDirectoryArguments(preserved.workingDirectory)
-                + preserved.arguments
-                + [sessionId]
+                + codexArgumentsWithSession(preserved, sessionId: sessionId)
         case .pi:
             return resumeWithOption(
                 kind: "pi",
@@ -320,9 +318,7 @@ enum AgentResumeCommandBuilder {
                 fallbackWorkingDirectory: workingDirectory
             ) else { return nil }
             return [original.executable, "codex-teams", "fork"]
-                + codexWorkingDirectoryArguments(preserved.workingDirectory)
-                + preserved.arguments
-                + [sessionId]
+                + codexArgumentsWithSession(preserved, sessionId: sessionId)
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -352,9 +348,7 @@ enum AgentResumeCommandBuilder {
                 fallbackWorkingDirectory: workingDirectory
             ) else { return nil }
             return [original.executable, "fork"]
-                + codexWorkingDirectoryArguments(preserved.workingDirectory)
-                + preserved.arguments
-                + [sessionId]
+                + codexArgumentsWithSession(preserved, sessionId: sessionId)
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
@@ -367,6 +361,48 @@ enum AgentResumeCommandBuilder {
     private static func codexWorkingDirectoryArguments(_ workingDirectory: String?) -> [String] {
         guard let workingDirectory = normalized(workingDirectory) else { return [] }
         return ["--cd", workingDirectory]
+    }
+
+    private static func codexArgumentsWithSession(
+        _ preserved: PreservedCodexForkArguments,
+        sessionId: String
+    ) -> [String] {
+        let splitArguments = splitCodexImageArguments(preserved.arguments)
+        return codexWorkingDirectoryArguments(preserved.workingDirectory)
+            + splitArguments.beforeSession
+            + [sessionId]
+            + splitArguments.afterSession
+    }
+
+    private static func splitCodexImageArguments(_ arguments: [String]) -> (beforeSession: [String], afterSession: [String]) {
+        var beforeSession: [String] = []
+        var afterSession: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            guard isCodexImageOption(argument) else {
+                beforeSession.append(argument)
+                index += 1
+                continue
+            }
+
+            let start = index
+            index += 1
+            if argument == "--image" || argument == "-i" {
+                while index < arguments.count, !arguments[index].hasPrefix("-") {
+                    index += 1
+                }
+            }
+            afterSession.append(contentsOf: arguments[start..<index])
+        }
+        return (beforeSession, afterSession)
+    }
+
+    private static func isCodexImageOption(_ argument: String) -> Bool {
+        argument == "--image" ||
+            argument == "-i" ||
+            argument.hasPrefix("--image=") ||
+            argument.hasPrefix("-i=")
     }
 
     private struct PreservedCodexForkArguments {

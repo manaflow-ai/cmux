@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -2128,6 +2129,57 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(base, switchedWorkspace)
         XCTAssertNotEqual(base, switchedRemoteContext)
         XCTAssertNotEqual(base, switchedTTYName)
+    }
+
+    @MainActor
+    func testSelectedWorkspaceObserverPublishesForkContextOnTTYReport() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel")
+            return
+        }
+
+        let observer = SelectedWorkspaceDirectoryObserver()
+        observer.wire(tabManager: manager)
+        waitForForkContextGeneration(observer, greaterThan: 0)
+
+        let forkGeneration = observer.forkContextGeneration
+        let expectation = expectation(description: "fork context generation updates")
+        var cancellable: AnyCancellable?
+        cancellable = observer.$forkContextGeneration
+            .sink { value in
+                guard value > forkGeneration else { return }
+                expectation.fulfill()
+                cancellable?.cancel()
+            }
+
+        workspace.recordCurrentSessionSurfaceTTY("ttys777", forPanelId: panelId)
+
+        wait(for: [expectation], timeout: 1)
+        XCTAssertTrue(workspace.hasCurrentSessionReportedTTY(forPanelId: panelId))
+        _ = cancellable
+    }
+
+    @MainActor
+    private func waitForForkContextGeneration(
+        _ observer: SelectedWorkspaceDirectoryObserver,
+        greaterThan generation: UInt64,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard observer.forkContextGeneration <= generation else { return }
+        let expectation = expectation(description: "initial fork context generation updates")
+        var cancellable: AnyCancellable?
+        cancellable = observer.$forkContextGeneration
+            .sink { value in
+                guard value > generation else { return }
+                expectation.fulfill()
+                cancellable?.cancel()
+            }
+        wait(for: [expectation], timeout: 1)
+        XCTAssertGreaterThan(observer.forkContextGeneration, generation, file: file, line: line)
+        _ = cancellable
     }
 
     func testSwitcherFingerprintTracksMetadataValuesAtSameCardinality() {
