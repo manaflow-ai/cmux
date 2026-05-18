@@ -8,7 +8,7 @@ extension CMUXCLI {
         func sendGracefulExit(_ action: MemoryGracefulExitAction, workspaceId: String) throws {
             let params: [String: Any] = [
                 "workspace_id": workspaceId,
-                "surface_id": action.surfaceHandle,
+                "surface_id": action.surfaceId,
                 "text": action.text
             ]
             _ = try client.sendV2(method: "surface.send_text", params: params)

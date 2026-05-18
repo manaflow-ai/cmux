@@ -4,7 +4,7 @@ extension CMUXCLI {
     struct MemoryGracefulExitAction {
         let label: String
         let text: String
-        let surfaceHandle: String
+        let surfaceId: String
     }
 
     struct MemoryAgentParser {
@@ -136,13 +136,13 @@ extension CMUXCLI {
 
         func gracefulExitAction(for candidate: MemoryAgentCandidate) -> MemoryGracefulExitAction? {
             guard let graceful = memoryGracefulExit(for: candidate),
-                  let surfaceHandle = candidate.surfaceId ?? candidate.surfaceRef else {
+                  let surfaceId = candidate.surfaceId else {
                 return nil
             }
             return MemoryGracefulExitAction(
                 label: graceful.label,
                 text: graceful.text,
-                surfaceHandle: surfaceHandle
+                surfaceId: surfaceId
             )
         }
 
