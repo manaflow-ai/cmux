@@ -591,6 +591,44 @@ extension RestorableAgentSessionIndex {
         var selectedCandidateByPanelKey: [
             PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
+        var forkMetadataPanelKeysByKey: [String: Set<PanelKey>] = [:]
+        let fallbackRemappedPIDs = Set(candidates.filter { $0.source == .fallbackScope }.map(\.process.pid))
+
+        for candidate in candidates {
+            let process = candidate.process
+            if candidate.source == .cmuxScoped,
+               fallbackRemappedPIDs.contains(process.pid) {
+                continue
+            }
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard observed.isCodexProcess else { continue }
+            guard normalized(processArguments.environment["CODEX_THREAD_ID"]) == nil,
+                  normalized(processArguments.environment["CODEX_SESSION_ID"]) == nil else {
+                continue
+            }
+            let tail = codexLaunchTail(observed: observed)
+            guard let command = codexSessionCommand(in: tail),
+                  command.name == "fork" else {
+                continue
+            }
+            let workingDirectory = normalized(
+                observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
+            )
+            guard let key = codexForkMetadataFallbackKey(
+                workingDirectory: workingDirectory,
+                parentSessionId: command.sessionId
+            ) else {
+                continue
+            }
+            forkMetadataPanelKeysByKey[key, default: []].insert(candidate.panelKey)
+        }
 
         for candidate in candidates {
             let process = candidate.process
@@ -612,12 +650,19 @@ extension RestorableAgentSessionIndex {
             let workingDirectory = normalized(
                 observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
             )
+            let command = codexSessionCommand(in: tail)
+            let canUseForkMetadataFallback = command?.name == "fork"
+                && codexForkMetadataFallbackKey(
+                    workingDirectory: workingDirectory,
+                    parentSessionId: command?.sessionId
+                ).map { forkMetadataPanelKeysByKey[$0]?.count == 1 } == true
             guard let sessionId = codexSessionId(
                 tail: tail,
                 environment: processArguments.environment,
                 workingDirectory: workingDirectory,
                 fileManager: fileManager,
-                latestCodexForkSessionId: latestCodexForkSessionId
+                latestCodexForkSessionId: latestCodexForkSessionId,
+                allowCodexForkMetadataFallback: canUseForkMetadataFallback
             ) else {
                 continue
             }
@@ -685,7 +730,8 @@ extension RestorableAgentSessionIndex {
         environment: [String: String],
         workingDirectory: String?,
         fileManager: FileManager,
-        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?
+        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
+        allowCodexForkMetadataFallback: Bool = true
     ) -> String? {
         if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
             return threadId
@@ -702,6 +748,7 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         if command.name == "fork",
+           allowCodexForkMetadataFallback,
            let forkSessionId = latestCodexForkSessionId(
                workingDirectory,
                command.sessionId,
@@ -711,6 +758,17 @@ extension RestorableAgentSessionIndex {
             return forkSessionId
         }
         return command.sessionId
+    }
+
+    private static func codexForkMetadataFallbackKey(
+        workingDirectory: String?,
+        parentSessionId: String?
+    ) -> String? {
+        guard let workingDirectory = standardizedPath(workingDirectory),
+              let parentSessionId = normalized(parentSessionId) else {
+            return nil
+        }
+        return workingDirectory + "\u{1f}" + parentSessionId
     }
 
     private struct CodexSessionMetaLine: Decodable {
