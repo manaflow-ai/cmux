@@ -83,10 +83,15 @@ final class CmuxEventBusTests: XCTestCase {
 
         bus.publish(name: "surface.created", category: "surface", source: "test")
 
+        let delivered = expectation(description: "queued event delivered to handler")
+        let receivedNamesLock = NSLock()
         var receivedNames: [String] = []
         let token = snapshot.subscription.addEventHandler { event in
             if let name = event["name"] as? String {
+                receivedNamesLock.lock()
                 receivedNames.append(name)
+                receivedNamesLock.unlock()
+                delivered.fulfill()
             }
         }
         defer {
@@ -96,7 +101,11 @@ final class CmuxEventBusTests: XCTestCase {
         }
 
         XCTAssertNotNil(token)
-        XCTAssertEqual(receivedNames, ["surface.created"])
+        wait(for: [delivered], timeout: 1)
+        receivedNamesLock.lock()
+        let deliveredNames = receivedNames
+        receivedNamesLock.unlock()
+        XCTAssertEqual(deliveredNames, ["surface.created"])
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 

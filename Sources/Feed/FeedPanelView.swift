@@ -3250,8 +3250,13 @@ private final class FeedInlineTextEditorView: NSView {
         )
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
+        let extraLineRect = layoutManager.extraLineFragmentRect
+        let layoutHeight = max(
+            usedRect.maxY,
+            extraLineRect.isEmpty ? 0 : extraLineRect.maxY
+        )
         let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
-        let contentHeight = max(lineHeight, ceil(usedRect.height))
+        let contentHeight = max(lineHeight, ceil(layoutHeight))
         return max(
             Self.minimumHeight(for: currentFont),
             ceil(contentHeight + Self.textInset.height * 2)

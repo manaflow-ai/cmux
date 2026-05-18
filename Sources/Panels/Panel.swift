@@ -46,6 +46,8 @@ public enum PanelType: String, Codable, Sendable {
         switch normalized {
         case "extensionpane":
             return .extensionPane
+        case "rightsidebartool":
+            return .rightSidebarTool
         default:
             return PanelType(rawValue: normalized)
         }
