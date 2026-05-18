@@ -1166,6 +1166,9 @@ final class WindowBrowserHostView: NSView {
         hostView: WindowBrowserHostView
     ) -> DividerHit? {
         guard !view.isHidden else { return nil }
+        if let slot = view as? WindowBrowserSlotView, slot.isPortalHidden {
+            return nil
+        }
 
         if let splitView = view as? NSSplitView {
             let pointInSplit = splitView.convert(windowPoint, from: nil)
@@ -1265,6 +1268,9 @@ final class WindowBrowserHostView: NSView {
 
     private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
         guard !view.isHidden else { return }
+        if let slot = view as? WindowBrowserSlotView, slot.isPortalHidden {
+            return
+        }
 
         if let splitView = view as? NSSplitView {
             let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
@@ -1518,9 +1524,9 @@ final class WindowBrowserSlotView: NSView {
     func setPortalHidden(_ hidden: Bool) {
         let oldValue = isPortalVisuallySuppressed
         isPortalVisuallySuppressed = hidden
-        // Keep WKWebView's remote render layer in the window tree across workspace switches.
+        // Keep WKWebView's remote render layer opaque and attached across workspace switches.
         super.isHidden = false
-        alphaValue = hidden ? 0 : 1
+        alphaValue = 1
 
         guard hidden, !oldValue, let window else { return }
         yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
@@ -2142,6 +2148,7 @@ final class WindowBrowserPortal: NSObject {
 
     private struct PendingHostedWebViewRefresh {
         var generation: UInt64 = 0
+        var forceRenderingStateReattach = false
         var asyncWorkItem: DispatchWorkItem?
         var delayedWorkItem: DispatchWorkItem?
     }
@@ -2420,6 +2427,12 @@ final class WindowBrowserPortal: NSObject {
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
             abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    private static func suppressedPortalFrame(for targetFrame: NSRect, in hostBounds: NSRect) -> NSRect {
+        var suppressedFrame = targetFrame
+        suppressedFrame.origin.x = hostBounds.maxX + max(4096, hostBounds.width + targetFrame.width + 64)
+        return suppressedFrame
     }
 
     private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
@@ -2856,11 +2869,16 @@ final class WindowBrowserPortal: NSObject {
         // Bind/reveal/fullscreen refreshes can stack up during a single layout churn.
         // Keep only the latest follow-up passes so reattach work does not pile up on
         // the main thread while browser panes are moving between hosts.
+        let shouldCarryPendingForcedReattach =
+            pendingHostedWebViewRefreshes[webViewId]?.forceRenderingStateReattach == true
         cancelPendingHostedWebViewRefreshes(for: webViewId, keepGeneration: true)
         var pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
         nextHostedWebViewRefreshGeneration &+= 1
         let generation = nextHostedWebViewRefreshGeneration
+        let shouldForceDelayedRenderingStateReattach =
+            forceRenderingStateReattach || shouldCarryPendingForcedReattach
         pending.generation = generation
+        pending.forceRenderingStateReattach = shouldForceDelayedRenderingStateReattach
 
         runHostedWebViewRefreshPass(
             webView,
@@ -2890,6 +2908,7 @@ final class WindowBrowserPortal: NSObject {
                    current.generation == generation {
                     current.asyncWorkItem = nil
                     current.delayedWorkItem = nil
+                    current.forceRenderingStateReattach = false
                     self.pendingHostedWebViewRefreshes[webViewId] = current
                 }
             }
@@ -2901,7 +2920,7 @@ final class WindowBrowserPortal: NSObject {
                 reason: reason,
                 phase: "delayed",
                 reattachRenderingState: true,
-                forceRenderingStateReattach: forceRenderingStateReattach
+                forceRenderingStateReattach: shouldForceDelayedRenderingStateReattach
             )
         }
         pending.delayedWorkItem = delayedWorkItem
@@ -3147,16 +3166,20 @@ final class WindowBrowserPortal: NSObject {
     func forceRefreshWebView(
         withId webViewId: ObjectIdentifier,
         reason: String,
-        forceRenderingStateReattach: Bool = true,
+        forceRenderingStateReattach: Bool = false,
         scheduleNavigationRenderingStateReattach: Bool = true
     ) {
         guard ensureInstalled() else { return }
         let refreshSource = "forceRefresh:\(reason)"
+        let shouldCarryPendingForcedReattach =
+            pendingHostedWebViewRefreshes[webViewId]?.forceRenderingStateReattach == true
+        let shouldForceRenderingStateReattach =
+            forceRenderingStateReattach || shouldCarryPendingForcedReattach
         synchronizeWebView(
             withId: webViewId,
             source: refreshSource,
             forcePresentationRefresh: true,
-            forceRenderingStateReattach: forceRenderingStateReattach,
+            forceRenderingStateReattach: shouldForceRenderingStateReattach,
             scheduleNavigationRenderingStateReattach: scheduleNavigationRenderingStateReattach
         )
         guard let entry = entriesByWebViewId[webViewId],
@@ -3171,7 +3194,7 @@ final class WindowBrowserPortal: NSObject {
             webView,
             in: containerView,
             reason: refreshSource,
-            forceRenderingStateReattach: forceRenderingStateReattach
+            forceRenderingStateReattach: shouldForceRenderingStateReattach
         )
     }
 
@@ -3732,10 +3755,14 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
         }
-        if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+        let presentationFrame =
+            shouldHide && !shouldPreserveVisibleOnTransientGeometry
+            ? Self.suppressedPortalFrame(for: targetFrame, in: hostBounds)
+            : targetFrame
+        if !Self.rectApproximatelyEqual(oldFrame, presentationFrame) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            containerView.frame = targetFrame
+            containerView.frame = presentationFrame
             CATransaction.commit()
             refreshReasons.append("frame")
         }
@@ -3862,18 +3889,12 @@ final class WindowBrowserPortal: NSObject {
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
-        // Logical portal hides no longer call `_exitInWindow`, so reveal/attach
-        // refreshes need one forced enter pass even when WebKit's old hidden flag
-        // was not primed.
+        // Logical portal hides keep the remote layer attached and opaque, so
+        // normal reveal/refresh repaint stays selector-free. Only explicit
+        // queued repairs force WebKit's private window-state selectors.
         let shouldForceRenderingStateReattach =
             presentationUpdateKind == .refresh &&
-            (
-                revealedForDisplay ||
-                    recoveredFromTransientGeometry ||
-                    forceRenderingStateReattach ||
-                    refreshReasons.contains("syncAttachContainer") ||
-                    refreshReasons.contains("syncAttachWebView")
-            )
+            forceRenderingStateReattach
         if shouldForceRenderingStateReattach, scheduleNavigationRenderingStateReattach {
             webView.browserPortalScheduleNavigationRenderingStateReattach(
                 reason: "\(source):\(refreshReasons.joined(separator: ","))"
@@ -4284,7 +4305,7 @@ enum BrowserWindowPortalRegistry {
     static func refresh(
         webView: WKWebView,
         reason: String,
-        forceRenderingStateReattach: Bool = true,
+        forceRenderingStateReattach: Bool = false,
         scheduleNavigationRenderingStateReattach: Bool = true
     ) {
         let webViewId = ObjectIdentifier(webView)
@@ -4300,15 +4321,19 @@ enum BrowserWindowPortalRegistry {
     }
 
     static func refreshAfterNavigationDidFinish(webView: WKWebView) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
         let forceRenderingStateReattach = webView.browserPortalConsumeNavigationRenderingStateReattach(
             reason: "navigation.didFinish"
         )
-        refresh(
-            webView: webView,
+        portal.forceRefreshWebView(
+            withId: webViewId,
             reason: "navigation.didFinish",
             forceRenderingStateReattach: forceRenderingStateReattach,
             scheduleNavigationRenderingStateReattach: false
         )
+        postRegistryDidChange(for: webView)
     }
 
     static func debugSnapshot(for webView: WKWebView) -> DebugSnapshot? {

@@ -3038,11 +3038,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialHiddenCount = webView.hiddenRenderingStateCount
-        XCTAssertGreaterThan(
-            initialReattachCount,
-            0,
-            "Initial portal bind should force WebKit back into the window render state"
-        )
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3073,8 +3068,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
-            hiddenReattachCount + 3,
-            "Revealing an existing portal-hosted browser should force exactly one WebKit reattach pass"
+            hiddenReattachCount,
+            "Revealing an existing portal-hosted browser should not need private WebKit reattach selectors"
         )
     }
 
@@ -3151,8 +3146,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
-            hiddenReattachCount + 3,
-            "Inspector-adjusted reveal should still force exactly one WebKit reattach pass"
+            hiddenReattachCount,
+            "Inspector-adjusted reveal should not need private WebKit reattach selectors"
         )
     }
 
@@ -3365,10 +3360,18 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot, "Workspace hide should preserve the hosted WKWebView attachment")
         XCTAssertEqual(
             slot.alphaValue,
-            0,
+            1,
             accuracy: 0.001,
-            "Workspace hide should suppress the slot visually without relying on AppKit hidden detach semantics"
+            "Workspace hide should keep the WKWebView branch opaque instead of using AppKit hidden/alpha suppression"
         )
+        if let slotSuperview = slot.superview {
+            XCTAssertFalse(
+                slotSuperview.bounds.intersects(slot.frame),
+                "A visually suppressed browser slot should stay attached but not occupy the visible portal host"
+            )
+        } else {
+            XCTFail("Expected hidden portal slot to remain attached")
+        }
         let hiddenSlotHit = contentView.hitTest(NSPoint(x: slot.frame.midX, y: slot.frame.midY))
         XCTAssertFalse(
             hiddenSlotHit === slot || (hiddenSlotHit?.isDescendant(of: slot) ?? false),
@@ -3384,7 +3387,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot)
     }
 
-    func testRegistryNavigationRefreshDoesNotForceVisiblePortalRenderingReattach() {
+    func testRegistryDefaultRefreshDoesNotForceVisiblePortalRenderingReattach() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -3418,24 +3421,23 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         BrowserWindowPortalRegistry.refresh(
             webView: webView,
-            reason: "navigation.didFinish",
-            forceRenderingStateReattach: false
+            reason: "visibleRefresh"
         )
         advanceAnimations()
 
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
             displayCount,
-            "Navigation completion should still repaint the visible portal-hosted browser"
+            "Default refresh should still repaint the visible portal-hosted browser"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
             reattachCount,
-            "Navigation completion should not force private WebKit reattach selectors on an already-visible browser"
+            "Default refresh should not force private WebKit reattach selectors on an already-visible browser"
         )
     }
 
-    func testRegistryNavigationRefreshConsumesPendingPortalReattachOnce() {
+    func testRegistryNavigationRefreshDoesNotForceVisiblePortalRenderingReattach() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -3469,12 +3471,12 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertGreaterThan(
             afterFirstNavigationDisplayCount,
             afterBindDisplayCount,
-            "First navigation after portal attach should refresh the visible browser presentation"
+            "Navigation completion should refresh the visible browser presentation"
         )
         XCTAssertEqual(
             afterFirstNavigationReattachCount,
-            afterBindReattachCount + 3,
-            "First navigation after portal attach should consume one pending WebKit reattach repair"
+            afterBindReattachCount,
+            "Navigation completion should not force private WebKit reattach selectors on an already-visible browser"
         )
 
         BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
