@@ -111723,13 +111723,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld after SSH exit %lld)"
+            "value": "Reconnecting to %@ (attempt %lld/%lld)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に再接続中 (試行 %lld/%lld、SSH 終了 %lld)"
+            "value": "%@ に再接続中 (試行 %lld/%lld)"
           }
         }
       }

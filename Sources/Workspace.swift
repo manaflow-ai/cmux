@@ -9727,7 +9727,7 @@ final class Workspace: Identifiable, ObservableObject {
         relayPort: Int?,
         attempt: Int,
         limit: Int,
-        exitStatus: Int
+        exitStatus _: Int
     ) {
         guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
         guard remoteConnectionState != .error else { return }
@@ -9737,9 +9737,9 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let detailFormat = String(
             localized: "remote.state.reconnecting.terminal",
-            defaultValue: "Reconnecting to %@ (attempt %lld/%lld after SSH exit %lld)"
+            defaultValue: "Reconnecting to %@ (attempt %lld/%lld)"
         )
-        let detail = String(format: detailFormat, target, Int64(attempt), Int64(limit), Int64(exitStatus))
+        let detail = String(format: detailFormat, target, Int64(attempt), Int64(limit))
         applyRemoteConnectionStateUpdate(.reconnecting, detail: detail, target: target)
     }
 
