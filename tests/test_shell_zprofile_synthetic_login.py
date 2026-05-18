@@ -53,13 +53,28 @@ def run_startup_case(
         args.append("-l")
     args.extend(["-c", "true"])
 
-    result = subprocess.run(
-        args,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=8,
-    )
+    try:
+        result = subprocess.run(
+            args,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = (
+            exc.stdout.decode(errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
+        stderr = (
+            exc.stderr.decode(errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
+        combined = (stdout + stderr).strip()
+        return (False, f"{name}: zsh timed out after {exc.timeout}s\n{combined}")
     if result.returncode != 0:
         combined = ((result.stdout or "") + (result.stderr or "")).strip()
         return (False, f"{name}: zsh exited non-zero rc={result.returncode}\n{combined}")
