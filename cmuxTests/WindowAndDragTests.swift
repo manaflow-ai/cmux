@@ -1814,6 +1814,44 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         XCTAssertEqual(windowMoveSuppressionReason(window: window, event: event), .bonsplitPaneTabDrag)
     }
 
+    func testBonsplitPaneTabDragSequenceKeepsWindowImmovableUntilMouseUp() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+
+        let draggedOutsideTab = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: contentView.bounds.midX, y: contentView.bounds.midY),
+            window: window
+        )
+        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: draggedOutsideTab), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable, "Window must remain immovable for the whole tab-drag mouse sequence")
+        XCTAssertFalse(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: draggedOutsideTab))
+
+        let up = makeMouseEvent(type: .leftMouseUp, location: tabPoint, window: window)
+        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: up), .bonsplitPaneTabDrag)
+        XCTAssertTrue(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: up))
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(window.isMovable)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+    }
+
     func testBonsplitPaneTabSuppressionLeavesEmptyTabChromeDraggable() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true

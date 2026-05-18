@@ -764,3 +764,25 @@ func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMove
     }
     return nil
 }
+
+func windowMoveSuppressionReasonForEvent(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {
+    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+        if event.type == .leftMouseUp || event.type == .leftMouseDragged || (NSEvent.pressedMouseButtons & 0x1) != 0 {
+            ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+            return activeReason
+        }
+
+        if (NSEvent.pressedMouseButtons & 0x1) == 0 {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+        }
+    }
+
+    guard let reason = windowMoveSuppressionReason(window: window, event: event) else {
+        return nil
+    }
+    return beginWindowMoveSuppressionSequence(window: window, reason: reason)
+}
+
+func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
+    activeWindowMoveSuppressionSequenceReason(window: window) != nil && event.type == .leftMouseUp
+}
