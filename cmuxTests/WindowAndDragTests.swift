@@ -1590,6 +1590,14 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         XCTAssertFalse(view.mouseDownCanMoveWindow)
     }
+
+    func testMainWindowHostingViewCannotMoveWindowViaMouseDown() {
+        let view = MainWindowHostingView(rootView: Color.clear)
+        XCTAssertFalse(
+            view.mouseDownCanMoveWindow,
+            "Main content must never become an implicit AppKit window-drag region; explicit titlebar chrome owns app-window dragging"
+        )
+    }
 }
 
 
