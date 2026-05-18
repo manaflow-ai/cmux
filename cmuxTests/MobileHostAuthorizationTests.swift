@@ -461,6 +461,44 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(finalRecordedIDs, [connectionID])
     }
 
+    func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
+        let connectionID = UUID()
+        let requestRecorder = MobileHostConnectionRequestRecorder()
+        let sessionBox = MobileHostConnectionBox()
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: NWEndpoint.Port(rawValue: 9)!,
+            using: .tcp
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            connection: connection,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { request in
+                await requestRecorder.record(request)
+                await sessionBox.close(reason: "test close after first batched frame")
+            },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await sessionBox.set(session)
+
+        let firstFrame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"first","method":"workspace.list","params":{}}"#.utf8)
+        )
+        let secondFrame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"second","method":"terminal.input","params":{"text":"should-not-run"}}"#.utf8)
+        )
+        var batch = Data()
+        batch.append(firstFrame)
+        batch.append(secondFrame)
+
+        await session.debugHandleReceiveDataForTesting(batch)
+
+        let recordedMethods = await requestRecorder.recordedMethods()
+        XCTAssertEqual(recordedMethods, ["workspace.list"])
+    }
+
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",
@@ -488,5 +526,29 @@ private actor MobileHostConnectionCloseRecorder {
 
     func recordedIDs() -> [UUID] {
         ids
+    }
+}
+
+private actor MobileHostConnectionRequestRecorder {
+    private var methods: [String] = []
+
+    func record(_ request: MobileHostRPCRequest) {
+        methods.append(request.method)
+    }
+
+    func recordedMethods() -> [String] {
+        methods
+    }
+}
+
+private actor MobileHostConnectionBox {
+    private var session: MobileHostConnection?
+
+    func set(_ session: MobileHostConnection) {
+        self.session = session
+    }
+
+    func close(reason: String) async {
+        await session?.close(reason: reason)
     }
 }

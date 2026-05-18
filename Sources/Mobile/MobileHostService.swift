@@ -645,7 +645,13 @@ actor MobileHostConnection {
                     firstFrameTimeoutTask = nil
                 }
                 for frame in frames {
+                    guard !isClosed else {
+                        return
+                    }
                     await respond(to: frame)
+                }
+                guard !isClosed else {
+                    return
                 }
             } catch {
                 _ = await sendResponse(
@@ -757,6 +763,14 @@ actor MobileHostConnection {
 extension MobileHostConnection {
     func debugStartFirstFrameTimeoutForTesting() {
         startFirstFrameTimeout()
+    }
+
+    func debugHandleReceiveDataForTesting(_ data: Data) async {
+        await handleReceive(
+            data: data,
+            isComplete: false,
+            errorDescription: nil
+        )
     }
 }
 #endif
