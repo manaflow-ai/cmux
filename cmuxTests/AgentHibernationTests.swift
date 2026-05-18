@@ -208,17 +208,17 @@ final class AgentHibernationTests: XCTestCase {
             launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
         )
 
-        panel.enterAgentHibernation(
+        workspace.enterAgentHibernation(
+            panelId: panelId,
             agent: snapshot,
-            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
-            lastActivityAt: Date(timeIntervalSince1970: 0),
-            hibernatedAt: Date(timeIntervalSince1970: 10)
+            lastActivityAt: Date(timeIntervalSince1970: 0)
         )
         XCTAssertTrue(panel.isAgentHibernated)
 
         workspace.focusPanel(panelId)
 
         XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
@@ -233,17 +233,17 @@ final class AgentHibernationTests: XCTestCase {
             launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
         )
 
-        panel.enterAgentHibernation(
+        workspace.enterAgentHibernation(
+            panelId: panelId,
             agent: snapshot,
-            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
-            lastActivityAt: Date(timeIntervalSince1970: 0),
-            hibernatedAt: Date(timeIntervalSince1970: 10)
+            lastActivityAt: Date(timeIntervalSince1970: 0)
         )
         XCTAssertTrue(panel.isAgentHibernated)
 
         panel.focus()
 
         XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
@@ -258,18 +258,19 @@ final class AgentHibernationTests: XCTestCase {
             launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
         )
 
-        panel.enterAgentHibernation(
+        workspace.enterAgentHibernation(
+            panelId: panelId,
             agent: snapshot,
-            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
-            lastActivityAt: Date(timeIntervalSince1970: 0),
-            hibernatedAt: Date(timeIntervalSince1970: 10)
+            lastActivityAt: Date(timeIntervalSince1970: 0)
         )
         XCTAssertTrue(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
 
         let result = panel.sendInputResult("pwd\r")
 
         XCTAssertEqual(result, .queued)
         XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
@@ -284,18 +285,19 @@ final class AgentHibernationTests: XCTestCase {
             launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
         )
 
-        panel.enterAgentHibernation(
+        workspace.enterAgentHibernation(
+            panelId: panelId,
             agent: snapshot,
-            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
-            lastActivityAt: Date(timeIntervalSince1970: 0),
-            hibernatedAt: Date(timeIntervalSince1970: 10)
+            lastActivityAt: Date(timeIntervalSince1970: 0)
         )
         XCTAssertTrue(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
 
         let result = panel.sendNamedKeyResult("enter")
 
         XCTAssertEqual(result, .queued)
         XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     private func launch(

@@ -7266,9 +7266,11 @@ class TerminalController {
     func readTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        allowVTExport: Bool = true
     ) -> String? {
         if includeScrollback,
+           allowVTExport,
            let vtOutput = readTerminalTextFromVTExportForSnapshot(
                terminalPanel: terminalPanel,
                lineLimit: lineLimit
@@ -7291,6 +7293,18 @@ class TerminalController {
             return nil
         }
         return decoded
+    }
+
+    func readTerminalTextForHibernationFingerprint(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int
+    ) -> String? {
+        readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: true,
+            lineLimit: lineLimit,
+            allowVTExport: false
+        )
     }
 
     func readTerminalTextForSessionSnapshot(

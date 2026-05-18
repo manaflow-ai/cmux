@@ -52,6 +52,7 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published private(set) var agentHibernationState: AgentHibernationPanelState?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
+    var onRequestAgentHibernationResume: ((Bool) -> Bool)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -159,7 +160,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func focus() {
         if isAgentHibernated {
-            _ = prepareAgentHibernationResume()
+            _ = requestAgentHibernationResume(focus: true)
             return
         }
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
@@ -294,7 +295,16 @@ final class TerminalPanel: Panel, ObservableObject {
 
     private func resumeForExplicitInputIfNeeded() {
         guard isAgentHibernated else { return }
-        _ = prepareAgentHibernationResume()
+        _ = requestAgentHibernationResume(focus: false)
+    }
+
+    @discardableResult
+    private func requestAgentHibernationResume(focus: Bool) -> Bool {
+        guard isAgentHibernated else { return false }
+        if let onRequestAgentHibernationResume {
+            return onRequestAgentHibernationResume(focus)
+        }
+        return prepareAgentHibernationResume()
     }
 
     func hasSelection() -> Bool {
@@ -353,7 +363,7 @@ final class TerminalPanel: Panel, ObservableObject {
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
         if isAgentHibernated {
-            return prepareAgentHibernationResume()
+            return requestAgentHibernationResume(focus: true)
         }
         switch intent {
         case .panel:

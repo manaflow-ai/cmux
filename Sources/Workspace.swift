@@ -8127,6 +8127,10 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
         }
+        terminalPanel.onRequestAgentHibernationResume = { [weak self, weak terminalPanel] focus in
+            guard let self, let terminalPanel else { return false }
+            return self.resumeAgentHibernation(panelId: terminalPanel.id, focus: focus)
+        }
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {

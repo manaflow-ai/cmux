@@ -229,9 +229,8 @@ final class AgentHibernationController {
 
     private func tailFingerprint(for terminalPanel: TerminalPanel) -> String? {
         guard terminalPanel.surface.surface != nil else { return nil }
-        return TerminalController.shared.readTerminalTextForSnapshot(
+        return TerminalController.shared.readTerminalTextForHibernationFingerprint(
             terminalPanel: terminalPanel,
-            includeScrollback: true,
             lineLimit: 12
         )
     }
