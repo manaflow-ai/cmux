@@ -439,6 +439,7 @@ private enum MobileHostAuthorizationError: Error {
     case invalidStackUser
     case missingLocalUser
     case accountMismatch
+    case verificationTimedOut
 }
 
 enum MobileHostAuthorizationPolicy {
@@ -454,6 +455,7 @@ enum MobileHostAuthorizationPolicy {
 
 private actor MobileHostStackAuthVerifier {
     static let shared = MobileHostStackAuthVerifier()
+    private static let verificationTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
 
     private struct CacheEntry {
         let userID: String
@@ -481,7 +483,9 @@ private actor MobileHostStackAuthVerifier {
                 tokenStore: .custom(MobileHostAccessTokenStore(accessToken: accessToken)),
                 noAutomaticPrefetch: true
             )
-            guard let user = try await stack.getUser(or: .throw) else {
+            guard let user = try await Self.withVerificationTimeout({
+                try await stack.getUser(or: .throw)
+            }) else {
                 throw MobileHostAuthorizationError.invalidStackUser
             }
             remoteUserID = await user.id
@@ -496,6 +500,26 @@ private actor MobileHostStackAuthVerifier {
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )
+    }
+
+    private static func withVerificationTimeout<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: verificationTimeoutNanoseconds)
+                throw MobileHostAuthorizationError.verificationTimedOut
+            }
+
+            guard let value = try await group.next() else {
+                throw MobileHostAuthorizationError.verificationTimedOut
+            }
+            group.cancelAll()
+            return value
+        }
     }
 
     private func currentAuthenticatedLocalUserID() async -> String? {

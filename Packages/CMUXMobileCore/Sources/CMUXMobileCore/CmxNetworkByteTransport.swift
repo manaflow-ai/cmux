@@ -12,6 +12,7 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case alreadyClosed
     case receiveAlreadyInProgress
     case sendAlreadyInProgress
+    case connectionTimedOut
     case connectionFailed(String)
     case receiveFailed(String)
     case sendFailed(String)
@@ -47,6 +48,7 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
 
 public actor CmxNetworkByteTransport: CmxByteTransport {
     public static let defaultMaximumReceiveLength = 64 * 1024
+    public static let defaultConnectTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
 
     private enum TransportState {
         case idle
@@ -60,16 +62,19 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     // Network.framework requires a callback queue; state changes re-enter this actor.
     private let callbackQueue: DispatchQueue
     private let maximumReceiveLength: Int
+    private let connectTimeoutNanoseconds: UInt64
     private var state: TransportState = .idle
     private var connectContinuations: [CheckedContinuation<Void, Error>] = []
     private var receiveContinuation: CheckedContinuation<Data?, Error>?
     private var sendContinuation: CheckedContinuation<Void, Error>?
+    private var connectTimeoutTimer: DispatchSourceTimer?
     private var remoteDidClose = false
 
     public init(
         host: String,
         port: Int,
-        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
+        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedHost.isEmpty else {
@@ -94,17 +99,24 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             label: "dev.cmux.mobile.network-byte-transport.\(UUID().uuidString)"
         )
         self.maximumReceiveLength = maximumReceiveLength
+        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
     public init(
         route: CmxAttachRoute,
-        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
+        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         try route.validate()
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
-        try self.init(host: host, port: port, maximumReceiveLength: maximumReceiveLength)
+        try self.init(
+            host: host,
+            port: port,
+            maximumReceiveLength: maximumReceiveLength,
+            connectTimeoutNanoseconds: connectTimeoutNanoseconds
+        )
     }
 
     public func connect() async throws {
@@ -152,6 +164,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         case .idle:
             connectContinuations.append(continuation)
             state = .connecting
+            scheduleConnectTimeout()
             connection.stateUpdateHandler = { [weak self] state in
                 let event = CmxNetworkConnectionEvent(state)
                 guard let self else {
@@ -177,6 +190,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             guard !isTerminal else {
                 return
             }
+            cancelConnectTimeout()
             state = .ready
             resumeConnectContinuations()
         case .waiting:
@@ -337,6 +351,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         guard !isTerminal else {
             return
         }
+        cancelConnectTimeout()
         state = .failed(error)
         connection.cancel()
         resumeConnectContinuations(throwing: error)
@@ -348,6 +363,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         guard !isClosed else {
             return
         }
+        cancelConnectTimeout()
         state = .closed
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -362,6 +378,34 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
 
     private func cancelForTaskCancellation() {
         close(pendingError: CancellationError(), resumeReceiveWithError: true)
+    }
+
+    private func scheduleConnectTimeout() {
+        cancelConnectTimeout()
+        let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
+        let timeout = min(connectTimeoutNanoseconds, UInt64(Int.max))
+        timer.schedule(deadline: .now() + .nanoseconds(Int(timeout)))
+        timer.setEventHandler { [weak self] in
+            guard let self else {
+                return
+            }
+            Task { await self.handleConnectTimeout() }
+        }
+        connectTimeoutTimer = timer
+        timer.resume()
+    }
+
+    private func cancelConnectTimeout() {
+        connectTimeoutTimer?.setEventHandler {}
+        connectTimeoutTimer?.cancel()
+        connectTimeoutTimer = nil
+    }
+
+    private func handleConnectTimeout() {
+        guard case .connecting = state else {
+            return
+        }
+        failTransport(.connectionTimedOut)
     }
 
     private var isTerminal: Bool {
