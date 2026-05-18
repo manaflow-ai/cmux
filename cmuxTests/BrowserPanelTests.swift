@@ -3223,6 +3223,60 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
 
+    func testRegistryHideSuppressesPortalSlotWithoutDroppingRenderTree() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isHidden)
+        XCTAssertEqual(slot.alphaValue, 1, accuracy: 0.001)
+
+        BrowserWindowPortalRegistry.hide(webView: webView, source: "workspaceHandoff")
+        advanceAnimations()
+
+        XCTAssertTrue(slot.isHidden, "The portal should still report hidden for routing and debug state")
+        XCTAssertTrue(webView.superview === slot, "Workspace hide should preserve the hosted WKWebView attachment")
+        XCTAssertEqual(
+            slot.alphaValue,
+            0,
+            accuracy: 0.001,
+            "Workspace hide should suppress the slot visually without relying on AppKit hidden detach semantics"
+        )
+        XCTAssertNil(
+            slot.hitTest(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)),
+            "A visually suppressed browser slot must not intercept events while hidden"
+        )
+
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertFalse(slot.isHidden)
+        XCTAssertEqual(slot.alphaValue, 1, accuracy: 0.001)
+        XCTAssertTrue(webView.superview === slot)
+    }
+
     func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
