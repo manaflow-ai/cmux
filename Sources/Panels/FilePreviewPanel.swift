@@ -928,7 +928,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     var isMarkdownFile: Bool {
         let ext = fileURL.pathExtension.lowercased()
-        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdwn" || ext == "mdown"
+        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mkdn" || ext == "mdwn" || ext == "mdown"
     }
 
     // Mirrors TerminalSurface.owningWorkspace(): panel.workspaceId equals workspace.id,
