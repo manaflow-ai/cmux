@@ -2075,9 +2075,8 @@ class TerminalController {
                 authenticated = result.authenticated
                 if result.shouldWriteResponse {
                     let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                    if didWriteResponse {
-                        publishSocketEvents(command: trimmed, response: result.response)
-                    }
+                    // Domain events describe executed socket command side effects, not response delivery.
+                    publishSocketEvents(command: trimmed, response: result.response)
                     guard didWriteResponse else {
                         return
                     }
