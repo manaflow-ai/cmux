@@ -14,11 +14,6 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
-nonisolated private struct SocketLineProcessingResult: Sendable {
-    let response: String
-    let authenticated: Bool
-}
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1605,17 +1600,14 @@ class TerminalController {
         }
     }
 
-    private nonisolated func socketWorkerV2WorktreeResponseIfNeeded(for command: String) -> String? {
-        guard !Thread.isMainThread,
-              let request = parseV2SocketRequest(command),
+    private nonisolated func socketWorkerV2WorktreeRequestIfNeeded(for command: String) -> V2SocketRequest? {
+        guard let request = parseV2SocketRequest(command),
               Self.worktreeCreatingV2Methods.contains(request.method),
               Self.socketWorkerWorktreeRequested(request.params) else {
             return nil
         }
 
-        return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
-            socketWorkerV2WorktreeResponse(request)
-        }
+        return request
     }
 
     private nonisolated static func socketWorkerWorktreeRequested(_ params: [String: Any]) -> Bool {
@@ -1707,8 +1699,35 @@ class TerminalController {
         }
     }
 
-    private nonisolated func socketWorkerV2WorktreeResponse(_ request: V2SocketRequest) -> String {
-        let semaphore = DispatchSemaphore(value: 0)
+    private nonisolated func handOffSocketWorkerV2WorktreeResponse(
+        command: String,
+        socket: Int32
+    ) {
+        Task { [weak self] in
+            guard let self else {
+                close(socket)
+                return
+            }
+            let response: String
+            if let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) {
+                response = await socketWorkerV2WorktreeResponse(request)
+            } else {
+                response = v2Error(
+                    id: nil,
+                    code: "invalid_dispatch",
+                    message: String(
+                        localized: "error.socket.invalidWorktreeRequest",
+                        defaultValue: "Invalid worktree request"
+                    )
+                )
+            }
+            _ = writeSocketResponse(response, to: socket)
+            publishSocketEvents(command: command, response: response)
+            close(socket)
+        }
+    }
+
+    private nonisolated func socketWorkerV2WorktreeResponse(_ request: V2SocketRequest) async -> String {
         let method = request.method
         nonisolated(unsafe) let params = request.params
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
@@ -1716,58 +1735,40 @@ class TerminalController {
             isV2: true,
             params: params
         )
-        nonisolated(unsafe) var result: V2CallResult?
-        let task = Task { @MainActor in
+        let result = await Task { @MainActor () -> V2CallResult in
             switch method {
             case "workspace.create":
-                result = await self.v2WorkspaceCreateWithAsyncWorktree(
+                return await self.v2WorkspaceCreateWithAsyncWorktree(
                     params: params,
                     allowsFocusMutation: allowsFocusMutation
                 )
             case "surface.split":
-                result = await self.v2SurfaceSplitWithAsyncWorktree(
+                return await self.v2SurfaceSplitWithAsyncWorktree(
                     params: params,
                     allowsFocusMutation: allowsFocusMutation
                 )
             case "surface.create":
-                result = await self.v2SurfaceCreateWithAsyncWorktree(
+                return await self.v2SurfaceCreateWithAsyncWorktree(
                     params: params,
                     allowsFocusMutation: allowsFocusMutation
                 )
             case "pane.create":
-                result = await self.v2PaneCreateWithAsyncWorktree(
+                return await self.v2PaneCreateWithAsyncWorktree(
                     params: params,
                     allowsFocusMutation: allowsFocusMutation
                 )
             default:
-                result = .err(
+                return .err(
                     code: "method_not_found",
                     message: String(localized: "error.socket.unknownMethod", defaultValue: "Unknown method"),
                     data: nil
                 )
             }
-            semaphore.signal()
-        }
-
-        if semaphore.wait(timeout: .now() + 10 * 60) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: request.id,
-                code: "timeout",
-                message: String(localized: "error.socket.worktreeRequestTimedOut", defaultValue: "worktree request timed out")
-            )
-        }
+        }.value
 
         return v2Result(
             id: request.id,
-            result ?? .err(
-                code: "internal_error",
-                message: String(
-                    localized: "error.socket.failedToCreateWorktreeSession",
-                    defaultValue: "Failed to create worktree session"
-                ),
-                data: nil
-            )
+            result
         )
     }
 
@@ -2054,7 +2055,12 @@ class TerminalController {
     }
 
     private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
-        defer { close(socket) }
+        var handlerOwnsSocket = true
+        defer {
+            if handlerOwnsSocket {
+                close(socket)
+            }
+        }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
@@ -2117,28 +2123,32 @@ class TerminalController {
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
+                var nextAuthenticated = authenticated
+                if let response = authResponseIfNeeded(for: trimmed, authenticated: &nextAuthenticated) {
+                    authenticated = nextAuthenticated
+                    let didWriteResponse = writeSocketResponse(response, to: socket)
+                    publishSocketEvents(command: trimmed, response: response)
+                    guard didWriteResponse else {
+                        return
+                    }
+                    continue
+                }
+                authenticated = nextAuthenticated
+
+                if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
+                    handlerOwnsSocket = false
+                    handOffSocketWorkerV2WorktreeResponse(command: trimmed, socket: socket)
+                    return
+                }
+
+                let response = processCommandUsingSocketExecutionPolicy(trimmed)
+                let didWriteResponse = writeSocketResponse(response, to: socket)
+                publishSocketEvents(command: trimmed, response: response)
                 guard didWriteResponse else {
                     return
                 }
             }
         }
-    }
-
-    private nonisolated func processSocketLine(
-        _ command: String,
-        authenticated: Bool
-    ) -> SocketLineProcessingResult {
-        var nextAuthenticated = authenticated
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-        }
-
-        let response = processCommandUsingSocketExecutionPolicy(command)
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
@@ -2156,8 +2166,15 @@ class TerminalController {
             return response
         }
 
-        if let response = socketWorkerV2WorktreeResponseIfNeeded(for: command) {
-            return response
+        if let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) {
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "error.socket.worktreeRequiresAsyncSocket",
+                    defaultValue: "worktree creation must run through the async socket responder"
+                )
+            )
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
