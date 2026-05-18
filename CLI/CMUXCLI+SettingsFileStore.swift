@@ -231,10 +231,64 @@ extension CMUXCLI {
             setValue(value, components: components, leaf: leaf, in: &root)
         }
 
-        private func setValue(_ value: Any, forComponents components: [String], in root: inout [String: Any]) {
-            var components = components
-            guard let leaf = components.popLast() else { return }
-            setValue(value, components: components, leaf: leaf, in: &root)
+        private func setTomlValue(
+            _ value: Any,
+            forComponents path: [String],
+            lineNumber: Int,
+            in root: inout [String: Any]
+        ) throws {
+            guard !path.isEmpty else { return }
+            try setTomlValue(value, remaining: path, prefix: [], lineNumber: lineNumber, in: &root)
+        }
+
+        private func setTomlValue(
+            _ value: Any,
+            remaining: [String],
+            prefix: [String],
+            lineNumber: Int,
+            in root: inout [String: Any]
+        ) throws {
+            let key = remaining[0]
+            let currentPath = prefix + [key]
+            if remaining.count == 1 {
+                if root[key] is [String: Any] {
+                    let pathDescription = currentPath.joined(separator: ".")
+                    throw CLIError(
+                        message: "TOML key '\(pathDescription)' on line \(lineNumber) conflicts with an existing table"
+                    )
+                }
+                root[key] = value
+                return
+            }
+
+            let remainingPath = currentPath + Array(remaining.dropFirst())
+            if let existing = root[key] {
+                guard var child = existing as? [String: Any] else {
+                    let pathDescription = remainingPath.joined(separator: ".")
+                    let scalarPathDescription = currentPath.joined(separator: ".")
+                    throw CLIError(
+                        message: "TOML key '\(pathDescription)' on line \(lineNumber) conflicts with scalar key '\(scalarPathDescription)'"
+                    )
+                }
+                try setTomlValue(
+                    value,
+                    remaining: Array(remaining.dropFirst()),
+                    prefix: currentPath,
+                    lineNumber: lineNumber,
+                    in: &child
+                )
+                root[key] = child
+            } else {
+                var child: [String: Any] = [:]
+                try setTomlValue(
+                    value,
+                    remaining: Array(remaining.dropFirst()),
+                    prefix: currentPath,
+                    lineNumber: lineNumber,
+                    in: &child
+                )
+                root[key] = child
+            }
         }
 
         private func setValue(_ value: Any, components: [String], leaf: String, in root: inout [String: Any]) {
@@ -487,7 +541,7 @@ extension CMUXCLI {
                 if !assignedPaths.insert(pathKey).inserted {
                     throw CLIError(message: "Duplicate TOML key '\(keyPath.joined(separator: "."))' on line \(lineNumber)")
                 }
-                setValue(value, forComponents: keyPath, in: &root)
+                try setTomlValue(value, forComponents: keyPath, lineNumber: lineNumber, in: &root)
             }
             return root
         }

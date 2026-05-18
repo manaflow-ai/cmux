@@ -775,6 +775,48 @@ def main() -> int:
                 f"before={before_bad_intermediate_import} after={after_bad_intermediate_import}"
             )
 
+        before_bad_toml_collision = read_config(home)
+        bad_toml_scalar_then_table_path = home / "bad-scalar-then-table.toml"
+        bad_toml_scalar_then_table_path.write_text(
+            'app = "invalid"\n[app]\nlanguage = "en"\n',
+            encoding="utf-8",
+        )
+        bad_toml_scalar_then_table = run_cli(
+            cli_path,
+            ["settings", "import", str(bad_toml_scalar_then_table_path)],
+            home,
+        )
+        assert_fails(
+            failures,
+            "settings import rejects TOML scalar redefined as table",
+            bad_toml_scalar_then_table,
+            "conflicts with scalar key 'app'",
+        )
+
+        bad_toml_table_then_scalar_path = home / "bad-table-then-scalar.toml"
+        bad_toml_table_then_scalar_path.write_text(
+            'app.language = "en"\napp = "invalid"\n',
+            encoding="utf-8",
+        )
+        bad_toml_table_then_scalar = run_cli(
+            cli_path,
+            ["settings", "import", str(bad_toml_table_then_scalar_path)],
+            home,
+        )
+        assert_fails(
+            failures,
+            "settings import rejects TOML table redefined as scalar",
+            bad_toml_table_then_scalar,
+            "conflicts with an existing table",
+        )
+
+        after_bad_toml_collision = read_config(home)
+        if after_bad_toml_collision != before_bad_toml_collision:
+            failures.append(
+                "failed TOML path-collision import changed cmux.json: "
+                f"before={before_bad_toml_collision} after={after_bad_toml_collision}"
+            )
+
         sectioned_toml_path = home / "sectioned-settings.toml"
         sectioned_toml_path.write_text(
             """
