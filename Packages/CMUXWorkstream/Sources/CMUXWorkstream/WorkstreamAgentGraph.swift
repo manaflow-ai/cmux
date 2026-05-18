@@ -132,16 +132,18 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             childWorkstreamId: String,
             parentWorkstreamId: String,
             metadata: AgentGraphMetadata,
+            metadataScope: AgentGraphChildMetadataScope,
             childSource: WorkstreamSource,
             childWorkspaceId: String?
         ) {
             updateRecord(childWorkstreamId) { record in
                 record.parentWorkstreamId = parentWorkstreamId
-                record.mergeChild(metadata: metadata)
+                record.mergeChild(metadata: metadata, scope: metadataScope)
             }
             pruneResolvedSpawn(
                 parentWorkstreamId: parentWorkstreamId,
                 metadata: metadata,
+                metadataScope: metadataScope,
                 childSource: childSource,
                 childWorkspaceId: childWorkspaceId
             )
@@ -174,6 +176,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                     childWorkstreamId: item.workstreamId,
                     parentWorkstreamId: parentWorkstreamId,
                     metadata: metadata,
+                    metadataScope: .childSession,
                     childSource: item.source,
                     childWorkspaceId: item.workspaceId
                 )
@@ -193,6 +196,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                     childWorkstreamId: childWorkstreamId,
                     parentWorkstreamId: item.workstreamId,
                     metadata: metadata,
+                    metadataScope: .parentDeclaration,
                     childSource: childSource,
                     childWorkspaceId: nil
                 )
@@ -205,6 +209,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
         func pruneResolvedSpawn(
             parentWorkstreamId: String,
             metadata: AgentGraphMetadata,
+            metadataScope: AgentGraphChildMetadataScope,
             childSource: WorkstreamSource,
             childWorkspaceId: String?
         ) {
@@ -213,6 +218,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
             guard let index = bestResolvedSpawnIndex(
                 in: spawns,
                 metadata: metadata,
+                metadataScope: metadataScope,
                 childSource: childSource,
                 childWorkspaceId: childWorkspaceId
             ) else { return }
@@ -227,6 +233,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
         func bestResolvedSpawnIndex(
             in spawns: [SpawnRecord],
             metadata: AgentGraphMetadata,
+            metadataScope: AgentGraphChildMetadataScope,
             childSource: WorkstreamSource,
             childWorkspaceId: String?
         ) -> Int? {
@@ -249,12 +256,12 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                    subagentType == spawnSubagentType {
                     score += SpawnResolutionScore.subagentType
                 }
-                if let model = metadata.childModel,
+                if let model = metadata.childModel(scope: metadataScope),
                    let spawnModel = spawn.model,
                    model == spawnModel {
                     score += SpawnResolutionScore.model
                 }
-                if let taskDescription = metadata.childTaskDescription,
+                if let taskDescription = metadata.childTaskDescription(scope: metadataScope),
                    let spawnTaskDescription = spawn.taskDescription,
                    taskDescription == spawnTaskDescription {
                     score += SpawnResolutionScore.taskDescription
@@ -436,14 +443,14 @@ private struct SessionRecord {
         }
     }
 
-    mutating func mergeChild(metadata: AgentGraphMetadata) {
-        if let model = metadata.childModel, !model.isEmpty {
+    mutating func mergeChild(metadata: AgentGraphMetadata, scope: AgentGraphChildMetadataScope) {
+        if let model = metadata.childModel(scope: scope), !model.isEmpty {
             self.model = model
         }
         if let subagentType = metadata.childSubagentType, !subagentType.isEmpty {
             self.subagentType = subagentType
         }
-        mergeTaskDescription(metadata.childTaskDescription)
+        mergeTaskDescription(metadata.childTaskDescription(scope: scope))
         if let description = metadata.childDescription, !description.isEmpty, title == nil {
             title = description
         }
@@ -523,9 +530,9 @@ private struct SpawnRecord {
         self.title = metadata.childDescription
             ?? metadata.childSubagentType
             ?? String(toolName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
-        self.model = metadata.childModel
+        self.model = metadata.childModel(scope: .parentDeclaration)
         self.subagentType = metadata.childSubagentType
-        self.taskDescription = metadata.childTaskDescription
+        self.taskDescription = metadata.childTaskDescription(scope: .parentDeclaration)
         self.createdAt = item.createdAt
     }
 
@@ -652,9 +659,14 @@ private struct AgentGraphMetadata {
         return extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
     }
 
-    var childModel: String? {
-        toolInputString(keys: ["subagent_model", "subagentModel", "model"])
-            ?? extraString(keys: ["subagent_model", "subagentModel", "model"])
+    func childModel(scope: AgentGraphChildMetadataScope) -> String? {
+        switch scope {
+        case .childSession:
+            return extraString(keys: ["model", "subagent_model", "subagentModel"])
+        case .parentDeclaration:
+            return toolInputString(keys: ["subagent_model", "subagentModel", "model"])
+                ?? extraString(keys: ["subagent_model", "subagentModel"])
+        }
     }
 
     var childSubagentType: String? {
@@ -667,7 +679,7 @@ private struct AgentGraphMetadata {
             ?? extraString(keys: ["description", "title", "name"])
     }
 
-    var childTaskDescription: String? {
+    func childTaskDescription(scope _: AgentGraphChildMetadataScope) -> String? {
         toolInputString(keys: ["task_description", "taskDescription", "prompt", "message"])
             ?? extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
     }
@@ -742,4 +754,9 @@ private struct AgentGraphMetadata {
         }
         return nil
     }
+}
+
+private enum AgentGraphChildMetadataScope {
+    case childSession
+    case parentDeclaration
 }

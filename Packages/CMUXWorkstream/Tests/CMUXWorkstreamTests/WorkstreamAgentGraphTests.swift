@@ -41,6 +41,33 @@ struct WorkstreamAgentGraphTests {
         #expect(child?.focusWorkstreamId == "claude-parent")
     }
 
+    @Test("Spawn request without a child model does not inherit parent model")
+    func spawnRequestWithoutChildModelDoesNotInheritParentModel() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{"description":"Explore settings","subagent_type":"explorer","prompt":"Map settings code paths"}"#,
+            extraFieldsJSON: #"{"model":"parent-opus"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        let parent = graph.roots.first
+        #expect(parent?.model == "parent-opus")
+        let child = parent?.children.first
+        #expect(child?.kind == .spawnRequest)
+        #expect(child?.model == nil)
+    }
+
     @Test("Explicit parent metadata links a child session under its parent")
     func explicitParentMetadataLinksChildSession() {
         let store = WorkstreamStore(ringCapacity: 10)
@@ -341,6 +368,26 @@ struct WorkstreamAgentGraphTests {
         let child = graph.roots.first?.children.first
         #expect(child?.kind == .session)
         #expect(child?.workstreamId == "claude-child")
+    }
+
+    @Test("Parent-declared child link does not copy parent model to child")
+    func parentDeclaredChildLinkDoesNotCopyParentModelToChild() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"child_workstream_id":"claude-child","model":"parent-opus"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        let parent = graph.roots.first
+        #expect(parent?.model == "parent-opus")
+        let child = parent?.children.first
+        #expect(child?.kind == .session)
+        #expect(child?.workstreamId == "claude-child")
+        #expect(child?.model == nil)
     }
 
     @Test("Explicit child without a unique metadata match keeps pending spawns")
