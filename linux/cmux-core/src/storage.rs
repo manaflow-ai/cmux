@@ -47,6 +47,11 @@ pub struct StateStore {
 }
 
 impl StateStore {
+    /// Create a store using the current user's XDG config directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the XDG config directory cannot be resolved.
     pub fn xdg() -> Result<Self, StorageError> {
         let config_dir = dirs::config_dir().ok_or(StorageError::MissingConfigDirectory)?;
         Ok(Self {
@@ -59,6 +64,11 @@ impl StateStore {
         Self { path: path.into() }
     }
 
+    /// Load saved state from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state file cannot be read or decoded.
     pub fn load(&self) -> Result<SavedState, StorageError> {
         if !self.path.exists() {
             return Ok(SavedState::default());
@@ -67,6 +77,12 @@ impl StateStore {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
+    /// Save state to disk, creating parent directories as needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be created, the state cannot be
+    /// encoded, or the file cannot be written.
     pub fn save(&self, state: &SavedState) -> Result<(), StorageError> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
