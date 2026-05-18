@@ -54,7 +54,7 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
     }
 
     static func resolvedHiddenDelay(_ value: TimeInterval) -> TimeInterval? {
-        guard value.isFinite, value >= minimumHiddenDelay else { return nil }
+        guard value.isFinite, value >= minimumHiddenDelay, value <= maximumHiddenDelay else { return nil }
         return clampedHiddenDelay(value)
     }
 
