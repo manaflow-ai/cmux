@@ -52,16 +52,18 @@ nonisolated public enum CMUXSocketProtocol {
     }
 
     public static func malformedRequestUsesJSONRPC(_ command: String) -> Bool {
-        if command.range(
-            of: #""jsonrpc"\s*:\s*"2\.0""#,
-            options: .regularExpression
-        ) != nil {
-            return true
+        if let data = command.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data, options: []) {
+            if let dict = object as? [String: Any] {
+                return usesJSONRPC(dict)
+            }
+            if let array = object as? [Any], array.count >= 2 {
+                return (array[0] as? String) == "jsonrpc" && (array[1] as? String) == "2.0"
+            }
         }
-        return command.range(
-            of: #"\[\s*"jsonrpc"\s*,\s*"2\.0""#,
-            options: .regularExpression
-        ) != nil
+
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return topLevelObjectDeclaresJSONRPC2(trimmed) || topLevelArrayDeclaresJSONRPC2(trimmed)
     }
 
     public static func malformedRequestError(command: String, code: String, message: String) -> String {
@@ -116,12 +118,12 @@ nonisolated public enum CMUXSocketProtocol {
             throw V2SocketRequestParseError.missingMethod
         }
 
-        let params = try paramsObject(in: dict)
         let usesJSONRPC = usesJSONRPC(dict)
         let hasIdMember = dict.keys.contains("id")
         if usesJSONRPC && hasIdMember && !isValidJSONRPCID(dict["id"]) {
             throw V2SocketRequestParseError.malformedID
         }
+        let params = try paramsObject(in: dict)
         let id = usesJSONRPC ? validJSONRPCID(dict["id"]) : dict["id"]
         return V2SocketRequest(
             id: id,
@@ -168,6 +170,127 @@ nonisolated public enum CMUXSocketProtocol {
 
     public static func unknownVMMethodMessage(_ method: String) -> String {
         "Unknown VM method: \(method). Call system.capabilities to list supported methods, then use a vm.* method from that list."
+    }
+
+    private static func topLevelObjectDeclaresJSONRPC2(_ command: String) -> Bool {
+        var index = command.startIndex
+        skipWhitespace(in: command, index: &index)
+        guard consume("{", in: command, index: &index) else { return false }
+
+        while index < command.endIndex {
+            skipWhitespace(in: command, index: &index)
+            if consume(",", in: command, index: &index) {
+                continue
+            }
+            if consume("}", in: command, index: &index) {
+                return false
+            }
+
+            guard let key = parseJSONString(in: command, index: &index) else {
+                return false
+            }
+            skipWhitespace(in: command, index: &index)
+            guard consume(":", in: command, index: &index) else {
+                return false
+            }
+            skipWhitespace(in: command, index: &index)
+
+            if key == "jsonrpc" {
+                return parseJSONString(in: command, index: &index) == "2.0"
+            }
+            skipJSONValue(in: command, index: &index)
+        }
+
+        return false
+    }
+
+    private static func topLevelArrayDeclaresJSONRPC2(_ command: String) -> Bool {
+        var index = command.startIndex
+        skipWhitespace(in: command, index: &index)
+        guard consume("[", in: command, index: &index) else { return false }
+        skipWhitespace(in: command, index: &index)
+        guard parseJSONString(in: command, index: &index) == "jsonrpc" else { return false }
+        skipWhitespace(in: command, index: &index)
+        guard consume(",", in: command, index: &index) else { return false }
+        skipWhitespace(in: command, index: &index)
+        return parseJSONString(in: command, index: &index) == "2.0"
+    }
+
+    private static func skipWhitespace(in string: String, index: inout String.Index) {
+        while index < string.endIndex, string[index].isWhitespace {
+            index = string.index(after: index)
+        }
+    }
+
+    private static func consume(_ character: Character, in string: String, index: inout String.Index) -> Bool {
+        guard index < string.endIndex, string[index] == character else {
+            return false
+        }
+        index = string.index(after: index)
+        return true
+    }
+
+    private static func parseJSONString(in string: String, index: inout String.Index) -> String? {
+        guard consume("\"", in: string, index: &index) else { return nil }
+        var value = ""
+        var isEscaped = false
+        while index < string.endIndex {
+            let character = string[index]
+            index = string.index(after: index)
+            if isEscaped {
+                value.append(character)
+                isEscaped = false
+            } else if character == "\\" {
+                isEscaped = true
+            } else if character == "\"" {
+                return value
+            } else {
+                value.append(character)
+            }
+        }
+        return nil
+    }
+
+    private static func skipJSONValue(in string: String, index: inout String.Index) {
+        skipWhitespace(in: string, index: &index)
+        guard index < string.endIndex else { return }
+        if string[index] == "\"" {
+            _ = parseJSONString(in: string, index: &index)
+        } else if string[index] == "{" {
+            skipEnclosedJSONValue(in: string, index: &index, open: "{", close: "}")
+        } else if string[index] == "[" {
+            skipEnclosedJSONValue(in: string, index: &index, open: "[", close: "]")
+        } else {
+            while index < string.endIndex, string[index] != ",", string[index] != "}" {
+                index = string.index(after: index)
+            }
+        }
+    }
+
+    private static func skipEnclosedJSONValue(
+        in string: String,
+        index: inout String.Index,
+        open: Character,
+        close: Character
+    ) {
+        var depth = 0
+        while index < string.endIndex {
+            if string[index] == "\"" {
+                _ = parseJSONString(in: string, index: &index)
+                continue
+            }
+            if string[index] == open {
+                depth += 1
+            } else if string[index] == close {
+                depth -= 1
+                index = string.index(after: index)
+                if depth == 0 {
+                    return
+                }
+                continue
+            }
+            index = string.index(after: index)
+        }
     }
 
     public static let socketWorkerV2Methods: Set<String> = [

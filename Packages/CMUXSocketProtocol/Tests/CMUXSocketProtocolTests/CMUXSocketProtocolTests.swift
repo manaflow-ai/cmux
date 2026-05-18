@@ -28,4 +28,9 @@ final class CMUXSocketProtocolTests: XCTestCase {
 
         XCTAssertFalse(CMUXSocketProtocol.shouldWriteResponse(for: request))
     }
+
+    func testMalformedRequestJSONRPCDetectionUsesTopLevelOnly() {
+        XCTAssertTrue(CMUXSocketProtocol.malformedRequestUsesJSONRPC(#"{"jsonrpc":"2.0","id":"unfinished""#))
+        XCTAssertFalse(CMUXSocketProtocol.malformedRequestUsesJSONRPC(#"{"method":"system.ping","params":{"jsonrpc":"2.0"}"#))
+    }
 }

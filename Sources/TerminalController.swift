@@ -1606,25 +1606,27 @@ class TerminalController {
         _ error: V2SocketRequestParseError,
         dict: [String: Any]
     ) -> String {
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
+        let responseID = usesJSONRPC ? CMUXSocketProtocol.validJSONRPCID(dict["id"]) : dict["id"]
         switch error {
         case .invalidParams:
             return v2Error(
-                id: dict["id"],
-                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                id: responseID,
+                jsonRPC: usesJSONRPC,
                 code: "invalid_params",
                 message: "params must be a JSON object"
             )
         case .missingMethod:
             return v2Error(
-                id: dict["id"],
-                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                id: responseID,
+                jsonRPC: usesJSONRPC,
                 code: "invalid_request",
                 message: "Missing method"
             )
         case .malformedID:
             return v2Error(
                 id: nil,
-                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                jsonRPC: usesJSONRPC,
                 code: "invalid_request",
                 message: "id must be a string, number, or null"
             )
@@ -2165,6 +2167,10 @@ class TerminalController {
             if let response = socketWorkerV2ResponseIfNeeded(for: request) {
                 return response
             }
+
+            return v2MainSync {
+                self.processV2Command(request)
+            }
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
@@ -2612,6 +2618,10 @@ class TerminalController {
                 message: "Invalid request"
             )
         }
+        return processV2Command(request)
+    }
+
+    private func processV2Command(_ request: V2SocketRequest) -> String {
         let id = request.id
         let usesJSONRPC = request.usesJSONRPC
         let method = request.method
