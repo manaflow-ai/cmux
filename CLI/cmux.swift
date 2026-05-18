@@ -9321,6 +9321,9 @@ struct CMUXCLI {
               --no-ack               Do not print the subscription ack frame
               --no-heartbeat         Do not print heartbeat frames
 
+            Status options:
+              --reset-counters       Reset cumulative event diagnostics counters after reading them
+
             Examples:
               cmux events --category notification
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
