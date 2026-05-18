@@ -137,7 +137,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
         ) {
             updateRecord(childWorkstreamId) { record in
                 record.parentWorkstreamId = parentWorkstreamId
-                record.merge(metadata: metadata)
+                record.mergeChild(metadata: metadata)
             }
             pruneResolvedSpawn(
                 parentWorkstreamId: parentWorkstreamId,
@@ -244,17 +244,17 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                    childWorkspaceId == workspaceId {
                     score += SpawnResolutionScore.linkedChildWorkspace
                 }
-                if let subagentType = metadata.subagentType,
+                if let subagentType = metadata.childSubagentType,
                    let spawnSubagentType = spawn.subagentType,
                    subagentType == spawnSubagentType {
                     score += SpawnResolutionScore.subagentType
                 }
-                if let model = metadata.model,
+                if let model = metadata.childModel,
                    let spawnModel = spawn.model,
                    model == spawnModel {
                     score += SpawnResolutionScore.model
                 }
-                if let taskDescription = metadata.taskDescription,
+                if let taskDescription = metadata.childTaskDescription,
                    let spawnTaskDescription = spawn.taskDescription,
                    taskDescription == spawnTaskDescription {
                     score += SpawnResolutionScore.taskDescription
@@ -402,7 +402,7 @@ private struct SessionRecord {
         }
 
         let resolvedMetadata = metadata ?? AgentGraphMetadata(item: item)
-        merge(metadata: resolvedMetadata)
+        mergeSession(metadata: resolvedMetadata)
 
         switch item.status {
         case .pending:
@@ -423,15 +423,28 @@ private struct SessionRecord {
         }
     }
 
-    mutating func merge(metadata: AgentGraphMetadata) {
-        if let model = metadata.model, !model.isEmpty {
+    mutating func mergeSession(metadata: AgentGraphMetadata) {
+        if let model = metadata.sessionModel, !model.isEmpty {
             self.model = model
         }
-        if let subagentType = metadata.subagentType, !subagentType.isEmpty {
+        if let subagentType = metadata.sessionSubagentType, !subagentType.isEmpty {
             self.subagentType = subagentType
         }
-        mergeTaskDescription(metadata.taskDescription)
-        if let description = metadata.description, !description.isEmpty, title == nil {
+        mergeTaskDescription(metadata.sessionTaskDescription)
+        if let description = metadata.sessionDescription, !description.isEmpty, title == nil {
+            title = description
+        }
+    }
+
+    mutating func mergeChild(metadata: AgentGraphMetadata) {
+        if let model = metadata.childModel, !model.isEmpty {
+            self.model = model
+        }
+        if let subagentType = metadata.childSubagentType, !subagentType.isEmpty {
+            self.subagentType = subagentType
+        }
+        mergeTaskDescription(metadata.childTaskDescription)
+        if let description = metadata.childDescription, !description.isEmpty, title == nil {
             title = description
         }
     }
@@ -507,12 +520,12 @@ private struct SpawnRecord {
         self.id = "spawn:\(item.id.uuidString)"
         self.source = item.source
         self.workspaceId = item.workspaceId
-        self.title = metadata.description
-            ?? metadata.subagentType
+        self.title = metadata.childDescription
+            ?? metadata.childSubagentType
             ?? String(toolName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
-        self.model = metadata.model
-        self.subagentType = metadata.subagentType
-        self.taskDescription = metadata.taskDescription
+        self.model = metadata.childModel
+        self.subagentType = metadata.childSubagentType
+        self.taskDescription = metadata.childTaskDescription
         self.createdAt = item.createdAt
     }
 
@@ -567,6 +580,7 @@ private struct AgentGraphMetadata {
     let source: WorkstreamSource
     let extra: [String: Any]
     let toolInput: [String: Any]
+    let isSpawnTool: Bool
 
     init(item: WorkstreamItem) {
         let toolName: String?
@@ -598,7 +612,8 @@ private struct AgentGraphMetadata {
         self.source = source
         self.extra = Self.dictionary(from: extraFieldsJSON)
         let parsedToolInput = Self.dictionary(from: toolInputJSON)
-        if let toolName, SessionRecord.isSpawnTool(toolName) {
+        self.isSpawnTool = toolName.map(SessionRecord.isSpawnTool) ?? false
+        if isSpawnTool {
             self.toolInput = parsedToolInput
         } else {
             self.toolInput = [:]
@@ -615,21 +630,46 @@ private struct AgentGraphMetadata {
             .flatMap(WorkstreamSource.init(wireName:))
     }
 
-    var model: String? {
+    var sessionModel: String? {
+        if isSpawnTool {
+            return extraString(keys: ["model"])
+        }
+        return extraString(keys: ["model", "subagent_model", "subagentModel"])
+    }
+
+    var sessionSubagentType: String? {
+        guard !isSpawnTool else { return nil }
+        return extraString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+    }
+
+    var sessionDescription: String? {
+        guard !isSpawnTool else { return nil }
+        return extraString(keys: ["description", "title", "name"])
+    }
+
+    var sessionTaskDescription: String? {
+        guard !isSpawnTool else { return nil }
+        return extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
+    }
+
+    var childModel: String? {
         toolInputString(keys: ["subagent_model", "subagentModel", "model"])
-            ?? string(keys: ["subagent_model", "subagentModel", "model"])
+            ?? extraString(keys: ["subagent_model", "subagentModel", "model"])
     }
 
-    var subagentType: String? {
-        string(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+    var childSubagentType: String? {
+        toolInputString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+            ?? extraString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
     }
 
-    var description: String? {
-        string(keys: ["description", "title", "name"])
+    var childDescription: String? {
+        toolInputString(keys: ["description", "title", "name"])
+            ?? extraString(keys: ["description", "title", "name"])
     }
 
-    var taskDescription: String? {
-        string(keys: ["task_description", "taskDescription", "prompt", "message"])
+    var childTaskDescription: String? {
+        toolInputString(keys: ["task_description", "taskDescription", "prompt", "message"])
+            ?? extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
     }
 
     func parentWorkstreamId(source: WorkstreamSource) -> String? {
@@ -658,6 +698,15 @@ private struct AgentGraphMetadata {
                 return value
             }
             if let value = normalizedString(toolInput[key]) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func extraString(keys: [String]) -> String? {
+        for key in keys {
+            if let value = normalizedString(extra[key]) {
                 return value
             }
         }

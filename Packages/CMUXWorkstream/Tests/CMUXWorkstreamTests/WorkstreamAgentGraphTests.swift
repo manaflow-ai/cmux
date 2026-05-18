@@ -29,6 +29,10 @@ struct WorkstreamAgentGraphTests {
         #expect(graph.nodeCount == 2)
         #expect(graph.edgeCount == 1)
         #expect(graph.roots.count == 1)
+        let parent = graph.roots.first
+        #expect(parent?.model == "parent-opus")
+        #expect(parent?.subagentType == nil)
+        #expect(parent?.taskDescription == nil)
         let child = graph.roots.first?.children.first
         #expect(child?.kind == .spawnRequest)
         #expect(child?.subagentType == "explorer")
