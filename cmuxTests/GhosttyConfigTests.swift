@@ -1206,7 +1206,36 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         }
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
+
+            defaults.set(
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
+                forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+            )
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+            )
+
+            defaults.set(
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay + 1,
+                forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+            )
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
         }
+
+        XCTAssertEqual(
+            BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(-1),
+            BrowserHiddenWebViewDiscardPolicy.minimumHiddenDelay
+        )
+        XCTAssertEqual(
+            BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay + 1
+            ),
+            BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+        )
     }
 
     func testLifecycleStartsAsNewTabUntilRenderable() {

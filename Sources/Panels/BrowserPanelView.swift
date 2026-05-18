@@ -6738,7 +6738,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         if portalHostAccepted || didReleasePortalHost {
             let lifecycleVisibleInUI = portalHostAccepted && coordinator.desiredPortalVisibleInUI
             let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
-            panel.noteWebViewVisibility(lifecycleVisibleInUI, reason: lifecycleReason)
+            panel.noteWebViewVisibility(
+                lifecycleVisibleInUI,
+                reason: lifecycleReason,
+                deferVisibleRestore: true,
+                deferredVisibleRestoreIsValid: { [weak host, weak coordinator, weak panel] in
+                    guard let host, let coordinator, let panel else { return false }
+                    return host.window != nil &&
+                        coordinator.desiredPortalVisibleInUI &&
+                        self.currentPaneDropContext()?.paneId.id == paneId.id &&
+                        panel.ownsPortalHost(hostId: hostId, paneId: paneId)
+                }
+            )
         }
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {

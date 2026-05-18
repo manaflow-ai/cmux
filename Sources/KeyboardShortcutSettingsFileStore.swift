@@ -742,7 +742,7 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
         }
         if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
-            guard value >= 0 else {
+            guard BrowserHiddenWebViewDiscardPolicy.normalizedHiddenDelay(value) != nil else {
                 logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
                 return
             }

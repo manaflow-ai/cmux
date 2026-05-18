@@ -2082,6 +2082,8 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
     static let hiddenDelayKey = "browserHiddenWebViewDiscardDelaySeconds"
     static let defaultEnabled = true
     static let defaultHiddenDelay: TimeInterval = 300
+    static let minimumHiddenDelay: TimeInterval = 0
+    static let maximumHiddenDelay: TimeInterval = 3600
 
     static var isEnabled: Bool {
         isEnabled(defaults: .standard)
@@ -2107,14 +2109,33 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
     static func hiddenDelay(defaults: UserDefaults) -> TimeInterval {
         let rawValue = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let rawValue, let value = TimeInterval(rawValue), value >= 0 else {
-            let storedValue = defaults.double(forKey: hiddenDelayKey)
-            guard defaults.object(forKey: hiddenDelayKey) != nil, storedValue >= 0 else {
-                return defaultHiddenDelay
-            }
-            return storedValue
+        if let rawValue,
+           let value = TimeInterval(rawValue),
+           let normalized = normalizedHiddenDelay(value) {
+            return normalized
+        }
+        let storedValue = defaults.double(forKey: hiddenDelayKey)
+        guard defaults.object(forKey: hiddenDelayKey) != nil,
+              let normalized = normalizedHiddenDelay(storedValue) else {
+            return defaultHiddenDelay
+        }
+        return normalized
+    }
+
+    static func normalizedHiddenDelay(_ value: TimeInterval) -> TimeInterval? {
+        guard value.isFinite,
+              value >= minimumHiddenDelay,
+              value <= maximumHiddenDelay else {
+            return nil
         }
         return value
+    }
+
+    static func clampedHiddenDelay(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else {
+            return defaultHiddenDelay
+        }
+        return min(max(value, minimumHiddenDelay), maximumHiddenDelay)
     }
 }
 
@@ -2755,12 +2776,15 @@ final class BrowserPanel: Panel, ObservableObject {
         _ visible: Bool,
         reason: String,
         now: Date = Date(),
-        recordIfUnchanged: Bool = false
+        recordIfUnchanged: Bool = false,
+        deferVisibleRestore: Bool = false,
+        deferredVisibleRestoreIsValid: (() -> Bool)? = nil
     ) {
         let changed = isWebViewVisibleInUI != visible
         let isFirstVisibilityRecord = webViewLastVisibilityChangeReason == nil
         let shouldRecordVisibleHeartbeat = visible && recordIfUnchanged
-        guard changed || shouldRecordVisibleHeartbeat || isFirstVisibilityRecord else {
+        let needsHiddenDiscardReevaluation = !visible && hiddenWebViewDiscardTimer == nil
+        guard changed || shouldRecordVisibleHeartbeat || isFirstVisibilityRecord || needsHiddenDiscardReevaluation else {
             refreshWebViewLifecycleState()
             return
         }
@@ -2781,7 +2805,20 @@ final class BrowserPanel: Panel, ObservableObject {
 
         if visible {
             cancelHiddenWebViewDiscard()
-            restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
+            if deferVisibleRestore {
+                let visibilityChangeAt = webViewLastVisibilityChangeAt
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          self.isWebViewVisibleInUI,
+                          self.webViewLastVisibilityChangeAt == visibilityChangeAt,
+                          deferredVisibleRestoreIsValid?() ?? true else {
+                        return
+                    }
+                    self.restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
+                }
+            } else {
+                restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
+            }
         } else if changed || isFirstVisibilityRecord || hiddenWebViewDiscardTimer == nil {
             scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
         }
@@ -3187,6 +3224,11 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
         return true
+    }
+
+    func ownsPortalHost(hostId: ObjectIdentifier, paneId: PaneID) -> Bool {
+        guard let activePortalHostLease else { return false }
+        return activePortalHostLease.hostId == hostId && activePortalHostLease.paneId == paneId.id
     }
 
     @discardableResult

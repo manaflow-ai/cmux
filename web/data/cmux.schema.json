@@ -702,6 +702,18 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "discardHiddenWebViews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Discard hidden browser WebViews after the configured delay to reduce memory use."
+        },
+        "hiddenWebViewDiscardDelaySeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Seconds a browser tab must stay hidden before cmux discards its page WebView."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

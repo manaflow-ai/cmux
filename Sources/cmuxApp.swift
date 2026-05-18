@@ -5304,8 +5304,8 @@ struct SettingsView: View {
 
     private var browserHiddenWebViewDiscardDelayBinding: Binding<Double> {
         Binding(
-            get: { max(0, browserHiddenWebViewDiscardDelay) },
-            set: { browserHiddenWebViewDiscardDelay = max(0, $0) }
+            get: { BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(browserHiddenWebViewDiscardDelay) },
+            set: { browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay($0) }
         )
     }
 
@@ -5321,7 +5321,7 @@ struct SettingsView: View {
     }
 
     private var browserHiddenWebViewDiscardDelayLabel: String {
-        let seconds = Int(max(0, browserHiddenWebViewDiscardDelay).rounded())
+        let seconds = Int(BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(browserHiddenWebViewDiscardDelay).rounded())
         if seconds < 60 {
             return String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "\(seconds)s")
         }
@@ -6684,6 +6684,7 @@ struct SettingsView: View {
                             Toggle("", isOn: $browserHiddenWebViewDiscardEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscard.accessibilityLabel", defaultValue: "Discard hidden browser WebViews"))
                                 .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
                         }
 
@@ -6705,13 +6706,15 @@ struct SettingsView: View {
                                 Stepper(
                                     "",
                                     value: browserHiddenWebViewDiscardDelayBinding,
-                                    in: 0...3600,
+                                    in: BrowserHiddenWebViewDiscardPolicy.minimumHiddenDelay...BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
                                     step: 30
                                 )
                                 .labelsHidden()
+                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscardDelay.accessibilityLabel", defaultValue: "Hidden WebView discard delay"))
+                                .accessibilityValue(browserHiddenWebViewDiscardDelayLabel)
+                                .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
                             }
                             .disabled(!browserHiddenWebViewDiscardEnabled)
-                            .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
                         }
 
                         SettingsCardDivider()
