@@ -16887,6 +16887,12 @@ struct CMUXCLI {
             // as current only when the consumed session was the active one.
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: consumedSession.surfaceId,
+                    sessionId: consumedSession.sessionId
+                )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -19113,6 +19119,24 @@ struct CMUXCLI {
             params["environment"] = environment
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
+    }
+
+    private func clearAgentSurfaceResumeBinding(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        sessionId: String
+    ) {
+        let normalizedSessionId = normalizedHookValue(sessionId)
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+            "source": "agent-hook"
+        ]
+        if let normalizedSessionId {
+            params["checkpoint_id"] = normalizedSessionId
+        }
+        _ = try? client.sendV2(method: "surface.resume.clear", params: params)
     }
 
     private func agentSurfaceResumeCommand(
@@ -21409,6 +21433,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: mapped.workspaceId,
+                    surfaceId: mapped.surfaceId,
+                    sessionId: mapped.sessionId
+                )
                 _ = try? sendV1Command(
                     "clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketPanelOption(mapped.surfaceId)) --clear-status",
                     client: client

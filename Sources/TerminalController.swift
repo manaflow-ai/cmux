@@ -6131,10 +6131,34 @@ class TerminalController {
             return .err(code: "unavailable", message: Self.v2WindowUnavailableMessage, data: nil)
         }
 
+        let expectedCheckpointId = v2OptionalTrimmedRawString(params, "checkpoint_id")
+            ?? v2OptionalTrimmedRawString(params, "checkpointId")
+        let expectedSource = v2OptionalTrimmedRawString(params, "source")
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
         v2MainSync {
             guard let target = v2ResolveSurfaceResumeTarget(params: params, fallbackTabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Surface not found", data: nil)
+                return
+            }
+            let currentBinding = target.workspace.surfaceResumeBinding(panelId: target.surfaceId)
+            if let expectedCheckpointId, currentBinding?.checkpointId != expectedCheckpointId {
+                result = .ok(v2SurfaceResumeResult(
+                    tabManager: target.tabManager,
+                    workspace: target.workspace,
+                    surfaceId: target.surfaceId,
+                    binding: currentBinding,
+                    cleared: false
+                ))
+                return
+            }
+            if let expectedSource, currentBinding?.source != expectedSource {
+                result = .ok(v2SurfaceResumeResult(
+                    tabManager: target.tabManager,
+                    workspace: target.workspace,
+                    surfaceId: target.surfaceId,
+                    binding: currentBinding,
+                    cleared: false
+                ))
                 return
             }
             _ = target.workspace.clearSurfaceResumeBinding(panelId: target.surfaceId)
