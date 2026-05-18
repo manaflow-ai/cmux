@@ -18445,7 +18445,7 @@ struct CMUXCLI {
         )
     }
 
-    private func codexMonitorFailureNotificationBody(kind: CodexHookFailureKind) -> String {
+    private func codexFailureNotificationBody(kind: CodexHookFailureKind) -> String {
         switch kind {
         case .rateLimit:
             return String(
@@ -18937,7 +18937,7 @@ struct CMUXCLI {
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            let body = codexMonitorFailureNotificationBody(kind: summary.kind)
+            let body = codexFailureNotificationBody(kind: summary.kind)
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(body))"
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
@@ -21352,7 +21352,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
 
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                let notificationBody = codexFailure.map { codexFailureNotificationBody(kind: $0.kind) } ?? body
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: notificationBody)
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 if let codexFailure {
                     _ = try? sendV1Command(

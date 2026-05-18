@@ -1967,7 +1967,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|Codex stopped because the account has no usage remaining. Check usage or billing, then retry.")
             },
             "Expected Codex failure notification, saw \(state.commands)"
         )
@@ -2041,7 +2041,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected typed Codex error notification, saw \(state.commands)"
         )
@@ -2119,7 +2119,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Codex stopped because the connection failed. Check the connection, then retry.")
             },
             "Expected discovered transcript failure notification, saw \(state.commands)"
         )
@@ -2508,7 +2508,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected explicit error field notification, saw \(state.commands)"
         )
@@ -2660,7 +2660,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected payload error notification to beat healthy transcript, saw \(state.commands)"
         )
@@ -2734,7 +2734,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex stopped before completing the turn. Try again, or check the transcript for details.")
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
