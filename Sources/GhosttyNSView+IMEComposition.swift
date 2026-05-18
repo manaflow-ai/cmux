@@ -7,13 +7,15 @@ private enum NoMarkedIMECommandPolicy {
     case bopomofo
     case applePinyin
 
+    private static let comparisonLocale = Locale(identifier: "en_US_POSIX")
+
     init(inputSourceId: String?) {
         guard let inputSourceId else {
             self = .none
             return
         }
 
-        let normalized = inputSourceId.lowercased()
+        let normalized = inputSourceId.lowercased(with: Self.comparisonLocale)
         if normalized.contains("zhuyin") || normalized.contains("bopomofo") {
             self = .bopomofo
             return
