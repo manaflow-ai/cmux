@@ -107,6 +107,26 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testSubscriptionNextIgnoresStaleWakeupsAfterImmediateDequeues() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        bus.publish(name: "one", category: "test", source: "test")
+        XCTAssertEqual(snapshot.subscription.next(timeout: 1.0)?["name"] as? String, "one")
+
+        let delayedPublish = expectation(description: "delayed event publish")
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05) {
+            bus.publish(name: "two", category: "test", source: "test")
+            delayedPublish.fulfill()
+        }
+
+        let event = snapshot.subscription.next(timeout: 1.0)
+
+        wait(for: [delayedPublish], timeout: 1.0)
+        XCTAssertEqual(event?["name"] as? String, "two")
+    }
+
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
         let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
