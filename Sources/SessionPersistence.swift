@@ -547,7 +547,9 @@ enum SessionScrollbackReplayStore {
     }
 
     private static func isLineSeparator(_ character: Character) -> Bool {
-        character == "\n" || character == "\r"
+        character.unicodeScalars.allSatisfy { scalar in
+            scalar.value == 0x0A || scalar.value == 0x0D
+        }
     }
 
     private static func isZshEndOfLinePercentMarker(_ line: String) -> Bool {
