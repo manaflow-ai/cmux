@@ -175,6 +175,9 @@ doneFlags:
 		socketPath = readSocketAddrFile()
 		refreshAddr = readSocketAddrFile
 	}
+	if socketPath == "" && cmdName == "tmux" {
+		return runTmuxNotifyCommand("", cmdArgs, jsonOutput, refreshAddr)
+	}
 	if socketPath == "" {
 		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
 		return 1
@@ -207,6 +210,9 @@ doneFlags:
 	// Tmux compatibility layer (used by agent shims)
 	if cmdName == "__tmux-compat" {
 		return runTmuxCompat(socketPath, cmdArgs, refreshAddr)
+	}
+	if cmdName == "tmux" {
+		return runTmuxNotifyCommand(socketPath, cmdArgs, jsonOutput, refreshAddr)
 	}
 
 	spec, ok := commandIndex[cmdName]
@@ -864,6 +870,8 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  send                      Send text to a surface")
 	fmt.Fprintln(os.Stderr, "  send-key                  Send a key to a surface")
 	fmt.Fprintln(os.Stderr, "  notify                    Create a notification")
+	fmt.Fprintln(os.Stderr, "  tmux init                 Install cmux tmux hooks")
+	fmt.Fprintln(os.Stderr, "  tmux refresh              Refresh cmux tmux pane metadata")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")

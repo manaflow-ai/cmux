@@ -199,6 +199,9 @@ _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
 _CMUX_TMUX_PULL_SIGNATURE="${_CMUX_TMUX_PULL_SIGNATURE:-}"
+_CMUX_TMUX_HOOKS_INIT_SIGNATURE="${_CMUX_TMUX_HOOKS_INIT_SIGNATURE:-}"
+_CMUX_TMUX_HOOKS_LAST_ATTEMPT="${_CMUX_TMUX_HOOKS_LAST_ATTEMPT:-0}"
+_CMUX_TMUX_HOOKS_KNOWN_VERSION="${_CMUX_TMUX_HOOKS_KNOWN_VERSION:-}"
 _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID
@@ -313,12 +316,55 @@ _cmux_tmux_refresh_cmux_environment() {
     fi
 }
 
+_cmux_tmux_bootstrap_hooks() {
+    [[ -n "${CMUX_SOCKET_PATH:-}" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local cli=""
+    if [[ -n "${CMUX_BUNDLED_CLI_PATH:-}" && -x "${CMUX_BUNDLED_CLI_PATH}" ]]; then
+        cli="$CMUX_BUNDLED_CLI_PATH"
+    else
+        cli="$(command -v cmux 2>/dev/null || true)"
+    fi
+    [[ -n "$cli" ]] || return 0
+
+    local expected_version="1"
+    local base_signature cached_signature
+    base_signature="${TMUX:-__outside__}"$'\037'"${CMUX_SOCKET_PATH:-}"$'\037'"${CMUX_WORKSPACE_ID:-${CMUX_TAB_ID:-}}"$'\037'"${CMUX_PANEL_ID:-${CMUX_SURFACE_ID:-}}"$'\037'"$cli"
+    cached_signature="$base_signature"$'\037'"$_CMUX_TMUX_HOOKS_KNOWN_VERSION"
+    if [[ "$_CMUX_TMUX_HOOKS_KNOWN_VERSION" == "$expected_version" && "$cached_signature" == "$_CMUX_TMUX_HOOKS_INIT_SIGNATURE" ]]; then
+        return 0
+    fi
+
+    local now
+    now="$(_cmux_now)"
+    if (( now - _CMUX_TMUX_HOOKS_LAST_ATTEMPT < 5 )); then
+        return 0
+    fi
+    _CMUX_TMUX_HOOKS_LAST_ATTEMPT="$now"
+
+    local marker signature
+    marker="$(tmux show-options -gqv @cmux_hooks_version 2>/dev/null || true)"
+    signature="$base_signature"$'\037'"$marker"
+    if [[ "$marker" == "$expected_version" ]]; then
+        _CMUX_TMUX_HOOKS_KNOWN_VERSION="$marker"
+        _CMUX_TMUX_HOOKS_INIT_SIGNATURE="$signature"
+        return 0
+    fi
+
+    if "$cli" tmux init >/dev/null 2>&1; then
+        _CMUX_TMUX_HOOKS_KNOWN_VERSION="$expected_version"
+        _CMUX_TMUX_HOOKS_INIT_SIGNATURE="$base_signature"$'\037'"$expected_version"
+    fi
+}
+
 _cmux_tmux_sync_cmux_environment() {
     if [[ -n "$TMUX" ]]; then
         _cmux_tmux_refresh_cmux_environment
     else
         _cmux_tmux_publish_cmux_environment
     fi
+    _cmux_tmux_bootstrap_hooks
 }
 
 _cmux_git_resolve_head_path() {
