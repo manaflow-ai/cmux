@@ -97,6 +97,17 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(error.message, "auth must be an object")
     }
 
+    func testMobileHostRPCIgnoresRefreshTokenOnlyAuth() {
+        let data = Data(#"{"id":"refresh-only","method":"workspace.list","auth":{"stack_refresh_token":"secret"}}"#.utf8)
+
+        let result = MobileHostRPCEnvelope.decodeRequest(data)
+
+        guard case let .success(request) = result else {
+            return XCTFail("Refresh-token-only auth should decode as an unauthenticated request")
+        }
+        XCTAssertNil(request.auth)
+    }
+
     func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
         let resolver = MobileRouteResolver()
 
@@ -247,8 +258,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             params: ["workspaceID": "workspace"],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
-                stackAccessToken: nil,
-                stackRefreshToken: nil
+                stackAccessToken: nil
             )
         )
 
@@ -268,8 +278,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
-                stackAccessToken: nil,
-                stackRefreshToken: nil
+                stackAccessToken: nil
             )
         )
 
@@ -286,8 +295,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             params: ["workspace_id": "workspace"],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
-                stackAccessToken: nil,
-                stackRefreshToken: nil
+                stackAccessToken: nil
             )
         )
 
@@ -307,8 +315,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
-                stackAccessToken: nil,
-                stackRefreshToken: nil
+                stackAccessToken: nil
             )
         )
 
@@ -329,8 +336,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
-                stackAccessToken: nil,
-                stackRefreshToken: nil
+                stackAccessToken: nil
             )
         )
 
@@ -350,8 +356,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
-                stackAccessToken: nil,
-                stackRefreshToken: nil
+                stackAccessToken: nil
             )
         )
 

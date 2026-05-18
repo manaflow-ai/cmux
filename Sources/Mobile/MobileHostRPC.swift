@@ -13,7 +13,6 @@ struct MobileHostRPCRequest: @unchecked Sendable {
 struct MobileHostRPCAuth: @unchecked Sendable {
     let attachToken: String?
     let stackAccessToken: String?
-    let stackRefreshToken: String?
 }
 
 // Error data is normalized through MobileHostRPCEnvelope.jsonValue before it is
@@ -144,14 +143,12 @@ enum MobileHostRPCEnvelope {
         }
         let attachToken = nonEmptyString(auth["attach_token"])
         let accessToken = nonEmptyString(auth["stack_access_token"])
-        let refreshToken = nonEmptyString(auth["stack_refresh_token"])
-        guard attachToken != nil || accessToken != nil || refreshToken != nil else {
+        guard attachToken != nil || accessToken != nil else {
             return nil
         }
         return MobileHostRPCAuth(
             attachToken: attachToken,
-            stackAccessToken: accessToken,
-            stackRefreshToken: refreshToken
+            stackAccessToken: accessToken
         )
     }
 

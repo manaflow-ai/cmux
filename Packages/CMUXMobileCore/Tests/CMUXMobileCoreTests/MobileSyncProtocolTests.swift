@@ -70,23 +70,44 @@ import Testing
 }
 
 @Test func pairingPayloadRejectsExpiredURLs() throws {
-    let payload = try MobileSyncPairingPayload(
-        macDeviceID: "mac-1",
-        macDisplayName: nil,
-        host: "100.64.1.2",
-        port: 49831,
-        expiresAt: Date(timeIntervalSince1970: 1_000),
-        transport: .tailscale
-    )
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "mac-1",
+      "host": "100.64.1.2",
+      "port": 49831,
+      "expires_at": "1970-01-01T00:16:40Z",
+      "transport": "tailscale"
+    }
+    """
+    let url = try #require(URL(string: "cmux-ios://pair?v=1&payload=\(base64URLEncode(Data(json.utf8)))"))
 
     do {
         _ = try MobileSyncPairingPayload.decodeURL(
-            payload.encodedURL(),
+            url,
             now: Date(timeIntervalSince1970: 1_001)
         )
         Issue.record("Expected expired payload to fail")
     } catch let error as MobileSyncPairingPayloadError {
         #expect(error == .expired)
+    }
+}
+
+@Test func pairingPayloadInitializerRejectsExpiredPayloads() {
+    do {
+        _ = try MobileSyncPairingPayload(
+            macDeviceID: "mac-1",
+            macDisplayName: nil,
+            host: "100.64.1.2",
+            port: 49831,
+            expiresAt: Date(timeIntervalSince1970: 1_000),
+            transport: .tailscale
+        )
+        Issue.record("Expected initializer to reject expired payload")
+    } catch let error as MobileSyncPairingPayloadError {
+        #expect(error == .expired)
+    } catch {
+        Issue.record("Expected expired payload error, got \(error)")
     }
 }
 
@@ -136,4 +157,11 @@ import Testing
     } catch let error as MobileSyncFrameCodecError {
         #expect(error == .frameTooLarge(5))
     }
+}
+
+private func base64URLEncode(_ data: Data) -> String {
+    data.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
 }

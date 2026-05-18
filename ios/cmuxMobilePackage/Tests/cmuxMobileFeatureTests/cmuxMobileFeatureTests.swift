@@ -226,18 +226,22 @@ import UIKit
 
 @MainActor
 @Test func expiredPairingURLPayloadIsRejectedBeforePreviewConnection() async throws {
-    let payload = try MobileSyncPairingPayload(
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        host: "127.0.0.1",
-        port: 49831,
-        expiresAt: Date(timeIntervalSince1970: 1),
-        transport: .debugLoopback
-    )
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "test-mac",
+      "mac_display_name": "Test Mac",
+      "host": "127.0.0.1",
+      "port": 49831,
+      "expires_at": "1970-01-01T00:00:01Z",
+      "transport": "debug_loopback"
+    }
+    """
+    let url = try #require(URL(string: "cmux-ios://pair?v=1&payload=\(base64URLEncode(Data(json.utf8)))"))
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    await store.connectPairingURL(try payload.encodedURL().absoluteString)
+    await store.connectPairingURL(url.absoluteString)
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
