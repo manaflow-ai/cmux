@@ -1515,6 +1515,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
+        XCTAssertEqual(setRequests.count, 1)
         let request = try XCTUnwrap(setRequests.first)
         XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
@@ -1559,6 +1560,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "--name", "foo",
                 "--kind", "bar",
                 "--cwd", "/tmp/ignored",
+                "--surface", "not-a-target",
             ],
             environment: environment,
             timeout: 5
@@ -1583,7 +1585,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(request["kind"])
         XCTAssertEqual(
             request["command"] as? String,
-            "'myapp' '--name' 'foo' '--kind' 'bar' '--cwd' '/tmp/ignored'"
+            "'myapp' '--name' 'foo' '--kind' 'bar' '--cwd' '/tmp/ignored' '--surface' 'not-a-target'"
         )
     }
 

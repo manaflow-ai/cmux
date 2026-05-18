@@ -226,6 +226,7 @@ enum TmuxResumeParser {
 
     private static func hasFlag(_ arguments: [String], short: Character, long: String? = nil) -> Bool {
         for argument in arguments {
+            if argument == "--" { break }
             if let long, argument == "--\(long)" { return true }
             if argument == "-\(short)" { return true }
             if shortFlagCluster(argument, contains: short) {
@@ -277,6 +278,7 @@ enum TmuxResumeParser {
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
+            if argument == "--" { break }
             if argument == "--\(long)" || argument == "-\(short)" {
                 return valueAfter(arguments, index: index)
             }
@@ -302,6 +304,7 @@ enum TmuxResumeParser {
     private static func valueAfter(_ arguments: [String], index: Int) -> String? {
         let nextIndex = index + 1
         guard nextIndex < arguments.count else { return nil }
+        guard arguments[nextIndex] != "--" else { return nil }
         return normalized(arguments[nextIndex])
     }
 

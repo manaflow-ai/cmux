@@ -290,7 +290,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
     }
 
-    func startupInput(
+    func startupInputWithLauncherScript(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true
@@ -375,11 +375,7 @@ private enum SurfaceResumeBindingScriptStore {
                 "\(prefix)-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = """
-            #!/bin/zsh
-            rm -f -- "$0" 2>/dev/null || true
-            \(inlineInput)
-            """
+            let contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL

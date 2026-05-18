@@ -596,7 +596,7 @@ extension Workspace {
         if resumeBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }
-        return resumeBinding.startupInput(allowLauncherScript: allowLauncherScript)
+        return resumeBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {

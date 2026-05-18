@@ -629,14 +629,6 @@ private struct VaultObservedAgentProcess: Sendable {
         processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
     }
 
-    var isTmuxProcess: Bool {
-        executableBasenames.contains(where: TmuxResumeParser.argumentLooksLikeTmux)
-    }
-
-    var hasTmuxServerProcessTitle: Bool {
-        executableBasenames.contains(where: TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle)
-    }
-
     var openCodeExecutableArgument: String? {
         guard let index = openCodeExecutableArgumentIndex,
               arguments.indices.contains(index) else {

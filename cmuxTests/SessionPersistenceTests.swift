@@ -3438,7 +3438,7 @@ extension SessionPersistenceTests {
         let inlineInput = try XCTUnwrap(binding.inlineStartupInput)
         XCTAssertGreaterThan(inlineInput.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
 
-        let input = try XCTUnwrap(binding.startupInput(temporaryDirectory: tempDir))
+        let input = try XCTUnwrap(binding.startupInputWithLauncherScript(temporaryDirectory: tempDir))
         XCTAssertLessThanOrEqual(input.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
         XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
         XCTAssertFalse(input.contains(longPath))
@@ -4283,6 +4283,24 @@ extension SessionPersistenceTests {
         )
 
         XCTAssertNil(binding)
+    }
+
+    func testTmuxOptionValueStopsAtCommandTerminator() {
+        let attachBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach", "--", "-t", "work"],
+            environment: [:]
+        )
+        let newBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-A", "--", "-s", "work"],
+            environment: [:]
+        )
+
+        XCTAssertNil(attachBinding)
+        XCTAssertNil(newBinding)
     }
 
     func testTmuxProcessDetectedResumeBindingRejectsUnnamedNewAttachSession() {

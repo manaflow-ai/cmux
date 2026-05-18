@@ -4482,7 +4482,8 @@ struct CMUXCLI {
             )
             let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
             var params = target.params
-            let (name, rem1) = parseOption(target.remaining, name: "--name")
+            let splitRemaining = splitAtArgumentTerminator(target.remaining)
+            let (name, rem1) = parseOption(splitRemaining.options, name: "--name")
             let (kind, rem2) = parseOption(rem1, name: "--kind")
             let (checkpoint, rem3) = parseOption(rem2, name: "--checkpoint")
             let (checkpointID, rem4) = parseOption(rem3, name: "--checkpoint-id")
@@ -4498,12 +4499,12 @@ struct CMUXCLI {
 
             let commandText: String
             if let shellCommand {
-                if let unexpected = rem7.first {
+                if let unexpected = (rem7 + (splitRemaining.argv ?? [])).first {
                     throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
                 }
                 commandText = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
-                let argv = rem7.first == "--" ? Array(rem7.dropFirst()) : rem7
+                let argv = splitRemaining.argv ?? rem7
                 guard !argv.isEmpty else {
                     throw CLIError(message: "surface resume set requires --shell <command> or -- <argv...>")
                 }
@@ -4640,12 +4641,21 @@ struct CMUXCLI {
         var remaining: [String]
     }
 
+    private func splitAtArgumentTerminator(_ args: [String]) -> (options: [String], argv: [String]?) {
+        guard let delimiterIndex = args.firstIndex(of: "--") else {
+            return (args, nil)
+        }
+        let argvStart = args.index(after: delimiterIndex)
+        return (Array(args[..<delimiterIndex]), Array(args[argvStart...]))
+    }
+
     private func surfaceResumeTarget(
         _ args: [String],
         client: SocketClient,
         windowOverride: String?
     ) throws -> SurfaceResumeTarget {
-        let (workspaceOpt, rem1) = parseOption(args, name: "--workspace")
+        let splitArgs = splitAtArgumentTerminator(args)
+        let (workspaceOpt, rem1) = parseOption(splitArgs.options, name: "--workspace")
         let (surfaceOpt, remaining) = parseOption(rem1, name: "--surface")
         let env = ProcessInfo.processInfo.environment
         let usesImplicitSurface = surfaceOpt == nil
@@ -4665,7 +4675,8 @@ struct CMUXCLI {
             windowHandle: windowHandle
         )
         if let surfaceId { params["surface_id"] = surfaceId }
-        return SurfaceResumeTarget(params: params, remaining: remaining)
+        let remainingWithArgv = remaining + (splitArgs.argv.map { ["--"] + $0 } ?? [])
+        return SurfaceResumeTarget(params: params, remaining: remainingWithArgv)
     }
 
     private func cliShellQuote(_ value: String) -> String {
