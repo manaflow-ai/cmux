@@ -469,6 +469,27 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(service.debugListenerPortForTesting(), 61234)
     }
 
+    func testMobileHostWaitingListenerDoesNotPublishRoutes() {
+        let service = MobileHostService.shared
+        let generation = UUID()
+
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: generation,
+            usesEphemeralFallback: false,
+            port: 61234
+        )
+
+        service.debugHandleListenerStateForTesting(.waiting(.posix(.EADDRINUSE)), generation: generation)
+
+        let status = service.statusSnapshot()
+        XCTAssertFalse(status.isRunning)
+        XCTAssertNil(status.port)
+        XCTAssertTrue(status.routes.isEmpty)
+        XCTAssertNil(service.debugListenerPortForTesting())
+    }
+
     func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()

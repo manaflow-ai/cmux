@@ -69,8 +69,7 @@ final class MobileHostService {
             }
             listener = nextListener
             listenerUsesEphemeralFallback = !usePreferredPort
-            listenerPort = nextListener.port.map { Int($0.rawValue) }
-            routeResolver.refreshTailscaleRoutes()
+            listenerPort = nil
             nextListener.start(queue: callbackQueue)
         } catch {
             if usePreferredPort {
@@ -355,6 +354,7 @@ final class MobileHostService {
         case .ready:
             listenerPort = listener?.port.map { Int($0.rawValue) }
             lastErrorDescription = nil
+            routeResolver.refreshTailscaleRoutes()
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
         case let .failed(error):
             lastErrorDescription = String(describing: error)
@@ -377,7 +377,7 @@ final class MobileHostService {
             listenerUsesEphemeralFallback = false
             listenerPort = nil
         case .setup, .waiting:
-            break
+            listenerPort = nil
         @unknown default:
             break
         }
