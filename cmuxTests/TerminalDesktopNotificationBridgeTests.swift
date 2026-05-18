@@ -126,6 +126,26 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
         )
     }
 
+    func testRouteFallsBackToTabTitleForWhitespaceOnlyTitle() {
+        assertDelivered(
+            title: " \n\t ",
+            body: "Body",
+            fallbackTabTitle: "workspace-1",
+            expectedTitle: "workspace-1",
+            expectedBody: "Body"
+        )
+    }
+
+    func testRouteTrimsTitleWhitespace() {
+        assertDelivered(
+            title: "  Plan mode question\n",
+            body: "Body",
+            fallbackTabTitle: "workspace-1",
+            expectedTitle: "Plan mode question",
+            expectedBody: "Body"
+        )
+    }
+
     private func assertSuppressed(
         claudeHooksEnabled: Bool = true,
         workspaceAgentPIDs: [String: pid_t] = ["claude_code": pid_t(123)],

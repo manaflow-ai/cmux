@@ -35,7 +35,8 @@ nonisolated enum TerminalDesktopNotificationBridge {
     }
 
     private static func resolvedTitle(actionTitle: String, fallbackTabTitle: String) -> String {
-        actionTitle.isEmpty ? fallbackTabTitle : actionTitle
+        let trimmedTitle = actionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? fallbackTabTitle : trimmedTitle
     }
 
     private static func shouldSuppressNotification(
