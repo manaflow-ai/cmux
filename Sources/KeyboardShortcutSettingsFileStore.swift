@@ -252,6 +252,8 @@ final class CmuxSettingsFileStore {
             )
             if primaryConfigExists {
                 assignPrimaryWriteBackSources(to: &snapshot, captureStoredValues: false)
+            } else {
+                snapshot.clearWriteBackSources()
             }
             guard !snapshot.managedUserDefaults.isEmpty ||
                 !snapshot.editableUserDefaults.isEmpty ||
@@ -346,6 +348,7 @@ final class CmuxSettingsFileStore {
 
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
+        fallbackSnapshot.clearWriteBackSources()
         return fallbackSnapshot
     }
 

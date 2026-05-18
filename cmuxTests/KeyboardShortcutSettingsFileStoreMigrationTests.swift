@@ -32,6 +32,10 @@ private final class CountingFileManager: FileManager, @unchecked Sendable {
     }
 }
 
+private enum SocketPasswordReadFailure: Error {
+    case unavailable
+}
+
 final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
     func testBootstrapMigratesLegacySettingsIntoCanonicalConfig() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -323,6 +327,123 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: defaultsKey) as? Bool, true)
     }
 
+    func testParsedManagedSettingsPersistUIEditsBackToCmuxJSON() throws {
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = CmdClickSupportedFileRouteSettings.key
+        let closeTabWarningKey = CloseTabWarningSettings.warnBeforeClosingTabKey
+        let workspaceDescriptionKey = SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey
+        let originalSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let originalCloseTabWarning = defaults.object(forKey: closeTabWarningKey)
+        let originalWorkspaceDescription = defaults.object(forKey: workspaceDescriptionKey)
+        let originalBackups = defaults.object(forKey: "cmux.settingsFile.backups.v1")
+        defer {
+            restoreDefaultsValue(originalSupportedFiles, forKey: supportedFilesKey)
+            restoreDefaultsValue(originalCloseTabWarning, forKey: closeTabWarningKey)
+            restoreDefaultsValue(originalWorkspaceDescription, forKey: workspaceDescriptionKey)
+            restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "openSupportedFilesInCmux": true,
+                "warnBeforeClosingTab": true
+              },
+              "sidebar": {
+                "showWorkspaceDescription": true
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let notificationCenter = NotificationCenter()
+        var store: KeyboardShortcutSettingsFileStore?
+        defer { store = nil }
+        store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: nil,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertEqual(defaults.object(forKey: supportedFilesKey) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: closeTabWarningKey) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: workspaceDescriptionKey) as? Bool, true)
+
+        waitForSettingsFileChange(on: notificationCenter) {
+            defaults.set(false, forKey: supportedFilesKey)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        }
+        waitForSettingsFileChange(on: notificationCenter) {
+            defaults.set(false, forKey: closeTabWarningKey)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        }
+        waitForSettingsFileChange(on: notificationCenter) {
+            defaults.set(false, forKey: workspaceDescriptionKey)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        }
+
+        XCTAssertEqual(try boolSetting(in: primaryURL, section: "app", key: "openSupportedFilesInCmux"), false)
+        XCTAssertEqual(try boolSetting(in: primaryURL, section: "app", key: "warnBeforeClosingTab"), false)
+        XCTAssertEqual(try boolSetting(in: primaryURL, section: "sidebar", key: "showWorkspaceDescription"), false)
+        XCTAssertNotNil(store)
+    }
+
+    func testFallbackConfigDoesNotReceiveUIWriteBackWhenPrimaryConfigIsMissing() throws {
+        let defaultsKey = "sidebarMatchTerminalBackground"
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: defaultsKey)
+        let originalBackups = defaults.object(forKey: "cmux.settingsFile.backups.v1")
+        defer {
+            restoreDefaultsValue(originalSetting, forKey: defaultsKey)
+            restoreDefaultsValue(originalBackups, forKey: "cmux.settingsFile.backups.v1")
+        }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let primaryURL = directoryURL.appendingPathComponent("primary/cmux.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+        let originalFallbackContents = try String(contentsOf: fallbackURL, encoding: .utf8)
+
+        let notificationCenter = NotificationCenter()
+        var store: KeyboardShortcutSettingsFileStore?
+        defer { store = nil }
+        store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            notificationCenter: notificationCenter,
+            startWatching: true
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: primaryURL.path))
+
+        try FileManager.default.removeItem(at: primaryURL)
+        try XCTUnwrap(store).reload()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+        XCTAssertEqual(store?.activeSourcePath, fallbackURL.path)
+
+        waitForNoSettingsFileChange(on: notificationCenter) {
+            defaults.set(false, forKey: defaultsKey)
+            notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+        XCTAssertEqual(try String(contentsOf: fallbackURL, encoding: .utf8), originalFallbackContents)
+    }
+
     func testDeletedPrimaryConfigDoesNotGetRecreatedByUIEdit() throws {
         let defaultsKey = "sidebarMatchTerminalBackground"
         let defaults = UserDefaults.standard
@@ -608,6 +729,43 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
         XCTAssertEqual(outcome, .noChanges)
         XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(try String(contentsOf: primaryURL, encoding: .utf8), originalContents)
+    }
+
+    func testSocketPasswordWriteBackPropagatesPasswordReadFailure() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "from-config"
+              }
+            }
+            """,
+            to: primaryURL
+        )
+        let originalContents = try String(contentsOf: primaryURL, encoding: .utf8)
+
+        var snapshot = ResolvedSettingsSnapshot(path: primaryURL.path)
+        snapshot.managedCustomSettings.socketPassword = .set("from-config")
+        snapshot.managedCustomSettingSources[CmuxSettingsFileStore.socketPasswordWriteBackIdentifier] =
+            ManagedCustomSettingSource(
+                sourcePath: primaryURL.path,
+                jsonPath: "automation.socketPassword"
+            )
+        let plan = try XCTUnwrap(CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: snapshot))
+
+        do {
+            _ = try await plan.write(fileManager: .default) {
+                throw SocketPasswordReadFailure.unavailable
+            }
+            XCTFail("Expected socket password read failure to propagate")
+        } catch SocketPasswordReadFailure.unavailable {
+        }
+
         XCTAssertEqual(try String(contentsOf: primaryURL, encoding: .utf8), originalContents)
     }
 

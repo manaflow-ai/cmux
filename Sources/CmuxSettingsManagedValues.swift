@@ -55,6 +55,12 @@ struct ResolvedSettingsSnapshot: @unchecked Sendable {
         }
     }
 
+    mutating func clearWriteBackSources() {
+        managedUserDefaultSources.removeAll()
+        editableUserDefaultSources.removeAll()
+        managedCustomSettingSources.removeAll()
+    }
+
     mutating func assignEditableWriteBackSources(
         _ targets: [String: ManagedSettingsWriteBackTarget],
         sourcePath: String,

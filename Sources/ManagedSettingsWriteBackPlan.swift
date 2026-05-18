@@ -28,7 +28,7 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
         shouldContinue: ManagedSettingsWriteBackShouldContinue = { true }
     ) async throws -> ManagedSettingsWriteBackOutcome {
         var resolvedChangesBySourcePath = changesBySourcePath
-        collectCustomSocketPasswordEdits(
+        try collectCustomSocketPasswordEdits(
             changesBySourcePath: &resolvedChangesBySourcePath,
             loadSocketPassword: loadSocketPassword
         )
@@ -54,14 +54,14 @@ struct ManagedSettingsWriteBackPlan: @unchecked Sendable {
     private func collectCustomSocketPasswordEdits(
         changesBySourcePath: inout [String: [String: Any]],
         loadSocketPassword: () throws -> String?
-    ) {
+    ) throws {
         for source in customSocketPasswordSources {
             let currentSocketPassword: String?
             do {
                 currentSocketPassword = try loadSocketPassword()
             } catch {
-                managedSettingsWriteBackPlanLog.error("Failed to read socket password before cmux.json write-back: \(String(describing: error), privacy: .public)")
-                continue
+                managedSettingsWriteBackPlanLog.error("Failed to read socket password before cmux.json write-back: \(String(describing: error), privacy: .private)")
+                throw error
             }
             let didChange: Bool
             switch source.managedValue {
