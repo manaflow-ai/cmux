@@ -47,13 +47,10 @@ extension TerminalController {
         }
 
         do {
-            let policy = options.policy
-            let record = try await Task.detached(priority: .utility) {
-                try EphemeralWorktreeRegistry.shared.create(
-                    sourceDirectory: sourceDirectory,
-                    cleanupPolicy: policy
-                )
-            }.value
+            let record = try await EphemeralWorktreeRegistry.shared.createAsync(
+                sourceDirectory: sourceDirectory,
+                cleanupPolicy: options.policy
+            )
             return (record, record.worktreePath, nil)
         } catch {
             return (

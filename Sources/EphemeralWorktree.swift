@@ -207,8 +207,8 @@ nonisolated struct EphemeralWorktreeGitClient {
     }
 }
 
-// Sendable safety: registry persistence is synchronous and all JSON store mutations are serialized by `lock`;
-// git subprocess operations are stateless per call and any background cleanup enters through that lock-protected API.
+// Sendable safety: registry persistence is synchronous and all JSON store mutations are serialized by `lock`.
+// Async/background entry points run blocking git subprocesses on `gitWorkQueue`, not Swift's cooperative executor.
 final class EphemeralWorktreeRegistry: @unchecked Sendable {
     static let shared = EphemeralWorktreeRegistry()
     private nonisolated static let logger = Logger(
@@ -219,16 +219,22 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     private let storeURL: URL
     private let git: EphemeralWorktreeGitClient
     private let fileManager: FileManager
+    private let gitWorkQueue: DispatchQueue
     private let lock = NSLock()
 
     init(
         storeURL: URL = EphemeralWorktreeRegistry.defaultStoreURL(),
         git: EphemeralWorktreeGitClient = EphemeralWorktreeGitClient(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        gitWorkQueue: DispatchQueue = DispatchQueue(
+            label: "com.cmux.ephemeral-worktree.git",
+            qos: .utility
+        )
     ) {
         self.storeURL = storeURL
         self.git = git
         self.fileManager = fileManager
+        self.gitWorkQueue = gitWorkQueue
     }
 
     static func defaultStoreURL(
@@ -275,6 +281,23 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         return record
     }
 
+    func createAsync(
+        sourceDirectory: String,
+        cleanupPolicy: EphemeralWorktreeCleanupPolicy = .defaultPolicy
+    ) async throws -> EphemeralWorktreeRecord {
+        try await withCheckedThrowingContinuation { continuation in
+            gitWorkQueue.async {
+                let result: Result<EphemeralWorktreeRecord, Error> = Result {
+                    try self.create(
+                        sourceDirectory: sourceDirectory,
+                        cleanupPolicy: cleanupPolicy
+                    )
+                }
+                continuation.resume(with: result)
+            }
+        }
+    }
+
     func register(_ record: EphemeralWorktreeRecord) throws {
         try updateRecords { records in
             records.removeAll { $0.sessionId == record.sessionId }
@@ -314,7 +337,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     func cleanupInBackground(_ record: EphemeralWorktreeRecord, userConfirmed: Bool = false) {
         // This is a sync-to-background bridge for git worktree removal after UI teardown.
         // Keeping it off the main actor prevents pane closure from waiting on git I/O.
-        Task.detached(priority: .utility) {
+        gitWorkQueue.async {
             do {
                 _ = try self.cleanup(record, userConfirmed: userConfirmed)
             } catch {
@@ -342,7 +365,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     }
 
     func reconcileOrphansInBackground(activeSessionIds: Set<String>) {
-        Task.detached(priority: .utility) {
+        gitWorkQueue.async {
             _ = self.reconcileOrphans(activeSessionIds: activeSessionIds)
         }
     }
