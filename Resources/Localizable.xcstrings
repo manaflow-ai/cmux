@@ -105786,6 +105786,23 @@
         }
       }
     },
+    "shortcut.switchRightSidebarToVault.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sidebar Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのボールトを表示"
+          }
+        }
+      }
+    },
     "shortcut.switchRightSidebarToSessions.label": {
       "extractionState": "manual",
       "localizations": {

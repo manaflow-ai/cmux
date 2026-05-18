@@ -126,7 +126,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .rightSidebarFind:
             return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
         case .rightSidebarVault:
-            return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
+            return String(localized: "shortcut.switchRightSidebarToVault.label", defaultValue: "Show Sidebar Vault")
         case .rightSidebarSessions:
             return String(localized: "command.rightSidebarSessions.title", defaultValue: "Show Sidebar Sessions")
         case .rightSidebarFeed:
