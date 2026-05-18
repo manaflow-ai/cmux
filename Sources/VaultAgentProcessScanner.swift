@@ -618,6 +618,9 @@ extension RestorableAgentSessionIndex {
             let workingDirectory = normalized(
                 observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
             )
+            if let parentSessionId = normalized(command.sessionId) {
+                forkMetadataPanelKeysByParentSessionId[parentSessionId, default: []].insert(candidate.panelKey)
+            }
             guard let key = codexForkMetadataFallbackKey(
                 workingDirectory: workingDirectory,
                 parentSessionId: command.sessionId
@@ -625,9 +628,6 @@ extension RestorableAgentSessionIndex {
                 continue
             }
             forkMetadataPanelKeysByKey[key, default: []].insert(candidate.panelKey)
-            if let parentSessionId = normalized(command.sessionId) {
-                forkMetadataPanelKeysByParentSessionId[parentSessionId, default: []].insert(candidate.panelKey)
-            }
         }
 
         for candidate in candidates {
