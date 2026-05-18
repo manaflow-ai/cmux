@@ -483,7 +483,7 @@ func buildBrowserRelayRequest(args []string) (browserRelayRequest, error) {
 				return browserRelayRequest{}, fmt.Errorf("--surface requires a value")
 			}
 			leadingParams["surface_id"] = args[1]
-			leadingParamSources["surface_id"] = "--surface"
+			leadingParamSources["surface_id"] = "leading --surface"
 			args = args[2:]
 			continue
 		case "--workspace":
@@ -491,7 +491,7 @@ func buildBrowserRelayRequest(args []string) (browserRelayRequest, error) {
 				return browserRelayRequest{}, fmt.Errorf("--workspace requires a value")
 			}
 			leadingParams["workspace_id"] = args[1]
-			leadingParamSources["workspace_id"] = "--workspace"
+			leadingParamSources["workspace_id"] = "leading --workspace"
 			args = args[2:]
 			continue
 		case "--window":
@@ -499,7 +499,7 @@ func buildBrowserRelayRequest(args []string) (browserRelayRequest, error) {
 				return browserRelayRequest{}, fmt.Errorf("--window requires a value")
 			}
 			leadingParams["window_id"] = args[1]
-			leadingParamSources["window_id"] = "--window"
+			leadingParamSources["window_id"] = "leading --window"
 			args = args[2:]
 			continue
 		case "--pane":
@@ -507,7 +507,7 @@ func buildBrowserRelayRequest(args []string) (browserRelayRequest, error) {
 				return browserRelayRequest{}, fmt.Errorf("--pane requires a value")
 			}
 			leadingParams["pane_id"] = args[1]
-			leadingParamSources["pane_id"] = "--pane"
+			leadingParamSources["pane_id"] = "leading --pane"
 			args = args[2:]
 			continue
 		}
