@@ -1045,6 +1045,15 @@ func titlebarShortcutHintShouldShow(
     !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
 }
 
+@MainActor
+private final class SurfaceFrameChangePublishCoordinator {
+    private let windowMoveCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+
+    func scheduleWindowMove(_ action: @escaping () -> Void) {
+        windowMoveCoalescer.signal(action)
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
@@ -1082,6 +1091,7 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    @State private var surfaceFrameChangePublishCoordinator = SurfaceFrameChangePublishCoordinator()
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
@@ -2352,6 +2362,12 @@ struct ContentView: View {
         }
     }
 
+    private func scheduleVisibleSurfaceFrameChangesAfterWindowMove() {
+        surfaceFrameChangePublishCoordinator.scheduleWindowMove { [tabManager] in
+            tabManager.selectedWorkspace?.publishCmuxSurfaceFrameChanges(origin: "window_move")
+        }
+    }
+
     private func refreshWindowChromeMetrics(for window: NSWindow) {
         // Keep native measurements around for minimal WindowGroup safe-area cancellation.
         // Standard mode uses cmux's visual chrome height for layout.
@@ -3097,6 +3113,12 @@ struct ContentView: View {
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
             updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            scheduleVisibleSurfaceFrameChangesAfterWindowMove()
         })
 
         view = AnyView(view.onChange(of: sidebarWidth) { _ in

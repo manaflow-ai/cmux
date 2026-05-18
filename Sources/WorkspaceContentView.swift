@@ -295,6 +295,9 @@ struct WorkspaceContentView: View {
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
         }
+        .onChange(of: isWorkspaceInputActive) { _, isInputActive in
+            publishSelectedWorkspaceSurfaceFrameChangesIfNeeded(isInputActive: isInputActive)
+        }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
@@ -338,6 +341,19 @@ struct WorkspaceContentView: View {
 
         bonsplitView
             .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+    }
+
+    private func publishSelectedWorkspaceSurfaceFrameChangesIfNeeded(isInputActive: Bool) {
+        guard isInputActive, isWorkspaceVisible else { return }
+
+        // Already-mounted background workspaces keep Bonsplit geometry alive while hidden,
+        // so selecting one might not produce a container geometry callback. Publish at the
+        // input-active boundary from Bonsplit's current snapshot instead of dispatching
+        // earlier from TabManager before SwiftUI applies the selection.
+        workspace.publishCmuxSurfaceFrameChanges(
+            layoutSnapshot: workspace.bonsplitController.layoutSnapshot(),
+            origin: "workspace_selected"
+        )
     }
 
     private func syncBonsplitNotificationBadges() {

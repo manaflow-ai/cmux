@@ -2,6 +2,120 @@ import Foundation
 import AppKit
 import Bonsplit
 
+nonisolated struct CmuxSurfaceFrameSnapshot: Equatable, Sendable {
+    let frame: CGRect
+    let screen: String?
+    let inWindow: Bool
+
+    var framePayload: [String: Double] {
+        Self.rectPayload(frame)
+    }
+
+    var boundsPayload: [String: Double] {
+        [
+            "x": 0,
+            "y": 0,
+            "width": Double(frame.width),
+            "height": Double(frame.height)
+        ]
+    }
+
+    var screenPayload: String? {
+        screen
+    }
+
+    static func rectPayload(_ rect: CGRect) -> [String: Double] {
+        [
+            "x": Double(rect.origin.x),
+            "y": Double(rect.origin.y),
+            "width": Double(rect.size.width),
+            "height": Double(rect.size.height)
+        ]
+    }
+
+    static func appendPayloadFields(
+        to item: inout [String: Any],
+        snapshot: CmuxSurfaceFrameSnapshot?
+    ) {
+        guard let snapshot else {
+            item["frame"] = NSNull()
+            item["bounds"] = NSNull()
+            item["screen"] = NSNull()
+            item["in_window"] = false
+            return
+        }
+
+        item["frame"] = snapshot.framePayload
+        item["bounds"] = snapshot.boundsPayload
+        item["screen"] = snapshot.screenPayload ?? NSNull()
+        item["in_window"] = snapshot.inWindow
+    }
+}
+
+@MainActor
+enum CmuxSurfaceFrameSnapshotResolver {
+    static func snapshotsBySurfaceId(
+        in workspace: Workspace,
+        layoutSnapshot: LayoutSnapshot? = nil,
+        window explicitWindow: NSWindow? = nil
+    ) -> [UUID: CmuxSurfaceFrameSnapshot] {
+        let windowState = AppDelegate.shared?.scriptableMainWindowForTab(workspace.id)
+        guard windowState?.tabManager.selectedTabId == workspace.id else { return [:] }
+        guard let window = explicitWindow ?? windowState?.window,
+              let contentView = window.contentView else { return [:] }
+
+        let layout = layoutSnapshot ?? workspace.bonsplitController.layoutSnapshot()
+        var snapshots: [UUID: CmuxSurfaceFrameSnapshot] = [:]
+
+        for panel in workspace.panels.values {
+            let paneId = workspace.paneId(forPanelId: panel.id)
+            let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                layoutSnapshot: layout,
+                paneId: paneId
+            )
+            let exactRect = ContentView.tmuxWorkspacePaneExactRect(
+                for: panel,
+                in: contentView
+            )
+            guard let contentRect = ContentView.preferredTmuxWorkspacePaneWindowOverlayRect(
+                exactRect: exactRect,
+                paneRect: paneRect
+            ),
+            let snapshot = snapshot(
+                contentRect: contentRect,
+                contentView: contentView,
+                window: window
+            ) else {
+                continue
+            }
+            snapshots[panel.id] = snapshot
+        }
+
+        return snapshots
+    }
+
+    private static func snapshot(
+        contentRect: CGRect,
+        contentView: NSView,
+        window fallbackWindow: NSWindow
+    ) -> CmuxSurfaceFrameSnapshot? {
+        guard contentRect.width > 1, contentRect.height > 1 else { return nil }
+        let window = contentView.window ?? fallbackWindow
+        let rectInWindow = contentView.convert(contentRect, to: nil)
+        let rectInScreen = window.convertToScreen(rectInWindow)
+        guard rectInScreen.width > 1, rectInScreen.height > 1 else { return nil }
+
+        let screen = window.screen
+            ?? NSScreen.screens.first(where: { $0.frame.intersects(rectInScreen) })
+        let screenId = screen?.cmuxDisplayID.map { "screen:\($0)" }
+        return CmuxSurfaceFrameSnapshot(
+            frame: rectInScreen,
+            screen: screenId,
+            inWindow: contentView.window != nil && window.isVisible
+        )
+    }
+}
+
 @MainActor
 private enum CmuxSelectionEventState {
     static var selectedSurfaceByWorkspacePane: [String: UUID] = [:]
@@ -32,6 +146,27 @@ private enum CmuxSelectionEventState {
         if focusedSurfaceByWorkspace[workspaceId] == surfaceId {
             focusedSurfaceByWorkspace.removeValue(forKey: workspaceId)
         }
+    }
+}
+
+@MainActor
+private enum CmuxSurfaceFrameEventState {
+    static var frameByWorkspaceSurface: [String: CmuxSurfaceFrameSnapshot] = [:]
+
+    static func surfaceKey(workspaceId: UUID, surfaceId: UUID) -> String {
+        "\(workspaceId.uuidString):\(surfaceId.uuidString)"
+    }
+
+    static func clearWorkspace(_ workspaceId: UUID) {
+        frameByWorkspaceSurface = frameByWorkspaceSurface.filter {
+            !$0.key.hasPrefix("\(workspaceId.uuidString):")
+        }
+    }
+
+    static func clearSurface(workspaceId: UUID, surfaceId: UUID) {
+        frameByWorkspaceSurface.removeValue(
+            forKey: surfaceKey(workspaceId: workspaceId, surfaceId: surfaceId)
+        )
     }
 }
 
@@ -68,6 +203,7 @@ extension TabManager {
             remainingTabCount: tabs.count
         )
         CmuxSelectionEventState.clearWorkspace(workspace.id)
+        CmuxSurfaceFrameEventState.clearWorkspace(workspace.id)
     }
 
     func publishCmuxWorkspaceSelected(_ workspace: Workspace) {
@@ -139,6 +275,7 @@ extension Workspace {
             origin: origin,
             focused: focused
         )
+        publishCmuxSurfaceFrameChanges(origin: "\(origin).surface_created")
     }
 
     func publishCmuxSurfaceClosed(_ surfaceId: UUID, paneId: PaneID?, panel: (any Panel)?, origin: String) {
@@ -150,6 +287,7 @@ extension Workspace {
             origin: origin
         )
         CmuxSelectionEventState.clearSurface(workspaceId: id, surfaceId: surfaceId)
+        CmuxSurfaceFrameEventState.clearSurface(workspaceId: id, surfaceId: surfaceId)
     }
 
     func publishCmuxPaneClosed(_ paneId: PaneID, closedPanelIds: [UUID], origin: String) {
@@ -160,6 +298,9 @@ extension Workspace {
             origin: origin
         )
         CmuxSelectionEventState.clearPane(workspaceId: id, paneId: paneId.id)
+        for surfaceId in closedPanelIds {
+            CmuxSurfaceFrameEventState.clearSurface(workspaceId: id, surfaceId: surfaceId)
+        }
     }
 
     func publishCmuxFocusedSelection(paneId: PaneID, surfaceId: UUID, origin: String) {
@@ -197,6 +338,37 @@ extension Workspace {
                 surfaceId: surfaceId,
                 paneId: paneId.id,
                 kind: kind,
+                origin: origin
+            )
+        }
+    }
+
+    func publishCmuxSurfaceFrameChanges(
+        layoutSnapshot: LayoutSnapshot? = nil,
+        origin: String
+    ) {
+        let snapshots = CmuxSurfaceFrameSnapshotResolver.snapshotsBySurfaceId(
+            in: self,
+            layoutSnapshot: layoutSnapshot
+        )
+        guard !snapshots.isEmpty else { return }
+
+        for (surfaceId, snapshot) in snapshots {
+            let key = CmuxSurfaceFrameEventState.surfaceKey(
+                workspaceId: id,
+                surfaceId: surfaceId
+            )
+            guard CmuxSurfaceFrameEventState.frameByWorkspaceSurface[key] != snapshot else {
+                continue
+            }
+            CmuxSurfaceFrameEventState.frameByWorkspaceSurface[key] = snapshot
+            let paneId = paneId(forPanelId: surfaceId)
+            CmuxEventBus.shared.publishSurfaceFrameChanged(
+                workspaceId: id,
+                surfaceId: surfaceId,
+                paneId: paneId?.id,
+                kind: panels[surfaceId].map(Self.cmuxEventSurfaceKind),
+                snapshot: snapshot,
                 origin: origin
             )
         }

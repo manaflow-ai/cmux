@@ -14680,6 +14680,7 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
         scheduleTerminalGeometryReconcile()
+        publishCmuxSurfaceFrameChanges(layoutSnapshot: snapshot, origin: "bonsplit_geometry")
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
