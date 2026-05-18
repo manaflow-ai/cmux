@@ -104,6 +104,7 @@ extension ContentView {
             commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
             commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyCacheValue
             commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyWasReportedInCurrentSession
+            commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] = CACurrentMediaTime()
 
             let didFork: Bool
             switch destination {

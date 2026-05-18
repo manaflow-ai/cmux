@@ -721,20 +721,23 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default,
         fallbackScope: RestorableAgentProcessDetectionScope? = nil
     ) async -> RestorableAgentSessionIndex {
-        await Task.detached(priority: .utility) {
-            let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-            let detectedSnapshots = processDetectedSnapshots(
-                registry: registry,
-                fileManager: fileManager,
-                fallbackScope: fallbackScope
-            )
-            return load(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
-                registry: registry,
-                detectedSnapshots: detectedSnapshots
-            )
-        }.value
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+                let detectedSnapshots = processDetectedSnapshots(
+                    registry: registry,
+                    fileManager: fileManager,
+                    fallbackScope: fallbackScope
+                )
+                let index = load(
+                    homeDirectory: homeDirectory,
+                    fileManager: fileManager,
+                    registry: registry,
+                    detectedSnapshots: detectedSnapshots
+                )
+                continuation.resume(returning: index)
+            }
+        }
     }
 
     static func load(

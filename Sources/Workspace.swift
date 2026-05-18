@@ -9577,8 +9577,15 @@ final class Workspace: Identifiable, ObservableObject {
     func recordCurrentSessionSurfaceTTY(_ ttyName: String, forPanelId panelId: UUID) {
         let trimmedTTY = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTTY.isEmpty else { return }
-        surfaceTTYNames[panelId] = trimmedTTY
-        currentSessionReportedTTYPanelIds.insert(panelId)
+        let ttyAlreadyRecorded = surfaceTTYNames[panelId] == trimmedTTY
+        let sessionAlreadyReported = currentSessionReportedTTYPanelIds.contains(panelId)
+        guard !ttyAlreadyRecorded || !sessionAlreadyReported else { return }
+        if !ttyAlreadyRecorded {
+            surfaceTTYNames[panelId] = trimmedTTY
+        }
+        if !sessionAlreadyReported {
+            currentSessionReportedTTYPanelIds.insert(panelId)
+        }
     }
 
     func hasCurrentSessionReportedTTY(forPanelId panelId: UUID) -> Bool {
@@ -9586,6 +9593,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func clearCurrentSessionSurfaceTTYReport(forPanelId panelId: UUID) {
+        guard currentSessionReportedTTYPanelIds.contains(panelId) else { return }
         currentSessionReportedTTYPanelIds.remove(panelId)
     }
 
