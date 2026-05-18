@@ -5416,7 +5416,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     }
                 }
 
-                if resolvedCommandForStartup?.isEmpty != false {
+                if resolvedCommandForStartup?.isEmpty != false,
+                   surfaceContext != GHOSTTY_SURFACE_CONTEXT_SPLIT {
                     setManagedEnvironmentValue("CMUX_ZSH_SOURCE_LOGIN_PROFILE", "1")
                 }
                 setManagedEnvironmentValue("ZDOTDIR", integrationDir)
