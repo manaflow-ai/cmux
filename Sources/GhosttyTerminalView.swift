@@ -4381,16 +4381,6 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     let recordedAt = Date()
-    if Thread.isMainThread {
-        MainActor.assumeIsolated {
-            AgentHibernationController.shared.recordTerminalInput(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                recordedAt: recordedAt
-            )
-        }
-        return
-    }
     Task { @MainActor in
         AgentHibernationController.shared.recordTerminalInput(
             workspaceId: workspaceId,
@@ -4402,16 +4392,6 @@ private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUI
 
 private func recordAgentHibernationTerminalOutput(workspaceId: UUID, panelId: UUID) {
     let recordedAt = Date()
-    if Thread.isMainThread {
-        MainActor.assumeIsolated {
-            AgentHibernationController.shared.recordTerminalOutput(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                recordedAt: recordedAt
-            )
-        }
-        return
-    }
     Task { @MainActor in
         AgentHibernationController.shared.recordTerminalOutput(
             workspaceId: workspaceId,
