@@ -585,13 +585,14 @@ extension Workspace {
 
     nonisolated static func surfaceResumeStartupInput(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
-        autoResumeAgentSessions: Bool
+        autoResumeAgentSessions: Bool,
+        allowLauncherScript: Bool = false
     ) -> String? {
         guard let resumeBinding else { return nil }
         if resumeBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }
-        return resumeBinding.startupInput
+        return resumeBinding.startupInput(allowLauncherScript: allowLauncherScript)
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
@@ -829,7 +830,8 @@ extension Workspace {
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             let restoredBindingInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: autoResumeAgentSessions
+                autoResumeAgentSessions: autoResumeAgentSessions,
+                allowLauncherScript: true
             )
             let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
             let workingDirectory =

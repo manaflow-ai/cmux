@@ -255,7 +255,13 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "process-detected"
     }
 
+    static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+
     var startupInput: String? {
+        inlineStartupInput
+    }
+
+    var inlineStartupInput: String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
@@ -267,6 +273,29 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         }
         let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
+    }
+
+    func startupInput(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput else { return nil }
+        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+            return inlineInput
+        }
+        guard allowLauncherScript else { return inlineInput }
+        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+            inlineInput: inlineInput,
+            binding: self,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        ) else {
+            return nil
+        }
+
+        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
+        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -289,6 +318,70 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private enum SurfaceResumeBindingScriptStore {
+    private static let directoryName = "cmux-surface-resume"
+    private static let scriptTTL: TimeInterval = 24 * 60 * 60
+
+    static func writeLauncherScript(
+        inlineInput: String,
+        binding: SurfaceResumeBindingSnapshot,
+        fileManager: FileManager,
+        temporaryDirectory: URL
+    ) -> URL? {
+        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
+            pruneOldScripts(in: directoryURL, fileManager: fileManager)
+
+            let prefix = safeFilenamePrefix(binding: binding)
+            let scriptURL = directoryURL.appendingPathComponent(
+                "\(prefix)-\(UUID().uuidString).zsh",
+                isDirectory: false
+            )
+            let contents = """
+            #!/bin/zsh
+            rm -f -- "$0" 2>/dev/null || true
+            \(inlineInput)
+            """
+            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
+            return scriptURL
+        } catch {
+            return nil
+        }
+    }
+
+    private static func safeFilenamePrefix(binding: SurfaceResumeBindingSnapshot) -> String {
+        let rawPrefix = binding.kind ?? binding.source ?? "surface-resume"
+        let safePrefix = rawPrefix
+            .prefix(24)
+            .map { character -> Character in
+                character.isLetter || character.isNumber || character == "-" ? character : "_"
+            }
+        return safePrefix.isEmpty ? "surface-resume" : String(safePrefix)
+    }
+
+    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
+        guard let scriptURLs = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+        let cutoff = Date().addingTimeInterval(-scriptTTL)
+        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
+            guard let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
+                continue
+            }
+            try? fileManager.removeItem(at: scriptURL)
+        }
     }
 }
 
