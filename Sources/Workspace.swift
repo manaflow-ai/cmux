@@ -9700,6 +9700,7 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    @MainActor
     func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return
@@ -9720,6 +9721,7 @@ final class Workspace: Identifiable, ObservableObject {
         untrackRemoteTerminalSurface(surfaceId)
     }
 
+    @MainActor
     func markRemoteTerminalSessionReconnecting(
         surfaceId: UUID,
         relayPort: Int?,
@@ -9741,6 +9743,7 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteConnectionStateUpdate(.reconnecting, detail: detail, target: target)
     }
 
+    @MainActor
     func markRemoteTerminalSessionConnected(surfaceId: UUID, relayPort: Int?) {
         guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
         guard remoteConnectionState == .connecting || remoteConnectionState == .reconnecting else { return }
