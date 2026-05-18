@@ -3139,10 +3139,10 @@ final class BrowserPanel: Panel, ObservableObject {
     func restoreDiscardedWebViewIfNeeded(reason: String) -> Bool {
         guard isWebViewDiscardedForMemory else { return false }
         cancelHiddenWebViewDiscard()
-        clearWebViewDiscardState(reason: reason)
 
         restoredSessionShouldRenderWebView = nil
         shouldRenderWebView = true
+        clearWebViewDiscardState(reason: reason)
         guard let restoreURL = restoredHistoryCurrentURL ?? currentURL else {
             refreshNavigationAvailability()
             return true
@@ -3167,9 +3167,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
         guard isWebViewDiscardedForMemory else { return false }
         cancelHiddenWebViewDiscard()
-        clearWebViewDiscardState(reason: reason)
         restoredSessionShouldRenderWebView = nil
         shouldRenderWebView = true
+        clearWebViewDiscardState(reason: reason)
         return true
     }
 
