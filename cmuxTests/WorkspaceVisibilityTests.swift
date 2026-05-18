@@ -151,4 +151,38 @@ final class WorkspaceVisibilityTests: XCTestCase {
 
         XCTAssertEqual(manager.selectedTabId, second.id)
     }
+
+    func testReorderVisibleWorkspaceByDeltaSkipsHiddenWorkspaces() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+        let fourth = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+        XCTAssertTrue(manager.reorderVisibleWorkspace(tabId: fourth.id, byVisibleDelta: -1))
+
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, fourth.id, third.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
+    }
+
+    func testReorderVisibleWorkspaceToVisibleIndexUsesVisibleSnapshot() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+        let fourth = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: third.id, hidden: true))
+        XCTAssertTrue(
+            manager.reorderVisibleWorkspace(
+                tabId: fourth.id,
+                toVisibleIndex: 1,
+                visibleWorkspaceIds: [first.id, second.id, fourth.id]
+            )
+        )
+
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, fourth.id, second.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [third.id])
+    }
 }

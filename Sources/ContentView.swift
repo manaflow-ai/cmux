@@ -8941,17 +8941,8 @@ struct ContentView: View {
     }
 
     private func moveSelectedWorkspace(by delta: Int) {
-        guard let workspace = tabManager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex() else { return }
-        let targetIndex = currentIndex + delta
-        let visibleIds = tabManager.visibleWorkspaceTabs.map(\.id)
-        guard targetIndex >= 0, targetIndex < visibleIds.count else { return }
-        let visibleIdsAfterRemoval = visibleIds.filter { $0 != workspace.id }
-        if targetIndex >= visibleIdsAfterRemoval.count {
-            _ = tabManager.reorderWorkspace(tabId: workspace.id, after: visibleIdsAfterRemoval.last)
-        } else {
-            _ = tabManager.reorderWorkspace(tabId: workspace.id, before: visibleIdsAfterRemoval[targetIndex])
-        }
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        guard tabManager.reorderVisibleWorkspace(tabId: workspace.id, byVisibleDelta: delta) else { return }
         tabManager.selectWorkspace(workspace)
     }
 
@@ -9580,8 +9571,7 @@ struct VerticalTabsSidebar: View {
         let orderedWorkspaceIds: (Set<UUID>) -> [UUID]
         let selectWorkspace: (Workspace) -> Void
         let dismissNotificationOnDirectInteraction: (UUID) -> Void
-        let reorderWorkspaceBefore: (UUID, UUID) -> Bool
-        let reorderWorkspaceAfter: (UUID, UUID?) -> Bool
+        let reorderVisibleWorkspaceByDelta: (UUID, Int) -> Bool
         let moveWorkspacesToTop: (Set<UUID>) -> Void
         let canHideWorkspaces: (Set<UUID>) -> Bool
         let setWorkspaceHidden: (UUID, Bool) -> Bool
@@ -9654,11 +9644,8 @@ struct VerticalTabsSidebar: View {
                     surfaceId: tabManager.focusedSurfaceId(for: workspaceId)
                 )
             },
-            reorderWorkspaceBefore: { workspaceId, beforeWorkspaceId in
-                tabManager.reorderWorkspace(tabId: workspaceId, before: beforeWorkspaceId)
-            },
-            reorderWorkspaceAfter: { workspaceId, afterWorkspaceId in
-                tabManager.reorderWorkspace(tabId: workspaceId, after: afterWorkspaceId)
+            reorderVisibleWorkspaceByDelta: { workspaceId, delta in
+                tabManager.reorderVisibleWorkspace(tabId: workspaceId, byVisibleDelta: delta)
             },
             moveWorkspacesToTop: { workspaceIds in
                 tabManager.moveTabsToTop(workspaceIds)
@@ -9741,12 +9728,11 @@ struct VerticalTabsSidebar: View {
                         tabManager.selectedTabId
                     },
                     reorderVisibleWorkspace: { draggedWorkspaceId, targetIndex, visibleWorkspaceIds in
-                        let visibleIdsAfterRemoval = visibleWorkspaceIds.filter { $0 != draggedWorkspaceId }
-                        guard !visibleIdsAfterRemoval.isEmpty else { return true }
-                        if targetIndex >= visibleIdsAfterRemoval.count {
-                            return tabManager.reorderWorkspace(tabId: draggedWorkspaceId, after: visibleIdsAfterRemoval.last)
-                        }
-                        return tabManager.reorderWorkspace(tabId: draggedWorkspaceId, before: visibleIdsAfterRemoval[targetIndex])
+                        tabManager.reorderVisibleWorkspace(
+                            tabId: draggedWorkspaceId,
+                            toVisibleIndex: targetIndex,
+                            visibleWorkspaceIds: visibleWorkspaceIds
+                        )
                     },
                     syncSidebarSelection: { preferredSelectedWorkspaceId in
                         let selectedId = preferredSelectedWorkspaceId ?? tabManager.selectedTabId
@@ -13795,18 +13781,7 @@ private struct TabItemView: View, Equatable {
 
     private func moveBy(_ delta: Int) {
         guard !isHiddenWorkspace else { return }
-        let visibleIds = actions.visibleWorkspaceIds()
-        guard let currentIndex = visibleIds.firstIndex(of: tab.id) else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < visibleIds.count else { return }
-        let visibleIdsAfterRemoval = visibleIds.filter { $0 != tab.id }
-        let moved: Bool
-        if targetIndex >= visibleIdsAfterRemoval.count {
-            moved = actions.reorderWorkspaceAfter(tab.id, visibleIdsAfterRemoval.last)
-        } else {
-            moved = actions.reorderWorkspaceBefore(tab.id, visibleIdsAfterRemoval[targetIndex])
-        }
-        guard moved else { return }
+        guard actions.reorderVisibleWorkspaceByDelta(tab.id, delta) else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = actions.visibleWorkspaceIndex(tab.id)
         actions.selectWorkspace(tab)

@@ -918,17 +918,8 @@ struct cmuxApp: App {
     }
 
     private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
-        guard let workspace = manager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let targetIndex = currentIndex + delta
-        let visibleIds = manager.visibleWorkspaceTabs.map(\.id)
-        guard targetIndex >= 0, targetIndex < visibleIds.count else { return }
-        let visibleIdsAfterRemoval = visibleIds.filter { $0 != workspace.id }
-        if targetIndex >= visibleIdsAfterRemoval.count {
-            _ = manager.reorderWorkspace(tabId: workspace.id, after: visibleIdsAfterRemoval.last)
-        } else {
-            _ = manager.reorderWorkspace(tabId: workspace.id, before: visibleIdsAfterRemoval[targetIndex])
-        }
+        guard let workspace = manager.selectedWorkspace else { return }
+        guard manager.reorderVisibleWorkspace(tabId: workspace.id, byVisibleDelta: delta) else { return }
         manager.selectWorkspace(workspace)
     }
 

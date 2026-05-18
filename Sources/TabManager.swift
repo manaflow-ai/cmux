@@ -3980,6 +3980,35 @@ class TabManager: ObservableObject {
         return false
     }
 
+    @discardableResult
+    func reorderVisibleWorkspace(tabId: UUID, byVisibleDelta delta: Int) -> Bool {
+        let visibleIds = visibleWorkspaceTabs.map(\.id)
+        guard let currentIndex = visibleIds.firstIndex(of: tabId) else { return false }
+        return reorderVisibleWorkspace(
+            tabId: tabId,
+            toVisibleIndex: currentIndex + delta,
+            visibleWorkspaceIds: visibleIds
+        )
+    }
+
+    @discardableResult
+    func reorderVisibleWorkspace(
+        tabId: UUID,
+        toVisibleIndex targetIndex: Int,
+        visibleWorkspaceIds providedVisibleWorkspaceIds: [UUID]? = nil
+    ) -> Bool {
+        let visibleIds = providedVisibleWorkspaceIds ?? visibleWorkspaceTabs.map(\.id)
+        guard visibleIds.contains(tabId) else { return false }
+        guard targetIndex >= 0, targetIndex < visibleIds.count else { return false }
+
+        let visibleIdsAfterRemoval = visibleIds.filter { $0 != tabId }
+        guard !visibleIdsAfterRemoval.isEmpty else { return true }
+        if targetIndex >= visibleIdsAfterRemoval.count {
+            return reorderWorkspace(tabId: tabId, after: visibleIdsAfterRemoval.last)
+        }
+        return reorderWorkspace(tabId: tabId, before: visibleIdsAfterRemoval[targetIndex])
+    }
+
     func setCustomTitle(tabId: UUID, title: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         tabs[index].setCustomTitle(title)
