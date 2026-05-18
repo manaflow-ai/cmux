@@ -235,9 +235,12 @@ extension AppDelegate {
                 continue
             }
 
+            let cachedSnapshot = route.sessionSnapshot
+            guard cachedSnapshot.containsTerminalPanel else { continue }
+
             let snapshot = includeScrollback
-                ? route.sessionSnapshot
-                : route.sessionSnapshot.removingTerminalScrollback()
+                ? cachedSnapshot
+                : cachedSnapshot.removingTerminalScrollback()
             snapshots.append((route.windowId, snapshot))
         }
         return snapshots
