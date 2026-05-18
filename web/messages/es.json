@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup instala todas las integraciones compatibles que encuentra e imprime un resumen de los agentes omitidos. Usa el nombre de un agente cuando solo quieras una integración.",
       "surfaceBindingsTitle": "Comandos personalizados de resume de surface",
       "surfaceBindingsDesc": "Los usuarios avanzados e integraciones pueden vincular cualquier surface de terminal a un comando de reinicio. cmux guarda las asociaciones creadas por el CLI público o el socket para inspección y reanudación manual.",
-      "surfaceBindingsNote": "cmux solo ejecuta automáticamente las asociaciones de resume que marca como confiables, como las de tmux detectadas desde procesos activos. cmux sigue sin checkpointar memoria arbitraria de procesos.",
+      "surfaceBindingsNote": "cmux solo ejecuta automáticamente las asociaciones de resume que marca como confiables, como las de tmux detectadas desde procesos activos. cmux sigue sin checkpointar memoria arbitraria de procesos. Las claves de entorno sensibles, como tokens, contraseñas, secretos y claves de API, se descartan antes de guardar una asociación de reanudación.",
       "supportedTitle": "Agentes compatibles",
       "agentHeader": "Agente",
       "binaryHeader": "Binario",

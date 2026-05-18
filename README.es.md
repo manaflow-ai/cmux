@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-La asociación queda ligada a la superficie de cmux. Las asociaciones creadas por el CLI público o el socket se guardan para inspección y reanudación manual. cmux solo ejecuta automáticamente las asociaciones de reanudación que marca como confiables, como las de tmux detectadas desde procesos activos.
+La asociación queda ligada a la superficie de cmux. Las asociaciones creadas por el CLI público o el socket se guardan para inspección y reanudación manual. cmux solo ejecuta automáticamente las asociaciones de reanudación que marca como confiables, como las de tmux detectadas desde procesos activos. Las claves de entorno sensibles, como tokens, contraseñas, secretos y claves de API, se descartan antes de guardar una asociación de reanudación.
 
 ## Historial de estrellas
 

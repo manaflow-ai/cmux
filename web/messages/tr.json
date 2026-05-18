@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup bulduğu tüm desteklenen integration'ları kurar ve atlanan agent'lar için özet yazar. Sadece tek integration istediğinizde agent adı kullanın.",
       "surfaceBindingsTitle": "Özel surface resume komutları",
       "surfaceBindingsDesc": "Gelişmiş kullanıcılar ve integration'lar herhangi bir terminal surface'ini restart komutuna bağlayabilir. cmux public CLI veya socket ile oluşturulan binding'leri inceleme ve manuel resume için saklar.",
-      "surfaceBindingsNote": "cmux yalnızca güvenilir olarak işaretlediği resume binding'lerini otomatik çalıştırır, örneğin canlı processlerden algılanan tmux binding'leri. cmux rastgele process memory'yi hâlâ checkpoint etmez.",
+      "surfaceBindingsNote": "cmux yalnızca güvenilir olarak işaretlediği resume binding'lerini otomatik çalıştırır, örneğin canlı processlerden algılanan tmux binding'leri. cmux rastgele process memory'yi hâlâ checkpoint etmez. Token, parola, gizli değer ve API anahtarı gibi hassas ortam anahtarları resume binding kaydedilmeden önce atılır.",
       "supportedTitle": "Desteklenen agent'lar",
       "agentHeader": "Agent",
       "binaryHeader": "Binary",

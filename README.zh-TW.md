@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-這個綁定會繼續關聯到 cmux surface。透過公開 CLI 或 socket 建立的綁定會儲存供檢查與手動還原。cmux 只會自動執行標記為可信任的還原綁定，例如從執行中程序偵測到的 tmux 綁定。
+這個綁定會繼續關聯到 cmux surface。透過公開 CLI 或 socket 建立的綁定會儲存供檢查與手動還原。cmux 只會自動執行標記為可信任的還原綁定，例如從執行中程序偵測到的 tmux 綁定。 權杖、密碼、祕密和 API key 等敏感環境變數鍵，會在儲存還原綁定前被丟棄。
 
 ## Star 歷史
 

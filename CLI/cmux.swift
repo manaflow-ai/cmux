@@ -10034,6 +10034,7 @@ struct CMUXCLI {
             Usage: cmux surface resume set [flags] -- <argv...>
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
+                   cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
 
             Attach restart command metadata to a terminal surface.
@@ -24630,7 +24631,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
-          surface resume <set|show|clear> [--workspace <id|ref>] [--surface <id|ref>]
+          surface resume <set|show|get|clear> [--workspace <id|ref>] [--surface <id|ref>]
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]
           refresh-surfaces

@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup instalira sve podržane integracije koje pronađe i ispisuje sažetak preskočenih agenata. Navedi ime agenta kada želiš samo jednu integraciju.",
       "surfaceBindingsTitle": "Prilagođene surface resume komande",
       "surfaceBindingsDesc": "Napredni korisnici i integracije mogu vezati bilo koju terminalsku surface za restart komandu. cmux čuva bindinge napravljene javnim CLI-jem ili socketom za pregled i ručni nastavak.",
-      "surfaceBindingsNote": "cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa. cmux i dalje ne checkpointuje proizvoljnu memoriju procesa.",
+      "surfaceBindingsNote": "cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa. cmux i dalje ne checkpointuje proizvoljnu memoriju procesa. Osjetljivi ključevi okruženja, poput tokena, lozinki, tajni i API ključeva, odbacuju se prije spremanja resume bindinga.",
       "supportedTitle": "Podržani agenti",
       "agentHeader": "Agent",
       "binaryHeader": "Binarij",

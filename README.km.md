@@ -263,7 +263,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-binding នេះនៅតែភ្ជាប់ទៅ cmux surface។ binding ដែលបង្កើតដោយ public CLI ឬ socket ត្រូវបានរក្សាទុកសម្រាប់ពិនិត្យ និង resume ដោយដៃ។ cmux ដំណើរការ resume binding ដោយស្វ័យប្រវត្តិ តែ binding ដែលវាសម្គាល់ថា trusted ប៉ុណ្ណោះ ដូចជា tmux binding ដែលរកឃើញពី live process។
+binding នេះនៅតែភ្ជាប់ទៅ cmux surface។ binding ដែលបង្កើតដោយ public CLI ឬ socket ត្រូវបានរក្សាទុកសម្រាប់ពិនិត្យ និង resume ដោយដៃ។ cmux ដំណើរការ resume binding ដោយស្វ័យប្រវត្តិ តែ binding ដែលវាសម្គាល់ថា trusted ប៉ុណ្ណោះ ដូចជា tmux binding ដែលរកឃើញពី live process។ environment key ដែលមានភាពរសើប ដូចជា token, password, secret និង API key នឹងត្រូវបានដកចេញ មុនពេលរក្សាទុក resume binding។
 
 ## Star History
 

@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Die Bindung bleibt mit der cmux-Surface verknüpft. Über öffentliche CLI oder Socket erstellte Bindungen werden zur Prüfung und manuellen Wiederaufnahme gespeichert. cmux startet nur Wiederaufnahme-Bindungen automatisch, die als vertrauenswürdig markiert sind, zum Beispiel aus laufenden Prozessen erkannte tmux-Bindungen.
+Die Bindung bleibt mit der cmux-Surface verknüpft. Über öffentliche CLI oder Socket erstellte Bindungen werden zur Prüfung und manuellen Wiederaufnahme gespeichert. cmux startet nur Wiederaufnahme-Bindungen automatisch, die als vertrauenswürdig markiert sind, zum Beispiel aus laufenden Prozessen erkannte tmux-Bindungen. Sensible Umgebungsvariablen wie Tokens, Passwörter, Secrets und API-Keys werden verworfen, bevor eine Wiederaufnahme-Bindung gespeichert wird.
 
 ## Star-Verlauf
 

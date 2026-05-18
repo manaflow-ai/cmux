@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Binding pozostaje powiązany z cmux surface. Bindingi utworzone przez publiczny CLI lub socket są zapisywane do inspekcji i ręcznego wznowienia. cmux automatycznie uruchamia tylko bindingi wznowienia oznaczone jako zaufane, na przykład bindingi tmux wykryte z działających procesów.
+Binding pozostaje powiązany z cmux surface. Bindingi utworzone przez publiczny CLI lub socket są zapisywane do inspekcji i ręcznego wznowienia. cmux automatycznie uruchamia tylko bindingi wznowienia oznaczone jako zaufane, na przykład bindingi tmux wykryte z działających procesów. Wrażliwe klucze środowiska, takie jak tokeny, hasła, sekrety i klucze API, są odrzucane przed zapisaniem bindingu wznowienia.
 
 ## Historia Gwiazdek
 

@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Binding ostaje vezan za cmux surface. Bindingi napravljeni javnim CLI-jem ili socketom čuvaju se za pregled i ručni nastavak. cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa.
+Binding ostaje vezan za cmux surface. Bindingi napravljeni javnim CLI-jem ili socketom čuvaju se za pregled i ručni nastavak. cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa. Osjetljivi ključevi okruženja, poput tokena, lozinki, tajni i API ključeva, odbacuju se prije spremanja resume bindinga.
 
 ## Historija zvjezdica
 

@@ -765,7 +765,7 @@
       "setupBehavior": "cmux hooks setup 會安裝它找到的所有支援整合，並列印略過 agent 的摘要。只需要一個整合時請指定 agent 名稱。",
       "surfaceBindingsTitle": "自訂 surface resume 命令",
       "surfaceBindingsDesc": "進階使用者和整合可以把任何終端機 surface 綁定到重新啟動命令。cmux 會儲存透過公開 CLI 或 socket 建立的綁定，供檢查與手動還原。",
-      "surfaceBindingsNote": "cmux 只會自動執行標記為可信任的 resume 綁定，例如從執行中程序偵測到的 tmux 綁定。cmux 仍然不會 checkpoint 任意程序記憶體。",
+      "surfaceBindingsNote": "cmux 只會自動執行標記為可信任的 resume 綁定，例如從執行中程序偵測到的 tmux 綁定。cmux 仍然不會 checkpoint 任意程序記憶體。 權杖、密碼、祕密和 API key 等敏感環境變數鍵，會在儲存還原綁定前被丟棄。",
       "supportedTitle": "支援的 agents",
       "agentHeader": "Agent",
       "binaryHeader": "Binary",

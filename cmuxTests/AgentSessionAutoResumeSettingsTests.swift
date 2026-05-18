@@ -275,6 +275,57 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertNil(completedSnapshot.panels.first?.terminal?.resumeBinding)
     }
 
+    @MainActor
+    func testNonAgentResumeBindingDoesNotMarkRestoredAgentAwaitingAutoResume() throws {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.set(true, forKey: key)
+
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-agent-inside-tmux-session"
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "tmux work",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/repo",
+                checkpointId: "work",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+        let runningSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(runningSnapshot.panels.first?.terminal?.agent)
+        XCTAssertEqual(runningSnapshot.panels.first?.terminal?.resumeBinding?.kind, "tmux")
+    }
+
     private func makeRestorableAgentIndex(
         workspaceId: UUID,
         panelId: UUID,

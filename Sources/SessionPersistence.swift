@@ -317,10 +317,28 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         guard let environment else { return nil }
         let normalized = environment.reduce(into: [String: String]()) { result, item in
             let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { return }
+            guard !key.isEmpty, !isSensitiveEnvironmentKey(key) else { return }
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isSensitiveEnvironmentKey(_ key: String) -> Bool {
+        let uppercasedKey = key.uppercased()
+        let sensitiveFragments = [
+            "API_KEY",
+            "ACCESS_KEY",
+            "AUTH_TOKEN",
+            "BEARER_TOKEN",
+            "PRIVATE_KEY",
+            "PASSWORD",
+            "PASSWD",
+            "SECRET",
+            "TOKEN",
+            "CREDENTIAL",
+            "COOKIE",
+        ]
+        return sensitiveFragments.contains { uppercasedKey.contains($0) }
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {

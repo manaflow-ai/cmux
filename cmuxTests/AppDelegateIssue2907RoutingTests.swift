@@ -257,7 +257,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let environment = ["EMPTY": "", "SPACED": "  keep exact  "]
+        let environment = [
+            "EMPTY": "",
+            "SPACED": "  keep exact  ",
+            "ANTHROPIC_API_KEY": "should-not-persist",
+        ]
         let setResult = try v2Result(
             method: "surface.resume.set",
             params: [
@@ -272,6 +276,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let setEnvironment = try XCTUnwrap(setBinding["environment"] as? [String: Any])
         XCTAssertEqual(setEnvironment["EMPTY"] as? String, "")
         XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
+        XCTAssertNil(setEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(setBinding["auto_resume"] as? Bool, false)
 
         let getResult = try v2Result(
@@ -286,6 +291,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let getEnvironment = try XCTUnwrap(getBinding["environment"] as? [String: Any])
         XCTAssertEqual(getEnvironment["EMPTY"] as? String, "")
         XCTAssertEqual(getEnvironment["SPACED"] as? String, "  keep exact  ")
+        XCTAssertNil(getEnvironment["ANTHROPIC_API_KEY"])
         XCTAssertEqual(getBinding["auto_resume"] as? Bool, false)
     }
 

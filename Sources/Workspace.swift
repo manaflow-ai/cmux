@@ -861,7 +861,7 @@ extension Workspace {
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
             let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
-            let restoredAgentWillRunStartupInput = restorableAgent != nil && restoredStartupInput != nil
+            let restoredAgentWillRunStartupInput = restorableAgent != nil && restoredAgentResumeInput != nil
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))

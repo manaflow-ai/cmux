@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Bindingen forbliver knyttet til cmux-surfacen. Bindinger oprettet via offentlig CLI eller socket gemmes til inspektion og manuel genoptagelse. cmux auto-kører kun resume-bindinger, som den markerer som betroede, for eksempel tmux-bindinger fundet fra live processer.
+Bindingen forbliver knyttet til cmux-surfacen. Bindinger oprettet via offentlig CLI eller socket gemmes til inspektion og manuel genoptagelse. cmux auto-kører kun resume-bindinger, som den markerer som betroede, for eksempel tmux-bindinger fundet fra live processer. Følsomme miljønøgler som tokens, adgangskoder, hemmeligheder og API-nøgler fjernes, før en resume-binding gemmes.
 
 ## Stjernehistorik
 

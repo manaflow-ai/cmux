@@ -3372,6 +3372,7 @@ extension SessionPersistenceTests {
                 "SPACED": "  keep exact  ",
                 "CODEX_HOME": "/tmp/codex home",
                 "EMPTY": "",
+                "ANTHROPIC_API_KEY": "should-not-persist",
             ]
         )
 
@@ -3682,19 +3683,23 @@ extension SessionPersistenceTests {
         )
     }
 
-    func testSurfaceResumeBindingPreservesExactEnvironmentValues() {
+    func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",
             environment: [
                 " EMPTY ": "",
                 "SPACED": "  keep exact  ",
                 "PLAIN": "value",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+                "SERVICE_TOKEN": "should-not-persist",
             ]
         )
 
         XCTAssertEqual(binding.environment?["EMPTY"], "")
         XCTAssertEqual(binding.environment?["SPACED"], "  keep exact  ")
         XCTAssertEqual(binding.environment?["PLAIN"], "value")
+        XCTAssertNil(binding.environment?["ANTHROPIC_API_KEY"])
+        XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
 
     @MainActor

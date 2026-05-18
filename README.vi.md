@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Binding này vẫn gắn với surface của cmux. Binding tạo qua CLI công khai hoặc socket được lưu để kiểm tra và resume thủ công. cmux chỉ tự động chạy những resume binding được đánh dấu là đáng tin cậy, ví dụ binding tmux phát hiện từ process đang chạy.
+Binding này vẫn gắn với surface của cmux. Binding tạo qua CLI công khai hoặc socket được lưu để kiểm tra và resume thủ công. cmux chỉ tự động chạy những resume binding được đánh dấu là đáng tin cậy, ví dụ binding tmux phát hiện từ process đang chạy. Các khóa môi trường nhạy cảm như token, mật khẩu, secret và API key sẽ bị loại bỏ trước khi lưu resume binding.
 
 ## Lịch sử sao
 

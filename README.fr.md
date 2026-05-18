@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Cette association reste liée à la surface cmux. Les associations créées par le CLI public ou le socket sont conservées pour inspection et reprise manuelle. cmux exécute automatiquement seulement les associations de reprise qu'il marque comme fiables, comme les associations tmux détectées depuis des processus actifs.
+Cette association reste liée à la surface cmux. Les associations créées par le CLI public ou le socket sont conservées pour inspection et reprise manuelle. cmux exécute automatiquement seulement les associations de reprise qu'il marque comme fiables, comme les associations tmux détectées depuis des processus actifs. Les clés d’environnement sensibles, comme les jetons, mots de passe, secrets et clés API, sont supprimées avant l’enregistrement d’une association de reprise.
 
 ## Historique des étoiles
 

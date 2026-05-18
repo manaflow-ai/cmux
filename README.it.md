@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-L'associazione resta legata alla surface di cmux. Le associazioni create dal CLI pubblico o dal socket vengono salvate per ispezione e ripristino manuale. cmux esegue automaticamente solo le associazioni di resume che marca come attendibili, per esempio quelle tmux rilevate dai processi attivi.
+L'associazione resta legata alla surface di cmux. Le associazioni create dal CLI pubblico o dal socket vengono salvate per ispezione e ripristino manuale. cmux esegue automaticamente solo le associazioni di resume che marca come attendibili, per esempio quelle tmux rilevate dai processi attivi. Le chiavi di ambiente sensibili, come token, password, segreti e chiavi API, vengono scartate prima di salvare un’associazione di resume.
 
 ## Cronologia Stelle
 
