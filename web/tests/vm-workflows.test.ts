@@ -10,12 +10,19 @@ import {
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { VmRepositoryLive } from "../services/vms/repository";
+import {
+  VmRepository,
+  VmRepositoryLive,
+  type CloudVmRow,
+  type VmRepositoryShape,
+} from "../services/vms/repository";
 import {
   VmCreateCreditsInsufficientError,
   VmCreateInProgressError,
+  VmDatabaseError,
   VmLimitExceededError,
   VmNotFoundError,
+  VmProviderOperationError,
 } from "../services/vms/errors";
 import {
   createVm,
@@ -60,6 +67,85 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  dbTest("does not block create when usage event recording fails", async () => {
+    const requested = testCloudVmRow({
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const running = testCloudVmRow({
+      status: "running",
+      providerVmId: "provider-vm-usage-events",
+      imageVersion: "test-version",
+    });
+    let providerCreateCalls = 0;
+    let usageEventAttempts = 0;
+    const repo: VmRepositoryShape = {
+      listUserVms: () => Effect.succeed([]),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      activeLimitCandidates: () => Effect.succeed([]),
+      markProviderObservedStatus: () => Effect.succeed(false),
+      markCreateRunning: () => Effect.succeed(running),
+      markCreateFailed: () => Effect.void,
+      findUserVm: () => Effect.succeed(null),
+      markDestroyed: () => Effect.void,
+      recordLease: () => Effect.void,
+      activeIdentityLeases: () => Effect.succeed([]),
+      markLeasesRevoked: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => {
+        usageEventAttempts += 1;
+        return Effect.fail(new VmDatabaseError({
+          operation: "recordUsageEvents",
+          cause: new Error("usage event table unavailable"),
+        }));
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          providerCreateCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-usage-events",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-usage-events",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-usage-events",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        imageVersion: "test-version",
+        idempotencyKey: "usage-events",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-usage-events");
+    expect(providerCreateCalls).toBe(1);
+    expect(usageEventAttempts).toBe(2);
+  });
+
   dbTest("creates one provider VM per user idempotency key and records usage", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -280,6 +366,58 @@ describe("VM Effect workflows", () => {
     expect(statusCalls).toBe(0);
   });
 
+  dbTest("skips Freestyle provider refresh when the billing team is below the active limit", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-under-limit-old', 'team-workflow-under-limit', 'free', 'freestyle', 'provider-vm-under-limit-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-under-limit-new",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-under-limit-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-under-limit",
+        billingPlanId: "free",
+        maxActiveVms: 2,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "under-limit-new",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-under-limit-new");
+    expect(statusCalls).toBe(0);
+    expect(createCalls).toBe(1);
+  });
+
   dbTest("refreshes Freestyle running rows before active limit enforcement", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -336,6 +474,85 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-provider-paused-old'
     `;
     expect(oldVm?.status).toBe("paused");
+  });
+
+  dbTest("marks provider-deleted Freestyle rows destroyed before active limit enforcement", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-provider-deleted-old', 'team-workflow-provider-deleted', 'free', 'freestyle', 'provider-vm-provider-deleted-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: "provider-vm-provider-deleted-new",
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.suspend(() => {
+          statusCalls += 1;
+          const deleted = new Error(
+            "VM_DELETED: Vm provider-vm-provider-deleted-old is marked as deleted but still exists in the database",
+          );
+          deleted.name = "VmDeletedError";
+          return Effect.fail(new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "getStatus",
+            cause: deleted,
+          }));
+        }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-provider-deleted-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-deleted",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-deleted-new",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-provider-deleted-new");
+    expect(statusCalls).toBe(1);
+    expect(createCalls).toBe(1);
+
+    const [oldVm] = await sql<{ status: string; destroyedAt: Date | null }[]>`
+      select status, destroyed_at as "destroyedAt" from cloud_vms
+      where provider_vm_id = 'provider-vm-provider-deleted-old'
+    `;
+    expect(oldVm?.status).toBe("destroyed");
+    expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
+
+    const [{ destroyedUsageCount }] = await sql<{ destroyedUsageCount: string }[]>`
+      select count(*)::text as "destroyedUsageCount"
+      from cloud_vm_usage_events
+      where provider = 'freestyle'
+        and event_type = 'vm.destroyed'
+        and vm_id in (
+          select id from cloud_vms
+          where provider_vm_id = 'provider-vm-provider-deleted-old'
+        )
+    `;
+    expect(destroyedUsageCount).toBe("1");
   });
 
   dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {
@@ -460,6 +677,55 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-provider-creating-old'
     `;
     expect(oldVm?.status).toBe("running");
+  });
+
+  dbTest("keeps active limit enforcement when every Freestyle row is still running", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-provider-running-old', 'team-workflow-provider-running', 'free', 'freestyle', 'provider-vm-provider-running-old', 'snapshot-test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          throw new Error("provider create should not be called");
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-provider-running-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-running",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-running-new",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(providerLayer(provider)),
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmLimitExceededError);
+    expect(statusCalls).toBe(1);
+    expect(createCalls).toBe(0);
   });
 
   dbTest("does not overwrite a VM destroyed during provider status refresh", async () => {
@@ -941,7 +1207,12 @@ describe("VM Effect workflows", () => {
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const provider: VmProviderGatewayShape = {
-      create: () => Effect.fail(new Error("provider unavailable") as never),
+      create: () =>
+        Effect.fail(new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "create",
+          cause: new Error("provider unavailable"),
+        })),
       destroy: () => Effect.void,
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
@@ -980,6 +1251,17 @@ describe("VM Effect workflows", () => {
     ).rejects.toThrow();
 
     expect(refundCalls).toBe(1);
+    const usageEvents = await sql<{ eventType: string }[]>`
+      select event_type as "eventType" from cloud_vm_usage_events
+      where user_id = 'user-workflow-credit-refund'
+      order by created_at, event_type
+    `;
+    expect(usageEvents.map((event) => event.eventType).sort()).toEqual([
+      "vm.create.credit.refunded",
+      "vm.create.credit.reserved",
+      "vm.create.failed",
+      "vm.create.requested",
+    ]);
   });
 
   dbTest("does not attach another user's VM", async () => {
@@ -1152,6 +1434,28 @@ describe("VM Effect workflows", () => {
     ]);
   });
 });
+
+function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
+  const now = new Date();
+  return {
+    id: "00000000-0000-4000-8000-000000000001",
+    userId: "user-workflow-usage-events",
+    billingTeamId: "team-workflow-usage-events",
+    billingPlanId: "free",
+    provider: "freestyle",
+    providerVmId: null,
+    imageId: "snapshot-test",
+    imageVersion: null,
+    status: "provisioning",
+    idempotencyKey: "usage-events",
+    createdAt: now,
+    updatedAt: now,
+    destroyedAt: null,
+    failureCode: null,
+    failureMessage: null,
+    ...overrides,
+  };
+}
 
 async function waitForBlockedAdvisoryLock(sql: Sql, billingTeamId: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
