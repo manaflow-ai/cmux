@@ -401,6 +401,9 @@ struct cmuxApp: App {
                     ) {
                         AboutTitlebarDebugWindowController.shared.show()
                     }
+                    Button("Titlebar Layout Debug...") {
+                        TitlebarLayoutDebugWindowController.shared.show()
+                    }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()
                     }
@@ -1161,6 +1164,7 @@ struct cmuxApp: App {
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         AboutTitlebarDebugWindowController.shared.show()
+        TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
@@ -1630,6 +1634,222 @@ private struct AboutTitlebarDebugView: View {
     }
 }
 
+private enum TitlebarLayoutDebugSettingsSnapshot {
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.set(
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey
+        )
+        defaults.set(
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey
+        )
+        defaults.set(
+            MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset,
+            forKey: MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey
+        )
+        defaults.set(
+            MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset,
+            forKey: MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey
+        )
+        defaults.set(
+            MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey
+        )
+        defaults.set(
+            MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset,
+            forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey
+        )
+        defaults.set(
+            SessionPersistencePolicy.defaultMinimumSidebarWidth,
+            forKey: SessionPersistencePolicy.sidebarMinimumWidthKey
+        )
+    }
+
+    static func copyPayload(defaults: UserDefaults = .standard) -> String {
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        return """
+        titlebarControlsStyle=\(defaults.integer(forKey: "titlebarControlsStyle"))
+        leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
+        leftControlsTopInset=\(String(format: "%.1f", snapshot.leftControlsTopInset))
+        trafficLightsXOffset=\(String(format: "%.1f", snapshot.trafficLightsXOffset))
+        trafficLightsYOffset=\(String(format: "%.1f", snapshot.trafficLightsYOffset))
+        trafficLightTabBarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTabBarLeadingInset))
+        trafficLightTitlebarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTitlebarLeadingInset))
+        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
+        """
+    }
+
+    static func copyToPasteboard(defaults: UserDefaults = .standard) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(copyPayload(defaults: defaults), forType: .string)
+    }
+
+    @MainActor
+    static func applyToOpenWindows() {
+        for window in NSApp.windows {
+            AppDelegate.shared?.applyWindowDecorations(to: window)
+            window.contentView?.needsLayout = true
+            window.contentView?.superview?.needsLayout = true
+        }
+    }
+}
+
+private final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = TitlebarLayoutDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Titlebar Layout Debug"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.titlebarLayoutDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: TitlebarLayoutDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @MainActor
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
+    }
+}
+
+private struct TitlebarLayoutDebugView: View {
+    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var trafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidth = SessionPersistencePolicy.defaultMinimumSidebarWidth
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Titlebar Layout Debug")
+                    .font(.headline)
+
+                GroupBox("Titlebar Controls") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Style", selection: $titlebarControlsStyleRawValue) {
+                            ForEach(TitlebarControlsStyle.allCases) { style in
+                                Text(style.menuTitle).tag(style.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        debugSlider(
+                            title: "Leading",
+                            value: $leftControlsLeadingInset,
+                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                        )
+                        debugSlider(
+                            title: "Top",
+                            value: $leftControlsTopInset,
+                            range: MinimalModeTitlebarDebugSettings.topInsetRange
+                        )
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Traffic Lights") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        debugSlider(
+                            title: "X Offset",
+                            value: $trafficLightsXOffset,
+                            range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
+                        )
+                        debugSlider(
+                            title: "Y Offset",
+                            value: $trafficLightsYOffset,
+                            range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
+                        )
+                        debugSlider(
+                            title: "Titlebar Inset",
+                            value: $trafficLightTitlebarLeadingInset,
+                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                        )
+                        debugSlider(
+                            title: "Tab Bar Inset",
+                            value: $trafficLightTabBarInset,
+                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                        )
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Sidebar") {
+                    debugSlider(
+                        title: "Minimum Width",
+                        value: $sidebarMinimumWidth,
+                        range: SessionPersistencePolicy.sidebarMinimumWidthRange,
+                        step: 1
+                    )
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Actions") {
+                    HStack(spacing: 10) {
+                        Button("Reset") {
+                            TitlebarLayoutDebugSettingsSnapshot.reset()
+                            TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
+                        }
+                        Button("Apply") {
+                            TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
+                        }
+                        Button("Copy Config") {
+                            TitlebarLayoutDebugSettingsSnapshot.copyToPasteboard()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func debugSlider(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double = 0.5
+    ) -> some View {
+        let clamped = Binding<Double>(
+            get: { min(max(value.wrappedValue, range.lowerBound), range.upperBound) },
+            set: { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) }
+        )
+        return HStack(spacing: 8) {
+            Text(title)
+                .frame(width: 112, alignment: .leading)
+            Slider(value: clamped, in: range, step: step)
+            Text(String(format: "%.1f", clamped.wrappedValue))
+                .font(.system(.caption, design: .monospaced))
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+}
+
 private enum DebugWindowConfigSnapshot {
     static func copyCombinedToPasteboard(defaults: UserDefaults = .standard) {
         let pasteboard = NSPasteboard.general
@@ -1652,6 +1872,7 @@ private enum DebugWindowConfigSnapshot {
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
         sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
+        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
         """
 
         let backgroundPayload = """
@@ -1663,10 +1884,14 @@ private enum DebugWindowConfigSnapshot {
 
         let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
         let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let titlebarLayoutPayload = TitlebarLayoutDebugSettingsSnapshot.copyPayload(defaults: defaults)
 
         return """
         # Sidebar Debug
         \(sidebarPayload)
+
+        # Titlebar Layout Debug
+        \(titlebarLayoutPayload)
 
         # Background Debug
         \(backgroundPayload)
@@ -1786,6 +2011,9 @@ private struct DebugWindowControlsView: View {
                         ) {
                             AboutTitlebarDebugWindowController.shared.show()
                         }
+                        Button("Titlebar Layout Debug...") {
+                            TitlebarLayoutDebugWindowController.shared.show()
+                        }
                         Button("Sidebar Debug…") {
                             SidebarDebugWindowController.shared.show()
                         }
@@ -1840,6 +2068,7 @@ private struct DebugWindowControlsView: View {
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AboutTitlebarDebugWindowController.shared.show()
+                            TitlebarLayoutDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
                             BonsplitTabBarDebugWindowController.shared.show()

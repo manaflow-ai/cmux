@@ -1056,6 +1056,13 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var titlebarTrafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var titlebarTrafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1565,11 +1572,14 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
-    private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
     private static let minimumRightSidebarWidth: CGFloat = 276
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
+
+    private var minimumSidebarWidth: CGFloat {
+        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+    }
 
     private enum SidebarResizerHandle: Hashable {
         case divider
@@ -1592,7 +1602,8 @@ struct ContentView: View {
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
                     let nextWidth = Self.clampedSidebarWidth(
                         startWidth + translation,
-                        maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
+                        maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
+                        minimumWidth: minimumSidebarWidth
                     )
                     withTransaction(Transaction(animation: nil)) {
                         sidebarWidth = nextWidth
@@ -1629,17 +1640,20 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
             ?? 1920
-        return max(Self.minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+        return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
     }
 
-    static func clampedSidebarWidth(_ candidate: CGFloat, maximumWidth: CGFloat) -> CGFloat {
-        let minimumWidth = Self.minimumSidebarWidth
+    static func clampedSidebarWidth(
+        _ candidate: CGFloat,
+        maximumWidth: CGFloat,
+        minimumWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
+    ) -> CGFloat {
         let sanitizedMaximumWidth = max(minimumWidth, maximumWidth.isFinite ? maximumWidth : minimumWidth)
         guard candidate.isFinite else {
             return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
@@ -1662,7 +1676,8 @@ struct ContentView: View {
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
         let nextWidth = Self.clampedSidebarWidth(
             sidebarWidth,
-            maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
+            maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
+            minimumWidth: minimumSidebarWidth
         )
         guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
@@ -1671,7 +1686,11 @@ struct ContentView: View {
     }
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
-        Self.clampedSidebarWidth(candidate, maximumWidth: maxSidebarWidth())
+        Self.clampedSidebarWidth(
+            candidate,
+            maximumWidth: maxSidebarWidth(),
+            minimumWidth: minimumSidebarWidth
+        )
     }
 
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
@@ -2287,7 +2306,32 @@ struct ContentView: View {
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
-        MinimalModeTitlebarDebugSettings.snapshot()
+        MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarLeftControlsLeadingInset,
+                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+            ),
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarLeftControlsTopInset,
+                range: MinimalModeTitlebarDebugSettings.topInsetRange
+            ),
+            trafficLightsXOffset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarTrafficLightsXOffset,
+                range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
+            ),
+            trafficLightsYOffset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarTrafficLightsYOffset,
+                range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
+            ),
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarTrafficLightTabBarInset,
+                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+            ),
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarTrafficLightTitlebarLeadingInset,
+                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+            )
+        )
     }
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2337,7 +2381,7 @@ struct ContentView: View {
 
     private func syncTrafficLightInset() {
         let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
-            ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()
+            ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
             : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
     }
@@ -3113,6 +3157,11 @@ struct ContentView: View {
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _ in
+            clampSidebarWidthIfNeeded()
             updateSidebarResizerBandState()
         })
 
@@ -9409,6 +9458,10 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+    private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+    private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
     private let tabRowSpacing: CGFloat = 2
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -9425,6 +9478,23 @@ struct VerticalTabsSidebar: View {
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
+
+    private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
+        MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarLeftControlsLeadingInset,
+                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+            ),
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
+                titlebarLeftControlsTopInset,
+                range: MinimalModeTitlebarDebugSettings.topInsetRange
+            ),
+            trafficLightsXOffset: MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset,
+            trafficLightsYOffset: MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
     }
 
     private var showsSidebarNotificationMessage: Bool {
@@ -9699,11 +9769,11 @@ struct VerticalTabsSidebar: View {
                         )
                             .padding(
                                 .leading,
-                                MinimalModeTitlebarDebugSettings.leftControlsLeadingInset()
+                                CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
                             )
                             .padding(
                                 .top,
-                                MinimalModeSidebarTitlebarControlsMetrics.topInset
+                                CGFloat(titlebarDebugChromeSnapshot.leftControlsTopInset)
                             )
                     }
                 }

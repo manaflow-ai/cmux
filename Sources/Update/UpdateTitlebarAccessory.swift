@@ -1686,6 +1686,19 @@ func titlebarControlsShouldApplyLayout(
         || abs(previous.yOffset - next.yOffset) > tolerance
 }
 
+enum TitlebarWindowGeometryNotifications {
+    static let names: [Notification.Name] = [
+        NSWindow.didResizeNotification,
+        NSWindow.didEndLiveResizeNotification,
+        NSWindow.willEnterFullScreenNotification,
+        NSWindow.didEnterFullScreenNotification,
+        NSWindow.willExitFullScreenNotification,
+        NSWindow.didExitFullScreenNotification,
+        NSWindow.didChangeScreenNotification,
+        NSWindow.didChangeBackingPropertiesNotification
+    ]
+}
+
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
     private let containerView: NSView
@@ -1696,6 +1709,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
+    private weak var observedWindow: NSWindow?
+    private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
@@ -1768,27 +1783,61 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
+        removeWindowGeometryObservers()
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        updateObservedWindowIfNeeded()
         scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        let observedWindowChanged = updateObservedWindowIfNeeded()
         let currentViewSize = view.bounds.size
         guard titlebarControlsShouldScheduleForViewSizeChange(
             previous: lastObservedViewSize,
             current: currentViewSize
-        ) else {
+        ) || observedWindowChanged else {
             return
         }
         lastObservedViewSize = currentViewSize
-        scheduleSizeUpdate(invalidateIntrinsicSize: true)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: observedWindowChanged)
     }
 
-    private func scheduleSizeUpdate(invalidateIntrinsicSize: Bool = false) {
+    @discardableResult
+    private func updateObservedWindowIfNeeded() -> Bool {
+        let currentWindow = view.window
+        guard currentWindow !== observedWindow else { return false }
+        removeWindowGeometryObservers()
+        observedWindow = currentWindow
+        guard let currentWindow else { return true }
+        let center = NotificationCenter.default
+        windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
+            center.addObserver(forName: name, object: currentWindow, queue: .main) { [weak self] _ in
+                self?.scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
+            }
+        }
+        return true
+    }
+
+    private func removeWindowGeometryObservers() {
+        let center = NotificationCenter.default
+        for observer in windowGeometryObservers {
+            center.removeObserver(observer)
+        }
+        windowGeometryObservers.removeAll()
+    }
+
+    private func scheduleSizeUpdate(
+        invalidateIntrinsicSize: Bool = false,
+        invalidateLayout: Bool = false
+    ) {
+        updateObservedWindowIfNeeded()
+        if invalidateLayout {
+            lastAppliedLayoutSnapshot = nil
+        }
         if invalidateIntrinsicSize {
             intrinsicSizeNeedsRefresh = true
         }
@@ -1801,6 +1850,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func updateSize() {
+        updateObservedWindowIfNeeded()
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
         let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
