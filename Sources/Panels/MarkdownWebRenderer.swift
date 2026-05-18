@@ -526,7 +526,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
-            guard let currentWebView = self.webView, currentWebView === webView else { return }
+            guard let currentWebView = self.webView, currentWebView === webView, isShellLoading else { return }
 #if DEBUG
             NSLog("MarkdownPanel.webView.navigationFailed error=\(error)")
 #endif
