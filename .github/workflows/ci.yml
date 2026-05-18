@@ -300,6 +300,11 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      - name: Run bash shell-integration bundle regression
+        run: |
+          set -euo pipefail
+          ./tests/test_bash_shell_integration_bundled.sh
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
