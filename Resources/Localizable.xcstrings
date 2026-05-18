@@ -20859,6 +20859,74 @@
         }
       }
     },
+    "agent.codex.error.body.auth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Codex authentication and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex の認証を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "agent.codex.error.body.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex stopped with an error. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex がエラーで停止しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "agent.codex.error.body.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your network connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "agent.codex.error.body.rateLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex usage is currently rate limited. Try again later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 Codex の利用がレート制限されています。後でもう一度お試しください。"
+          }
+        }
+      }
+    },
     "agent.codex.input.body.needsInput": {
       "extractionState": "manual",
       "localizations": {

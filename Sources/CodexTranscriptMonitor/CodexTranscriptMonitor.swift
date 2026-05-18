@@ -103,6 +103,7 @@ final class CodexTranscriptMonitorSession {
         let fd = open(expandedPath, O_EVTONLY)
         guard fd >= 0 else {
             transcriptPath = nil
+            resetTailState()
             scheduleRetry()
             return
         }
@@ -131,8 +132,7 @@ final class CodexTranscriptMonitorSession {
             source?.cancel()
             source = nil
             transcriptPath = nil
-            readOffset = 0
-            pendingData.removeAll(keepingCapacity: false)
+            resetTailState()
             scheduleRetry()
             return
         }
@@ -176,6 +176,7 @@ final class CodexTranscriptMonitorSession {
     private func readIncremental(path: String) {
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
             transcriptPath = nil
+            resetTailState()
             scheduleRetry()
             return
         }
@@ -373,5 +374,10 @@ final class CodexTranscriptMonitorSession {
             sessionId: request.sessionId,
             codexHome: request.codexHome
         )
+    }
+
+    private func resetTailState() {
+        readOffset = 0
+        pendingData.removeAll(keepingCapacity: false)
     }
 }

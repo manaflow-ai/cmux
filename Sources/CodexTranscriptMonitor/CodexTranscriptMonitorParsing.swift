@@ -78,18 +78,27 @@ enum CodexTranscriptMonitorParser {
 
         let subtitle: String
         let statusValue: String
+        let body: String
         if signal.contains("usage_limit") ||
             signal.contains("usage limit") ||
             signal.contains("rate limit") ||
             signal.contains("quota") {
             subtitle = String(localized: "agent.codex.error.subtitle.rateLimit", defaultValue: "Rate limit")
             statusValue = String(localized: "agent.codex.error.status.rateLimit", defaultValue: "Codex rate limit")
+            body = String(
+                localized: "agent.codex.error.body.rateLimit",
+                defaultValue: "Codex usage is currently rate limited. Try again later."
+            )
         } else if signal.contains("unauthorized") ||
                     signal.contains("auth") ||
                     signal.contains("login") ||
                     signal.contains("api key") {
             subtitle = String(localized: "agent.codex.error.subtitle.auth", defaultValue: "Auth error")
             statusValue = String(localized: "agent.codex.error.status.auth", defaultValue: "Codex auth error")
+            body = String(
+                localized: "agent.codex.error.body.auth",
+                defaultValue: "Check Codex authentication and try again."
+            )
         } else if candidate.isStreamError ||
                     signal.contains("network") ||
                     signal.contains("connection") ||
@@ -97,18 +106,23 @@ enum CodexTranscriptMonitorParser {
                     signal.contains("timed out") {
             subtitle = String(localized: "agent.codex.error.subtitle.network", defaultValue: "Network error")
             statusValue = String(localized: "agent.codex.error.status.network", defaultValue: "Codex network error")
+            body = String(
+                localized: "agent.codex.error.body.network",
+                defaultValue: "Check your network connection and try again."
+            )
         } else {
             subtitle = String(localized: "agent.codex.error.subtitle.generic", defaultValue: "Error")
             statusValue = String(localized: "agent.codex.error.status.generic", defaultValue: "Codex error")
+            body = String(
+                localized: "agent.codex.error.body.generic",
+                defaultValue: "Codex stopped with an error. Try again."
+            )
         }
 
-        let detail = [candidate.message, candidate.codexErrorInfo, candidate.additionalDetails]
-            .compactMap { normalizedValue($0).map(normalizedSingleLine) }
-            .first { !$0.isEmpty } ?? candidate.message
         return CodexTranscriptFailureSummary(
             statusValue: statusValue,
             subtitle: subtitle,
-            body: truncate(detail, maxLength: 220)
+            body: body
         )
     }
 

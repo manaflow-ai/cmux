@@ -138,6 +138,27 @@ final class CodexTranscriptMonitorSessionTests: XCTestCase {
         })
     }
 
+    func testFailureSummaryBodyDoesNotExposeRawUpstreamDetails() {
+        let summary = CodexTranscriptMonitorParser.summarizeFailure(
+            CodexTranscriptFailureCandidate(
+                message: "authentication failed: invalid API key sk-test-secret",
+                codexErrorInfo: "provider=gpt-example quota=private",
+                additionalDetails: nil,
+                isStreamError: false
+            )
+        )
+
+        XCTAssertEqual(
+            summary.body,
+            String(
+                localized: "agent.codex.error.body.auth",
+                defaultValue: "Check Codex authentication and try again."
+            )
+        )
+        XCTAssertFalse(summary.body.contains("sk-test-secret"))
+        XCTAssertFalse(summary.body.contains("provider="))
+    }
+
     private static func eventLine(type: String, payload: [String: Any]) -> [String: Any] {
         var eventPayload = payload
         eventPayload["type"] = type
