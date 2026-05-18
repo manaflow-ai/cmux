@@ -18,6 +18,18 @@
       "default": 1,
       "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
     },
+    "link.click.defaultBrowser": {
+      "type": "string",
+      "default": "cmd+click",
+      "examples": ["cmd+click", "⌘ + Click", "shift+click", "none"],
+      "description": "Alias for browser.terminalLinkDefaultBrowserModifier. Modifier chord for terminal link clicks that should open in the system default browser."
+    },
+    "link.click.builtInBrowser": {
+      "type": "string",
+      "default": "opt+click",
+      "examples": ["opt+click", "⌥ + Click", "shift+click", "none"],
+      "description": "Alias for browser.terminalLinkCmuxBrowserModifier. Modifier chord for terminal link clicks that should open in a cmux browser pane."
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
@@ -705,7 +717,19 @@
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
-          "description": "Open clicked terminal links in the embedded browser."
+          "description": "Open clicked terminal links in the embedded browser when no specific link-click modifier matches."
+        },
+        "terminalLinkDefaultBrowserModifier": {
+          "type": "string",
+          "default": "cmd+click",
+          "examples": ["cmd+click", "shift+click", "none"],
+          "description": "Modifier chord for terminal link clicks that should open in the system default browser. Accepted modifiers are cmd, opt, shift, and ctrl; use none to disable this explicit route."
+        },
+        "terminalLinkCmuxBrowserModifier": {
+          "type": "string",
+          "default": "opt+click",
+          "examples": ["opt+click", "cmd+shift+click", "none"],
+          "description": "Modifier chord for terminal link clicks that should open in a cmux browser pane. Accepted modifiers are cmd, opt, shift, and ctrl; use none to disable this explicit route."
         },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",
@@ -718,7 +742,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Allowlist of hosts that should stay inside the embedded browser."
+          "description": "Allowlist of hosts that should stay inside the embedded browser for automatic terminal link clicks and intercepted open commands. Explicit cmux-browser modifier clicks bypass this host list."
         },
         "urlsToAlwaysOpenExternally": {
           "type": "array",

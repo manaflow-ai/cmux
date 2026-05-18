@@ -35,6 +35,14 @@ final class SettingsSearchIndexTests: XCTestCase {
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled"),
             SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
         )
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "link.click.defaultBrowser"),
+            SettingsSearchIndex.settingID(for: .browser, idSuffix: "terminal-link-default-browser-modifier")
+        )
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "link.click.builtInBrowser"),
+            SettingsSearchIndex.settingID(for: .browser, idSuffix: "terminal-link-cmux-browser-modifier")
+        )
     }
 
     func testSettingsPathAnchorIncludesAgentAutoResume() {
