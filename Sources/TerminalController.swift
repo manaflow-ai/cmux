@@ -1619,6 +1619,13 @@ class TerminalController {
                 code: "invalid_request",
                 message: "id must be a string, number, or null"
             )
+        case .invalidJSONRPCVersion:
+            return v2Error(
+                id: nil,
+                jsonRPC: true,
+                code: "invalid_request",
+                message: "jsonrpc must be \"2.0\""
+            )
         }
     }
 
@@ -2066,12 +2073,14 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
-                let didWriteResponse = result.shouldWriteResponse
-                    ? writeSocketResponse(result.response, to: socket)
-                    : true
-                publishSocketEvents(command: trimmed, response: result.response)
-                guard didWriteResponse else {
-                    return
+                if result.shouldWriteResponse {
+                    let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                    if didWriteResponse {
+                        publishSocketEvents(command: trimmed, response: result.response)
+                    }
+                    guard didWriteResponse else {
+                        return
+                    }
                 }
             }
         }

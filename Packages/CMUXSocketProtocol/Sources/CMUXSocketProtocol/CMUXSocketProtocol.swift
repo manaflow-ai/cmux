@@ -17,16 +17,13 @@ nonisolated private final class VMCallResultBox: @unchecked Sendable {
     }
 }
 
-nonisolated private struct VMCallWork: @unchecked Sendable {
-    let run: () async throws -> [String: Any]
-}
-
 nonisolated public enum SocketCommandExecutionPolicy: Equatable {
     case mainActor
     case socketWorker
 }
 
-nonisolated public struct V2SocketRequest {
+// Parsed socket requests are immutable snapshots moved into socket-worker tasks.
+nonisolated public struct V2SocketRequest: @unchecked Sendable {
     public let id: Any?
     public let method: String
     public let params: [String: Any]
@@ -38,6 +35,7 @@ nonisolated public enum V2SocketRequestParseError: Error, Equatable {
     case missingMethod
     case invalidParams
     case malformedID
+    case invalidJSONRPCVersion
 }
 
 nonisolated public enum V2CallResult {
@@ -47,7 +45,8 @@ nonisolated public enum V2CallResult {
 
 nonisolated public enum CMUXSocketProtocol {
     public static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
-        (dict["jsonrpc"] as? String) == "2.0"
+        (dict["jsonrpc"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "2.0"
     }
 
     public static func malformedRequestUsesJSONRPC(_ command: String) -> Bool {
@@ -102,6 +101,10 @@ nonisolated public enum CMUXSocketProtocol {
     }
 
     public static func parseV2SocketRequestObject(_ dict: [String: Any]) throws -> V2SocketRequest {
+        if dict.keys.contains("jsonrpc"), !usesJSONRPC(dict) {
+            throw V2SocketRequestParseError.invalidJSONRPCVersion
+        }
+
         let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !method.isEmpty else {
             throw V2SocketRequestParseError.missingMethod
@@ -289,7 +292,7 @@ nonisolated public enum CMUXSocketProtocol {
         id: Any?,
         jsonRPC: Bool,
         timeoutSeconds: TimeInterval = 17 * 60,
-        _ work: @escaping () async throws -> [String: Any]
+        _ work: @escaping @Sendable () async throws -> [String: Any]
     ) -> String {
         guard !Thread.isMainThread else {
             return error(
@@ -302,10 +305,9 @@ nonisolated public enum CMUXSocketProtocol {
 
         let semaphore = DispatchSemaphore(value: 0)
         let resultBox = VMCallResultBox()
-        let wrappedWork = VMCallWork(run: work)
         let task = Task {
             do {
-                resultBox.set(.success(try await wrappedWork.run()))
+                resultBox.set(.success(try await work()))
             } catch {
                 resultBox.set(.failure(error))
             }
@@ -392,7 +394,7 @@ nonisolated public func v2VmCall(
     id: Any?,
     jsonRPC: Bool,
     timeoutSeconds: TimeInterval = 17 * 60,
-    _ work: @escaping () async throws -> [String: Any]
+    _ work: @escaping @Sendable () async throws -> [String: Any]
 ) -> String {
     CMUXSocketProtocol.vmCall(id: id, jsonRPC: jsonRPC, timeoutSeconds: timeoutSeconds, work)
 }
