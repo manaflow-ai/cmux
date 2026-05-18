@@ -809,12 +809,10 @@ extension Workspace {
                 }
                 continue
             }
-            if storedBinding.isProcessDetected {
-                if detectedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
-                } else {
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-                }
+            if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
+                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+            } else if storedBinding.isProcessDetected {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
             }
         }
     }
@@ -831,7 +829,8 @@ extension Workspace {
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
-        if storedBinding.isProcessDetected { return detectedBinding }
+        if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
+        if storedBinding.isProcessDetected { return nil }
         return storedBinding
     }
 

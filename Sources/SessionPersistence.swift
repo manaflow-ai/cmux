@@ -258,8 +258,16 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "process-detected"
     }
 
+    var isAgentHookBinding: Bool {
+        source == "agent-hook"
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
+    }
+
+    func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
+        detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
 
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes

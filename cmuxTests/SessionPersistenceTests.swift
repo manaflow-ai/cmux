@@ -3505,7 +3505,7 @@ extension SessionPersistenceTests {
                     command: "codex resume explicit",
                     cwd: "/tmp/explicit",
                     checkpointId: "explicit",
-                    source: "agent-hook",
+                    source: "cli",
                     updatedAt: 10
                 ),
                 panelId: panelId
@@ -3530,6 +3530,50 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "explicit")
         XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "codex resume explicit")
+    }
+
+    @MainActor
+    func testSnapshotPrefersProcessDetectedTmuxOverAgentHookBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume session",
+                    cwd: "/tmp/agent",
+                    checkpointId: "session",
+                    source: "agent-hook",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t detected",
+                cwd: "/tmp/detected",
+                checkpointId: "detected",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "detected")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t detected")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "detected"
+        )
     }
 
     @MainActor
