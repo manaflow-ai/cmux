@@ -42,13 +42,42 @@ def rounded_ms(value: float) -> float:
     return round(value, 2)
 
 
+def redacted_frame_message(label: str, line: str) -> str:
+    byte_count = len(line.encode("utf-8", errors="replace"))
+    return f"{label}: <redacted frame length={byte_count} bytes>"
+
+
+def summarize_frame(frame: dict[str, Any]) -> dict[str, Any]:
+    summary = {
+        key: frame[key]
+        for key in ("id", "type", "name", "seq", "ok", "replay_count")
+        if key in frame
+    }
+    resume = frame.get("resume")
+    if isinstance(resume, dict):
+        summary["resume"] = {
+            key: resume[key]
+            for key in ("gap", "gap_reason", "requested_after_seq", "first_available_seq", "last_seq")
+            if key in resume
+        }
+    result = frame.get("result")
+    if isinstance(result, dict):
+        summary["result_keys"] = sorted(str(key) for key in result)
+    elif result is not None:
+        summary["result_type"] = type(result).__name__
+    if "error" in frame:
+        summary["error_present"] = True
+        summary["error_type"] = type(frame["error"]).__name__
+    return summary
+
+
 def load_json_line(line: str) -> dict[str, Any]:
     try:
         value = json.loads(line)
     except json.JSONDecodeError as exc:
-        raise StressFailure(f"invalid JSON frame: {line[:200]!r}") from exc
+        raise StressFailure(redacted_frame_message("invalid JSON frame", line)) from exc
     if not isinstance(value, dict):
-        raise StressFailure(f"expected JSON object frame, got: {line[:200]!r}")
+        raise StressFailure(redacted_frame_message(f"expected JSON object frame, got {type(value).__name__}", line))
     return value
 
 
@@ -103,7 +132,7 @@ class SocketClient:
         self.write_request({"id": request_id, "method": method, "params": params or {}})
         frame = self.read_frame()
         if frame.get("ok") is not True:
-            raise StressFailure(f"{method} failed: {frame}")
+            raise StressFailure(f"{method} failed: {summarize_frame(frame)}")
         return frame
 
 
@@ -383,7 +412,7 @@ class CmuxEventsStress:
         with SocketClient(self.socket_path, timeout=10) as client:
             result = client.rpc("system.ping", request_id=f"ping-{label}")
         if result.get("result", {}).get("pong") is not True:
-            raise StressFailure(f"{label}: ping did not return pong: {result}")
+            raise StressFailure(f"{label}: ping did not return pong: {summarize_frame(result)}")
 
     def consumer_loop(self, stats: ConsumerStats, ready: threading.Barrier) -> None:
         started = now_ms()
@@ -407,7 +436,9 @@ class CmuxEventsStress:
                     ack = client.read_frame()
                     stats.line_count += 1
                     if ack.get("type") != "ack":
-                        raise StressFailure(f"consumer {stats.consumer_id} expected ack, got {ack}")
+                        raise StressFailure(
+                            f"consumer {stats.consumer_id} expected ack, got {summarize_frame(ack)}"
+                        )
                     resume = ack.get("resume") if isinstance(ack.get("resume"), dict) else {}
                     if resume.get("gap"):
                         stats.gaps.append(resume)
@@ -430,7 +461,10 @@ class CmuxEventsStress:
                                 continue
                             seq = frame.get("seq")
                             if not isinstance(seq, int):
-                                raise StressFailure(f"consumer {stats.consumer_id} saw event without numeric seq: {frame}")
+                                raise StressFailure(
+                                    f"consumer {stats.consumer_id} saw event without numeric seq: "
+                                    f"{summarize_frame(frame)}"
+                                )
                             if stats.last_seq is not None and seq <= stats.last_seq:
                                 raise StressFailure(
                                     f"consumer {stats.consumer_id} sequence did not advance: {seq} after {stats.last_seq}"
@@ -439,7 +473,9 @@ class CmuxEventsStress:
                             stats.events += 1
                             segment_events += 1
                         elif frame_type == "error":
-                            raise StressFailure(f"consumer {stats.consumer_id} stream error: {frame}")
+                            raise StressFailure(
+                                f"consumer {stats.consumer_id} stream error: {summarize_frame(frame)}"
+                            )
                     stats.reconnects += 1
         except Exception as exc:
             stats.errors.append(str(exc))
@@ -468,7 +504,7 @@ class CmuxEventsStress:
                         request_id=f"publish-{index}",
                     )
                     if response.get("ok") is not True:
-                        raise StressFailure(f"publisher request failed at {index}: {response}")
+                        raise StressFailure(f"publisher request failed at {index}: {summarize_frame(response)}")
                     if self.args.progress_interval and (index + 1) % self.args.progress_interval == 0:
                         elapsed = max(0.001, (now_ms() - started) / 1000.0)
                         rate = (index + 1) / elapsed
@@ -493,7 +529,7 @@ class CmuxEventsStress:
             )
             ack = client.read_frame()
             if ack.get("type") != "ack":
-                raise StressFailure(f"gap probe expected ack, got {ack}")
+                raise StressFailure(f"gap probe expected ack, got {summarize_frame(ack)}")
             resume = ack.get("resume") if isinstance(ack.get("resume"), dict) else {}
             replay_count = int(ack.get("replay_count") or 0)
             first_seq: int | None = None
@@ -501,13 +537,16 @@ class CmuxEventsStress:
             for _ in range(replay_count):
                 frame = client.read_frame()
                 if frame.get("type") != "event":
-                    raise StressFailure(f"gap probe expected replay event, got {frame}")
+                    raise StressFailure(f"gap probe expected replay event, got {summarize_frame(frame)}")
                 seq = frame.get("seq")
                 if isinstance(seq, int):
                     first_seq = seq if first_seq is None else first_seq
                     last_seq = seq
         if resume.get("gap") is not True:
-            raise StressFailure(f"expected retention gap for after_seq=0 after flood, got resume={resume}")
+            raise StressFailure(
+                "expected retention gap for after_seq=0 after flood, "
+                f"got resume={summarize_frame({'resume': resume})}"
+            )
         return {
             "ack": {
                 "replay_count": replay_count,
@@ -528,7 +567,7 @@ class CmuxEventsStress:
             current = self.file_size(self.event_log_path)
             rotated = self.file_size(rotated_path)
             sizes = (current, rotated)
-            if current > 0 and sizes == previous:
+            if current > 0 and rotated > 0 and sizes == previous:
                 stable_samples += 1
                 if stable_samples >= 4:
                     break
