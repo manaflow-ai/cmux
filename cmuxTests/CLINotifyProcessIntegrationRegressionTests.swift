@@ -1790,6 +1790,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
+        XCTAssertFalse(
+            state.commands.contains { command in
+                jsonObject(command)?["method"] as? String == "window.focus"
+            },
+            "surface resume metadata commands should route by window_id without focusing the window"
+        )
         let request = try XCTUnwrap(clearRequests.first)
         XCTAssertEqual(request["window_id"] as? String, "window:1")
         XCTAssertNotEqual(request["window_id"] as? String, "0")

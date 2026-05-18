@@ -2036,6 +2036,17 @@ struct CMUXCLI {
         }
     }
 
+    private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
+        let normalizedCommand = command.lowercased()
+        if normalizedCommand == "surface-resume" {
+            return false
+        }
+        if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
+            return false
+        }
+        return true
+    }
+
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -2418,9 +2429,9 @@ struct CMUXCLI {
         )
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
-        // Existing CLI --window routing focuses first so commands without an
+        // Most CLI --window routing focuses first so commands without an
         // explicit window_id still target the selected window.
-        if let windowId {
+        if let windowId, Self.shouldFocusWindowBeforeDispatch(command: command, commandArgs: commandArgs) {
             do {
                 let normalizedWindow = try normalizeWindowHandle(windowId, client: client) ?? windowId
                 _ = try client.sendV2(method: "window.focus", params: ["window_id": normalizedWindow])
@@ -4587,6 +4598,7 @@ struct CMUXCLI {
                 optionNames: Self.surfaceResumeSetValueOptions,
                 context: "surface resume set"
             )
+            try validateSurfaceResumeSetCommandTokensBeforeSocket(rest)
         case "show", "get":
             try validateSurfaceResumeValueOptions(
                 rest,
@@ -4601,6 +4613,28 @@ struct CMUXCLI {
             )
         default:
             return
+        }
+    }
+
+    private func validateSurfaceResumeSetCommandTokensBeforeSocket(_ args: [String]) throws {
+        let splitArgs = splitAtArgumentTerminator(args)
+        guard splitArgs.argv != nil else { return }
+
+        let (_, rem1) = parseOption(splitArgs.options, name: "--workspace")
+        let (_, rem2) = parseOption(rem1, name: "--surface")
+        let (_, rem3) = parseOption(rem2, name: "--name")
+        let (_, rem4) = parseOption(rem3, name: "--kind")
+        let (_, rem5) = parseOption(rem4, name: "--checkpoint")
+        let (_, rem6) = parseOption(rem5, name: "--checkpoint-id")
+        let (_, rem7) = parseOption(rem6, name: "--source")
+        let (_, rem8) = parseOption(rem7, name: "--cwd")
+        let (shellCommand, remaining) = parseOption(rem8, name: "--shell")
+
+        if let unexpected = remaining.first {
+            throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
+        }
+        if shellCommand != nil, let unexpected = splitArgs.argv?.first {
+            throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
         }
     }
 
