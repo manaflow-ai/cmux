@@ -3777,9 +3777,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return nil }
-        let restorableAgentIndex = suppliedRestorableAgentIndex
-            ?? RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously()
-        let surfaceResumeBindingIndex = suppliedSurfaceResumeBindingIndex ?? SurfaceResumeBindingIndex.load()
+        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let surfaceResumeBindingIndex = suppliedSurfaceResumeBindingIndex ?? .empty
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)

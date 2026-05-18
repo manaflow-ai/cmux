@@ -1042,7 +1042,9 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
     }
 
-    static func load(fileManager: FileManager = .default) -> SurfaceResumeBindingIndex {
+    private static func loadProcessDetectedBindingsSynchronously(
+        fileManager: FileManager = .default
+    ) -> SurfaceResumeBindingIndex {
         let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
         return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
     }
@@ -1051,7 +1053,7 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
         fileManager: FileManager = .default
     ) async -> SurfaceResumeBindingIndex {
         await Task.detached(priority: .utility) {
-            load(fileManager: fileManager)
+            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
         }.value
     }
 }

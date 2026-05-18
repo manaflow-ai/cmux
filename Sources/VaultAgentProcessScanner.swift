@@ -608,6 +608,7 @@ extension SurfaceResumeBindingIndex {
 
     private static func tmuxResumeInvocation(observed: VaultObservedAgentProcess) -> TmuxResumeInvocation? {
         guard observed.isTmuxProcess else { return nil }
+        guard !observed.hasTmuxServerProcessTitle else { return nil }
 
         let executable = tmuxExecutable(observed: observed)
         let tail = tmuxTailArguments(observed: observed)
@@ -824,6 +825,10 @@ private struct VaultObservedAgentProcess: Sendable {
         executableBasenames.contains(where: Self.argumentLooksLikeTmux)
     }
 
+    var hasTmuxServerProcessTitle: Bool {
+        executableBasenames.contains(where: Self.argumentLooksLikeTmuxServerProcessTitle)
+    }
+
     var openCodeExecutableArgument: String? {
         guard let index = openCodeExecutableArgumentIndex,
               arguments.indices.contains(index) else {
@@ -870,7 +875,7 @@ private struct VaultObservedAgentProcess: Sendable {
         let normalized = argument.lowercased()
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
-        return basename == "tmux" || basename.hasPrefix("tmux:")
+        return basename == "tmux" || argumentLooksLikeTmuxClientProcessTitle(basename)
     }
 
     static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
@@ -878,6 +883,20 @@ private struct VaultObservedAgentProcess: Sendable {
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
         return basename.hasPrefix("tmux:")
+    }
+
+    static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename.hasPrefix("tmux: server")
+    }
+
+    private static func argumentLooksLikeTmuxClientProcessTitle(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename.hasPrefix("tmux: client")
     }
 
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
