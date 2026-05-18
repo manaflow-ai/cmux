@@ -65,6 +65,8 @@ final class AgentHibernationTests: XCTestCase {
         let idleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let idleNew = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let runningOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let needsInputOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let unknownOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let visibleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let settings = AgentHibernationSettings.Values(
             enabled: true,
@@ -78,6 +80,8 @@ final class AgentHibernationTests: XCTestCase {
                 .init(key: idleOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, lastActivityAt: now - 300),
                 .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, lastActivityAt: now - 10),
                 .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, lastActivityAt: now - 300),
+                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .needsInput, lastActivityAt: now - 300),
+                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .unknown, lastActivityAt: now - 300),
                 .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, lastActivityAt: now - 300),
             ],
             settings: settings,
