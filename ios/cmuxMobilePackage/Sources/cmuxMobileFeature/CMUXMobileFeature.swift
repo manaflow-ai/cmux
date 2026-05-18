@@ -74,6 +74,7 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
+            syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -91,6 +92,7 @@ struct CMUXMobileRootView: View {
             }
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
+            syncShellAuthentication(isAuthenticated)
             guard isAuthenticated, let rawURL = pendingAttachURL else {
                 return
             }
@@ -103,6 +105,13 @@ struct CMUXMobileRootView: View {
 
     private var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(stackAuthenticated: authManager.isAuthenticated)
+    }
+
+    private func syncShellAuthentication(_ isAuthenticated: Bool) {
+        MobileRootAuthGate.syncShellAuthentication(
+            stackAuthenticated: isAuthenticated,
+            store: store
+        )
     }
 
     private func showAddDevice() {
@@ -123,6 +132,18 @@ struct CMUXMobileRootView: View {
 enum MobileRootAuthGate {
     static func isAuthenticated(stackAuthenticated: Bool) -> Bool {
         stackAuthenticated
+    }
+
+    @MainActor
+    static func syncShellAuthentication(
+        stackAuthenticated: Bool,
+        store: CMUXMobileShellStore
+    ) {
+        if stackAuthenticated {
+            store.signIn()
+        } else {
+            store.signOut()
+        }
     }
 }
 

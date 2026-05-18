@@ -120,6 +120,20 @@ import UIKit
 }
 
 @MainActor
+@Test func rootAuthGateSynchronizesStackAuthIntoShellStore() {
+    let store = CMUXMobileShellStore.preview()
+
+    MobileRootAuthGate.syncShellAuthentication(stackAuthenticated: true, store: store)
+
+    #expect(store.isSignedIn)
+
+    MobileRootAuthGate.syncShellAuthentication(stackAuthenticated: false, store: store)
+
+    #expect(!store.isSignedIn)
+    #expect(store.connectionState == .disconnected)
+}
+
+@MainActor
 @Test func signInMovesToPairingUntilCodeConnects() {
     let store = CMUXMobileShellStore.preview()
 
