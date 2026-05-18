@@ -146,18 +146,23 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     // reach HighlightedEditorContainerView, so we use a local event monitor
     // anchored to the inner scroll view instead.
 
-    // nonisolated(unsafe) is intentional: destroy() may be called by SwiftUI on a
-    // non-main thread and needs to remove the monitor synchronously (deferring via
-    // Task means [weak self] is already nil by then, leaking the monitor permanently).
-    // NSEvent.removeMonitor is documented as thread-safe. Writes happen only on
-    // main actor via installZoomMonitor.
+    // zoomEventMonitor may be accessed from destroy() off the main actor as well as
+    // from @MainActor install/remove methods. NSLock serializes the read-check-remove-nil
+    // sequence so the token is never passed to NSEvent.removeMonitor twice.
+    // nonisolated(unsafe) is justified because every access goes through zoomMonitorLock.
+    private let zoomMonitorLock = NSLock()
     private nonisolated(unsafe) var zoomEventMonitor: Any?
     private weak var innerScrollView: NSScrollView?
 
     func installZoomMonitor(scrollView: NSScrollView) {
         innerScrollView = scrollView
-        guard zoomEventMonitor == nil else { return }
-        zoomEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel, .smartMagnify]) {
+        zoomMonitorLock.lock()
+        if zoomEventMonitor != nil {
+            zoomMonitorLock.unlock()
+            return
+        }
+        zoomMonitorLock.unlock()
+        let token = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel, .smartMagnify]) {
             [weak self] event in
             guard let self,
                   let sv = self.innerScrollView,
@@ -186,14 +191,29 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
                 return event
             }
         }
+        zoomMonitorLock.lock()
+        if zoomEventMonitor == nil {
+            zoomEventMonitor = token
+            zoomMonitorLock.unlock()
+        } else {
+            zoomMonitorLock.unlock()
+            if let token = token { NSEvent.removeMonitor(token) }
+        }
     }
 
     func removeZoomMonitor() {
-        if let m = zoomEventMonitor { NSEvent.removeMonitor(m); zoomEventMonitor = nil }
+        zoomMonitorLock.lock()
+        let token = zoomEventMonitor
+        zoomEventMonitor = nil
+        zoomMonitorLock.unlock()
+        if let token = token { NSEvent.removeMonitor(token) }
     }
 
     func reinstallZoomMonitorIfNeeded() {
-        guard let sv = innerScrollView, zoomEventMonitor == nil else { return }
+        zoomMonitorLock.lock()
+        let alreadyInstalled = zoomEventMonitor != nil
+        zoomMonitorLock.unlock()
+        guard let sv = innerScrollView, !alreadyInstalled else { return }
         installZoomMonitor(scrollView: sv)
     }
 
@@ -246,14 +266,15 @@ extension HighlightedEditorBridge: TextViewCoordinator {
     }
 
     nonisolated func destroy() {
-        // Remove the event monitor synchronously. SwiftUI releases the coordinator
-        // on the same tick that calls destroy(); a deferred Task with [weak self]
-        // would find self nil and leak the monitor (NSEvent.removeMonitor must be
-        // called explicitly — releasing the opaque token is not enough).
-        if let token = zoomEventMonitor {
-            NSEvent.removeMonitor(token)
-            zoomEventMonitor = nil
-        }
+        // Remove the event monitor synchronously through the lock so we never
+        // double-call NSEvent.removeMonitor with the same token. SwiftUI releases
+        // the coordinator on the same tick that calls destroy(); a deferred Task
+        // with [weak self] would find self nil and leak the monitor.
+        zoomMonitorLock.lock()
+        let token = zoomEventMonitor
+        zoomEventMonitor = nil
+        zoomMonitorLock.unlock()
+        if let token = token { NSEvent.removeMonitor(token) }
         Task { @MainActor [weak self] in
             self?.textController = nil
         }
