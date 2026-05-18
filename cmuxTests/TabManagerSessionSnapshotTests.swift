@@ -1177,6 +1177,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(ClosedItemHistoryStore.shared.entries.isEmpty)
     }
 
+    func testCleanupEmptySourceWorkspaceDoesNotRecordRecentlyClosedWorkspace() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let sourceWorkspace = manager.addWorkspace(select: true)
+        sourceWorkspace.setCustomTitle("Move Cleanup Placeholder")
+        sourceWorkspace.withClosedPanelHistorySuppressed {
+            sourceWorkspace.teardownAllPanels()
+        }
+
+        appDelegate.cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: manager,
+            sourceWindowId: UUID()
+        )
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
+        XCTAssertTrue(ClosedItemHistoryStore.shared.entries.isEmpty)
+    }
+
     func testRestoringLocalWorkspaceSnapshotClearsStaleRemoteState() throws {
         let localSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
             .sessionSnapshot(includeScrollback: false)
