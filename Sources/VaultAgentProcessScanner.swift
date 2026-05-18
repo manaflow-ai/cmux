@@ -967,7 +967,23 @@ extension RestorableAgentSessionIndex {
         if let codexHome = normalized(environment["CODEX_HOME"]) {
             return URL(fileURLWithPath: (codexHome as NSString).expandingTildeInPath, isDirectory: true)
         }
+        if let home = normalized(environment["HOME"]) {
+            return URL(fileURLWithPath: (home as NSString).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
         return fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private static func codexLaunchEnvironment(_ environment: [String: String]) -> [String: String] {
+        guard normalized(environment["CODEX_HOME"]) == nil,
+              let home = normalized(environment["HOME"]) else {
+            return environment
+        }
+        var launchEnvironment = environment
+        launchEnvironment["CODEX_HOME"] = URL(fileURLWithPath: (home as NSString).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent(".codex", isDirectory: true)
+            .path
+        return launchEnvironment
     }
 
     private static func codexSessionMetaLine(fileURL: URL) -> CodexSessionMetaLine? {
@@ -1103,7 +1119,7 @@ extension RestorableAgentSessionIndex {
         tail: [String],
         workingDirectory: String?
     ) -> AgentLaunchCommandSnapshot? {
-        let environment = observed.environment
+        let environment = codexLaunchEnvironment(observed.environment)
         let inheritedLauncher = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
         let inheritedArguments = decodeNULSeparatedBase64(environment["CMUX_AGENT_LAUNCH_ARGV_B64"])
         let canonicalInheritedLauncher = inheritedLauncher.flatMap(canonicalCodexInheritedLauncher)

@@ -1897,6 +1897,65 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexResumeCommandPrefersCapturedCdOverShellWorkingDirectory() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/shell",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--cd",
+                    "/Users/example/repo",
+                    "--model",
+                    "gpt-5.4",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/shell",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/shell' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019dad34-d218-7943-b81a-eddac5c87951'"
+        )
+    }
+
+    func testCodexForkCommandPrefersCapturedCdOverShellWorkingDirectory() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e1eca-ee32-7001-ab30-edcae57430bb",
+            workingDirectory: "/Users/example/shell",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "-C=/Users/example/repo",
+                    "--model",
+                    "gpt-5.4",
+                    "stale fork prompt"
+                ],
+                workingDirectory: "/Users/example/shell",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/Users/example/shell' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+        )
+    }
+
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -3605,6 +3664,74 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.forkCommand,
             "cd '/tmp/codex direct repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex direct repo' '019e396b-6d2b-7eb0-a409-91f09c2b49b3' '--dangerously-bypass-approvals-and-sandbox'"
+        )
+    }
+
+    func testProcessDetectionUsesProcessHomeForDefaultCodexHome() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_132
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-process-home-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = home.appendingPathComponent(".codex", isDirectory: true)
+        let workingDirectory = "/tmp/codex home repo"
+        let sessionId = "019e396b-6d2b-7eb0-a409-91f09c2b49b3"
+        let transcript = try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: sessionId,
+            forkedFromId: nil,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 200),
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            try? fileManager.removeItem(at: home)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_132,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "--dangerously-bypass-approvals-and-sandbox"
+                    ],
+                    environment: [
+                        "HOME": home.path,
+                        "CODEX_THREAD_ID": "019dad34-d218-7943-b81a-eddac5c87951",
+                        "PWD": workingDirectory
+                    ]
+                )
+            },
+            processOpenFilePaths: { pid in
+                pid == process.pid ? [transcript.path] : []
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, sessionId)
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex home repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex home repo' '019e396b-6d2b-7eb0-a409-91f09c2b49b3' '--dangerously-bypass-approvals-and-sandbox'"
         )
     }
 

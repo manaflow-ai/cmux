@@ -205,11 +205,11 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = preservedCodexForkArguments(
                 args: original.tail,
-                overridingWorkingDirectory: workingDirectory
+                fallbackWorkingDirectory: workingDirectory
             ) else { return nil }
             return [original.executable, "resume"]
-                + codexWorkingDirectoryArguments(workingDirectory)
-                + preserved
+                + codexWorkingDirectoryArguments(preserved.workingDirectory)
+                + preserved.arguments
                 + [sessionId]
         case .pi:
             return resumeWithOption(
@@ -317,12 +317,12 @@ enum AgentResumeCommandBuilder {
             }
             guard let preserved = preservedCodexForkArguments(
                 args: args,
-                overridingWorkingDirectory: workingDirectory
+                fallbackWorkingDirectory: workingDirectory
             ) else { return nil }
             return [original.executable, "codex-teams", "fork"]
-                + codexWorkingDirectoryArguments(workingDirectory)
+                + codexWorkingDirectoryArguments(preserved.workingDirectory)
                 + [sessionId]
-                + preserved
+                + preserved.arguments
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -349,12 +349,12 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
             guard let preserved = preservedCodexForkArguments(
                 args: original.tail,
-                overridingWorkingDirectory: workingDirectory
+                fallbackWorkingDirectory: workingDirectory
             ) else { return nil }
             return [original.executable, "fork"]
-                + codexWorkingDirectoryArguments(workingDirectory)
+                + codexWorkingDirectoryArguments(preserved.workingDirectory)
                 + [sessionId]
-                + preserved
+                + preserved.arguments
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
@@ -369,15 +369,45 @@ enum AgentResumeCommandBuilder {
         return ["--cd", workingDirectory]
     }
 
+    private struct PreservedCodexForkArguments {
+        let workingDirectory: String?
+        let arguments: [String]
+    }
+
     private static func preservedCodexForkArguments(
         args: [String],
-        overridingWorkingDirectory: String?
-    ) -> [String]? {
+        fallbackWorkingDirectory: String?
+    ) -> PreservedCodexForkArguments? {
         guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else {
             return nil
         }
-        guard normalized(overridingWorkingDirectory) != nil else { return preserved }
-        return removingCodexWorkingDirectoryArguments(preserved)
+        guard let workingDirectory = codexWorkingDirectoryArgument(in: preserved) ?? normalized(fallbackWorkingDirectory) else {
+            return PreservedCodexForkArguments(workingDirectory: nil, arguments: preserved)
+        }
+        return PreservedCodexForkArguments(
+            workingDirectory: workingDirectory,
+            arguments: removingCodexWorkingDirectoryArguments(preserved)
+        )
+    }
+
+    private static func codexWorkingDirectoryArgument(in arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--cd" || argument == "-C" {
+                let valueIndex = index + 1
+                guard valueIndex < arguments.count else { return nil }
+                return normalized(arguments[valueIndex])
+            }
+            if argument.hasPrefix("--cd=") {
+                return normalized(String(argument.dropFirst("--cd=".count)))
+            }
+            if argument.hasPrefix("-C=") {
+                return normalized(String(argument.dropFirst("-C=".count)))
+            }
+            index += 1
+        }
+        return nil
     }
 
     private static func removingCodexWorkingDirectoryArguments(_ arguments: [String]) -> [String] {
