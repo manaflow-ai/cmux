@@ -768,7 +768,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
         HStack(spacing: 0) {
             ForEach(docks) { dock in
                 if edge == .right {
-                    dockResizeHandle(for: .dock(dock))
+                    dockResizeDivider(for: .dock(dock))
                 }
                 WorkspaceDockPaneView(
                     workspace: workspace,
@@ -783,7 +783,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 )
                 .frame(width: dock.preferredSize)
                 if edge == .left {
-                    dockResizeHandle(for: .dock(dock))
+                    dockResizeDivider(for: .dock(dock))
                 }
             }
         }
@@ -796,12 +796,12 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     }
 
     private var bottomDockResizeHandle: some View {
-        dockResizeHandle(for: .bottomStrip(currentSize: bottomDockHeightForOpenDocks))
+        dockResizeDivider(for: .bottomStrip(currentSize: bottomDockHeightForOpenDocks))
     }
 
-    private func dockResizeHandle(for target: WorkspaceDockResizerTarget) -> some View {
+    private func dockResizeDivider(for target: WorkspaceDockResizerTarget) -> some View {
         let config = dockResizerConfig(for: target)
-        return WorkspaceDockResizeHandle(
+        return WorkspaceDockResizeDivider(
             edge: config.edge,
             currentSize: config.currentSize,
             onResize: config.updateSize
@@ -937,19 +937,59 @@ private struct WorkspaceDockResizerConfig {
     let updateSize: (CGFloat) -> Void
 }
 
-private struct WorkspaceDockResizeHandle: View {
+private struct WorkspaceDockResizeDivider: View {
     let placement: WorkspaceDockResizePlacement
     let currentSize: CGFloat
     let onResize: (CGFloat) -> Void
-    @State private var dragStartSize: CGFloat?
-    @State private var isHovering = false
-    @State private var isDragging = false
 
     init(edge: WorkspaceDockEdge, currentSize: CGFloat, onResize: @escaping (CGFloat) -> Void) {
         self.placement = WorkspaceDockResizePlacement(edge: edge)
         self.currentSize = currentSize
         self.onResize = onResize
     }
+
+    var body: some View {
+        switch placement.axis {
+        case .horizontal:
+            Rectangle()
+                .fill(separatorColor)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .overlay {
+                    WorkspaceDockResizeHandle(
+                        placement: placement,
+                        currentSize: currentSize,
+                        onResize: onResize
+                    )
+                }
+                .frame(width: 1)
+        case .vertical:
+            Rectangle()
+                .fill(separatorColor)
+                .frame(height: 1)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    WorkspaceDockResizeHandle(
+                        placement: placement,
+                        currentSize: currentSize,
+                        onResize: onResize
+                    )
+                }
+                .frame(height: 1)
+        }
+    }
+
+    private var separatorColor: Color {
+        Color(nsColor: .separatorColor)
+    }
+}
+
+private struct WorkspaceDockResizeHandle: View {
+    let placement: WorkspaceDockResizePlacement
+    let currentSize: CGFloat
+    let onResize: (CGFloat) -> Void
+    @State private var dragStartSize: CGFloat?
+    @State private var isDragging = false
 
     var body: some View {
         handleBody
@@ -973,7 +1013,6 @@ private struct WorkspaceDockResizeHandle: View {
                     }
             )
             .onHover { hovering in
-                isHovering = hovering
                 if hovering {
                     placement.cursor.set()
                 } else if !isDragging {
@@ -990,32 +1029,14 @@ private struct WorkspaceDockResizeHandle: View {
     private var handleBody: some View {
         switch placement.axis {
         case .horizontal:
-            ZStack {
-                Rectangle()
-                    .fill(separatorColor)
-                    .frame(width: 1)
-                Rectangle()
-                    .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
-                    .frame(width: placement.hitLength)
-            }
-            .frame(width: placement.hitLength)
-            .frame(maxHeight: .infinity)
+            Color.clear
+                .frame(width: placement.hitLength)
+                .frame(maxHeight: .infinity)
         case .vertical:
-            ZStack {
-                Rectangle()
-                    .fill(separatorColor)
-                    .frame(height: 1)
-                Rectangle()
-                    .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
-                    .frame(height: placement.hitLength)
-            }
-            .frame(height: placement.hitLength)
-            .frame(maxWidth: .infinity)
+            Color.clear
+                .frame(height: placement.hitLength)
+                .frame(maxWidth: .infinity)
         }
-    }
-
-    private var separatorColor: Color {
-        Color(nsColor: .separatorColor)
     }
 
     private func beginResizeIfNeeded() {
@@ -1029,11 +1050,7 @@ private struct WorkspaceDockResizeHandle: View {
         guard isDragging else { return }
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
         isDragging = false
-        if isHovering {
-            placement.cursor.set()
-        } else {
-            NSCursor.arrow.set()
-        }
+        NSCursor.arrow.set()
     }
 }
 

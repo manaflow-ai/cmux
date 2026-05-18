@@ -4179,10 +4179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        let destinationController = targetPane.flatMap { destinationWorkspace.bonsplitController(containingPane: $0) }
+            ?? destinationWorkspace.bonsplitController
         let resolvedTargetPane = targetPane.flatMap { pane in
-            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? destinationWorkspace.bonsplitController.focusedPaneId
-            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+            destinationController.allPaneIds.first(where: { $0 == pane })
+        } ?? destinationController.focusedPaneId
+            ?? destinationController.allPaneIds.first
 
         guard let resolvedTargetPane else {
 #if DEBUG
@@ -4195,46 +4197,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if destinationWorkspace.id == sourceWorkspace.id {
-            if let splitTarget {
-                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
-                        resolvedTargetPane,
-                        orientation: splitTarget.orientation,
-                        movingTab: sourceTabId,
-                        insertFirst: splitTarget.insertFirst
-                      ) != nil else {
-#if DEBUG
-                    cmuxDebugLog(
-                        "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sameWorkspaceSplitFailed " +
-                        "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) split=\(splitLabel) " +
-                        "elapsedMs=\(elapsedMs(since: moveStart))"
-                    )
-#endif
-                    return false
-                }
-                if focus {
-                    source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
-                }
+            guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId) else {
 #if DEBUG
                 cmuxDebugLog(
-                    "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=sameWorkspaceSplit moved=1 " +
-                    "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+                    "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sourceTabMissing " +
+                    "elapsedMs=\(elapsedMs(since: moveStart))"
                 )
 #endif
-                return true
+                return false
             }
-
-            let moved = sourceWorkspace.moveSurface(
-                panelId: panelId,
-                toPane: resolvedTargetPane,
-                atIndex: targetIndex,
+            let moved = sourceWorkspace.moveBonsplitTabFromAnyController(
+                tabId: sourceTabId,
+                to: destinationController,
+                targetPane: resolvedTargetPane,
+                targetIndex: targetIndex,
+                splitTarget: splitTarget,
                 focus: focus
             )
+            if moved, focus {
+                source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=sameWorkspaceMove moved=\(moved ? 1 : 0) " +
                 "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) targetIndex=\(targetIndex.map(String.init) ?? "nil") " +
-                "elapsedMs=\(elapsedMs(since: moveStart))"
+                "split=\(splitLabel) elapsedMs=\(elapsedMs(since: moveStart))"
             )
 #endif
             return moved
@@ -4262,6 +4249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard destinationWorkspace.attachDetachedSurface(
             detached,
             inPane: resolvedTargetPane,
+            controller: destinationController,
             atIndex: targetIndex,
             focus: focus
         ) != nil else {
@@ -4290,7 +4278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  destinationController.splitPane(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,

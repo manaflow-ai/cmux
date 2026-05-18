@@ -7,39 +7,40 @@ extension TabManager {
     func equalizeSplits(tabId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
 
-        let result = equalizeSplitsOnce(in: tab)
+        let controller = tab.focusedBonsplitControllerForCommands()
+        let result = equalizeSplitsOnce(in: tab, controller: controller)
         if result.foundSplit {
             tab.didProgrammaticallyChangeSplitGeometry()
-            scheduleEqualizeSplitsFollowUp(tabId: tabId)
+            scheduleEqualizeSplitsFollowUp(tabId: tabId, controller: controller)
         }
         return result.didFullyEqualize
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> EqualizeSplitsResult {
+    private func equalizeSplitsOnce(in tab: Workspace, controller: BonsplitController) -> EqualizeSplitsResult {
         var foundSplit = false
         var allSucceeded = true
         equalizeSplits(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
+            in: controller.treeSnapshot(),
+            controller: controller,
             foundSplit: &foundSplit,
             allSucceeded: &allSucceeded
         )
         return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
-    private func scheduleEqualizeSplitsFollowUp(tabId: UUID) {
+    private func scheduleEqualizeSplitsFollowUp(tabId: UUID, controller: BonsplitController) {
         DispatchQueue.main.async { [weak self] in
-            self?.runEqualizeSplitsFollowUp(tabId: tabId)
+            self?.runEqualizeSplitsFollowUp(tabId: tabId, controller: controller)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.runEqualizeSplitsFollowUp(tabId: tabId)
+            self?.runEqualizeSplitsFollowUp(tabId: tabId, controller: controller)
         }
     }
 
-    private func runEqualizeSplitsFollowUp(tabId: UUID) {
+    private func runEqualizeSplitsFollowUp(tabId: UUID, controller: BonsplitController) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if equalizeSplitsOnce(in: tab).foundSplit {
+        if equalizeSplitsOnce(in: tab, controller: controller).foundSplit {
             tab.didProgrammaticallyChangeSplitGeometry()
         }
     }

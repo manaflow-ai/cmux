@@ -5694,13 +5694,14 @@ class TabManager: ObservableObject {
               let paneId = tab.paneId(forPanelId: surfaceId) else { return false }
 
         let paneUUID = paneId.id
-        guard tab.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
+        let controller = tab.bonsplitController(containingPane: paneId) ?? tab.bonsplitController
+        guard controller.allPaneIds.contains(where: { $0.id == paneUUID }) else {
             return false
         }
 
         var candidates: [ResizeSplitCandidate] = []
         let trace = resizeSplitCollectCandidates(
-            node: tab.bonsplitController.treeSnapshot(),
+            node: controller.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
@@ -5718,7 +5719,7 @@ class TabManager: ObservableObject {
         let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+        return controller.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
     /// Toggle zoom on a panel.
@@ -5911,14 +5912,12 @@ class TabManager: ObservableObject {
             }
         }
 
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
-                  inPane: paneId,
-                  url: url,
-                  focus: true,
-                  insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
-              ) else {
+        guard let browserPanel = workspace.newBrowserSurfaceInFocusedPane(
+            url: url,
+            focus: true,
+            insertAtEnd: insertAtEnd,
+            preferredProfileID: preferredProfileID
+        ) else {
             return nil
         }
         rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
