@@ -907,6 +907,19 @@ func windowDragHandleShouldCaptureHit(
 ) -> Bool {
     let dragHandleWindow = dragHandleView.window
 
+    if let dragHandleWindow,
+       eventType == .leftMouseDown {
+        let windowPoint = dragHandleView.convert(point, to: nil)
+        if BonsplitTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
+            #if DEBUG
+            cmuxDebugLog(
+                "titlebar.dragHandle.hitTest capture=false reason=bonsplitPaneTab point=\(windowDragHandleFormatPoint(point))"
+            )
+            #endif
+            return false
+        }
+    }
+
     // Suppression recovery runs first so stale depth is cleared even for
     // passive events — the associated-object reads/writes here are pure ObjC
     // runtime calls and cannot trigger Swift exclusive-access violations.

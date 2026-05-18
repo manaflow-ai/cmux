@@ -642,6 +642,18 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+        nonisolated(unsafe) var tabFrames: [CGRect] = []
+
+        nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+            tabFrames.contains { $0.contains(localPoint) }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            nil
+        }
+    }
+
     private final class SidebarActionRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         nonisolated(unsafe) var config = TitlebarControlsStyle.classic.config
 
@@ -900,6 +912,56 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
+    }
+
+    func testDragHandleNeverCapturesRegisteredBonsplitPaneTab() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        contentView.addSubview(container)
+
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 82, width: 220, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        container.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let tabWindowPoint = tabRegion.convert(NSPoint(x: 48, y: 15), to: nil)
+        let tabDragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                tabDragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "A visible pane tab must own its mouse-down; the titlebar drag handle must not turn it into a window drag"
+        )
+
+        let emptyWindowPoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let emptyDragHandlePoint = dragHandle.convert(emptyWindowPoint, from: nil)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                emptyDragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty tab-strip chrome should remain available for app-window dragging"
+        )
     }
 
     func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
