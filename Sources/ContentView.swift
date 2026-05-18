@@ -12233,6 +12233,132 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 }
 
+#if DEBUG
+private enum SidebarWorkspaceRowHeightUITestProbe {
+    static func publish(workspaceId: UUID, index: Int, count: Int, height: CGFloat, unreadCount: Int, isSelected: Bool) {
+        let env = ProcessInfo.processInfo.environment
+        guard flag("CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_PROBE", env: env) else {
+            return
+        }
+        let path = string("CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_PROBE_PATH", env: env) ?? ""
+        let notificationName = string("CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_PROBE_NAME", env: env) ?? ""
+        guard !path.isEmpty || !notificationName.isEmpty else { return }
+        var payload: [String: Any] = [
+            "workspaceId": workspaceId.uuidString,
+            "index": index + 1,
+            "count": count,
+            "height": Double(height),
+            "unreadCount": unreadCount,
+            "isSelected": isSelected,
+            "publishedAt": Date().timeIntervalSince1970,
+        ]
+        if !notificationName.isEmpty {
+            DistributedNotificationCenter.default().postNotificationName(
+                Notification.Name(notificationName),
+                object: nil,
+                userInfo: payload,
+                deliverImmediately: true
+            )
+        }
+        guard !path.isEmpty else { return }
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            var events = existing["events"] as? [[String: Any]] ?? []
+            events.append(payload)
+            payload["events"] = Array(events.suffix(20))
+        } else {
+            payload["events"] = [payload]
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private static func string(_ key: String, env: [String: String]) -> String? {
+        if let value = env[key], !value.isEmpty {
+            return value
+        }
+        if let value = argumentValue(key) {
+            return value
+        }
+        if let value = UserDefaults.standard.string(forKey: key), !value.isEmpty {
+            return value
+        }
+        return nil
+    }
+
+    private static func flag(_ key: String, env: [String: String]) -> Bool {
+        if env[key] == "1" {
+            return true
+        }
+        if argumentValue(key) == "1" {
+            return true
+        }
+        return UserDefaults.standard.string(forKey: key) == "1"
+            || UserDefaults.standard.bool(forKey: key)
+    }
+
+    private static func argumentValue(_ key: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-\(key)") else {
+            return nil
+        }
+        let valueIndex = arguments.index(after: index)
+        guard valueIndex < arguments.endIndex else {
+            return nil
+        }
+        let value = arguments[valueIndex]
+        return value.isEmpty ? nil : value
+    }
+}
+#endif
+
+private struct SidebarWorkspaceRowHeightMeasurement: View {
+    let workspaceId: UUID
+    let index: Int
+    let count: Int
+    let unreadCount: Int
+    let isSelected: Bool
+    let onHeightChange: (CGFloat) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    publish(height: proxy.size.height, unreadCount: unreadCount)
+                }
+                .onChange(of: proxy.size.height) { _, newHeight in
+                    publish(height: newHeight, unreadCount: unreadCount)
+                }
+#if DEBUG
+                .onChange(of: unreadCount) { _, newUnreadCount in
+                    publish(height: proxy.size.height, unreadCount: newUnreadCount)
+                }
+                .onChange(of: isSelected) { _, _ in
+                    publish(height: proxy.size.height, unreadCount: unreadCount)
+                }
+                .onChange(of: count) { _, _ in
+                    publish(height: proxy.size.height, unreadCount: unreadCount)
+                }
+#endif
+        }
+    }
+
+    private func publish(height rawHeight: CGFloat, unreadCount: Int) {
+        let height = max(rawHeight, 1)
+        onHeightChange(height)
+#if DEBUG
+        SidebarWorkspaceRowHeightUITestProbe.publish(
+            workspaceId: workspaceId,
+            index: index,
+            count: count,
+            height: height,
+            unreadCount: unreadCount,
+            isSelected: isSelected
+        )
+#endif
+    }
+}
+
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -12428,6 +12554,57 @@ private struct TabItemView: View, Equatable {
     private var titleFontWeight: Font.Weight {
         .semibold
     }
+
+    private var titleFontSize: CGFloat {
+#if DEBUG
+        if let value = sidebarRowHeightUITestPositiveCGFloat("CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_TITLE_FONT_SIZE") {
+            return value
+        }
+#endif
+        return 12.5
+    }
+
+    private var titleHeightOverride: CGFloat? {
+#if DEBUG
+        return sidebarRowHeightUITestPositiveCGFloat("CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_TITLE_HEIGHT")
+#else
+        return nil
+#endif
+    }
+
+#if DEBUG
+    private func sidebarRowHeightUITestPositiveCGFloat(_ key: String) -> CGFloat? {
+        if let raw = ProcessInfo.processInfo.environment[key],
+           let value = Double(raw),
+           value > 0 {
+            return CGFloat(value)
+        }
+        if let raw = sidebarRowHeightUITestArgumentValue(key),
+           let value = Double(raw),
+           value > 0 {
+            return CGFloat(value)
+        }
+        if let raw = UserDefaults.standard.string(forKey: key),
+           let value = Double(raw),
+           value > 0 {
+            return CGFloat(value)
+        }
+        return nil
+    }
+
+    private func sidebarRowHeightUITestArgumentValue(_ key: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-\(key)") else {
+            return nil
+        }
+        let valueIndex = arguments.index(after: index)
+        guard valueIndex < arguments.endIndex else {
+            return nil
+        }
+        let value = arguments[valueIndex]
+        return value.isEmpty ? nil : value
+    }
+#endif
 
     private var showsLeadingRail: Bool {
         explicitRailColor != nil
@@ -12641,10 +12818,11 @@ private struct TabItemView: View, Equatable {
                 }
 
                 Text(workspaceSnapshot.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: titleFontSize, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(height: titleHeightOverride, alignment: .center)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
             }
@@ -12883,14 +13061,14 @@ private struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        rowHeight = max(proxy.size.height, 1)
-                    }
-                    .onChange(of: proxy.size.height) { newHeight in
-                        rowHeight = max(newHeight, 1)
-                    }
+            SidebarWorkspaceRowHeightMeasurement(
+                workspaceId: tab.id,
+                index: index,
+                count: accessibilityWorkspaceCount,
+                unreadCount: unreadCount,
+                isSelected: isActive
+            ) { height in
+                rowHeight = height
             }
         }
         .contentShape(Rectangle())

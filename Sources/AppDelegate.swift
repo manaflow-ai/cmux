@@ -787,9 +787,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupTerminalCmdClickUITest = false
     private var didSetupGotoSplitUITest = false
     private var didSetupBonsplitTabDragUITest = false
+    private var didSetupSidebarRowHeightNotificationUITest = false
+    private var didDeliverSidebarRowHeightNotificationUITest = false
+    private var sidebarRowHeightNotificationUITestRequestName: String?
+    private var sidebarRowHeightNotificationUITestStateName: String?
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
+    private var sidebarRowHeightNotificationUITestSource: DispatchSourceFileSystemObject?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
@@ -1611,6 +1616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
+        setupSidebarRowHeightNotificationUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
@@ -10111,6 +10117,204 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func loadGotoSplitTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func setupSidebarRowHeightNotificationUITestIfNeeded() {
+        guard !didSetupSidebarRowHeightNotificationUITest else { return }
+        didSetupSidebarRowHeightNotificationUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard sidebarRowHeightUITestFlag("CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_NOTIFICATION_SETUP", env: env) else { return }
+        let triggerPath = sidebarRowHeightUITestString(
+            "CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_NOTIFICATION_TRIGGER_PATH",
+            env: env
+        )
+        let statePath = sidebarRowHeightUITestString(
+            "CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_NOTIFICATION_STATE_PATH",
+            env: env
+        )
+        if let requestName = sidebarRowHeightUITestString(
+            "CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_NOTIFICATION_REQUEST_NAME",
+            env: env
+        ),
+           let stateName = sidebarRowHeightUITestString(
+               "CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_NOTIFICATION_STATE_NAME",
+               env: env
+           ) {
+            sidebarRowHeightNotificationUITestRequestName = requestName
+            sidebarRowHeightNotificationUITestStateName = stateName
+            DistributedNotificationCenter.default().addObserver(
+                self,
+                selector: #selector(handleSidebarRowHeightNotificationUITestRequest(_:)),
+                name: Notification.Name(requestName),
+                object: nil,
+                suspensionBehavior: .deliverImmediately
+            )
+            writeSidebarRowHeightNotificationUITestState(["ready": "1", "transport": "distributed"], at: statePath)
+            return
+        }
+        guard let triggerPath, let statePath else {
+            return
+        }
+
+        FileManager.default.createFile(atPath: triggerPath, contents: Data(), attributes: nil)
+        let fd = open(triggerPath, O_EVTONLY)
+        guard fd >= 0 else {
+            writeSidebarRowHeightNotificationUITestState(["ready": "0", "error": "open_failed"], at: statePath)
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .attrib],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            self?.deliverSidebarRowHeightNotificationUITestIfNeeded(statePath: statePath)
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        sidebarRowHeightNotificationUITestSource = source
+        source.resume()
+        writeSidebarRowHeightNotificationUITestState(["ready": "1"], at: statePath)
+    }
+
+    private func sidebarRowHeightUITestString(_ key: String, env: [String: String]) -> String? {
+        if let value = env[key], !value.isEmpty {
+            return value
+        }
+        if let value = sidebarRowHeightUITestArgumentValue(key) {
+            return value
+        }
+        if let value = UserDefaults.standard.string(forKey: key), !value.isEmpty {
+            return value
+        }
+        return nil
+    }
+
+    private func sidebarRowHeightUITestFlag(_ key: String, env: [String: String]) -> Bool {
+        if env[key] == "1" {
+            return true
+        }
+        if sidebarRowHeightUITestArgumentValue(key) == "1" {
+            return true
+        }
+        return UserDefaults.standard.string(forKey: key) == "1"
+            || UserDefaults.standard.bool(forKey: key)
+    }
+
+    private func sidebarRowHeightUITestArgumentValue(_ key: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-\(key)") else {
+            return nil
+        }
+        let valueIndex = arguments.index(after: index)
+        guard valueIndex < arguments.endIndex else {
+            return nil
+        }
+        let value = arguments[valueIndex]
+        return value.isEmpty ? nil : value
+    }
+
+    @objc private func handleSidebarRowHeightNotificationUITestRequest(_ notification: Notification) {
+        deliverSidebarRowHeightNotificationUITestIfNeeded(statePath: nil)
+    }
+
+    private func deliverSidebarRowHeightNotificationUITestIfNeeded(statePath: String?) {
+        guard !didDeliverSidebarRowHeightNotificationUITest else { return }
+        let targetContext = sidebarRowHeightNotificationUITestTargetContext()
+        let targetTabManager = targetContext?.tabManager ?? tabManager
+        let targetMode = sidebarRowHeightUITestString(
+            "CMUX_UI_TEST_SIDEBAR_ROW_HEIGHT_NOTIFICATION_TARGET",
+            env: ProcessInfo.processInfo.environment
+        )
+        guard let targetTabManager,
+              let notificationStore,
+              let tabId = sidebarRowHeightNotificationUITestTabId(targetMode: targetMode, tabManager: targetTabManager) else {
+            writeSidebarRowHeightNotificationUITestState(["notified": "0", "error": "workspace_missing"], at: statePath)
+            return
+        }
+
+        let previousFocusOverride = AppFocusState.overrideIsFocused
+        AppFocusState.overrideIsFocused = false
+        notificationStore.addNotification(
+            tabId: tabId,
+            surfaceId: nil,
+            title: "sidebar-height-ui-test",
+            subtitle: "ui-test",
+            body: "compact row height"
+        )
+        notificationStore.markUnread(forTabId: tabId)
+        AppFocusState.overrideIsFocused = previousFocusOverride
+        didDeliverSidebarRowHeightNotificationUITest = true
+        if let requestName = sidebarRowHeightNotificationUITestRequestName {
+            DistributedNotificationCenter.default().removeObserver(
+                self,
+                name: Notification.Name(requestName),
+                object: nil
+            )
+            sidebarRowHeightNotificationUITestRequestName = nil
+        }
+        sidebarRowHeightNotificationUITestSource?.cancel()
+        sidebarRowHeightNotificationUITestSource = nil
+        writeSidebarRowHeightNotificationUITestState([
+            "notified": "1",
+            "tabId": tabId.uuidString,
+            "windowId": targetContext?.windowId.uuidString ?? "",
+        ], at: statePath)
+    }
+
+    private func sidebarRowHeightNotificationUITestTabId(targetMode: String?, tabManager: TabManager) -> UUID? {
+        switch targetMode {
+        case "first":
+            return tabManager.tabs.first?.id
+        default:
+            return tabManager.selectedTabId ?? tabManager.tabs.first?.id
+        }
+    }
+
+    private func sidebarRowHeightNotificationUITestTargetContext() -> MainWindowContext? {
+        if let context = contextForMainWindow(NSApp.keyWindow),
+           !context.tabManager.tabs.isEmpty {
+            return context
+        }
+        if let context = contextForMainWindow(NSApp.mainWindow),
+           !context.tabManager.tabs.isEmpty {
+            return context
+        }
+        if let context = mainWindowContexts.values.first(where: { context in
+            resolvedWindow(for: context) != nil && !context.tabManager.tabs.isEmpty
+        }) {
+            return context
+        }
+        return mainWindowContexts.values.first { !$0.tabManager.tabs.isEmpty }
+    }
+
+    private func writeSidebarRowHeightNotificationUITestState(_ updates: [String: String], at path: String?) {
+        if let stateName = sidebarRowHeightNotificationUITestStateName {
+            DistributedNotificationCenter.default().postNotificationName(
+                Notification.Name(stateName),
+                object: nil,
+                userInfo: updates,
+                deliverImmediately: true
+            )
+        }
+        guard let path, !path.isEmpty else { return }
+        var payload = loadSidebarRowHeightNotificationUITestState(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadSidebarRowHeightNotificationUITestState(at path: String) -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
