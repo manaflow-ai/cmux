@@ -2843,14 +2843,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         slot.setPortalHidden(true)
 
         XCTAssertTrue(slot.isPortalHidden)
-        XCTAssertEqual(slot.alphaValue, 0, accuracy: 0.001)
+        XCTAssertEqual(slot.alphaValue, 1, accuracy: 0.001)
         XCTAssertFalse(
             slot.isHidden,
             "Direct portal hides should keep the WKWebView-hosting branch in the AppKit tree"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             contentView.bounds.intersects(slot.frame),
-            "Direct portal hides should keep the render layer in its last visible geometry"
+            "Direct portal hides should park the opaque render layer outside the visible host"
         )
         XCTAssertFalse(
             window.firstResponder === inspectorView,
@@ -3061,20 +3061,20 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             initialReattachCount,
             "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             hiddenHiddenCount,
             initialHiddenCount,
-            "Hiding a portal-hosted browser should explicitly mark WebKit's render state hidden before reveal"
+            "Visual workspace hides should keep WebKit in the window render tree instead of telling it to leave"
         )
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should nudge WebKit's remote render layer back into the window"
+            "Visual reveal should repaint without calling WebKit's detach/attach render-state hooks"
         )
     }
 
@@ -3150,10 +3150,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             hiddenDisplayCount,
             "Inspector divider adjustment during reveal must not skip the browser presentation refresh"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Inspector-adjusted reveal should still nudge WebKit's remote render layer back into the window"
+            "Inspector-adjusted visual reveal should not call WebKit's detach/attach render-state hooks"
         )
     }
 
@@ -3366,14 +3366,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot, "Workspace hide should preserve the hosted WKWebView attachment")
         XCTAssertEqual(
             slot.alphaValue,
-            0,
+            1,
             accuracy: 0.001,
-            "Workspace hide should visually suppress the portal slot without using AppKit hidden-state"
+            "Workspace hide should keep the portal slot opaque so WebKit does not drop its remote layer"
         )
         if let slotSuperview = slot.superview {
-            XCTAssertTrue(
+            XCTAssertFalse(
                 slotSuperview.bounds.intersects(slot.frame),
-                "A hidden portal slot should stay in-place so the WKWebView render tree remains attached to the window"
+                "A hidden portal slot should stay attached but parked outside the visible host"
             )
         } else {
             XCTFail("Expected hidden portal slot to remain attached")
@@ -3447,7 +3447,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testRegistryNavigationRefreshRepaintsVisiblePortalWithoutQueuedRepair() {
+    func testRegistryNavigationRefreshWithoutQueuedRepairDoesNotRepaintVisiblePortal() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -3478,10 +3478,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let afterFirstNavigationDisplayCount = webView.displayIfNeededCount
         let afterFirstNavigationReattachCount = webView.reattachRenderingStateCount
 
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             afterFirstNavigationDisplayCount,
             afterBindDisplayCount,
-            "Navigation completion should repaint the visible browser presentation"
+            "Navigation completion without a queued repair should not run the heavier portal refresh path"
         )
         XCTAssertEqual(
             afterFirstNavigationReattachCount,
@@ -3492,10 +3492,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
         advanceAnimations()
 
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             afterFirstNavigationDisplayCount,
-            "Later navigation completions should still repaint the visible portal-hosted browser"
+            "Later navigation completions without queued repairs should also be ignored"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,

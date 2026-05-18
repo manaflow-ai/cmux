@@ -153,9 +153,10 @@ private extension WKWebView {
 #endif
     }
 
-    func browserPortalReattachRenderingState(reason: String, force: Bool = false) {
-        guard force || browserPortalNeedsRenderingStateReattach else { return }
-        guard window != nil else { return }
+    @discardableResult
+    func browserPortalReattachRenderingState(reason: String, force: Bool = false) -> Bool {
+        guard force || browserPortalNeedsRenderingStateReattach else { return false }
+        guard window != nil else { return false }
         browserPortalNeedsRenderingStateReattach = false
 
         let firedSelectors = [
@@ -187,6 +188,7 @@ private extension WKWebView {
             )
         }
 #endif
+        return true
     }
 }
 
@@ -1521,6 +1523,12 @@ final class WindowBrowserSlotView: NSView {
 
     private var isPortalVisuallySuppressed = false
 
+    static func suppressedPortalFrame(for visibleFrame: NSRect, fallbackBounds: NSRect) -> NSRect {
+        let width = max(visibleFrame.width, fallbackBounds.width, 1)
+        let height = max(visibleFrame.height, fallbackBounds.height, 1)
+        return NSRect(x: -100_000, y: -100_000, width: width, height: height)
+    }
+
     var isPortalHidden: Bool {
         isPortalVisuallySuppressed
     }
@@ -1528,9 +1536,15 @@ final class WindowBrowserSlotView: NSView {
     func setPortalHidden(_ hidden: Bool) {
         let oldValue = isPortalVisuallySuppressed
         isPortalVisuallySuppressed = hidden
-        // Keep WKWebView's remote render layer in-place and attached across workspace switches.
+        // Keep WKWebView's remote render layer opaque and attached across workspace switches.
         super.isHidden = false
-        alphaValue = hidden ? 0 : 1
+        alphaValue = 1
+        if hidden {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            frame = Self.suppressedPortalFrame(for: frame, fallbackBounds: bounds)
+            CATransaction.commit()
+        }
 
         guard hidden, !oldValue, let window else { return }
         yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
@@ -2807,10 +2821,15 @@ final class WindowBrowserPortal: NSObject {
             }
             webKitSubview.layoutSubtreeIfNeeded()
             if reattachRenderingState {
-                webKitSubview.browserPortalReattachRenderingState(
+                let didReattach = webKitSubview.browserPortalReattachRenderingState(
                     reason: "\(reason):\(phase)",
                     force: forceRenderingStateReattach
                 )
+                if didReattach, forceRenderingStateReattach {
+                    _ = webKitSubview.browserPortalConsumeNavigationRenderingStateReattach(
+                        reason: "\(reason):\(phase)"
+                    )
+                }
             }
             webKitSubview.displayIfNeeded()
         }
@@ -3199,27 +3218,6 @@ final class WindowBrowserPortal: NSObject {
         return true
     }
 
-    @discardableResult
-    func refreshVisibleHostedWebViewPresentation(
-        withId webViewId: ObjectIdentifier,
-        reason: String
-    ) -> Bool {
-        guard ensureInstalled() else { return false }
-        guard let entry = entriesByWebViewId[webViewId],
-              let webView = entry.webView,
-              let containerView = entry.containerView,
-              !containerView.isPortalHidden else {
-            return false
-        }
-        refreshHostedWebViewPresentation(
-            webView,
-            in: containerView,
-            reason: reason,
-            forceRenderingStateReattach: false
-        )
-        return true
-    }
-
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
 
@@ -3477,15 +3475,9 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
-            if !containerView.isPortalHidden {
-                notifyHostedWebKitHidden(
-                    in: containerView,
-                    primaryWebView: webView,
-                    reason: reason
-                )
-            }
-            // Tab/workspace visibility changes keep the WKWebView in the AppKit
-            // tree while explicitly pairing WebKit's hidden/reveal render-state hooks.
+            // Tab/workspace visibility changes keep the WKWebView in the AppKit tree.
+            // Do not send WebKit hide/enter hooks here; those are reserved for real
+            // detach/discard transitions where the hosted view actually leaves the tree.
             containerView.setPortalHidden(true)
         }
         func scheduleTransientDetachRecovery(reason: String) -> Bool {
@@ -3787,15 +3779,21 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
         }
-        if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+        let presentationFrame = shouldHide
+            ? WindowBrowserSlotView.suppressedPortalFrame(
+                for: targetFrame,
+                fallbackBounds: containerView.bounds
+            )
+            : targetFrame
+        if !Self.rectApproximatelyEqual(oldFrame, presentationFrame) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            containerView.frame = targetFrame
+            containerView.frame = presentationFrame
             CATransaction.commit()
             refreshReasons.append("frame")
         }
 
-        let expectedContainerBounds = NSRect(origin: .zero, size: targetFrame.size)
+        let expectedContainerBounds = NSRect(origin: .zero, size: presentationFrame.size)
         if !Self.rectApproximatelyEqual(containerView.bounds, expectedContainerBounds) {
             let oldContainerBounds = containerView.bounds
             CATransaction.begin()
@@ -3917,11 +3915,9 @@ final class WindowBrowserPortal: NSObject {
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
-        // The WKWebView stays in the AppKit tree while hidden, but WebKit can
-        // still keep stale remote-layer state until the reveal pass nudges it.
         let shouldForceRenderingStateReattach =
             presentationUpdateKind == .refresh &&
-            (forceRenderingStateReattach || revealedForDisplay || recoveredFromTransientGeometry)
+            (forceRenderingStateReattach || recoveredFromTransientGeometry)
         if presentationUpdateKind == .refresh,
            forceRenderingStateReattach,
            scheduleNavigationRenderingStateReattach {
@@ -4350,30 +4346,17 @@ enum BrowserWindowPortalRegistry {
     }
 
     static func refreshAfterNavigationDidFinish(webView: WKWebView) {
+        guard webView.browserPortalHasPendingNavigationRenderingStateReattach else { return }
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        let forceRenderingStateReattach = webView.browserPortalHasPendingNavigationRenderingStateReattach
-        guard forceRenderingStateReattach else {
-            guard portal.refreshVisibleHostedWebViewPresentation(
-                withId: webViewId,
-                reason: "navigation.didFinish"
-            ) else { return }
-            postRegistryDidChange(for: webView)
-            return
-        }
         let didRefresh = portal.forceRefreshWebView(
             withId: webViewId,
             reason: "navigation.didFinish",
-            forceRenderingStateReattach: forceRenderingStateReattach,
+            forceRenderingStateReattach: true,
             scheduleNavigationRenderingStateReattach: false
         )
         guard didRefresh else { return }
-        if forceRenderingStateReattach {
-            _ = webView.browserPortalConsumeNavigationRenderingStateReattach(
-                reason: "navigation.didFinish"
-            )
-        }
         postRegistryDidChange(for: webView)
     }
 

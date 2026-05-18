@@ -6863,8 +6863,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.refresh(
                 webView: webView,
-                reason: "portalHostBind.didMoveToWindow",
-                forceRenderingStateReattach: true
+                reason: "portalHostBind.didMoveToWindow"
             )
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
@@ -6900,8 +6899,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 BrowserWindowPortalRegistry.refresh(
                     webView: webView,
-                    reason: "portalHostBind.geometryChanged",
-                    forceRenderingStateReattach: true
+                    reason: "portalHostBind.geometryChanged"
                 )
                 BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                     for: webView,
@@ -6941,14 +6939,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
                     zPriority: coordinator.desiredPortalZPriority
                 )
-                // Force a rendering-state reattach after portal host replacement
-                // (e.g. after a pane split). Without this, WKWebView can freeze
-                // because _exitInWindow/_enterInWindow are never cycled when the
-                // web view is reparented to a new container during bind.
                 BrowserWindowPortalRegistry.refresh(
                     webView: webView,
-                    reason: "portalHostBind",
-                    forceRenderingStateReattach: true
+                    reason: "portalHostBind"
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
