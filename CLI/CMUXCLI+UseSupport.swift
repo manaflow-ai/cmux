@@ -40,6 +40,7 @@ nonisolated struct CmuxUseManifest: Equatable {
 nonisolated enum CmuxUseSupport {
     private static let manifestCommandKeys = ["use", "launch", "start", "run", "command"]
     private static let manifestCommandContainers = ["scripts", "commands", "cmux"]
+    private static let generatedManifestDefaultVersion = "0.0.0-generated"
 
     static func parseGitHubRepository(_ raw: String) throws -> CmuxUseRepository {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -200,7 +201,7 @@ nonisolated enum CmuxUseSupport {
 
     static func generateManifest(in checkoutURL: URL, repository: CmuxUseRepository) -> CmuxUseManifest {
         let hints = generatedManifestHints(in: checkoutURL)
-        let generatedVersion = hints.version ?? "0.0.0-generated"
+        let generatedVersion = generatedManifestVersion(from: hints.version)
         let commandSource = hints.launchCommand.map { "generated:\($0.source)" }
 
         return CmuxUseManifest(
@@ -250,6 +251,14 @@ nonisolated enum CmuxUseSupport {
         }
 
         return CmuxUseRepository(owner: owner, name: name, cloneURL: cloneURL)
+    }
+
+    private static func generatedManifestVersion(from raw: String?) -> String {
+        guard let raw,
+              let validated = try? validatedManifestPathComponent(raw, fieldName: "version") else {
+            return generatedManifestDefaultVersion
+        }
+        return validated
     }
 
     private static func gitHubSCPStylePath(_ raw: String) -> String? {

@@ -132,6 +132,51 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("OK "), result.stdout)
     }
 
+    func testUseCommandGeneratedManifestFallsBackFromUnsafePackageVersion() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/package.json" <<'JSON'
+        {"name":"Repo","version":"../../sensitive"}
+        JSON
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) --socket cmux-test.sock use owner/repo --no-run 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Failed to connect to cmux socket at cmux-test.sock"), result.stdout)
+
+        let generatedManifestURL = homeURL
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("extension-metadata", isDirectory: true)
+            .appendingPathComponent("github.com", isDirectory: true)
+            .appendingPathComponent("owner", isDirectory: true)
+            .appendingPathComponent("repo", isDirectory: true)
+            .appendingPathComponent("cmux.extension.generated.json", isDirectory: false)
+        let data = try Data(contentsOf: generatedManifestURL)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["version"] as? String, "0.0.0-generated")
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
