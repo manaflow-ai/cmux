@@ -3596,6 +3596,73 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectionResolvesCodexForkChildWhenSessionDirectoryDiffersFromProcessPWD() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-session-directory-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let processWorkingDirectory = "/tmp/codex fork repo"
+        let selectedSessionDirectory = "/tmp/codex parent repo"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: "019e3333-3333-7333-8333-333333333333",
+            forkedFromId: parentSessionId,
+            cwd: selectedSessionDirectory,
+            rawTimestamp: "2026-05-17T00:00:00.200Z",
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_039,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_039,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4",
+                        "stale fork prompt"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "PWD": processWorkingDirectory
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, "019e3333-3333-7333-8333-333333333333")
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '019e3333-3333-7333-8333-333333333333' '--model' 'gpt-5.4'"
+        )
+    }
+
     func testProcessDetectionDoesNotShareCodexForkMetadataAcrossAmbiguousPanes() throws {
         let firstWorkspaceId = UUID()
         let firstPanelId = UUID()
@@ -3656,6 +3723,82 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     environment: [
                         "CODEX_HOME": codexHome.path,
                         "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        let firstSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: firstWorkspaceId, panelId: firstPanelId)]?.snapshot
+        )
+        let secondSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: secondWorkspaceId, panelId: secondPanelId)]?.snapshot
+        )
+        XCTAssertEqual(firstSnapshot.kind, .codex)
+        XCTAssertEqual(secondSnapshot.kind, .codex)
+        XCTAssertEqual(firstSnapshot.sessionId, parentSessionId)
+        XCTAssertEqual(secondSnapshot.sessionId, parentSessionId)
+    }
+
+    func testProcessDetectionDoesNotUseParentOnlyCodexForkMetadataAcrossMultipleLiveForks() throws {
+        let firstWorkspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondWorkspaceId = UUID()
+        let secondPanelId = UUID()
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-parent-ambiguous-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: "019e3333-3333-7333-8333-333333333333",
+            forkedFromId: parentSessionId,
+            cwd: "/tmp/codex parent repo",
+            rawTimestamp: "2026-05-17T00:00:00.200Z",
+            modifiedAt: Date(timeIntervalSince1970: 200)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let firstProcess = makeTopProcess(
+            pid: 10_040,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_040,
+            workspaceId: firstWorkspaceId,
+            panelId: firstPanelId
+        )
+        let secondProcess = makeTopProcess(
+            pid: 10_041,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: 44_041,
+            workspaceId: secondWorkspaceId,
+            panelId: secondPanelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [firstProcess, secondProcess],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == firstProcess.pid || pid == secondProcess.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4",
+                        "stale fork prompt"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "PWD": pid == firstProcess.pid ? "/tmp/codex fork repo a" : "/tmp/codex fork repo b"
                     ]
                 )
             }

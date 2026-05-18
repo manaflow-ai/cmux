@@ -597,6 +597,7 @@ extension RestorableAgentSessionIndex {
             PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
         ] = [:]
         var forkMetadataPanelKeysByKey: [String: Set<PanelKey>] = [:]
+        var forkMetadataPanelKeysByParentSessionId: [String: Set<PanelKey>] = [:]
         let fallbackRemappedPIDs = Set(candidates.filter { $0.source == .fallbackScope }.map(\.process.pid))
 
         for candidate in candidates {
@@ -629,6 +630,9 @@ extension RestorableAgentSessionIndex {
                 continue
             }
             forkMetadataPanelKeysByKey[key, default: []].insert(candidate.panelKey)
+            if let parentSessionId = normalized(command.sessionId) {
+                forkMetadataPanelKeysByParentSessionId[parentSessionId, default: []].insert(candidate.panelKey)
+            }
         }
 
         for candidate in candidates {
@@ -652,11 +656,13 @@ extension RestorableAgentSessionIndex {
                 observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
             )
             let command = codexSessionCommand(in: tail)
+            let parentForkSessionId = command.flatMap { normalized($0.sessionId) }
             let canUseForkMetadataFallback = command?.name == "fork"
                 && codexForkMetadataFallbackKey(
                     workingDirectory: workingDirectory,
                     parentSessionId: command?.sessionId
                 ).map { forkMetadataPanelKeysByKey[$0]?.count == 1 } == true
+                && parentForkSessionId.map { forkMetadataPanelKeysByParentSessionId[$0]?.count == 1 } == true
             guard let sessionId = codexSessionId(
                 tail: tail,
                 environment: processArguments.environment,
@@ -809,7 +815,8 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         let standardizedWorkingDirectory = standardizedPath(workingDirectory)
-        var selected: (sessionId: String, createdAt: Date)?
+        var selectedMatchingDirectory: (sessionId: String, createdAt: Date)?
+        var selectedAnyDirectory: (sessionId: String, createdAt: Date)?
 
         for case let fileURL as URL in enumerator {
             guard fileURL.pathExtension == "jsonl" else { continue }
@@ -823,17 +830,20 @@ extension RestorableAgentSessionIndex {
                   sessionId != parentSessionId else {
                 continue
             }
-            if let standardizedWorkingDirectory,
-               standardizedPath(payload.cwd) != standardizedWorkingDirectory {
+            let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
+            if selectedAnyDirectory == nil || createdAt > selectedAnyDirectory!.createdAt {
+                selectedAnyDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+            guard let standardizedWorkingDirectory,
+                  standardizedPath(payload.cwd) == standardizedWorkingDirectory else {
                 continue
             }
-            let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
-            if selected == nil || createdAt > selected!.createdAt {
-                selected = (sessionId: sessionId, createdAt: createdAt)
+            if selectedMatchingDirectory == nil || createdAt > selectedMatchingDirectory!.createdAt {
+                selectedMatchingDirectory = (sessionId: sessionId, createdAt: createdAt)
             }
         }
 
-        return selected?.sessionId
+        return (selectedMatchingDirectory ?? selectedAnyDirectory)?.sessionId
     }
 
     private static func codexHomeDirectory(
