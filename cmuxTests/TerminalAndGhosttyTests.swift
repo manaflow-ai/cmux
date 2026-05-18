@@ -1241,6 +1241,10 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         defer {
             MobileHostService.shared.stop()
         }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1259,6 +1263,116 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         XCTAssertNil(ticket["terminalID"])
+    }
+
+    func testMobileAttachTicketCreateResolvesTerminalIDAcrossWorkspaces() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(
+            title: "Mobile Background",
+            select: false,
+            eagerLoadTerminal: false
+        )
+        let backgroundTerminal = try XCTUnwrap(backgroundWorkspace.focusedTerminalPanel)
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertNotEqual(selectedWorkspace.id, backgroundWorkspace.id)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: ["terminal_id": backgroundTerminal.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any] else {
+            XCTFail("Expected terminal-scoped attach ticket payload")
+            return
+        }
+        XCTAssertEqual(ticket["workspaceID"] as? String, backgroundWorkspace.id.uuidString)
+        XCTAssertEqual(ticket["terminalID"] as? String, backgroundTerminal.id.uuidString)
+    }
+
+    func testMobileTerminalCreateStartsTerminalBeforeReturningWorkspaceList() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-create",
+                method: "terminal.create",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let terminalID = payload["created_terminal_id"] as? String,
+              let terminalUUID = UUID(uuidString: terminalID),
+              let terminalPanel = workspace.terminalPanel(for: terminalUUID) else {
+            XCTFail("Expected created terminal in mobile workspace list payload")
+            return
+        }
+        let startQueuedBeforeReturn = terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting()
+        defer {
+            terminalPanel.surface.teardownSurface()
+        }
+
+        for _ in 0..<50 where terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertTrue(
+            startQueuedBeforeReturn ||
+                terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0 ||
+                terminalPanel.surface.surface != nil,
+            "A terminal created from mobile must start in the background so snapshots can become ready without selecting it on macOS."
+        )
+    }
+
+    private func waitForMobileHostRoutesForTesting() async -> Bool {
+        for _ in 0..<200 {
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "status",
+                    method: "mobile.host.status",
+                    params: [:],
+                    auth: nil
+                )
+            )
+            if case let .ok(rawPayload) = response,
+               let payload = rawPayload as? [String: Any],
+               let routes = payload["routes"] as? [[String: Any]],
+               !routes.isEmpty {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return false
     }
 }
 

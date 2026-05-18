@@ -6567,6 +6567,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func debugBackgroundSurfaceStartQueuedForTesting() -> Bool {
+        backgroundSurfaceStartQueued
+    }
+
+    @MainActor
     func debugHasHeadlessStartupWindowForTesting() -> Bool {
         headlessStartupWindow != nil
     }

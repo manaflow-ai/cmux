@@ -4241,7 +4241,9 @@ class TerminalController {
                 return tm
             }
         }
-        if let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") {
+        if let surfaceId = v2UUID(params, "surface_id")
+            ?? v2UUID(params, "terminal_id")
+            ?? v2UUID(params, "tab_id") {
             if let tm = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager }) {
                 return tm
             }
@@ -5996,7 +5998,9 @@ class TerminalController {
         if let wsId = v2UUID(params, "workspace_id") {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
-        if let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") {
+        if let surfaceId = v2UUID(params, "surface_id")
+            ?? v2UUID(params, "terminal_id")
+            ?? v2UUID(params, "tab_id") {
             return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
         }
         if let paneId = v2UUID(params, "pane_id"),
@@ -18197,6 +18201,7 @@ class TerminalController {
         guard let terminal = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
+        terminal.surface.requestBackgroundSurfaceStartIfNeeded()
         return v2MobileWorkspaceList(
             params: params,
             tabManager: tabManager,
