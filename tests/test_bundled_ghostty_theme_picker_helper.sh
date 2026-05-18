@@ -36,7 +36,7 @@ else
   rm -rf "$DERIVED_DATA_PATH"
 
   xcodebuild \
-    -project GhosttyTabs.xcodeproj \
+    -project cmux.xcodeproj \
     -scheme cmux \
     -configuration "$CONFIGURATION" \
     -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
