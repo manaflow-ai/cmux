@@ -14469,7 +14469,7 @@ class TerminalController {
 
         var result: String = ""
         v2MainSync {
-            let tabs = tabManager.tabs.enumerated().map { (index, tab) in
+            let tabs = tabManager.visibleWorkspaceTabs.enumerated().map { (index, tab) in
                 let selected = tab.id == tabManager.selectedTabId ? "*" : " "
                 return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
             }
