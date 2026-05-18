@@ -98,6 +98,44 @@ struct WorkstreamAgentGraphTests {
         #expect(child?.focusWorkstreamId == "claude-child")
     }
 
+    @Test("Child spawn tool metadata does not overwrite child session metadata")
+    func childSpawnToolMetadataDoesNotOverwriteChildSessionMetadata() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-parent",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1"
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: "workspace-1",
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent","subagent_type":"worker","task_description":"Handle parent task"}"#
+        ))
+        store.ingest(WorkstreamEvent(
+            sessionId: "claude-child",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace-1",
+            toolName: "Task",
+            toolInputJSON: #"{"description":"Spawn nested","subagent_type":"nested","prompt":"Handle nested task"}"#,
+            extraFieldsJSON: #"{"parent_workstream_id":"claude-parent"}"#
+        ))
+
+        let graph = WorkstreamAgentGraphBuilder.snapshot(from: store.items)
+        let child = graph.roots.first?.children.first
+        #expect(child?.workstreamId == "claude-child")
+        #expect(child?.subagentType == "worker")
+        #expect(child?.taskDescription == "Handle parent task")
+        let nestedSpawn = child?.children.first
+        #expect(nestedSpawn?.kind == .spawnRequest)
+        #expect(nestedSpawn?.title == "Spawn nested")
+        #expect(nestedSpawn?.subagentType == "nested")
+        #expect(nestedSpawn?.taskDescription == "Handle nested task")
+    }
+
     @Test("Sanitized extra prompt metadata supplies graph task description")
     func sanitizedExtraPromptMetadataSuppliesGraphTaskDescription() throws {
         let store = WorkstreamStore(ringCapacity: 10)

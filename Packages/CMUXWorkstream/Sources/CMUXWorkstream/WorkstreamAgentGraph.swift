@@ -251,7 +251,7 @@ public nonisolated enum WorkstreamAgentGraphBuilder {
                    childWorkspaceId == workspaceId {
                     score += SpawnResolutionScore.linkedChildWorkspace
                 }
-                if let subagentType = metadata.childSubagentType,
+                if let subagentType = metadata.childSubagentType(scope: metadataScope),
                    let spawnSubagentType = spawn.subagentType,
                    subagentType == spawnSubagentType {
                     score += SpawnResolutionScore.subagentType
@@ -447,11 +447,11 @@ private struct SessionRecord {
         if let model = metadata.childModel(scope: scope), !model.isEmpty {
             self.model = model
         }
-        if let subagentType = metadata.childSubagentType, !subagentType.isEmpty {
+        if let subagentType = metadata.childSubagentType(scope: scope), !subagentType.isEmpty {
             self.subagentType = subagentType
         }
         mergeTaskDescription(metadata.childTaskDescription(scope: scope))
-        if let description = metadata.childDescription, !description.isEmpty, title == nil {
+        if let description = metadata.childDescription(scope: scope), !description.isEmpty, title == nil {
             title = description
         }
     }
@@ -527,11 +527,11 @@ private struct SpawnRecord {
         self.id = "spawn:\(item.id.uuidString)"
         self.source = item.source
         self.workspaceId = item.workspaceId
-        self.title = metadata.childDescription
-            ?? metadata.childSubagentType
+        self.title = metadata.childDescription(scope: .parentDeclaration)
+            ?? metadata.childSubagentType(scope: .parentDeclaration)
             ?? String(toolName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
         self.model = metadata.childModel(scope: .parentDeclaration)
-        self.subagentType = metadata.childSubagentType
+        self.subagentType = metadata.childSubagentType(scope: .parentDeclaration)
         self.taskDescription = metadata.childTaskDescription(scope: .parentDeclaration)
         self.createdAt = item.createdAt
     }
@@ -669,19 +669,34 @@ private struct AgentGraphMetadata {
         }
     }
 
-    var childSubagentType: String? {
-        toolInputString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
-            ?? extraString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+    func childSubagentType(scope: AgentGraphChildMetadataScope) -> String? {
+        switch scope {
+        case .childSession:
+            return extraString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+        case .parentDeclaration:
+            return toolInputString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+                ?? extraString(keys: ["subagent_type", "subagentType", "agent_type", "agentType"])
+        }
     }
 
-    var childDescription: String? {
-        toolInputString(keys: ["description", "title", "name"])
-            ?? extraString(keys: ["description", "title", "name"])
+    func childDescription(scope: AgentGraphChildMetadataScope) -> String? {
+        switch scope {
+        case .childSession:
+            return extraString(keys: ["description", "title", "name"])
+        case .parentDeclaration:
+            return toolInputString(keys: ["description", "title", "name"])
+                ?? extraString(keys: ["description", "title", "name"])
+        }
     }
 
-    func childTaskDescription(scope _: AgentGraphChildMetadataScope) -> String? {
-        toolInputString(keys: ["task_description", "taskDescription", "prompt", "message"])
-            ?? extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
+    func childTaskDescription(scope: AgentGraphChildMetadataScope) -> String? {
+        switch scope {
+        case .childSession:
+            return extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
+        case .parentDeclaration:
+            return toolInputString(keys: ["task_description", "taskDescription", "prompt", "message"])
+                ?? extraString(keys: ["task_description", "taskDescription", "prompt", "message"])
+        }
     }
 
     func parentWorkstreamId(source: WorkstreamSource) -> String? {
