@@ -53,7 +53,7 @@ describe_claude_candidate() {
     local path="$1"
     if [[ -e "$path" || -L "$path" ]]; then
         if [[ "$path" -ef "$0" ]]; then
-            printf 'cmux wrapper (skipped)'
+            printf 'wrapper (skipped)'
         elif is_real_claude_candidate "$path"; then
             printf 'executable'
         elif [[ -L "$path" && ! -e "$path" ]]; then
@@ -75,15 +75,15 @@ print_claude_not_found_diagnostics() {
     custom="$(trim_claude_path "${CMUX_CUSTOM_CLAUDE_PATH:-}")"
 
     {
-        echo "Error: cmux claude wrapper could not find the real Claude Code executable."
-        echo "The cmux wrapper is installed, but no non-wrapper 'claude' executable was found later in PATH."
+        echo "Error: the claude wrapper could not find the real claude executable."
+        echo "The wrapper is installed, but no non-wrapper 'claude' executable was found later in PATH."
         echo
 
         echo "Wrapper path skipped:"
         echo "  - $self_path: $(describe_claude_candidate "$self_path")"
         echo
 
-        echo "CMUX_CUSTOM_CLAUDE_PATH:"
+        echo "Custom path setting:"
         if [[ -n "$custom" ]]; then
             echo "  - $custom: $(describe_claude_candidate "$custom")"
         else
@@ -101,15 +101,14 @@ print_claude_not_found_diagnostics() {
         done
         echo
 
-        echo "Common Claude Code install paths:"
+        echo "Common claude install paths:"
         for candidate in /opt/homebrew/bin/claude /usr/local/bin/claude; do
             echo "  - $candidate: $(describe_claude_candidate "$candidate")"
         done
         echo
 
-        echo "Repair the underlying Claude Code install, for example:"
-        echo "  npm install --global @anthropic-ai/claude-code"
-        echo "Or set CMUX_CUSTOM_CLAUDE_PATH to the real Claude executable."
+        echo "Repair the underlying claude CLI install, for example by rerunning its npm global install command."
+        echo "Or set the custom path setting to the real claude executable."
     } >&2
 }
 

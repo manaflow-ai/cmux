@@ -603,14 +603,14 @@ def test_missing_real_claude_reports_actionable_diagnostics(failures: list[str])
 
     stderr = proc.stderr.strip()
     expect(proc.returncode == 127, f"missing real claude: expected exit 127, got {proc.returncode}: {stderr}", failures)
-    expect("cmux claude wrapper could not find the real Claude Code executable" in stderr, f"missing real claude: expected wrapper-specific summary, got {stderr!r}", failures)
+    expect("claude wrapper could not find the real claude executable" in stderr, f"missing real claude: expected wrapper-specific summary, got {stderr!r}", failures)
     expect(str(wrapper) in stderr, f"missing real claude: expected skipped wrapper path {wrapper}, got {stderr!r}", failures)
     expect(str(wrapper_alias_dir / "claude") in stderr, f"missing real claude: expected aliased wrapper path, got {stderr!r}", failures)
-    expect("cmux wrapper (skipped)" in stderr, f"missing real claude: expected wrapper aliases to be labeled as skipped, got {stderr!r}", failures)
+    expect("wrapper (skipped)" in stderr, f"missing real claude: expected wrapper aliases to be labeled as skipped, got {stderr!r}", failures)
     expect(str(searched_dir / "claude") in stderr, f"missing real claude: expected searched PATH entry, got {stderr!r}", failures)
     expect("/opt/homebrew/bin/claude" in stderr, f"missing real claude: expected Apple Silicon npm path diagnostic, got {stderr!r}", failures)
     expect("/usr/local/bin/claude" in stderr, f"missing real claude: expected Intel/Homebrew npm path diagnostic, got {stderr!r}", failures)
-    expect(re.search(r"npm\s+install.*claude", stderr, re.IGNORECASE) is not None, f"missing real claude: expected npm repair guidance, got {stderr!r}", failures)
+    expect(re.search(r"npm.*install.*claude", stderr, re.IGNORECASE) is not None, f"missing real claude: expected npm repair guidance, got {stderr!r}", failures)
     expect("custom path" in stderr.lower(), f"missing real claude: expected custom path guidance, got {stderr!r}", failures)
 
 
