@@ -4334,7 +4334,7 @@ class TerminalController {
         v2MainSync {
             let sourceTabs = tabManager.workspaceTabs(includeHidden: includeHidden)
             if let workspaceFilter {
-                if let workspace = tabManager.tabs.first(where: { $0.id == workspaceFilter }) {
+                if let workspace = sourceTabs.first(where: { $0.id == workspaceFilter }) {
                     let index = sourceTabs.firstIndex { $0.id == workspace.id }
                     workspaces = [
                         v2WorkspaceSummaryPayload(
@@ -5640,6 +5640,11 @@ class TerminalController {
                 result = .ok(payload)
             }
 
+            @MainActor
+            func visibleWorkspaceIndex() -> Int? {
+                tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspace.id }
+            }
+
             switch action {
             case "pin":
                 tabManager.setPinned(workspace, pinned: true)
@@ -5677,47 +5682,63 @@ class TerminalController {
                 finish(["description": NSNull()])
 
             case "move_up":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                guard let currentIndex = visibleWorkspaceIndex() else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+                _ = tabManager.reorderVisibleWorkspace(
+                    tabId: workspace.id,
+                    toVisibleIndex: max(currentIndex - 1, 0)
+                )
+                finish(["index": v2OrNull(visibleWorkspaceIndex())])
 
             case "move_down":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                guard let currentIndex = visibleWorkspaceIndex() else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+                _ = tabManager.reorderVisibleWorkspace(
+                    tabId: workspace.id,
+                    toVisibleIndex: min(currentIndex + 1, tabManager.visibleWorkspaceTabs.count - 1)
+                )
+                finish(["index": v2OrNull(visibleWorkspaceIndex())])
 
             case "move_top":
-                tabManager.moveTabToTop(workspace.id)
-                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+                guard visibleWorkspaceIndex() != nil else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                _ = tabManager.reorderVisibleWorkspace(tabId: workspace.id, toVisibleIndex: 0)
+                finish(["index": v2OrNull(visibleWorkspaceIndex())])
 
             case "close_others":
-                let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
+                guard visibleWorkspaceIndex() != nil else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                let candidates = tabManager.visibleWorkspaceTabs.filter { $0.id != workspace.id && !$0.isPinned }
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
             case "close_above":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                let visibleWorkspaces = tabManager.visibleWorkspaceTabs
+                guard let index = visibleWorkspaces.firstIndex(where: { $0.id == workspace.id }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
-                let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
+                let candidates = Array(visibleWorkspaces.prefix(index)).filter { !$0.isPinned }
                 let closed = closeWorkspaces(candidates)
                 finish(["closed": closed])
 
             case "close_below":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                let visibleWorkspaces = tabManager.visibleWorkspaceTabs
+                guard let index = visibleWorkspaces.firstIndex(where: { $0.id == workspace.id }) else {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
                 let candidates: [Workspace]
-                if index + 1 < tabManager.tabs.count {
-                    candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
+                if index + 1 < visibleWorkspaces.count {
+                    candidates = Array(visibleWorkspaces.suffix(from: index + 1)).filter { !$0.isPinned }
                 } else {
                     candidates = []
                 }
