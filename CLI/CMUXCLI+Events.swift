@@ -133,7 +133,7 @@ extension CMUXCLI {
                 """)
                 return
             default:
-                throw CLIError(message: "Unknown events status option: \(arg)")
+                throw CLIError(message: "Unknown events status option. Use --help for usage.")
             }
         }
 
