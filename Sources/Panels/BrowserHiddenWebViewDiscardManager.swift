@@ -125,10 +125,8 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     nonisolated func stop() {
-        MainActor.assumeIsolated {
-            cancel()
-            policyObservationTask?.cancel()
-            policyObservationTask = nil
+        Task { @MainActor [self] in
+            stopOnMainActor()
         }
     }
 
@@ -181,5 +179,11 @@ final class BrowserHiddenWebViewDiscardManager {
         guard policyState != nextPolicyState else { return }
         policyState = nextPolicyState
         delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")
+    }
+
+    private func stopOnMainActor() {
+        cancel()
+        policyObservationTask?.cancel()
+        policyObservationTask = nil
     }
 }
