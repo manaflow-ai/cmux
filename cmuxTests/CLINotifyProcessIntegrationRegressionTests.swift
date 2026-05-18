@@ -312,15 +312,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("show", ["right-sidebar", "show"], "right_sidebar show", "OK", ""),
             ("hide", ["right-sidebar", "hide"], "right_sidebar hide", "OK", ""),
             ("focus", ["right-sidebar", "focus"], "right_sidebar focus", "OK", ""),
-            ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find", "OK", ""),
+            ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find --no-focus", "OK", ""),
+            ("set-focus", ["right-sidebar", "set", "find", "--focus"], "right_sidebar set find --focus", "OK", ""),
             ("set-no-focus", ["right-sidebar", "set", "vault", "--no-focus"], "right_sidebar set vault --no-focus", "OK", ""),
-            ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions", "OK", ""),
-            ("files-alias", ["right-sidebar", "files"], "right_sidebar set files", "OK", ""),
-            ("find-alias", ["right-sidebar", "find"], "right_sidebar set find", "OK", ""),
-            ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault", "OK", ""),
-            ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions", "OK", ""),
-            ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed", "OK", ""),
-            ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock", "OK", ""),
+            ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions --no-focus", "OK", ""),
+            ("files-alias", ["right-sidebar", "files"], "right_sidebar set files --no-focus", "OK", ""),
+            ("find-alias", ["right-sidebar", "find"], "right_sidebar set find --no-focus", "OK", ""),
+            ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault --no-focus", "OK", ""),
+            ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions --no-focus", "OK", ""),
+            ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed --no-focus", "OK", ""),
+            ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock --no-focus", "OK", ""),
             ("mode", ["right-sidebar", "mode"], "right_sidebar mode", #"{"visible":true,"mode":"find"}"#, #"{"visible":true,"mode":"find"}"# + "\n"),
         ]
 
@@ -451,7 +452,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }
             }
 
-            XCTAssertEqual(line, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
+            XCTAssertEqual(line, "right_sidebar set find --no-focus --tab=\(workspaceId) --window=\(windowId)")
             return "OK"
         }
 
@@ -475,7 +476,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["window.list", "workspace.list"]
         )
-        XCTAssertEqual(state.commands.last, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
+        XCTAssertEqual(state.commands.last, "right_sidebar set find --no-focus --tab=\(workspaceId) --window=\(windowId)")
     }
 
     func testRightSidebarCLIRejectsUnresolvedWorkspaceHandleBeforeForwarding() throws {

@@ -108,6 +108,21 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(triggerFlash.insideSuppressed)
         XCTAssertFalse(triggerFlash.insideAllowsFocus)
 
+        let fileOpenDefault = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "file.open",
+            isV2: true
+        )
+        XCTAssertTrue(fileOpenDefault.insideSuppressed)
+        XCTAssertFalse(fileOpenDefault.insideAllowsFocus)
+
+        let fileOpenFocusOptIn = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "file.open",
+            isV2: true,
+            params: ["focus": true]
+        )
+        XCTAssertTrue(fileOpenFocusOptIn.insideSuppressed)
+        XCTAssertTrue(fileOpenFocusOptIn.insideAllowsFocus)
+
         let simulateShortcut = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "simulate_shortcut",
             isV2: false
@@ -311,11 +326,13 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     func testRightSidebarV1FocusPolicyIsCommandSpecific() throws {
 #if DEBUG
         let cases: [(String, Bool)] = [
-            ("right_sidebar toggle", true),
-            ("right_sidebar show", true),
+            ("right_sidebar toggle", false),
+            ("right_sidebar show", false),
             ("right_sidebar focus", true),
-            ("right_sidebar set find", true),
-            ("right_sidebar sessions", true),
+            ("right_sidebar set find", false),
+            ("right_sidebar set find --focus", true),
+            ("right_sidebar sessions", false),
+            ("right_sidebar sessions --focus", true),
             ("right_sidebar set vault --no-focus", false),
             ("right_sidebar hide", false),
             ("right_sidebar mode", false),

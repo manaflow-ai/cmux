@@ -20,6 +20,189 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
+    func testOpenCommandDefaultsFilePreviewsToNoFocus() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-nf")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("notes.txt")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "notes\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "file.open",
+                  params["paths"] as? [String] == [fileURL.path],
+                  params["focus"] as? Bool == false else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-focus",
+                    "message": "\(method) params=\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["surface_id": "surface-id", "pane_id": "pane-id"])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open"])
+    }
+
+    func testOpenCommandDefaultsURLsToNoFocus() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-url")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "browser.open_split",
+                  params["url"] as? String == "https://example.com",
+                  params["focus"] as? Bool == false else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-focus",
+                    "message": "\(method) params=\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["surface_id": "surface-id", "pane_id": "pane-id", "created_split": true])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", "https://example.com"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+    }
+
+    func testOpenCommandFocusTrueOptInIsPreserved() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-f")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("focused.txt")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "focused\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "file.open",
+                  params["paths"] as? [String] == [fileURL.path],
+                  params["focus"] as? Bool == true else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-focus",
+                    "message": "\(method) params=\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["surface_id": "surface-id", "pane_id": "pane-id"])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path, "--focus", "true"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+    }
+
+    func testGlobalWindowOptionRoutesWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-nf")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            switch method {
+            case "window.focus":
+                return Self.v2Response(id: id, ok: true, result: [:])
+            case "workspace.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "window_id": "window-uuid",
+                    "workspaces": [
+                        ["id": "workspace-uuid", "ref": "workspace:1", "title": "Window Scoped", "selected": false]
+                    ]
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "list-workspaces"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let payloads = state.commands.compactMap { Self.v2Payload(from: $0) }
+        XCTAssertEqual(payloads.compactMap { $0["method"] as? String }, ["workspace.list"])
+        XCTAssertEqual((payloads.first?["params"] as? [String: Any])?["window_id"] as? String, "window:2")
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")
