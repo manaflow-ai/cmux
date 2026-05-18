@@ -208,6 +208,35 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
+        nested_type_idle = run_notification_hook(
+            cli_path,
+            server,
+            env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification": {
+                    "type": "idle_prompt",
+                    "message": "Claude is waiting from a nested type field",
+                },
+            },
+        )
+        if nested_type_idle.returncode != 0 or nested_type_idle.stdout.strip() != "OK":
+            print("FAIL: nested type-field ignored idle prompt hook did not complete cleanly")
+            print(f"stdout={nested_type_idle.stdout!r}")
+            print(f"stderr={nested_type_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        nested_type_rendered_commands = [
+            line for line in server.commands
+            if line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+        ]
+        if nested_type_rendered_commands:
+            print("FAIL: nested type-field idle_prompt rendered despite ignored notification type")
+            print(f"commands={server.commands!r}")
+            return 1
+
         json_string_idle = run_notification_hook(
             cli_path,
             server,
@@ -293,6 +322,31 @@ def main() -> int:
         if not any(line.startswith("notify_target_async ") for line in new_commands):
             print("FAIL: non-ignored notification did not render notify_target_async")
             print(f"new_commands={new_commands!r}")
+            return 1
+
+        before_root_type_count = len(server.commands)
+        root_type = run_notification_hook(
+            cli_path,
+            server,
+            env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "type": "idle_prompt",
+                "message": "Generic root type should not be treated as a notification subtype",
+            },
+        )
+        if root_type.returncode != 0:
+            print("FAIL: generic root type notification hook failed")
+            print(f"stdout={root_type.stdout!r}")
+            print(f"stderr={root_type.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        root_type_commands = server.commands[before_root_type_count:]
+        if not any(line.startswith("notify_target_async ") for line in root_type_commands):
+            print("FAIL: generic root type was treated as a notification type")
+            print(f"root_type_commands={root_type_commands!r}")
             return 1
 
         hook_event_env = env.copy()

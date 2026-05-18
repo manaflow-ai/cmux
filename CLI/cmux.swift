@@ -18966,39 +18966,61 @@ struct CMUXCLI {
         return normalizedClaudeNotificationTypes(rawValues)
     }
 
-    private static func claudeNotificationTypeValues(inRawFallback fallback: String) -> [String] {
+    private enum ClaudeNotificationTypeExtractionScope {
+        case root
+        case notificationPayload
+    }
+
+    private static func claudeNotificationTypeValues(
+        inRawFallback fallback: String,
+        scope: ClaudeNotificationTypeExtractionScope = .root
+    ) -> [String] {
         let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               let data = trimmed.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: []) else {
             return []
         }
-        return claudeNotificationTypeValues(inJSONValue: json)
+        return claudeNotificationTypeValues(inJSONValue: json, scope: scope)
     }
 
-    private static func claudeNotificationTypeValues(inJSONValue value: Any) -> [String] {
+    private static func claudeNotificationTypeValues(
+        inJSONValue value: Any,
+        scope: ClaudeNotificationTypeExtractionScope = .root
+    ) -> [String] {
         if let object = value as? [String: Any] {
-            var values = claudeNotificationTypeValues(in: object)
+            var values = claudeNotificationTypeValues(in: object, scope: scope)
             for key in ["notification", "data"] {
                 if let nested = object[key] {
-                    values.append(contentsOf: claudeNotificationTypeValues(inJSONValue: nested))
+                    values.append(contentsOf: claudeNotificationTypeValues(
+                        inJSONValue: nested,
+                        scope: .notificationPayload
+                    ))
                 }
             }
             return values
         }
         if let values = value as? [Any] {
-            return values.flatMap { claudeNotificationTypeValues(inJSONValue: $0) }
+            return values.flatMap { claudeNotificationTypeValues(inJSONValue: $0, scope: scope) }
         }
         if let string = value as? String {
-            return claudeNotificationTypeValues(inRawFallback: string)
+            return claudeNotificationTypeValues(inRawFallback: string, scope: scope)
         }
         return []
     }
 
-    private static func claudeNotificationTypeValues(in object: [String: Any]) -> [String] {
-        [
-            "notification_type", "matcher", "reason", "type", "kind"
-        ].compactMap { key in
+    private static func claudeNotificationTypeValues(
+        in object: [String: Any],
+        scope: ClaudeNotificationTypeExtractionScope
+    ) -> [String] {
+        let keys: [String]
+        switch scope {
+        case .root:
+            keys = ["notification_type", "matcher", "reason"]
+        case .notificationPayload:
+            keys = ["notification_type", "matcher", "reason", "type", "kind"]
+        }
+        return keys.compactMap { key in
             object[key] as? String
         }
     }
