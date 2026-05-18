@@ -7497,7 +7497,7 @@ extension TabManager {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
