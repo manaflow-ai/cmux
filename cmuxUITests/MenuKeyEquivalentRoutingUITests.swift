@@ -404,6 +404,12 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 }
 
 final class SplitCloseRightBlankRegressionUITests: XCTestCase {
+    private struct BrowserSplitSetup {
+        let originalWorkspaceId: String
+        let browserWorkspaceId: String
+        let browserSurfaceId: String
+    }
+
     private var dataPath = ""
     private var socketPath = ""
     private var diagnosticsPath = ""
@@ -742,10 +748,82 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         )
     }
 
+    func testLoadedBrowserSplitIsVisibleInWindowWithoutManualReload() {
+        let app = launchBrowserRenderingRegressionApp()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window")
+
+        guard let setup = createLoadedBrowserSplitWorkspace() else { return }
+
+        guard let browserSnapshotPath = browserSnapshotPath(surfaceId: setup.browserSurfaceId) else {
+            XCTFail("Expected WebKit browser snapshot path for \(setup.browserSurfaceId)")
+            return
+        }
+        assertBrowserSnapshotShowsLoadedPage(path: browserSnapshotPath)
+
+        assertBrowserWindowShowsLoadedPage(
+            window: window,
+            label: "issue4287-initial-window",
+            browserSnapshotPath: browserSnapshotPath
+        )
+    }
+
+    func testLoadedBrowserSplitStaysVisibleAfterWorkspaceSwitchBack() {
+        let app = launchBrowserRenderingRegressionApp()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window")
+
+        guard let setup = createLoadedBrowserSplitWorkspace() else { return }
+
+        XCTAssertEqual(
+            socketCommand("browser_reload \(setup.browserSurfaceId)"),
+            "OK",
+            "Expected manual browser reload to establish a visible baseline before switch-back"
+        )
+        XCTAssertTrue(
+            waitForBrowserPageReady(surfaceId: setup.browserSurfaceId, timeout: 8.0),
+            "Expected browser DOM to remain loaded after reload"
+        )
+        guard let baseline = waitForBrowserWindowShowsLoadedPage(
+            window: window,
+            label: "issue4287-after-reload-window",
+            timeout: 8.0
+        ) else {
+            XCTFail("Manual reload did not make the loaded browser page visible in the window")
+            return
+        }
+
+        XCTAssertEqual(
+            socketCommand("select_workspace \(setup.originalWorkspaceId)"),
+            "OK",
+            "Expected to switch away from browser workspace"
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+
+        XCTAssertEqual(
+            socketCommand("select_workspace \(setup.browserWorkspaceId)"),
+            "OK",
+            "Expected to switch back to browser workspace"
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+
+        for sample in 1...10 {
+            assertBrowserWindowShowsLoadedPage(
+                window: window,
+                label: "issue4287-switchback-\(String(format: "%02d", sample))",
+                baselinePath: baseline.path
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.18))
+        }
+    }
+
     // MARK: - Screenshot-Based Blank Detection
 
     private struct CropStats {
         let sampleCount: Int
+        let meanLuma: Double
+        let brightFraction: Double
+        let darkFraction: Double
         let uniqueQuantized: Int
         let lumaStdDev: Double
         let modeFraction: Double
@@ -756,6 +834,212 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
             // (The exact thresholds are conservative; we also require consecutive blank samples below.)
             return lumaStdDev < 2.5 && modeFraction > 0.992
         }
+
+        var looksLikeLoadedLightBrowserPage: Bool {
+            meanLuma > 180.0 && brightFraction > 0.55 && darkFraction < 0.25
+        }
+    }
+
+    private var issue4287BrowserPageURL: String {
+        "data:text/html,%3C!doctype%20html%3E%3Chtml%3E%3Chead%3E%3Ctitle%3ECMUX_BROWSER_VISIBLE_4287%3C%2Ftitle%3E%3C%2Fhead%3E%3Cbody%20style%3D%22margin:0;min-height:100vh;background:white;color:black;font:32px%20sans-serif;padding:72px%22%3E%3Ch1%3ECMUX_BROWSER_VISIBLE_4287%3C%2Fh1%3E%3Cp%3EWorkspace%20switchback%20rendering%20regression%20page.%3C%2Fp%3E%3C%2Fbody%3E%3C%2Fhtml%3E"
+    }
+
+    private var issue4287BrowserWindowCrop: CGRect {
+        CGRect(x: 0.56, y: 0.22, width: 0.36, height: 0.58)
+    }
+
+    private func launchBrowserRenderingRegressionApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics() ?? [:])"
+        )
+        return app
+    }
+
+    private func createLoadedBrowserSplitWorkspace() -> BrowserSplitSetup? {
+        guard let originalWorkspaceId = currentWorkspaceId() else {
+            XCTFail("Expected an initial workspace before browser switch-back repro")
+            return nil
+        }
+
+        guard let browserWorkspaceId = createWorkspace(title: "cmux4287-browser") else {
+            XCTFail("Expected to create browser repro workspace")
+            return nil
+        }
+        XCTAssertEqual(
+            socketCommand("select_workspace \(browserWorkspaceId)"),
+            "OK",
+            "Expected to select browser repro workspace"
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+
+        guard let browserSurfaceId = createBrowserRightSplit(url: issue4287BrowserPageURL) else {
+            XCTFail("Expected to create browser split in repro workspace")
+            return nil
+        }
+        _ = socketCommand("focus_surface \(browserSurfaceId)")
+        _ = socketCommand("focus_webview \(browserSurfaceId)")
+
+        XCTAssertTrue(
+            waitForBrowserPageReady(surfaceId: browserSurfaceId, timeout: 10.0),
+            "Expected browser DOM to load before checking window pixels"
+        )
+
+        return BrowserSplitSetup(
+            originalWorkspaceId: originalWorkspaceId,
+            browserWorkspaceId: browserWorkspaceId,
+            browserSurfaceId: browserSurfaceId
+        )
+    }
+
+    private func currentWorkspaceId() -> String? {
+        let response = socketCommand("current_workspace")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let response, UUID(uuidString: response) != nil else { return nil }
+        return response
+    }
+
+    private func createWorkspace(title: String) -> String? {
+        guard let response = socketCommand("new_workspace \(title)"),
+              response.hasPrefix("OK ") else {
+            return nil
+        }
+        let id = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: id) == nil ? nil : id
+    }
+
+    private func createBrowserRightSplit(url: String) -> String? {
+        guard let response = socketCommand("new_pane --direction=right --type=browser --url=\(url)"),
+              response.hasPrefix("OK ") else {
+            return nil
+        }
+        let id = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: id) == nil ? nil : id
+    }
+
+    private func waitForBrowserPageReady(surfaceId: String, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let value = self.browserEvalString(
+                surfaceId: surfaceId,
+                script: #"document.readyState + "|" + document.body.innerText.includes("CMUX_BROWSER_VISIBLE_4287")"#
+            ) else {
+                return false
+            }
+            return value == "complete|true"
+        }
+    }
+
+    private func browserEvalString(surfaceId: String, script: String) -> String? {
+        guard let envelope = socketJSON(
+            method: "browser.eval",
+            params: [
+                "surface_id": surfaceId,
+                "script": script,
+            ]
+        ),
+        (envelope["ok"] as? Bool) == true,
+        let result = envelope["result"] as? [String: Any] else {
+            return nil
+        }
+        return result["value"] as? String
+    }
+
+    private func browserSnapshotPath(surfaceId: String) -> String? {
+        guard let envelope = socketJSON(
+            method: "browser.screenshot",
+            params: ["surface_id": surfaceId]
+        ),
+        (envelope["ok"] as? Bool) == true,
+        let result = envelope["result"] as? [String: Any],
+        let path = result["path"] as? String,
+        FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return path
+    }
+
+    private func assertBrowserSnapshotShowsLoadedPage(
+        path: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let png = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let stats = cropStats(pngData: png, normalizedCrop: CGRect(x: 0, y: 0, width: 1, height: 1)) else {
+            XCTFail("Failed to read browser snapshot pixels. path=\(path)", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(
+            stats.looksLikeLoadedLightBrowserPage,
+            "WebKit snapshot did not look like the loaded browser page. stats=\(stats) path=\(path)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertBrowserWindowShowsLoadedPage(
+        window: XCUIElement,
+        label: String,
+        browserSnapshotPath: String? = nil,
+        baselinePath: String? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let path = writeScreenshot(window: window, name: label),
+              let png = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let stats = cropStats(pngData: png, normalizedCrop: issue4287BrowserWindowCrop) else {
+            XCTFail("Failed to capture browser window crop. label=\(label) shots=\(screenshotDir)", file: file, line: line)
+            return
+        }
+
+        guard stats.looksLikeLoadedLightBrowserPage else {
+            addKeptScreenshot(path: path, name: label)
+            if let browserSnapshotPath {
+                addKeptScreenshot(path: browserSnapshotPath, name: "\(label)-webkit-snapshot")
+            }
+            if let baselinePath {
+                addKeptScreenshot(path: baselinePath, name: "\(label)-visible-baseline")
+            }
+            XCTFail(
+                "Loaded browser DOM/WebKit snapshot exists, but the actual cmux window crop is not showing the page. label=\(label) stats=\(stats) crop=\(issue4287BrowserWindowCrop) windowShot=\(path) webkitShot=\(browserSnapshotPath ?? "<none>") baseline=\(baselinePath ?? "<none>")",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func waitForBrowserWindowShowsLoadedPage(
+        window: XCUIElement,
+        label: String,
+        timeout: TimeInterval
+    ) -> (path: String, stats: CropStats)? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var attempt = 0
+        var last: (path: String, stats: CropStats)?
+
+        while Date() < deadline {
+            attempt += 1
+            let sampleLabel = "\(label)-\(String(format: "%02d", attempt))"
+            if let path = writeScreenshot(window: window, name: sampleLabel),
+               let png = try? Data(contentsOf: URL(fileURLWithPath: path)),
+               let stats = cropStats(pngData: png, normalizedCrop: issue4287BrowserWindowCrop) {
+                last = (path, stats)
+                if stats.looksLikeLoadedLightBrowserPage {
+                    return (path, stats)
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+
+        if let last {
+            addKeptScreenshot(path: last.path, name: "\(label)-last")
+        }
+        return nil
     }
 
     private func assertPaneRendersAndUpdates(
@@ -1023,6 +1307,8 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         let mean = lumas.reduce(0.0, +) / Double(lumas.count)
         let variance = lumas.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lumas.count)
         let stddev = sqrt(variance)
+        let brightCount = lumas.filter { $0 > 220.0 }.count
+        let darkCount = lumas.filter { $0 < 80.0 }.count
 
         // mode fraction
         let modeCount = hist.values.max() ?? 0
@@ -1030,6 +1316,9 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         return CropStats(
             sampleCount: count,
+            meanLuma: mean,
+            brightFraction: Double(brightCount) / Double(count),
+            darkFraction: Double(darkCount) / Double(count),
             uniqueQuantized: hist.count,
             lumaStdDev: stddev,
             modeFraction: modeFrac,
@@ -1126,6 +1415,23 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         }
         // Fallback: use `nc -U` (more tolerant of Darwin sockaddr_un quirks across OS versions).
         return socketCommandViaNetcat(cmd)
+    }
+
+    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request),
+              let line = String(data: data, encoding: .utf8),
+              let response = socketCommand(line),
+              let responseData = response.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            return nil
+        }
+        return parsed
     }
 
     private func socketCommandViaNetcat(_ cmd: String) -> String? {
