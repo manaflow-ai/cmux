@@ -46,7 +46,7 @@ final class BrowserHiddenWebViewDiscardManager {
     private(set) var discardedAt: Date?
     private(set) var lastDiscardReason: String?
     private(set) var lastRestoreReason: String?
-    var restoredSessionShouldRenderWebView: Bool?
+    private(set) var restoredSessionShouldRenderWebView: Bool?
 
     var hasScheduledDiscard: Bool {
         discardTimer != nil
@@ -134,7 +134,7 @@ final class BrowserHiddenWebViewDiscardManager {
         isDiscardedForMemory = true
         discardedAt = now
         lastDiscardReason = reason
-        restoredSessionShouldRenderWebView = true
+        updateRestoredSessionRenderIntent(true)
     }
 
     @discardableResult
@@ -142,7 +142,7 @@ final class BrowserHiddenWebViewDiscardManager {
         guard isDiscardedForMemory else { return false }
         cancel()
         guard clearDiscardState(reason: reason) else { return false }
-        restoredSessionShouldRenderWebView = nil
+        updateRestoredSessionRenderIntent(nil)
         performRestore()
         return true
     }
@@ -152,9 +152,13 @@ final class BrowserHiddenWebViewDiscardManager {
         guard isDiscardedForMemory else { return false }
         cancel()
         guard clearDiscardState(reason: reason) else { return false }
-        restoredSessionShouldRenderWebView = nil
+        updateRestoredSessionRenderIntent(nil)
         performReactivate()
         return true
+    }
+
+    func updateRestoredSessionRenderIntent(_ shouldRenderWebView: Bool?) {
+        restoredSessionShouldRenderWebView = shouldRenderWebView
     }
 
     @discardableResult

@@ -3558,7 +3558,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if let initialRequest {
-            hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView = nil
+            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
@@ -3577,7 +3577,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 )
             }
         } else if let url = initialURL {
-            hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView = nil
+            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
@@ -3905,7 +3905,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
-        hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView = snapshot.shouldRenderWebView
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -4634,7 +4634,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 recordTypedNavigation: recordTypedNavigation,
                 preserveRestoredSessionHistory: preserveRestoredSessionHistory
             )
-            hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView = nil
+            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             shouldRenderWebView = true
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             navigationDelegate?.lastAttemptedURL = url
@@ -4680,7 +4680,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
-        hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView = nil
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         shouldRenderWebView = true
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
@@ -5005,7 +5005,7 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
-        hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView = nil
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         faviconPNGData = nil
         lastFaviconURLString = nil
         resetWebViewLifecycleMetadata()
