@@ -4380,14 +4380,44 @@ enum TerminalSurfaceFocusPlacement: Equatable {
 }
 
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
+    let recordedAt = Date()
+    if Thread.isMainThread {
+        MainActor.assumeIsolated {
+            AgentHibernationController.shared.recordTerminalInput(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                recordedAt: recordedAt
+            )
+        }
+        return
+    }
     Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(workspaceId: workspaceId, panelId: panelId)
+        AgentHibernationController.shared.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: recordedAt
+        )
     }
 }
 
 private func recordAgentHibernationTerminalOutput(workspaceId: UUID, panelId: UUID) {
+    let recordedAt = Date()
+    if Thread.isMainThread {
+        MainActor.assumeIsolated {
+            AgentHibernationController.shared.recordTerminalOutput(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                recordedAt: recordedAt
+            )
+        }
+        return
+    }
     Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalOutput(workspaceId: workspaceId, panelId: panelId)
+        AgentHibernationController.shared.recordTerminalOutput(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: recordedAt
+        )
     }
 }
 
@@ -4535,6 +4565,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var runtimeSurfaceSuspendedForAgentHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
@@ -5021,7 +5052,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live
+        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
     }
 
     func beginPortalCloseLifecycle(reason: String) {
@@ -5092,6 +5123,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @MainActor
     func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        runtimeSurfaceSuspendedForAgentHibernation = true
+        backgroundSurfaceStartQueued = false
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
@@ -5811,6 +5844,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
         nextRuntimeInitialInput = trimmedInput
+    }
+
+    @MainActor
+    func prepareAgentHibernationResume(initialInput: String) {
+        runtimeSurfaceSuspendedForAgentHibernation = false
+        prepareNextRuntimeInitialInput(initialInput)
     }
 
     func setOcclusion(_ visible: Bool) {

@@ -99,25 +99,25 @@ final class AgentHibernationController {
         }
     }
 
-    func recordTerminalOutput(workspaceId: UUID, panelId: UUID) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    func recordTerminalOutput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
     }
 
-    func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
     }
 
-    func recordTerminalFocus(workspaceId: UUID, panelId: UUID) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    func recordTerminalFocus(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
     }
 
-    func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId)
+    func recordAgentLifecycleChange(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
+        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
     }
 
-    private func recordActivity(workspaceId: UUID, panelId: UUID) {
+    private func recordActivity(workspaceId: UUID, panelId: UUID, recordedAt: Date) {
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
-        activityByPanel[key] = Date().timeIntervalSince1970
+        activityByPanel[key] = recordedAt.timeIntervalSince1970
         confirmations.removeValue(forKey: key)
     }
 
@@ -133,10 +133,10 @@ final class AgentHibernationController {
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
             let now = Date()
+            let index = RestorableAgentSessionIndex.load()
             Task { @MainActor in
                 let settings = AgentHibernationSettings.values()
                 guard settings.enabled else { return }
-                let index = RestorableAgentSessionIndex.load()
                 AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
             }
         }

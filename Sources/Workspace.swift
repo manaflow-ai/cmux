@@ -844,9 +844,11 @@ extension Workspace {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
-                if let restoredHibernation {
+                if let restoredHibernation,
+                   let resumeStartupInput = restorableAgent.resumeStartupInput() {
                     terminalPanel.enterAgentHibernation(
                         agent: restorableAgent,
+                        resumeStartupInput: resumeStartupInput,
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
                     )
@@ -8846,6 +8848,7 @@ final class Workspace: Identifiable, ObservableObject {
               !terminalPanel.isAgentHibernated else {
             return
         }
+        guard let resumeStartupInput = agent.resumeStartupInput() else { return }
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -8856,7 +8859,7 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
+        terminalPanel.enterAgentHibernation(agent: agent, resumeStartupInput: resumeStartupInput, lastActivityAt: lastActivityAt)
     }
 
     @discardableResult

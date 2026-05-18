@@ -42,14 +42,21 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(values.maxLiveTerminals, 4)
         XCTAssertEqual(notificationCount, 1)
 
+        defaults.set(42, forKey: AgentHibernationSettings.confirmationSecondsKey)
+        XCTAssertEqual(AgentHibernationSettings.confirmationSeconds(defaults: defaults), 42)
+        AgentHibernationSettings.reset(defaults: defaults, notificationCenter: notificationCenter)
+        XCTAssertEqual(AgentHibernationSettings.confirmationSeconds(defaults: defaults), AgentHibernationSettings.defaultConfirmationSeconds)
+        XCTAssertNil(defaults.object(forKey: AgentHibernationSettings.confirmationSecondsKey))
+        XCTAssertEqual(notificationCount, 2)
+
         AgentHibernationSettings.setValues(
-            enabled: true,
-            idleSeconds: 10,
-            maxLiveTerminals: 4,
+            enabled: AgentHibernationSettings.defaultEnabled,
+            idleSeconds: AgentHibernationSettings.defaultIdleSeconds,
+            maxLiveTerminals: AgentHibernationSettings.defaultMaxLiveTerminals,
             defaults: defaults,
             notificationCenter: notificationCenter
         )
-        XCTAssertEqual(notificationCount, 1)
+        XCTAssertEqual(notificationCount, 2)
     }
 
     func testPlannerOnlySelectsIdleUnprotectedExcessLiveAgents() {
@@ -203,12 +210,38 @@ final class AgentHibernationTests: XCTestCase {
 
         panel.enterAgentHibernation(
             agent: snapshot,
+            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
             lastActivityAt: Date(timeIntervalSince1970: 0),
             hibernatedAt: Date(timeIntervalSince1970: 10)
         )
         XCTAssertTrue(panel.isAgentHibernated)
 
         workspace.focusPanel(panelId)
+
+        XCTAssertFalse(panel.isAgentHibernated)
+    }
+
+    @MainActor
+    func testDirectFocusOnHibernatedTerminalPreparesResumeWithoutHiddenFocus() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-direct-focus-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        panel.enterAgentHibernation(
+            agent: snapshot,
+            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            hibernatedAt: Date(timeIntervalSince1970: 10)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        panel.focus()
 
         XCTAssertFalse(panel.isAgentHibernated)
     }

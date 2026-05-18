@@ -5,6 +5,7 @@ import Bonsplit
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
+    let resumeStartupInput: String
     let hibernatedAt: Date
     let lastActivityAt: Date
 
@@ -157,6 +158,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func focus() {
+        if isAgentHibernated {
+            _ = prepareAgentHibernationResume()
+            return
+        }
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.setActive(true)
@@ -215,11 +220,13 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func enterAgentHibernation(
         agent: SessionRestorableAgentSnapshot,
+        resumeStartupInput: String,
         lastActivityAt: Date,
         hibernatedAt: Date = Date()
     ) {
         agentHibernationState = AgentHibernationPanelState(
             agent: agent,
+            resumeStartupInput: resumeStartupInput,
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt
         )
@@ -233,12 +240,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func prepareAgentHibernationResume() -> Bool {
-        guard let state = agentHibernationState,
-              let startupInput = state.agent.resumeStartupInput() else {
+        guard let state = agentHibernationState else {
             return false
         }
         agentHibernationState = nil
-        surface.prepareNextRuntimeInitialInput(startupInput)
+        surface.prepareAgentHibernationResume(initialInput: state.resumeStartupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return true
@@ -314,20 +320,26 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
-        .terminal(hostedView.capturePanelFocusIntent(in: window))
+        guard !isAgentHibernated else { return .panel }
+        return .terminal(hostedView.capturePanelFocusIntent(in: window))
     }
 
     func preferredFocusIntentForActivation() -> PanelFocusIntent {
-        .terminal(hostedView.preferredPanelFocusIntentForActivation())
+        guard !isAgentHibernated else { return .panel }
+        return .terminal(hostedView.preferredPanelFocusIntentForActivation())
     }
 
     func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard !isAgentHibernated else { return }
         guard case .terminal(let target) = intent else { return }
         hostedView.preparePanelFocusIntentForActivation(target)
     }
 
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        if isAgentHibernated {
+            return prepareAgentHibernationResume()
+        }
         switch intent {
         case .panel:
             focus()
@@ -340,6 +352,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        guard !isAgentHibernated else { return nil }
         _ = window
         guard let intent = hostedView.ownedPanelFocusIntent(for: responder) else { return nil }
         return .terminal(intent)
@@ -347,6 +360,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard !isAgentHibernated else { return false }
         guard case .terminal(let target) = intent else { return false }
         return hostedView.yieldPanelFocusIntent(target, in: window)
     }
