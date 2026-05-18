@@ -47,6 +47,11 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let residentBytes: Int64
     let virtualBytes: Int64
     let threadCount: Int
+
+    var isTerminalForegroundProcessGroup: Bool {
+        guard let processGroupID, let terminalProcessGroupID else { return false }
+        return processGroupID == terminalProcessGroupID
+    }
 }
 
 nonisolated struct CmuxTopProcessScope: Sendable {
@@ -230,12 +235,10 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         Set(
             pids.compactMap { pid in
                 guard let process = processesByPID[pid],
-                      let processGroupID = process.processGroupID,
-                      let foregroundGroupID = process.terminalProcessGroupID,
-                      processGroupID == foregroundGroupID else {
+                      process.isTerminalForegroundProcessGroup else {
                     return nil
                 }
-                return foregroundGroupID
+                return process.terminalProcessGroupID
             }
         )
     }

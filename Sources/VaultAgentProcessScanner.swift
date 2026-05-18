@@ -574,6 +574,7 @@ extension SurfaceResumeBindingIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
+                  process.isTerminalForegroundProcessGroup,
                   let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
                 continue
             }
