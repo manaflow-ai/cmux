@@ -120,6 +120,10 @@ private extension WKWebView {
 #endif
     }
 
+    var browserPortalHasPendingNavigationRenderingStateReattach: Bool {
+        browserPortalNeedsNavigationRenderingStateReattach
+    }
+
     func browserPortalConsumeNavigationRenderingStateReattach(reason: String) -> Bool {
         let shouldReattach = browserPortalNeedsNavigationRenderingStateReattach
         browserPortalNeedsNavigationRenderingStateReattach = false
@@ -1521,16 +1525,35 @@ final class WindowBrowserSlotView: NSView {
         isPortalVisuallySuppressed
     }
 
+    fileprivate static func suppressedFrame(for targetFrame: NSRect, in hostBounds: NSRect) -> NSRect {
+        var suppressedFrame = targetFrame
+        suppressedFrame.origin.x = hostBounds.maxX + max(4096, hostBounds.width + targetFrame.width + 64)
+        return suppressedFrame
+    }
+
     func setPortalHidden(_ hidden: Bool) {
         let oldValue = isPortalVisuallySuppressed
         isPortalVisuallySuppressed = hidden
         // Keep WKWebView's remote render layer opaque and attached across workspace switches.
         super.isHidden = false
         alphaValue = 1
+        if hidden {
+            applyPortalSuppressedGeometryIfNeeded()
+        }
 
         guard hidden, !oldValue, let window else { return }
         yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
     }
+
+    private func applyPortalSuppressedGeometryIfNeeded() {
+        guard let superview else { return }
+        guard superview.bounds.intersects(frame) else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frame = Self.suppressedFrame(for: frame, in: superview.bounds)
+        CATransaction.commit()
+    }
+
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
@@ -1617,6 +1640,9 @@ final class WindowBrowserSlotView: NSView {
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        if isPortalVisuallySuppressed {
+            applyPortalSuppressedGeometryIfNeeded()
+        }
         attachDropZoneOverlayIfNeeded()
         applyResolvedDropZoneOverlay()
     }
@@ -2429,12 +2455,6 @@ final class WindowBrowserPortal: NSObject {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    private static func suppressedPortalFrame(for targetFrame: NSRect, in hostBounds: NSRect) -> NSRect {
-        var suppressedFrame = targetFrame
-        suppressedFrame.origin.x = hostBounds.maxX + max(4096, hostBounds.width + targetFrame.width + 64)
-        return suppressedFrame
-    }
-
     private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
         guard rect.origin.x.isFinite,
               rect.origin.y.isFinite,
@@ -3163,13 +3183,14 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setPaneTopChromeHeight(resolvedHeight)
     }
 
+    @discardableResult
     func forceRefreshWebView(
         withId webViewId: ObjectIdentifier,
         reason: String,
         forceRenderingStateReattach: Bool = false,
         scheduleNavigationRenderingStateReattach: Bool = true
-    ) {
-        guard ensureInstalled() else { return }
+    ) -> Bool {
+        guard ensureInstalled() else { return false }
         let refreshSource = "forceRefresh:\(reason)"
         let shouldCarryPendingForcedReattach =
             pendingHostedWebViewRefreshes[webViewId]?.forceRenderingStateReattach == true
@@ -3186,7 +3207,7 @@ final class WindowBrowserPortal: NSObject {
               let webView = entry.webView,
               let containerView = entry.containerView,
               !containerView.isPortalHidden else {
-            return
+            return false
         }
         // Some callers only need a visible-presentation repaint; attach/reveal
         // repair paths also request one delayed WebKit render-state reattach.
@@ -3196,6 +3217,7 @@ final class WindowBrowserPortal: NSObject {
             reason: refreshSource,
             forceRenderingStateReattach: shouldForceRenderingStateReattach
         )
+        return true
     }
 
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
@@ -3757,7 +3779,7 @@ final class WindowBrowserPortal: NSObject {
         }
         let presentationFrame =
             shouldHide && !shouldPreserveVisibleOnTransientGeometry
-            ? Self.suppressedPortalFrame(for: targetFrame, in: hostBounds)
+            ? WindowBrowserSlotView.suppressedFrame(for: targetFrame, in: hostBounds)
             : targetFrame
         if !Self.rectApproximatelyEqual(oldFrame, presentationFrame) {
             CATransaction.begin()
@@ -4324,15 +4346,19 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        let forceRenderingStateReattach = webView.browserPortalConsumeNavigationRenderingStateReattach(
-            reason: "navigation.didFinish"
-        )
-        portal.forceRefreshWebView(
+        let forceRenderingStateReattach = webView.browserPortalHasPendingNavigationRenderingStateReattach
+        let didRefresh = portal.forceRefreshWebView(
             withId: webViewId,
             reason: "navigation.didFinish",
             forceRenderingStateReattach: forceRenderingStateReattach,
             scheduleNavigationRenderingStateReattach: false
         )
+        guard didRefresh else { return }
+        if forceRenderingStateReattach {
+            _ = webView.browserPortalConsumeNavigationRenderingStateReattach(
+                reason: "navigation.didFinish"
+            )
+        }
         postRegistryDidChange(for: webView)
     }
 

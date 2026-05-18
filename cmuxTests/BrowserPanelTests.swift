@@ -2842,6 +2842,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         slot.setPortalHidden(true)
 
+        XCTAssertTrue(slot.isPortalHidden)
+        XCTAssertFalse(
+            contentView.bounds.intersects(slot.frame),
+            "Direct portal hides should visually suppress the slot even before the next registry geometry sync"
+        )
         XCTAssertFalse(
             window.firstResponder === inspectorView,
             "Hiding a browser slot should yield any owned inspector responder before it goes off-screen"
@@ -3481,6 +3486,84 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.reattachRenderingStateCount,
             afterFirstNavigationReattachCount,
             "Later navigation completions should not keep firing private WebKit reattach selectors"
+        )
+    }
+
+    func testHiddenNavigationRefreshPreservesQueuedRenderingRepairUntilVisible() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+        XCTAssertTrue(slot.isPortalHidden)
+
+        BrowserWindowPortalRegistry.refresh(
+            webView: webView,
+            reason: "hiddenNavigationRepair",
+            forceRenderingStateReattach: true
+        )
+        advanceAnimations()
+        let hiddenReattachCount = webView.reattachRenderingStateCount
+        let hiddenDisplayCount = webView.displayIfNeededCount
+
+        BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
+        advanceAnimations()
+
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            hiddenReattachCount,
+            "Hidden navigation completion should not consume the queued WebKit render repair"
+        )
+        XCTAssertEqual(
+            webView.displayIfNeededCount,
+            hiddenDisplayCount,
+            "Hidden navigation completion should wait for a visible portal refresh"
+        )
+
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+        XCTAssertFalse(slot.isPortalHidden)
+        let visibleReattachCount = webView.reattachRenderingStateCount
+        let visibleDisplayCount = webView.displayIfNeededCount
+
+        BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
+        advanceAnimations()
+
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            visibleDisplayCount,
+            "Visible navigation completion should repaint the portal-hosted browser"
+        )
+        XCTAssertGreaterThan(
+            webView.reattachRenderingStateCount,
+            visibleReattachCount,
+            "The queued navigation repair should run once the portal is visible"
         )
     }
 
