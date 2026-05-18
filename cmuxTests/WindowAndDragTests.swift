@@ -97,6 +97,7 @@ final class WindowGlassEffectTests: XCTestCase {
             defer: false
         )
         window.contentView = originalContentView
+        defer { window.close() }
 
         WindowGlassEffect.apply(to: window, tintColor: .black, style: .regular)
 
