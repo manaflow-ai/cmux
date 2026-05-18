@@ -1,26 +1,6 @@
 import Darwin
 import Foundation
 
-private func memoryTelemetryInt(_ raw: Any?) -> Int? {
-    if let value = raw as? Int { return value }
-    if let value = raw as? Int64 { return Int(exactly: value) }
-    if let value = raw as? Double { return Int(exactly: value) }
-    if let value = raw as? NSNumber { return value.intValue }
-    if let value = raw as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
-    return nil
-}
-
-private func memoryTelemetryInt64(_ raw: Any?) -> Int64 {
-    if let value = raw as? Int64 { return value }
-    if let value = raw as? Int { return Int64(value) }
-    if let value = raw as? Double { return Int64(exactly: value) ?? 0 }
-    if let value = raw as? NSNumber { return value.int64Value }
-    if let value = raw as? String {
-        return Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-    }
-    return 0
-}
-
 extension CMUXCLI {
     struct MemoryProcessIdentity: Equatable {
         let pid: Int
@@ -36,9 +16,9 @@ extension CMUXCLI {
         }
 
         init?(process: [String: Any]) {
-            guard let pid = memoryTelemetryInt(process["pid"]),
-                  let startSeconds = memoryTelemetryInt(process["start_seconds"]),
-                  let startMicroseconds = memoryTelemetryInt(process["start_microseconds"]) else {
+            guard let pid = CMUXCLI.topIntValue(process["pid"]),
+                  let startSeconds = CMUXCLI.topIntValue(process["start_seconds"]),
+                  let startMicroseconds = CMUXCLI.topIntValue(process["start_microseconds"]) else {
                 return nil
             }
             self.pid = pid
@@ -281,7 +261,7 @@ extension CMUXCLI {
             let processIndex = memoryProcessIndex(in: workspace)
 
             for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-                guard let pid = memoryTelemetryInt(tag["pid"]),
+                guard let pid = CMUXCLI.topIntValue(tag["pid"]),
                       let rawKey = tag["key"] as? String,
                       let key = memoryAgentKey(for: rawKey) else {
                     continue
@@ -295,7 +275,7 @@ extension CMUXCLI {
                     surfaceId: tag["surface_id"] as? String,
                     surfaceRef: tag["surface_ref"] as? String,
                     processName: processName.isEmpty ? nil : processName,
-                    residentBytes: memoryTelemetryInt64(resources["resident_bytes"]),
+                    residentBytes: CMUXCLI.topInt64Value(resources["resident_bytes"]),
                     source: .tag,
                     identity: process.flatMap { MemoryProcessIdentity(process: $0) }
                 )
@@ -345,7 +325,7 @@ extension CMUXCLI {
         }
 
         private func indexMemoryProcess(_ process: [String: Any], into result: inout [Int: [String: Any]]) {
-            if let pid = memoryTelemetryInt(process["pid"]) {
+            if let pid = CMUXCLI.topIntValue(process["pid"]) {
                 result[pid] = process
             }
             for child in process["children"] as? [[String: Any]] ?? [] {
@@ -375,7 +355,7 @@ extension CMUXCLI {
             surfaceRef: String?,
             into byPID: inout [Int: MemoryAgentCandidate]
         ) {
-            if let pid = memoryTelemetryInt(process["pid"]) {
+            if let pid = CMUXCLI.topIntValue(process["pid"]) {
                 let name = cli.topLabelText(process["name"] as? String)
                 if let key = memoryAgentKey(for: name) {
                     let resources = process["resources"] as? [String: Any] ?? [:]
@@ -385,7 +365,7 @@ extension CMUXCLI {
                         surfaceId: surfaceId,
                         surfaceRef: surfaceRef,
                         processName: name,
-                        residentBytes: memoryTelemetryInt64(resources["resident_bytes"]),
+                        residentBytes: CMUXCLI.topInt64Value(resources["resident_bytes"]),
                         source: .process,
                         identity: MemoryProcessIdentity(process: process)
                     )

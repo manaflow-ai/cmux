@@ -137,7 +137,7 @@ extension CMUXCLI {
         return MemoryTopCommandOptions(
             since: since,
             jsonOutput: jsonOutput,
-            limit: max(1, limit),
+            limit: limit,
             sort: try MemoryTopSort.parse(sortOpt)
         )
     }
