@@ -1610,6 +1610,7 @@ private enum DebugWindowConfigSnapshot {
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
         sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
+        sidebarTreeWorkspaceListPrototypeEnabled=\(boolValue(defaults, key: SidebarWorkspaceListStyleSettings.treePrototypeEnabledKey, fallback: SidebarWorkspaceListStyleSettings.defaultTreePrototypeEnabled))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         """
 
@@ -2650,6 +2651,8 @@ private struct SidebarDebugView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
+    @AppStorage(SidebarWorkspaceListStyleSettings.treePrototypeEnabledKey)
+    private var treeWorkspaceListPrototypeEnabled = SidebarWorkspaceListStyleSettings.defaultTreePrototypeEnabled
 
     private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
@@ -2784,6 +2787,22 @@ private struct SidebarDebugView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox(String(localized: "sidebar.debug.extensionKitPrototype", defaultValue: "CmuxExtensionKit Prototype")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(
+                            String(localized: "sidebar.debug.treeSidebar", defaultValue: "Tree workspace sidebar"),
+                            isOn: $treeWorkspaceListPrototypeEnabled
+                        )
+                        Text(String(
+                            localized: "sidebar.debug.treeSidebar.description",
+                            defaultValue: "Replaces the workspace list with a local prototype powered by CmuxExtensionKit snapshots and command-style actions."
+                        ))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+
                 HStack(spacing: 12) {
                     Button("Reset Tint") {
                         sidebarTintOpacity = 0.62
@@ -2843,6 +2862,7 @@ private struct SidebarDebugView: View {
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
         sidebarBranchVerticalLayout=\(sidebarBranchVerticalLayout)
         sidebarActiveTabIndicatorStyle=\(sidebarActiveTabIndicatorStyle)
+        sidebarTreeWorkspaceListPrototypeEnabled=\(treeWorkspaceListPrototypeEnabled)
         sidebarDevBuildBannerVisible=\(showSidebarDevBuildBanner)
         """
         let pasteboard = NSPasteboard.general

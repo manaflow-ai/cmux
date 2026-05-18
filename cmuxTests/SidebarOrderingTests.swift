@@ -77,6 +77,185 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 }
 
 
+final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
+    func testTreeSectionsPutPinnedWorkspacesFirstAndPreserveWorkspaceOrderInsideGroups() {
+        let pinned = workspaceSnapshot(title: "Pinned", isPinned: true, rootPath: "/Users/lawrence/project-a")
+        let projectA = workspaceSnapshot(
+            title: "API",
+            rootPath: "/Users/lawrence/project-a/api",
+            projectRootPath: "/Users/lawrence/project-a"
+        )
+        let projectB = workspaceSnapshot(
+            title: "Web",
+            rootPath: "/Users/lawrence/project-a/web",
+            projectRootPath: "/Users/lawrence/project-a"
+        )
+        let tools = workspaceSnapshot(
+            title: "Tools",
+            rootPath: "/Users/lawrence/tools/cmux",
+            projectRootPath: "/Users/lawrence/tools"
+        )
+
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceId: projectB.id,
+            workspaces: [projectA, pinned, projectB, tools]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot)
+
+        XCTAssertEqual(sections.map(\.id), ["pinned", "folder:/Users/lawrence/project-a", "folder:/Users/lawrence/tools"])
+        XCTAssertEqual(sections[0].workspaceIds, [pinned.id])
+        XCTAssertEqual(sections[1].workspaceIds, [projectA.id, projectB.id])
+        XCTAssertEqual(sections[2].workspaceIds, [tools.id])
+        XCTAssertEqual(sections[1].projectRootPath, "/Users/lawrence/project-a")
+    }
+
+    func testTreeSectionsGroupRemoteAndUnrootedWorkspacesSeparately() {
+        let remoteA = workspaceSnapshot(title: "Remote A", remoteDisplayTarget: "builder:22")
+        let remoteB = workspaceSnapshot(title: "Remote B", remoteDisplayTarget: "builder:22")
+        let other = workspaceSnapshot(title: "Scratch")
+
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: nil,
+            workspaces: [remoteA, other, remoteB]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot)
+
+        XCTAssertEqual(sections.map(\.id), ["remote:builder:22", "other"])
+        XCTAssertEqual(sections[0].workspaceIds, [remoteA.id, remoteB.id])
+        XCTAssertEqual(sections[1].workspaceIds, [other.id])
+    }
+
+    func testAttentionSectionsPromoteActivePinnedAndUnreadWorkspaces() {
+        let active = workspaceSnapshot(title: "Active")
+        let pinned = workspaceSnapshot(title: "Pinned", isPinned: true)
+        let unread = workspaceSnapshot(title: "Unread", unreadCount: 2)
+        let quiet = workspaceSnapshot(title: "Quiet")
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: active.id,
+            workspaces: [quiet, unread, pinned, active]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot, mode: .attention)
+
+        XCTAssertEqual(sections.map(\.id), [
+            "attention:active",
+            "attention:pinned",
+            "attention:needs-attention",
+            "attention:quiet",
+        ])
+        XCTAssertEqual(sections[0].workspaceIds, [active.id])
+        XCTAssertEqual(sections[1].workspaceIds, [pinned.id])
+        XCTAssertEqual(sections[2].workspaceIds, [unread.id])
+        XCTAssertEqual(sections[3].workspaceIds, [quiet.id])
+    }
+
+    func testServerSectionsPromoteLiveServersBeforeOtherWorkspaces() {
+        let server = workspaceSnapshot(title: "API", customDescription: "server :3000")
+        let detectedServer = workspaceSnapshot(title: "Preview", listeningPorts: [5173])
+        let remote = workspaceSnapshot(title: "Remote", remoteDisplayTarget: "builder:22")
+        let local = workspaceSnapshot(title: "Docs")
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: nil,
+            workspaces: [local, remote, server, detectedServer]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot, mode: .servers)
+
+        XCTAssertEqual(sections.map(\.id), ["servers:live", "servers:remote", "servers:local"])
+        XCTAssertEqual(sections[0].workspaceIds, [server.id, detectedServer.id])
+        XCTAssertEqual(sections[1].workspaceIds, [remote.id])
+        XCTAssertEqual(sections[2].workspaceIds, [local.id])
+    }
+
+    func testSidebarCustomizationModeFallsBackToProjectTree() {
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "project-tree"), .projectTree)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "attention"), .attention)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "servers"), .servers)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "unknown"), .projectTree)
+    }
+
+    func testReducerAppliesWorkspaceSelectionRemovalAndReorderEvents() {
+        let first = workspaceSnapshot(title: "First")
+        let second = workspaceSnapshot(title: "Second")
+        let third = workspaceSnapshot(title: "Third")
+        var snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 4,
+            selectedWorkspaceId: first.id,
+            workspaces: [first, second, third]
+        )
+
+        snapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspaceSelected(second.id))
+        XCTAssertEqual(snapshot.sequence, 5)
+        XCTAssertEqual(snapshot.selectedWorkspaceId, second.id)
+
+        snapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspacesReordered([third.id, first.id, second.id]))
+        XCTAssertEqual(snapshot.sequence, 6)
+        XCTAssertEqual(snapshot.workspaceIds, [third.id, first.id, second.id])
+
+        snapshot = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspaceRemoved(second.id))
+        XCTAssertEqual(snapshot.sequence, 7)
+        XCTAssertNil(snapshot.selectedWorkspaceId)
+        XCTAssertEqual(snapshot.workspaceIds, [third.id, first.id])
+    }
+
+    func testProjectRootResolverKeepsCmuxWorktreesGroupedUnderSourceProject() throws {
+        let root = temporaryDirectory()
+            .appendingPathComponent("Project", isDirectory: true)
+        let api = root.appendingPathComponent("api", isDirectory: true)
+        let worktree = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("project-cmux-1234", isDirectory: true)
+        try FileManager.default.createDirectory(at: api, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        XCTAssertEqual(CmuxExtensionProjectRootResolver.projectRootPath(forRootPath: api.path), root.path)
+        XCTAssertEqual(CmuxExtensionProjectRootResolver.projectRootPath(forRootPath: worktree.path), root.path)
+    }
+
+    private func workspaceSnapshot(
+        title: String,
+        customDescription: String? = nil,
+        isPinned: Bool = false,
+        rootPath: String? = nil,
+        projectRootPath: String? = nil,
+        remoteDisplayTarget: String? = nil,
+        unreadCount: Int = 0,
+        listeningPorts: [Int] = []
+    ) -> CmuxExtensionWorkspaceSnapshot {
+        CmuxExtensionWorkspaceSnapshot(
+            id: UUID(),
+            title: title,
+            customDescription: customDescription,
+            isPinned: isPinned,
+            rootPath: rootPath,
+            projectRootPath: projectRootPath,
+            branchSummary: nil,
+            remoteDisplayTarget: remoteDisplayTarget,
+            remoteConnectionState: remoteDisplayTarget == nil ? nil : "connected",
+            unreadCount: unreadCount,
+            latestNotificationText: nil,
+            listeningPorts: listeningPorts
+        )
+    }
+
+    private func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-extension-sidebar-tests-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
+
 final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     func testDefaultStyleWhenUnset() {
         let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"
