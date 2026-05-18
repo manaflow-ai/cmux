@@ -1520,47 +1520,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Traffic Lights"
+            "value": "Traffic Light Insets"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "信号ボタン"
-          }
-        }
-      }
-    },
-    "debug.titlebarLayoutDebug.xOffset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "X Offset"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Xオフセット"
-          }
-        }
-      }
-    },
-    "debug.titlebarLayoutDebug.yOffset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Y Offset"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yオフセット"
+            "value": "信号ボタン余白"
           }
         }
       }

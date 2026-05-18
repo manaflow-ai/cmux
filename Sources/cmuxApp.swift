@@ -1775,14 +1775,6 @@ private enum TitlebarLayoutDebugSettingsSnapshot {
             forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey
         )
         defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset,
-            forKey: MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey
-        )
-        defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset,
-            forKey: MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey
-        )
-        defaults.set(
             MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
             forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey
         )
@@ -1802,8 +1794,6 @@ private enum TitlebarLayoutDebugSettingsSnapshot {
         titlebarControlsStyle=\(defaults.integer(forKey: "titlebarControlsStyle"))
         leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
         leftControlsTopInset=\(String(format: "%.1f", snapshot.leftControlsTopInset))
-        trafficLightsXOffset=\(String(format: "%.1f", snapshot.trafficLightsXOffset))
-        trafficLightsYOffset=\(String(format: "%.1f", snapshot.trafficLightsYOffset))
         trafficLightTabBarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTabBarLeadingInset))
         trafficLightTitlebarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTitlebarLeadingInset))
         sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
@@ -1866,8 +1856,6 @@ private struct TitlebarLayoutDebugView: View {
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsXOffsetKey) private var trafficLightsXOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsXOffset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightsYOffsetKey) private var trafficLightsYOffset = MinimalModeTitlebarDebugSettings.defaultTrafficLightsYOffset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var trafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidth = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -1903,18 +1891,8 @@ private struct TitlebarLayoutDebugView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.trafficLights", defaultValue: "Traffic Lights")) {
+                GroupBox(String(localized: "debug.titlebarLayoutDebug.trafficLights", defaultValue: "Traffic Light Insets")) {
                     VStack(alignment: .leading, spacing: 10) {
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.xOffset", defaultValue: "X Offset"),
-                            value: $trafficLightsXOffset,
-                            range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
-                        )
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.yOffset", defaultValue: "Y Offset"),
-                            value: $trafficLightsYOffset,
-                            range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
-                        )
                         debugSlider(
                             title: String(localized: "debug.titlebarLayoutDebug.titlebarInset", defaultValue: "Titlebar Inset"),
                             value: $trafficLightTitlebarLeadingInset,
