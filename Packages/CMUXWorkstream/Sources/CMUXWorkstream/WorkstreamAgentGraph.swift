@@ -616,7 +616,8 @@ private struct AgentGraphMetadata {
     }
 
     var model: String? {
-        string(keys: ["model", "subagent_model", "subagentModel"])
+        toolInputString(keys: ["subagent_model", "subagentModel", "model"])
+            ?? string(keys: ["subagent_model", "subagentModel", "model"])
     }
 
     var subagentType: String? {
@@ -656,6 +657,15 @@ private struct AgentGraphMetadata {
             if let value = normalizedString(extra[key]) {
                 return value
             }
+            if let value = normalizedString(toolInput[key]) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func toolInputString(keys: [String]) -> String? {
+        for key in keys {
             if let value = normalizedString(toolInput[key]) {
                 return value
             }
