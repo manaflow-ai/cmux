@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 struct CmuxTopProcessArguments: Sendable {
@@ -93,7 +94,11 @@ extension CmuxTopProcessSnapshot {
         return Array(buffer.prefix(Int(size)))
     }
 
-    private static func processOutput(executablePath: String, arguments: [String]) -> String? {
+    static func processOutput(
+        executablePath: String,
+        arguments: [String],
+        timeout: DispatchTimeInterval = .seconds(1)
+    ) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -101,15 +106,34 @@ extension CmuxTopProcessSnapshot {
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
+        let completion = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            completion.signal()
+        }
 
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             return nil
         }
 
+        guard completion.wait(timeout: .now() + timeout) == .success else {
+            if process.isRunning {
+                process.terminate()
+            }
+            if completion.wait(timeout: .now() + .milliseconds(150)) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = completion.wait(timeout: .now() + .milliseconds(150))
+            }
+            stdout.fileHandleForReading.closeFile()
+            process.terminationHandler = nil
+            return nil
+        }
+
+        process.terminationHandler = nil
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
         return String(data: data, encoding: .utf8)

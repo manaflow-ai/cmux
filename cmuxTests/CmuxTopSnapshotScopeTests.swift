@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import Darwin
+import Dispatch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -704,6 +705,18 @@ while allocations:
             let webview = try XCTUnwrap(webviews.first)
             return try XCTUnwrap(webview["resources"] as? [String: Any])
         }
+    }
+
+    func testProcessOutputReturnsNilWhenCommandExceedsTimeout() throws {
+        let startedAt = Date()
+        let output = CmuxTopProcessSnapshot.processOutput(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "sleep 2; printf late"],
+            timeout: .milliseconds(50)
+        )
+
+        XCTAssertNil(output)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1.0)
     }
 
     private func firstSurface(in windows: [[String: Any]]) throws -> [String: Any] {

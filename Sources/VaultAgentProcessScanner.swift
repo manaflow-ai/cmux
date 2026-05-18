@@ -780,18 +780,6 @@ extension RestorableAgentSessionIndex {
                 ) {
                     return CodexSessionResolution(sessionId: openSessionId, isForkParentFallback: false)
                 }
-                // Codex fork processes can inherit the parent CODEX_THREAD_ID.
-                // Prefer the child id from rollout metadata when it exists so
-                // a forked pane can be forked again from its own conversation.
-                if allowCodexForkMetadataFallback,
-                   let forkSessionId = latestCodexForkSessionId(
-                       workingDirectory,
-                       commandSessionId,
-                       environment,
-                       fileManager
-                   ) {
-                    return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
-                }
                 if let threadId = normalized(environment["CODEX_THREAD_ID"]),
                    threadId != commandSessionId {
                     return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
@@ -799,6 +787,18 @@ extension RestorableAgentSessionIndex {
                 if let sessionId = normalized(environment["CODEX_SESSION_ID"]),
                    sessionId != commandSessionId {
                     return CodexSessionResolution(sessionId: sessionId, isForkParentFallback: false)
+                }
+                // Codex fork processes can inherit the parent CODEX_THREAD_ID.
+                // Fall back to rollout metadata only when the live process does
+                // not expose a distinct child id.
+                if allowCodexForkMetadataFallback,
+                   let forkSessionId = latestCodexForkSessionId(
+                       workingDirectory,
+                       commandSessionId,
+                       environment,
+                       fileManager
+                ) {
+                    return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
                 }
                 return CodexSessionResolution(
                     sessionId: commandSessionId,
