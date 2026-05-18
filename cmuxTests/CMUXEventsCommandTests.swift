@@ -316,10 +316,25 @@ final class CMUXEventsCommandTests: XCTestCase {
             exitSignal.signal()
         }
 
+        var processDidExit = true
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            processDidExit = exitSignal.wait(timeout: .now() + 1) == .success
+            if !processDidExit, process.isRunning {
+                // Pipe EOF will not arrive while the child still owns the write ends.
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                processDidExit = exitSignal.wait(timeout: .now() + 2) == .success
+            }
+        }
+
+        if !processDidExit {
+            return ProcessRunResult(
+                status: SIGKILL,
+                stdout: "",
+                stderr: "Timed out and failed to terminate process",
+                timedOut: true
+            )
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
