@@ -221,7 +221,7 @@ extension CMUXCLI {
                 index += 2
                 continue
             }
-            if token == "--help" || token == "-h" { return true }
+            if Self.isActionsRunHelpToken(token) { return true }
             index += 1
         }
         return false

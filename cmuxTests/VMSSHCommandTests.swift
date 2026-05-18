@@ -140,7 +140,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("ref:     help"), result.stdout)
+        XCTAssertTrue(result.stdout.split(separator: "\n").contains { line in
+            line.replacingOccurrences(of: " ", with: "") == "ref:help"
+        }, result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["actions.run"]
