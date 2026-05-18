@@ -180,6 +180,85 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(after["top"] ?? .greatestFiniteMagnitude, before["top"] ?? 0, accuracy: 6)
     }
 
+    func testMarkdownRenderLoadsRelativeLocalImage() async throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-image-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let imageURL = directoryURL.appendingPathComponent("pixel.png")
+        let markdownURL = directoryURL.appendingPathComponent("image.md")
+        try Self.onePixelPNG.write(to: imageURL)
+        try "![Local pixel](pixel.png)\n".write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        try await renderMarkdown("![Local pixel](pixel.png)\n", in: webView)
+        let image = try await waitForMarkdownImage(in: webView)
+
+        XCTAssertEqual(image["found"] as? Bool, true)
+        XCTAssertEqual(image["complete"] as? Bool, true)
+        XCTAssertGreaterThan(try XCTUnwrap(image["naturalWidth"] as? Int), 0)
+        XCTAssertGreaterThan(try XCTUnwrap(image["naturalHeight"] as? Int), 0)
+    }
+
+    func testMarkdownRenderLoadsSafeDataImage() async throws {
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-data-image-\(UUID().uuidString).md")
+
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        try await renderMarkdown("![Inline pixel](\(Self.onePixelPNGDataURI))\n", in: webView)
+        let image = try await waitForMarkdownImage(in: webView)
+
+        XCTAssertEqual(image["found"] as? Bool, true)
+        XCTAssertEqual(image["complete"] as? Bool, true)
+        XCTAssertGreaterThan(try XCTUnwrap(image["naturalWidth"] as? Int), 0)
+        XCTAssertGreaterThan(try XCTUnwrap(image["naturalHeight"] as? Int), 0)
+        XCTAssertTrue((image["src"] as? String ?? "").hasPrefix("data:image/png;base64,"))
+    }
+
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
@@ -196,6 +275,37 @@ final class MarkdownPanelTests: XCTestCase {
             }
         }
         return snapshot
+    }
+
+    private func waitForMarkdownImage(in webView: WKWebView) async throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(3)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let result = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var img = document.querySelector('img');
+                  if (!img) { return { found: false }; }
+                  return {
+                    found: true,
+                    complete: !!img.complete,
+                    naturalWidth: img.naturalWidth || 0,
+                    naturalHeight: img.naturalHeight || 0,
+                    src: img.getAttribute('src') || '',
+                    currentSrc: img.currentSrc || ''
+                  };
+                })();
+                """
+            )
+            lastSnapshot = try XCTUnwrap(result as? [String: Any])
+            if lastSnapshot["complete"] as? Bool == true {
+                return lastSnapshot
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        return lastSnapshot
     }
 
     private func scrollSmokeMarkdown(extraBeforeSection20: Bool) -> String {
@@ -239,6 +349,23 @@ final class MarkdownPanelTests: XCTestCase {
         }
         return (red, green, blue, alpha)
     }
+
+    private static let onePixelPNG: Data = {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            fatalError("Unable to generate one-pixel PNG fixture")
+        }
+        return png
+    }()
+
+    private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
 }
 
 private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
