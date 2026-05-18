@@ -174,7 +174,7 @@ public enum OpenCodeIndex {
             """
         var conditions: [String] = []
         if !trimmedNeedle.isEmpty {
-            conditions.append("(LOWER(s.title) LIKE ? OR LOWER(s.directory) LIKE ?)")
+            conditions.append("(LOWER(s.title) LIKE ? ESCAPE '\\' OR LOWER(s.directory) LIKE ? ESCAPE '\\')")
         }
         if cwdFilter != nil {
             conditions.append("s.directory = ?")
@@ -195,7 +195,7 @@ public enum OpenCodeIndex {
         let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         var bindIndex: Int32 = 1
         if !trimmedNeedle.isEmpty {
-            let likePattern = "%\(trimmedNeedle)%"
+            let likePattern = escapedLikePattern(containing: trimmedNeedle)
             guard sqlite3_bind_text(stmt, bindIndex, likePattern, -1, destructor) == SQLITE_OK else {
                 throw OpenCodeIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
             }
@@ -238,6 +238,21 @@ public enum OpenCodeIndex {
             throw OpenCodeIndexError.sqlite(sqliteMessage(db) ?? "step failed")
         }
         return OpenCodeIndexResult(sessions: sessions, errors: [])
+    }
+
+    private static func escapedLikePattern(containing needle: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(needle.count)
+        for character in needle {
+            switch character {
+            case "\\", "%", "_":
+                escaped.append("\\")
+            default:
+                break
+            }
+            escaped.append(character)
+        }
+        return "%\(escaped)%"
     }
 
     private static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
