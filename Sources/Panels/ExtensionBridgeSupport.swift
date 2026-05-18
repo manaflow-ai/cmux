@@ -29,6 +29,7 @@ final class ExtensionBridgeMessageHandler: NSObject, WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        guard message.frameInfo.isMainFrame else { return }
         guard let body = message.body as? [String: Any],
               let bridgeMessage = ExtensionBridgeMessage(body: body) else {
             return

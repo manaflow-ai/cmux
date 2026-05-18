@@ -1,12 +1,11 @@
 import CryptoKit
 import Foundation
 
+@MainActor
 struct ExtensionKVStore {
     static let maxKeyLength = 256
     static let maxValueBytes = 256 * 1024
     static let maxNamespaceBytes = 1024 * 1024
-
-    private static let defaultsLock = NSLock()
 
     let workspaceId: String
     let bundlePath: String
@@ -21,8 +20,6 @@ struct ExtensionKVStore {
     }
 
     func get(_ key: String) -> Any {
-        Self.defaultsLock.lock()
-        defer { Self.defaultsLock.unlock() }
         return ExtensionBridgeCodec.decodeJSONFragment(unlockedStore()[key]) ?? NSNull()
     }
 
@@ -34,9 +31,6 @@ struct ExtensionKVStore {
         guard encodedBytes <= Self.maxValueBytes else {
             return .failure(.quotaExceeded("Value exceeds \(Self.maxValueBytes) bytes"))
         }
-
-        Self.defaultsLock.lock()
-        defer { Self.defaultsLock.unlock() }
 
         var nextStore = unlockedStore()
         nextStore[key] = encodedValue
@@ -52,17 +46,12 @@ struct ExtensionKVStore {
     }
 
     func remove(_ key: String) {
-        Self.defaultsLock.lock()
-        defer { Self.defaultsLock.unlock() }
-
         var nextStore = unlockedStore()
         nextStore.removeValue(forKey: key)
         defaults.set(nextStore, forKey: defaultsKey)
     }
 
     func keys() -> [String] {
-        Self.defaultsLock.lock()
-        defer { Self.defaultsLock.unlock() }
         return unlockedStore().keys.sorted()
     }
 
