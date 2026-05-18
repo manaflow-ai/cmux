@@ -410,7 +410,7 @@ extension RestorableAgentSessionIndex {
             if scopedPanelKey == fallbackPanelKey {
                 continue
             }
-            guard !seenPIDs.contains(process.pid) || scopedPanelKeysByPID[process.pid] != nil else {
+            if seenPIDs.contains(process.pid), scopedPanelKey == nil {
                 continue
             }
             let canUseFallbackScope = scopedPanelKey != nil
@@ -991,14 +991,15 @@ extension RestorableAgentSessionIndex {
         return try? JSONDecoder().decode(CodexSessionMetaLine.self, from: firstLine)
     }
 
+    private static let codexSessionTimestampParser = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+    private static let codexSessionFractionalTimestampParser = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
     private static func codexSessionCreatedAt(meta: CodexSessionMetaLine) -> Date? {
         guard let timestamp = normalized(meta.timestamp) else { return nil }
-        if let date = ISO8601DateFormatter().date(from: timestamp) {
+        if let date = try? codexSessionTimestampParser.parse(timestamp) {
             return date
         }
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractionalFormatter.date(from: timestamp)
+        return try? codexSessionFractionalTimestampParser.parse(timestamp)
     }
 
     private static func firstLineData(fileURL: URL) -> Data? {
