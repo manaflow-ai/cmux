@@ -421,6 +421,54 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "manual")
     }
 
+    func testSurfaceResumeSetAllowsAgentHookAutoResume() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let result = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "codex resume session",
+                "source": "agent-hook",
+                "auto_resume": true,
+            ]
+        )
+
+        let binding = try XCTUnwrap(result["resume_binding"] as? [String: Any])
+        XCTAssertEqual(binding["auto_resume"] as? Bool, true)
+        XCTAssertEqual(binding["source"] as? String, "agent-hook")
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, true)
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "agent-hook")
+    }
+
     func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

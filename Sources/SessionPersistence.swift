@@ -344,9 +344,14 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         let normalized = environment.reduce(into: [String: String]()) { result, item in
             let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty, !isSensitiveEnvironmentKey(key) else { return }
+            guard isSafeEnvironmentValue(item.value) else { return }
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isSafeEnvironmentValue(_ value: String) -> Bool {
+        !value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
     }
 
     private static func isSensitiveEnvironmentKey(_ key: String) -> Bool {
@@ -495,9 +500,14 @@ nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable
         let normalized = environment.reduce(into: [String: String]()) { result, item in
             let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { return }
+            guard isSafeEnvironmentValue(item.value) else { return }
             result[key] = item.value
         }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isSafeEnvironmentValue(_ value: String) -> Bool {
+        !value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
     }
 
     private static func normalizedEnvironmentKeys(
@@ -656,6 +666,15 @@ enum SurfaceResumeApprovalStore {
             var trustedBinding = binding
             trustedBinding.autoResume = true
             trustedBinding.approvalPolicy = .auto
+            trustedBinding.approvalRecordId = nil
+            return trustedBinding
+        }
+
+        if binding.isAgentHookBinding {
+            var trustedBinding = binding
+            trustedBinding.autoResume = binding.autoResume == true
+            trustedBinding.approvalPolicy = trustedBinding.autoResume == true ? .auto : .manual
+            trustedBinding.approvalRecordId = nil
             return trustedBinding
         }
 

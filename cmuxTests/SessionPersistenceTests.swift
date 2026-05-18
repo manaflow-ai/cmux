@@ -3807,6 +3807,8 @@ extension SessionPersistenceTests {
                 " EMPTY ": "",
                 "SPACED": "  keep exact  ",
                 "PLAIN": "value",
+                "MULTILINE": "line\nbreak",
+                "NULL_BYTE": "bad\u{0}value",
                 "ANTHROPIC_API_KEY": "should-not-persist",
                 "SERVICE_TOKEN": "should-not-persist",
             ]
@@ -3815,6 +3817,8 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.environment?["EMPTY"], "")
         XCTAssertEqual(binding.environment?["SPACED"], "  keep exact  ")
         XCTAssertEqual(binding.environment?["PLAIN"], "value")
+        XCTAssertNil(binding.environment?["MULTILINE"])
+        XCTAssertNil(binding.environment?["NULL_BYTE"])
         XCTAssertNil(binding.environment?["ANTHROPIC_API_KEY"])
         XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
     }
@@ -3921,11 +3925,54 @@ extension SessionPersistenceTests {
         XCTAssertNil(input)
     }
 
+    func testSurfaceResumePromptPolicyDoesNotPromptDuringSnapshot() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let input = Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false,
+            approvalStoreURL: storeURL,
+            approvalSigningSecret: secret
+        )
+        XCTAssertNil(input)
+    }
+
     func testProcessDetectedSurfaceResumeRemainsTrustedWithoutApprovalRecord() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",
             cwd: "/tmp/project",
             source: "process-detected"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testAgentHookSurfaceResumeAutoResumeRemainsTrustedWithoutApprovalRecord() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            autoResume: true
         )
 
         let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(

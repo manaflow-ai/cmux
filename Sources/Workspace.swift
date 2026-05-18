@@ -465,7 +465,8 @@ extension Workspace {
                 : nil
             let resumeStartupInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled()
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(),
+                promptForApproval: false
             )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
                 shellActivityState: panelShellActivityStates[panelId],
@@ -590,6 +591,7 @@ extension Workspace {
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
         allowLauncherScript: Bool = false,
+        promptForApproval: Bool = true,
         approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
         approvalSigningSecret: Data? = nil
     ) -> String? {
@@ -603,6 +605,7 @@ extension Workspace {
             return nil
         }
         if effectiveBinding.approvalPolicy == .prompt {
+            guard promptForApproval else { return nil }
             guard shouldRunPromptedSurfaceResume(effectiveBinding) else { return nil }
             return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
         }

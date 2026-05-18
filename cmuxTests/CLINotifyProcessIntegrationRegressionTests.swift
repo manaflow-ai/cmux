@@ -131,6 +131,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(resumeBindingRequests.count, 1, context.state.commands.joined(separator: "\n"))
         XCTAssertEqual(resumeBindingRequests.first?["checkpoint_id"] as? String, "clear-session")
+        XCTAssertEqual(resumeBindingRequests.first?["auto_resume"] as? Bool, true)
     }
 
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
@@ -235,6 +236,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
         let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
         let environment = try XCTUnwrap(request["environment"] as? [String: Any])
         XCTAssertEqual(environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
         XCTAssertEqual(
@@ -1210,6 +1212,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(resumeBindingRequests.count, 1, state.commands.joined(separator: "\n"))
         let request = try XCTUnwrap(resumeBindingRequests.first)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
         XCTAssertEqual(
             request["command"] as? String,
             "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"

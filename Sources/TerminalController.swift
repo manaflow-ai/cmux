@@ -6075,17 +6075,16 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing command", data: nil)
         }
 
+        let source = v2PublicSurfaceResumeSource(params)
         let binding = SurfaceResumeBindingSnapshot(
             name: v2OptionalTrimmedRawString(params, "name"),
             kind: v2OptionalTrimmedRawString(params, "kind"),
             command: command,
             cwd: v2OptionalTrimmedRawString(params, "cwd"),
             checkpointId: v2OptionalTrimmedRawString(params, "checkpoint_id") ?? v2OptionalTrimmedRawString(params, "checkpointId"),
-            source: v2PublicSurfaceResumeSource(params),
+            source: source,
             environment: v2StringMap(params, "environment"),
-            // Public socket callers can persist manual resume metadata, but
-            // only cmux-owned process detection may create auto-run bindings.
-            autoResume: false,
+            autoResume: source == "agent-hook" ? (v2Bool(params, "auto_resume") ?? false) : false,
             updatedAt: Date().timeIntervalSince1970
         )
 

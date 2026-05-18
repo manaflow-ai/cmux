@@ -19284,7 +19284,8 @@ struct CMUXCLI {
             "kind": kind,
             "checkpoint_id": sessionId,
             "source": "agent-hook",
-            "command": command
+            "command": command,
+            "auto_resume": true
         ]
         if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
             params["cwd"] = cwd
