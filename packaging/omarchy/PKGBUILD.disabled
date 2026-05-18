@@ -1,0 +1,30 @@
+# This is intentionally disabled: cmux is currently macOS-only and cannot be
+# built as a runnable Arch/Omarchy package until a Linux target exists.
+#
+# Rename to PKGBUILD and complete after Linux support is added.
+
+pkgname=cmux
+pkgver=0
+pkgrel=1
+pkgdesc='Ghostty-based terminal with vertical tabs and AI agent notifications'
+arch=('x86_64' 'aarch64')
+url='https://github.com/abobneil/cmux'
+license=('GPL-3.0-or-later')
+
+# TODO: Fill these in once Linux support exists.
+depends=()
+makedepends=()
+source=("git+$url.git")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/cmux"
+  echo 'cmux is currently macOS-only; no Linux build target exists yet.' >&2
+  return 1
+}
+
+package() {
+  cd "$srcdir/cmux"
+  echo 'cmux is currently macOS-only; no Linux package artifacts exist yet.' >&2
+  return 1
+}
