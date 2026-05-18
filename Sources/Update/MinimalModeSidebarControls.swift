@@ -156,7 +156,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) else {
             return nil
         }
-        if NSApp.currentEvent?.type == .rightMouseDown, slot != .newTab {
+        if NSApp.currentEvent?.type == .rightMouseDown, slot != .newTab && slot != .toggleSidebar {
             return nil
         }
         guard shouldAcceptAction(at: point) else { return nil }
@@ -189,12 +189,18 @@ final class MinimalModeSidebarControlActionView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config),
-              slot == .newTab,
               shouldAcceptAction(at: localPoint) else {
             super.rightMouseDown(with: event)
             return
         }
-        _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        switch slot {
+        case .toggleSidebar:
+            _ = AppDelegate.shared?.showSidebarProviderContextMenu(anchorView: self, event: event)
+        case .newTab:
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        case .showNotifications:
+            super.rightMouseDown(with: event)
+        }
     }
 
     override func layout() {

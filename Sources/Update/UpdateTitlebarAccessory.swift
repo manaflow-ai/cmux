@@ -427,6 +427,7 @@ struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
+    var onToggleSidebarRightClick: ((NSView, NSEvent) -> Void)? = nil
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
@@ -545,7 +546,8 @@ struct TitlebarControlsView: View {
                 cmuxDebugLog("titlebar.toggleSidebar")
                 #endif
                 onToggleSidebar()
-            }) {
+            },
+                rightClickAction: onToggleSidebarRightClick) {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
@@ -870,6 +872,9 @@ struct HiddenTitlebarSidebarControlsView: View {
                 notificationStore: notificationStore,
                 viewModel: viewModel,
                 onToggleSidebar: onToggleSidebar,
+                onToggleSidebarRightClick: { anchorView, event in
+                    _ = AppDelegate.shared?.showSidebarProviderContextMenu(anchorView: anchorView, event: event)
+                },
                 onToggleNotifications: { [viewModel] in
                     onToggleNotifications(viewModel.notificationsAnchorView)
                 },
@@ -1358,6 +1363,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 notificationStore: notificationStore,
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
+                onToggleSidebarRightClick: { anchorView, event in
+                    _ = AppDelegate.shared?.showSidebarProviderContextMenu(anchorView: anchorView, event: event)
+                },
                 onToggleNotifications: toggleNotifications,
                 onNewTab: newTab,
                 visibilityMode: .alwaysVisible

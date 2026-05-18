@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxExtensionKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -178,6 +179,33 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "attention"), .attention)
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "servers"), .servers)
         XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "unknown"), .projectTree)
+    }
+
+    func testSidebarProviderDescriptorSupportsLegacyTreePrototypeAndNewProviderIDs() {
+        XCTAssertEqual(
+            SidebarWorkspaceListStyleSettings.providerDescriptor(
+                for: CmuxExtensionSidebarProviderID.defaultWorkspaces,
+                legacyTreePrototypeEnabled: false,
+                legacyCustomizationModeRawValue: "servers"
+            ).id,
+            CmuxExtensionSidebarProviderID.defaultWorkspaces
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceListStyleSettings.providerDescriptor(
+                for: "unknown",
+                legacyTreePrototypeEnabled: false,
+                legacyCustomizationModeRawValue: "servers"
+            ).id,
+            CmuxExtensionSidebarProviderID.defaultWorkspaces
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceListStyleSettings.providerDescriptor(
+                for: CmuxExtensionSidebarProviderID.defaultWorkspaces,
+                legacyTreePrototypeEnabled: true,
+                legacyCustomizationModeRawValue: "servers"
+            ).id,
+            CmuxExtensionSidebarProviderID.servers
+        )
     }
 
     func testReducerAppliesWorkspaceSelectionRemovalAndReorderEvents() {

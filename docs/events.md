@@ -25,6 +25,12 @@ marks stale cursors as a resume gap.
 Use the JSONL log for audit and catch-up tools. Use the socket stream for live
 delivery with bounded replay.
 
+Sidebar extensions do not derive their active UI state directly from this broad
+event log. `CmuxExtensionKit` uses a host-owned sidebar snapshot plus typed
+sidebar events so custom sidebars get an exact workspace mirror and can dispatch
+validated mutations back to the host. Use `cmux events` for external observers,
+automation, and audit trails; use `CmuxExtensionKit` for in-app sidebar UI.
+
 Lifecycle events with `source: "window.lifecycle"` or
 `source: "workspace.lifecycle"` are emitted from the cmux model, so they cover
 UI actions, CLI/socket commands, shortcuts, startup creation, restore paths, and

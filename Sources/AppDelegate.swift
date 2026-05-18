@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Bonsplit
+import CmuxExtensionKit
 import CMUXWorkstream
 import CoreServices
 import UserNotifications
@@ -580,6 +581,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         init(windowId: UUID, action: CmuxResolvedConfigAction) {
             self.windowId = windowId
             self.action = action
+        }
+    }
+
+    @MainActor
+    private final class SidebarProviderContextMenuActionBox: NSObject {
+        let provider: CmuxExtensionSidebarProviderDescriptor
+
+        init(provider: CmuxExtensionSidebarProviderDescriptor) {
+            self.provider = provider
         }
     }
 
@@ -6221,6 +6231,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
         return true
+    }
+
+    @discardableResult
+    func showSidebarProviderContextMenu(
+        anchorView: NSView,
+        event: NSEvent,
+        debugSource: String = "titlebar.sidebar.contextMenu"
+    ) -> Bool {
+        let activeProvider = SidebarWorkspaceListStyleSettings.providerDescriptor(
+            for: UserDefaults.standard.string(forKey: SidebarWorkspaceListStyleSettings.activeProviderKey)
+                ?? SidebarWorkspaceListStyleSettings.defaultActiveProviderID,
+            legacyTreePrototypeEnabled: UserDefaults.standard.bool(
+                forKey: SidebarWorkspaceListStyleSettings.treePrototypeEnabledKey
+            ),
+            legacyCustomizationModeRawValue: UserDefaults.standard.string(
+                forKey: SidebarWorkspaceListStyleSettings.customizationModeKey
+            ) ?? SidebarWorkspaceListStyleSettings.defaultCustomizationMode.rawValue
+        )
+        let menu = NSMenu(
+            title: String(
+                localized: "sidebar.provider.menu.title",
+                defaultValue: "Sidebar"
+            )
+        )
+
+        for provider in CmuxExtensionSidebarProviderDescriptor.builtInProviders {
+            let item = NSMenuItem(
+                title: localizedCmuxExtensionText(provider.title),
+                action: #selector(performSidebarProviderContextMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = SidebarProviderContextMenuActionBox(provider: provider)
+            item.state = provider.id == activeProvider.id ? .on : .off
+            item.toolTip = provider.subtitle.map(localizedCmuxExtensionText(_:))
+            item.image = NSImage(systemSymbolName: provider.systemImageName, accessibilityDescription: nil)
+            menu.addItem(item)
+        }
+
+        guard !menu.items.isEmpty else { return false }
+        NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
+        return true
+    }
+
+    @objc private func performSidebarProviderContextMenuItem(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? SidebarProviderContextMenuActionBox else {
+            NSSound.beep()
+            return
+        }
+        SidebarWorkspaceListStyleSettings.applyProviderDescriptor(box.provider)
+    }
+
+    private func localizedCmuxExtensionText(_ text: CmuxExtensionLocalizedText) -> String {
+        Bundle.main.localizedString(forKey: text.key, value: text.defaultValue, table: nil)
     }
 
     @objc private func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {
