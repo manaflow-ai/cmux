@@ -2246,60 +2246,6 @@ nonisolated enum BrowserWebViewLifecycleState: String {
     case closing
 }
 
-nonisolated enum BrowserHiddenWebViewDiscardPolicy {
-    static let enabledKey = "browserHiddenWebViewDiscardEnabled"
-    static let hiddenDelayKey = "browserHiddenWebViewDiscardDelaySeconds"
-    static let defaultEnabled = true
-    static let defaultHiddenDelay: TimeInterval = 300
-    static let minimumHiddenDelay: TimeInterval = 0
-    static let maximumHiddenDelay: TimeInterval = 3600
-
-    static var isEnabled: Bool {
-        isEnabled(defaults: .standard)
-    }
-
-    static var hiddenDelay: TimeInterval {
-        hiddenDelay(defaults: .standard)
-    }
-
-    static func isEnabled(defaults: UserDefaults) -> Bool {
-        let value = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if let value {
-            return !["0", "false", "no", "off"].contains(value)
-        }
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-
-    static func clampedHiddenDelay(_ value: TimeInterval) -> TimeInterval {
-        guard value.isFinite else { return defaultHiddenDelay }
-        return min(max(value, minimumHiddenDelay), maximumHiddenDelay)
-    }
-
-    static func resolvedHiddenDelay(_ value: TimeInterval) -> TimeInterval? {
-        guard value.isFinite, value >= minimumHiddenDelay else { return nil }
-        return clampedHiddenDelay(value)
-    }
-
-    static func hiddenDelay(defaults: UserDefaults) -> TimeInterval {
-        let rawValue = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let rawValue, let value = TimeInterval(rawValue), let resolvedValue = resolvedHiddenDelay(value) else {
-            let storedValue = defaults.double(forKey: hiddenDelayKey)
-            guard defaults.object(forKey: hiddenDelayKey) != nil,
-                  let resolvedStoredValue = resolvedHiddenDelay(storedValue) else {
-                return defaultHiddenDelay
-            }
-            return resolvedStoredValue
-        }
-        return resolvedValue
-    }
-}
-
 /// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
 @MainActor
 final class BrowserSearchState: ObservableObject {
@@ -2740,6 +2686,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var isClosingWebViewLifecycle: Bool = false
     private var hiddenWebViewDiscardTimer: DispatchSourceTimer?
     private var hiddenWebViewDiscardPolicyCancellable: AnyCancellable?
+    private var hiddenWebViewDiscardPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved()
 
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
@@ -3106,13 +3053,21 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func installHiddenWebViewDiscardPolicyObserver() {
+        hiddenWebViewDiscardPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved()
         hiddenWebViewDiscardPolicyCancellable = NotificationCenter.default.publisher(
             for: UserDefaults.didChangeNotification
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
-            self?.reevaluateHiddenWebViewDiscardScheduling(reason: "policy_changed")
+            self?.handleHiddenWebViewDiscardPolicyChanged()
         }
+    }
+
+    private func handleHiddenWebViewDiscardPolicyChanged() {
+        let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+        guard hiddenWebViewDiscardPolicyState != nextPolicyState else { return }
+        hiddenWebViewDiscardPolicyState = nextPolicyState
+        reevaluateHiddenWebViewDiscardScheduling(reason: "policy_changed")
     }
 
     @discardableResult
@@ -4750,7 +4705,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 recordTypedNavigation: recordTypedNavigation,
                 preserveRestoredSessionHistory: preserveRestoredSessionHistory
             )
-            cancelHiddenWebViewDiscard()
             restoredSessionShouldRenderWebView = nil
             shouldRenderWebView = true
             currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
