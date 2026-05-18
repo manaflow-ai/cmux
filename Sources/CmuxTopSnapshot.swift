@@ -43,6 +43,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let cmuxAttributionReason: String?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
+    let startedAt: Date?
     var cpuPercent: Double
     let residentBytes: Int64
     let virtualBytes: Int64
@@ -515,6 +516,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
         let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
+        let rawStartTime = kinfo.kp_proc.p_un.__p_starttime
+        let startedAt = rawStartTime.tv_sec > 0
+            ? Date(
+                timeIntervalSince1970: TimeInterval(rawStartTime.tv_sec) +
+                    TimeInterval(rawStartTime.tv_usec) / 1_000_000
+            )
+            : nil
         let cpuSampleKey: CmuxTopProcessScopeCacheKey?
         if let taskInfo {
             let currentCPUSample = cpuSample(from: taskInfo, sampledAtNanoseconds: sampledAtNanoseconds)
@@ -535,6 +543,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             cmuxAttributionReason: cmuxScope?.attributionReason,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
+            startedAt: startedAt,
             cpuPercent: 0,
             residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),

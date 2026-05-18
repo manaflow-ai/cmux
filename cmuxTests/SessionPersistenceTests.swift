@@ -3771,7 +3771,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             path: "/Users/lawrence/.bun/bin/codex",
             ttyDevice: ttyDevice,
             workspaceId: workspaceId,
-            panelId: panelId
+            panelId: panelId,
+            startedAt: Date(timeIntervalSince1970: 150)
         )
         let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: CmuxVaultAgentRegistry(registrations: []),
@@ -3978,6 +3979,75 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.forkCommand,
             "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
+        )
+    }
+
+    func testProcessDetectionDoesNotReuseStaleCodexForkMetadataBeforeProcessStart() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_137
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-stale-fork-metadata-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/codex fork repo"
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let staleChildSessionId = "019e1eca-ee32-7001-ab30-edcae57430bb"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: staleChildSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 100),
+            modifiedAt: Date(timeIntervalSince1970: 100)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_137,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            startedAt: Date(timeIntervalSince1970: 200)
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 250),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "CODEX_THREAD_ID": parentSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, parentSessionId)
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
     }
 
@@ -6825,7 +6895,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         workspaceId: UUID? = nil,
         panelId: UUID? = nil,
         processGroupID: Int? = 100,
-        terminalProcessGroupID: Int? = 100
+        terminalProcessGroupID: Int? = 100,
+        startedAt: Date? = nil
     ) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
             pid: pid,
@@ -6838,6 +6909,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             cmuxAttributionReason: workspaceId == nil && panelId == nil ? nil : "test",
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
+            startedAt: startedAt,
             cpuPercent: 0,
             residentBytes: 0,
             virtualBytes: 0,

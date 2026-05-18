@@ -90,7 +90,7 @@ extension RestorableAgentSessionIndex {
         processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment,
         processOpenFilePaths: (Int) -> [String] = CmuxTopProcessSnapshot.processOpenFilePaths,
         latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId,
-        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
         let candidates = processDetectionCandidates(
@@ -589,7 +589,7 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         fileManager: FileManager,
         processOpenFilePaths: (Int) -> [String],
-        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String?
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var selectedCandidateByPanelKey: [
@@ -670,6 +670,7 @@ extension RestorableAgentSessionIndex {
                 fileManager: fileManager,
                 openFilePaths: openFilePaths,
                 latestCodexForkSessionId: latestCodexForkSessionId,
+                processStartedAt: process.startedAt,
                 allowCodexForkMetadataFallback: canUseForkMetadataFallback
             ) else {
                 continue
@@ -744,7 +745,8 @@ extension RestorableAgentSessionIndex {
         workingDirectory: String?,
         fileManager: FileManager,
         openFilePaths: [String] = [],
-        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String?,
+        processStartedAt: Date? = nil,
         allowCodexForkMetadataFallback: Bool = true
     ) -> String? {
         codexSessionResolution(
@@ -754,6 +756,7 @@ extension RestorableAgentSessionIndex {
             fileManager: fileManager,
             openFilePaths: openFilePaths,
             latestCodexForkSessionId: latestCodexForkSessionId,
+            processStartedAt: processStartedAt,
             allowCodexForkMetadataFallback: allowCodexForkMetadataFallback
         )?.sessionId
     }
@@ -764,7 +767,8 @@ extension RestorableAgentSessionIndex {
         workingDirectory: String?,
         fileManager: FileManager,
         openFilePaths: [String] = [],
-        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String?,
+        processStartedAt: Date? = nil,
         allowCodexForkMetadataFallback: Bool = true
     ) -> CodexSessionResolution? {
         if let command = codexSessionCommand(in: tail),
@@ -796,6 +800,7 @@ extension RestorableAgentSessionIndex {
                        workingDirectory,
                        commandSessionId,
                        environment,
+                       processStartedAt,
                        fileManager
                 ) {
                     return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
@@ -916,6 +921,7 @@ extension RestorableAgentSessionIndex {
         workingDirectory: String?,
         parentSessionId: String,
         environment: [String: String],
+        processStartedAt: Date? = nil,
         fileManager: FileManager
     ) -> String? {
         guard let parentSessionId = normalized(parentSessionId) else { return nil }
@@ -945,6 +951,10 @@ extension RestorableAgentSessionIndex {
                 continue
             }
             let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
+            if let processStartedAt,
+               createdAt < processStartedAt {
+                continue
+            }
             if selectedAnyDirectory == nil || createdAt > selectedAnyDirectory!.createdAt {
                 selectedAnyDirectory = (sessionId: sessionId, createdAt: createdAt)
             }
