@@ -81,7 +81,7 @@ class PingServer:
                             if not chunk:
                                 break
                             data += chunk
-                    except ConnectionResetError:
+                    except (ConnectionResetError, socket.timeout):
                         continue
 
                     if b"ping" in data:
