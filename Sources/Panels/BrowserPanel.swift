@@ -5019,6 +5019,52 @@ extension BrowserPanel {
 #endif
     }
 
+    /// Duplicate the current browser surface using the workspace's tab placement rules.
+    @discardableResult
+    func duplicateTabToRight(focus: Bool = true) -> BrowserPanel? {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.duplicate.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5))"
+        )
+#endif
+        guard let app = AppDelegate.shared else {
+#if DEBUG
+            cmuxDebugLog("browser.duplicate.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")
+#endif
+            return nil
+        }
+        guard let workspace = app.workspaceContainingPanel(
+            panelId: id,
+            preferredWorkspaceId: workspaceId
+        )?.workspace else {
+#if DEBUG
+            cmuxDebugLog("browser.duplicate.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
+#endif
+            return nil
+        }
+
+        guard let newPanel = workspace.duplicateBrowserToRight(panelId: id, focus: focus) else {
+#if DEBUG
+            cmuxDebugLog("browser.duplicate.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
+#endif
+            return nil
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.duplicate.done panel=\(id.uuidString.prefix(5)) " +
+            "newPanel=\(newPanel.id.uuidString.prefix(5)) workspace=\(workspace.id.uuidString.prefix(5))"
+        )
+#endif
+        return newPanel
+    }
+
+    var currentURLForTabDuplication: URL? {
+        resolvedCurrentSessionHistoryURL()
+            ?? Self.remoteProxyDisplayURL(for: webView.url)
+            ?? currentURL
+    }
+
     /// Reload the current page
     func reload() {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
