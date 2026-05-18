@@ -13082,28 +13082,19 @@ final class Workspace: Identifiable, ObservableObject {
             .filter { $0 != anchorTabId }
     }
 
-    private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        _ = newTerminalSurface(inPane: paneId, focus: true, targetIndex: targetIndex)
+    private func contextMenuSurfaceTargetIndex(anchorTabId: TabID, inPane paneId: PaneID) -> Int? {
+        // Bonsplit's action names say "to right" because that was the original
+        // after-current behavior. User-created context-menu surfaces still honor
+        // app.newSurfacePlacement; only afterCurrent needs an anchor-relative index.
+        guard SurfacePlacementSettings.current() == .afterCurrent else { return nil }
+        return insertionIndexToRight(of: anchorTabId, inPane: paneId)
     }
 
     private func createTerminalFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID) {
-        guard SurfacePlacementSettings.current() != .afterCurrent else {
-            createTerminalToRight(of: anchorTabId, inPane: paneId)
-            return
-        }
-        _ = newTerminalSurface(inPane: paneId, focus: true)
-    }
-
-    private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = browserProfileID(forSurface: anchorTabId)
-        _ = newBrowserSurface(
+        _ = newTerminalSurface(
             inPane: paneId,
-            url: url,
             focus: true,
-            preferredProfileID: preferredProfileID,
-            targetIndex: targetIndex
+            targetIndex: contextMenuSurfaceTargetIndex(anchorTabId: anchorTabId, inPane: paneId)
         )
     }
 
@@ -13112,15 +13103,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func createBrowserFromContextMenu(anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
-        guard SurfacePlacementSettings.current() != .afterCurrent else {
-            createBrowserToRight(of: anchorTabId, inPane: paneId, url: url)
-            return
-        }
         _ = newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
-            preferredProfileID: browserProfileID(forSurface: anchorTabId)
+            preferredProfileID: browserProfileID(forSurface: anchorTabId),
+            targetIndex: contextMenuSurfaceTargetIndex(anchorTabId: anchorTabId, inPane: paneId)
         )
     }
 
