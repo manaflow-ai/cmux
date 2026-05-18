@@ -2,6 +2,21 @@ import AppKit
 import SwiftUI
 import WebKit
 
+private final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+
+    init(_ target: WKScriptMessageHandler) {
+        self.target = target
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        target?.userContentController(userContentController, didReceive: message)
+    }
+}
+
 struct MarkdownWebTheme: Equatable {
     let isDark: Bool
     let background: String
@@ -48,21 +63,32 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        let c = Coordinator()
+        let c = handle.coordinator()
         c.panelId = panelId
         c.workspaceId = workspaceId
         c.filePath = filePath
-        handle.coordinator = c
         return c
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        if let webView = context.coordinator.webView {
+            if webView.superview != nil {
+                webView.removeFromSuperview()
+            }
+            webView.onPointerDown = onRequestPanelFocus
+            webView.navigationDelegate = context.coordinator
+            webView.uiDelegate = context.coordinator
+            applyBackground(to: webView)
+            applyAppearance(to: webView, isDark: theme.isDark)
+            return webView
+        }
+
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
-        config.userContentController.add(context.coordinator, name: "cmuxLib")
+        config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
         webView.setValue(false, forKey: "drawsBackground")
@@ -88,7 +114,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {
         // Re-bind the handle in case SwiftUI recreated the representable
         // wrapper while keeping the same NSView around.
-        handle.coordinator = context.coordinator
         context.coordinator.panelId = panelId
         context.coordinator.workspaceId = workspaceId
         context.coordinator.filePath = filePath
@@ -99,13 +124,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
-        if coordinator.webView === nsView {
-            coordinator.webView = nil
-        }
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -127,7 +146,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
-        weak var webView: WKWebView?
+        var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -136,6 +155,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
+
+        func close() {
+            guard let webView else { return }
+            webView.stopLoading()
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            webView.onPointerDown = nil
+            self.webView = nil
+            isLoaded = false
+            requestedLibs.removeAll()
+        }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
             pendingMarkdown = initialMarkdown

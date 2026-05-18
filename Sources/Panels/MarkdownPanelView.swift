@@ -28,7 +28,6 @@ struct MarkdownPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
-    @State private var renderer = MarkdownWebRendererHandle()
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -89,7 +88,7 @@ struct MarkdownPanelView: View {
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
-                handle: renderer,
+                handle: panel.rendererHandle,
                 onRequestPanelFocus: onRequestPanelFocus
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -212,8 +211,8 @@ struct MarkdownPanelView: View {
 
     private func copyAsHTML() {
         Task { @MainActor in
-            guard let html = await renderer.renderedHTML(markdown: panel.content) else { return }
-            let text = await renderer.renderedText() ?? panel.content
+            guard let html = await panel.rendererHandle.renderedHTML(markdown: panel.content) else { return }
+            let text = await panel.rendererHandle.renderedText() ?? panel.content
             let pb = NSPasteboard.general
             pb.clearContents()
             // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
@@ -306,21 +305,35 @@ private struct MarkdownPanelToolbar: View {
 
 // MARK: - Renderer handle
 
-/// Lightweight reference object the SwiftUI view holds across re-renders so
-/// it can talk to the underlying WKWebView (primarily to fetch the rendered
-/// HTML for "Copy as HTML"). Owned via @State; the coordinator registers
-/// itself when the NSView is created.
+/// Lightweight reference object MarkdownPanel owns so the view can talk to
+/// the underlying WKWebView (primarily to fetch the rendered
+/// HTML for "Copy as HTML"). Owned by MarkdownPanel so transient SwiftUI
+/// view recreation does not reload the web view.
 @MainActor
 final class MarkdownWebRendererHandle {
-    weak var coordinator: MarkdownWebRenderer.Coordinator?
+    private var storedCoordinator: MarkdownWebRenderer.Coordinator?
+
+    func coordinator() -> MarkdownWebRenderer.Coordinator {
+        if let storedCoordinator {
+            return storedCoordinator
+        }
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        storedCoordinator = coordinator
+        return coordinator
+    }
+
+    func close() {
+        storedCoordinator?.close()
+        storedCoordinator = nil
+    }
 
     func renderedHTML(markdown: String? = nil) async -> String? {
-        guard let coordinator else { return nil }
+        guard let coordinator = storedCoordinator else { return nil }
         return await coordinator.renderedHTML(markdown: markdown)
     }
 
     func renderedText() async -> String? {
-        guard let coordinator else { return nil }
+        guard let coordinator = storedCoordinator else { return nil }
         return await coordinator.renderedText()
     }
 }
