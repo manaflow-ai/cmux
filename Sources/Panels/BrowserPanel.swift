@@ -1244,6 +1244,175 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+enum BrowserExternalNavigationAction: Equatable {
+    case browserFallback(URL)
+    case promptToOpenApp(URL)
+}
+
+func browserShouldRouteExternalNavigation(_ url: URL) -> Bool {
+    return browserExternalNavigationAction(for: url) != nil
+}
+
+func browserIntentFallbackURL(for url: URL) -> URL? {
+    guard url.scheme?.lowercased() == "intent" else { return nil }
+    guard let intentMarker = url.absoluteString.range(of: "#Intent;") else { return nil }
+
+    let fallbackPrefix = "S.browser_fallback_url="
+    let intentBody = url.absoluteString[intentMarker.upperBound...]
+    for component in intentBody.split(separator: ";", omittingEmptySubsequences: false) {
+        if component == "end" { break }
+        guard component.hasPrefix(fallbackPrefix) else { continue }
+
+        let rawFallbackURL = String(component.dropFirst(fallbackPrefix.count))
+        guard !rawFallbackURL.isEmpty else { return nil }
+
+        let decodedFallbackURL = rawFallbackURL.removingPercentEncoding ?? rawFallbackURL
+        guard let fallbackURL = URL(string: decodedFallbackURL),
+              let fallbackScheme = fallbackURL.scheme?.lowercased(),
+              fallbackScheme == "http" || fallbackScheme == "https" else {
+            return nil
+        }
+        return fallbackURL
+    }
+
+    return nil
+}
+
+func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationAction? {
+    if let fallbackURL = browserIntentFallbackURL(for: url) {
+        return .browserFallback(fallbackURL)
+    }
+    guard browserShouldOpenURLExternally(url) else { return nil }
+    return .promptToOpenApp(url)
+}
+
+private func browserCopyExternalNavigationURL(_ url: URL) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+}
+
+private func browserPresentExternalNavigationPrompt(
+    for url: URL,
+    in webView: WKWebView,
+    completion: @escaping (Bool) -> Void
+) {
+    let alert = NSAlert()
+    alert.alertStyle = .informational
+    alert.messageText = String(
+        localized: "browser.externalOpenPrompt.title",
+        defaultValue: "Open External App?"
+    )
+    alert.informativeText = String(
+        localized: "browser.externalOpenPrompt.message",
+        defaultValue: "A web page in cmux wants to open a link in another app. You can stay in the browser instead."
+    )
+    alert.addButton(withTitle: String(
+        localized: "browser.externalOpenPrompt.openApp",
+        defaultValue: "Open App"
+    ))
+    alert.addButton(withTitle: String(
+        localized: "browser.externalOpenPrompt.stayInBrowser",
+        defaultValue: "Stay in Browser"
+    ))
+
+    let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+        completion(response == .alertFirstButtonReturn)
+    }
+
+    if let window = webView.window {
+        alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        return
+    }
+    handleResponse(alert.runModal())
+}
+
+private func browserPresentExternalNavigationFailure(for url: URL, in webView: WKWebView) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = String(
+        localized: "browser.externalOpenFailure.title",
+        defaultValue: "Cannot Open Link"
+    )
+    alert.informativeText = String(
+        localized: "browser.externalOpenFailure.message",
+        defaultValue: "cmux could not open this link. You can copy it and open it in another app."
+    )
+    alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+    alert.addButton(withTitle: String(
+        localized: "browser.externalOpenFailure.copyLink",
+        defaultValue: "Copy Link"
+    ))
+
+    let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+        if response == .alertSecondButtonReturn {
+            browserCopyExternalNavigationURL(url)
+        }
+    }
+
+    if let window = webView.window {
+        alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        return
+    }
+    handleResponse(alert.runModal())
+}
+
+@discardableResult
+private func browserOpenExternalNavigationURL(
+    _ url: URL,
+    source: String,
+    webView: WKWebView
+) -> Bool {
+    let opened = NSWorkspace.shared.open(url)
+    if !opened {
+        browserPresentExternalNavigationFailure(for: url, in: webView)
+    }
+#if DEBUG
+    cmuxDebugLog(
+        "browser.navigation.external source=\(source) opened=\(opened ? 1 : 0) " +
+        "url=\(browserNavigationDebugURL(url))"
+    )
+#endif
+    return opened
+}
+
+@discardableResult
+func browserHandleExternalNavigation(
+    _ url: URL,
+    source: String,
+    webView: WKWebView,
+    loadFallbackRequest: (URLRequest) -> Void
+) -> Bool {
+    guard let action = browserExternalNavigationAction(for: url) else { return false }
+
+    switch action {
+    case let .browserFallback(fallbackURL):
+        let request = URLRequest(url: fallbackURL)
+        loadFallbackRequest(request)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.navigation.external source=\(source) opened=1 fallback=1 " +
+            "fallbackURL=\(browserNavigationDebugURL(fallbackURL)) url=\(browserNavigationDebugURL(url))"
+        )
+#endif
+        return true
+
+    case let .promptToOpenApp(externalURL):
+        browserPresentExternalNavigationPrompt(for: externalURL, in: webView) { shouldOpenApp in
+            guard shouldOpenApp else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.navigation.external source=\(source) opened=0 prompt=1 allowed=0 " +
+                    "url=\(browserNavigationDebugURL(externalURL))"
+                )
+#endif
+                return
+            }
+            browserOpenExternalNavigationURL(externalURL, source: source, webView: webView)
+        }
+        return true
+    }
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
@@ -6897,15 +7066,15 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
         // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
-           navigationAction.targetFrame?.isMainFrame != false,
-           browserShouldOpenURLExternally(url) {
-            let opened = NSWorkspace.shared.open(url)
-            if !opened {
-                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
-            }
-            #if DEBUG
-            cmuxDebugLog("browser.navigation.external source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
-            #endif
+           browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "navDelegate",
+                webView: webView,
+                loadFallbackRequest: { [requestNavigation] request in
+                    requestNavigation?(request, .currentTab)
+                }
+            )
             decisionHandler(.cancel)
             return
         }
@@ -7086,14 +7255,15 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #endif
         // External URL schemes → hand off to macOS, don't create a popup
         if let url = navigationAction.request.url,
-           browserShouldOpenURLExternally(url) {
-            let opened = NSWorkspace.shared.open(url)
-            if !opened {
-                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
-            }
-            #if DEBUG
-            cmuxDebugLog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(browserNavigationDebugURL(url))")
-            #endif
+           browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "uiDelegate",
+                webView: webView,
+                loadFallbackRequest: { [requestNavigation] request in
+                    requestNavigation?(request, .currentTab)
+                }
+            )
             return nil
         }
 
