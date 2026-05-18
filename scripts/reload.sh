@@ -17,7 +17,6 @@ CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
-LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 AUTO_SKIP_ZIG_BUILD_REASON=""
 
 should_skip_ghostty_cli_helper_zig_build() {
@@ -110,9 +109,67 @@ select_cmux_shim_target() {
 
 write_last_socket_path() {
   local socket_path="$1"
+  local marker_name="dev-last-socket-path"
+  local tmp_marker="/tmp/cmux-dev-last-socket-path"
+  local bundle_id="${BUNDLE_ID:-}"
+  local slug=""
+
+  case "$bundle_id" in
+    com.cmuxterm.app)
+      marker_name="last-socket-path"
+      tmp_marker="/tmp/cmux-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly)
+      marker_name="nightly-last-socket-path"
+      tmp_marker="/tmp/cmux-nightly-last-socket-path"
+      ;;
+    com.cmuxterm.app.nightly.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.nightly.}")"
+      if [[ -n "$slug" ]]; then
+        marker_name="nightly-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-nightly-${slug}-last-socket-path"
+      else
+        marker_name="nightly-last-socket-path"
+        tmp_marker="/tmp/cmux-nightly-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.staging)
+      marker_name="staging-last-socket-path"
+      tmp_marker="/tmp/cmux-staging-last-socket-path"
+      ;;
+    com.cmuxterm.app.staging.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.staging.}")"
+      if [[ -n "$slug" ]]; then
+        marker_name="staging-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-staging-${slug}-last-socket-path"
+      else
+        marker_name="staging-last-socket-path"
+        tmp_marker="/tmp/cmux-staging-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug)
+      slug="${TAG_SLUG:-}"
+      if [[ -n "$slug" ]]; then
+        marker_name="dev-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.debug.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
+      if [[ -n "$slug" ]]; then
+        marker_name="dev-${slug}-last-socket-path"
+        tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+      fi
+      ;;
+    *)
+      marker_name="last-socket-path"
+      tmp_marker="/tmp/cmux-last-socket-path"
+      ;;
+  esac
+
   mkdir -p "$LAST_SOCKET_PATH_DIR"
-  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
-  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+  echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
+  echo "$socket_path" > "$tmp_marker" || true
 }
 
 usage() {
@@ -147,9 +204,6 @@ sanitize_path() {
   local raw="$1"
   local cleaned
   cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="agent"
-  fi
   echo "$cleaned"
 }
 
@@ -336,6 +390,10 @@ fi
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
+  if [[ -z "$TAG_SLUG" ]]; then
+    echo "error: --tag must contain at least one alphanumeric character" >&2
+    exit 1
+  fi
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux DEV ${TAG_SLUG}"
   fi
@@ -559,6 +617,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
+      set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
@@ -689,6 +748,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   TAG_LAUNCH_ENV=(
     CMUX_TAG="${TAG_SLUG:-}"
+    CMUX_BUNDLE_ID="$BUNDLE_ID"
     CMUX_SOCKET_ENABLE=1
     CMUX_SOCKET_MODE=allowAll
     CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG"
@@ -705,18 +765,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
-  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+  if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
     LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH")
     LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -n -g "$APP_PATH")
-  elif [[ -n "${TAG_SLUG:-}" ]]; then
+  else
     LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH")
     LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -n -g "$APP_PATH")
-  else
-    echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
-    echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
-    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" open -g "$APP_PATH")
-    LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g "$APP_PATH")
   fi
 
   if ! "${LAUNCH_CMD[@]}"; then
