@@ -2264,7 +2264,7 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func scheduleWorkspaceSessionRestore(
+    @MainActor private func scheduleWorkspaceSessionRestore(
         workingDirectory: String,
         workspaceId: UUID,
         bundleIdentifier: String?,

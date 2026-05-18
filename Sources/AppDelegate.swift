@@ -3740,14 +3740,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if synchronously {
-            _ = sessionPersistenceQueue.sync(execute: writePrimarySnapshotBlock)
-        } else {
-            sessionPersistenceQueue.async {
-                if writePrimarySnapshotBlock(), let snapshot {
-                    SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
-                }
+        let writeAllSnapshotsBlock = {
+            if writePrimarySnapshotBlock(), let snapshot {
+                SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
             }
+        }
+
+        if synchronously {
+            sessionPersistenceQueue.sync(execute: writeAllSnapshotsBlock)
+        } else {
+            sessionPersistenceQueue.async(execute: writeAllSnapshotsBlock)
         }
     }
 
