@@ -141,7 +141,10 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     }
 
     public func close() async {
-        close(pendingError: CmxNetworkByteTransportError.alreadyClosed)
+        close(
+            pendingError: CmxNetworkByteTransportError.alreadyClosed,
+            resumeReceiveWithError: false
+        )
     }
 
     private func startConnect(_ continuation: CheckedContinuation<Void, Error>) {
@@ -185,7 +188,10 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             case .closed, .failed:
                 break
             case .idle, .connecting, .ready:
-                close(pendingError: CmxNetworkByteTransportError.alreadyClosed)
+                close(
+                    pendingError: CmxNetworkByteTransportError.alreadyClosed,
+                    resumeReceiveWithError: false
+                )
             }
         case .other:
             break
@@ -338,7 +344,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         resumeSendContinuation(throwing: error)
     }
 
-    private func close(pendingError: Error) {
+    private func close(pendingError: Error, resumeReceiveWithError: Bool) {
         guard !isClosed else {
             return
         }
@@ -346,12 +352,16 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         connection.stateUpdateHandler = nil
         connection.cancel()
         resumeConnectContinuations(throwing: pendingError)
-        resumeReceiveContinuation(throwing: pendingError)
+        if resumeReceiveWithError {
+            resumeReceiveContinuation(throwing: pendingError)
+        } else {
+            resumeReceiveContinuation(returning: nil)
+        }
         resumeSendContinuation(throwing: pendingError)
     }
 
     private func cancelForTaskCancellation() {
-        close(pendingError: CancellationError())
+        close(pendingError: CancellationError(), resumeReceiveWithError: true)
     }
 
     private var isTerminal: Bool {

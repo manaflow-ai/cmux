@@ -234,17 +234,31 @@ for device in data.get("result", {}).get("devices", []):
     })
 
 if requested_id:
-    for device in devices:
-        if requested_id in device["ids"]:
-            if not device["available"]:
-                print(
-                    f"error: requested device is not available: {device['name']} ({device['identifier']}), "
-                    f"boot={device['boot']}, tunnel={device['tunnel']}",
-                    file=sys.stderr,
-                )
-                raise SystemExit(1)
-            print(f"{device['identifier']}\t{device['name']}")
-            raise SystemExit(0)
+    exact_matches = [
+        device for device in devices
+        if any(requested_id == candidate for candidate in device["ids"])
+    ]
+    partial_matches = [
+        device for device in devices
+        if any(requested_id in candidate for candidate in device["ids"])
+    ]
+    matches = exact_matches or partial_matches
+    if len(matches) > 1:
+        print(f"error: device id is ambiguous: {requested_id}", file=sys.stderr)
+        for device in matches:
+            print(f"  {device['name']} ({device['identifier']})", file=sys.stderr)
+        raise SystemExit(1)
+    if matches:
+        device = matches[0]
+        if not device["available"]:
+            print(
+                f"error: requested device is not available: {device['name']} ({device['identifier']}), "
+                f"boot={device['boot']}, tunnel={device['tunnel']}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        print(f"{device['identifier']}\t{device['name']}")
+        raise SystemExit(0)
     print(f"error: requested device id not found: {requested_id}", file=sys.stderr)
     raise SystemExit(1)
 

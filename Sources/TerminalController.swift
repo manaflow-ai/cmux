@@ -18379,9 +18379,10 @@ class TerminalController {
                includeScrollback: true,
                lineLimit: safeMaxScrollbackRows + rows
            ) {
+            let plainViewportText = Self.mobilePlainTerminalText(viewportText.text)
             scrollbackText = Self.mobileScrollbackText(
                 combinedText: combinedText,
-                viewportText: viewportText.text,
+                viewportText: plainViewportText,
                 maxRows: safeMaxScrollbackRows
             )
             scrollbackFidelity = "plain_text"
@@ -18495,12 +18496,9 @@ class TerminalController {
         }
 
         let clientReport = v2String(params, "client_id").flatMap { reports[$0] }
-        let isCurrentClientLimiting: Bool
-        if let clientReport {
-            isCurrentClientLimiting = clientReport.columns == effectiveColumns || clientReport.rows == effectiveRows
-        } else {
-            isCurrentClientLimiting = true
-        }
+        let isCurrentClientLimiting = clientReport.map {
+            $0.columns == effectiveColumns || $0.rows == effectiveRows
+        } ?? false
 
         var payload: [String: Any] = [
             "effective": [
@@ -18611,6 +18609,60 @@ class TerminalController {
             return nil
         }
         return scrollbackLines.joined(separator: "\n")
+    }
+
+    private static func mobilePlainTerminalText(_ text: String) -> String {
+        var output = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            guard text[index] == "\u{001B}" else {
+                output.append(text[index])
+                index = text.index(after: index)
+                continue
+            }
+
+            var cursor = text.index(after: index)
+            guard cursor < text.endIndex else {
+                index = cursor
+                continue
+            }
+
+            if text[cursor] == "[" {
+                cursor = text.index(after: cursor)
+                while cursor < text.endIndex {
+                    let scalar = text[cursor].unicodeScalars.first?.value ?? 0
+                    cursor = text.index(after: cursor)
+                    if scalar >= 0x40, scalar <= 0x7E {
+                        break
+                    }
+                }
+                index = cursor
+                continue
+            }
+
+            if text[cursor] == "]" {
+                cursor = text.index(after: cursor)
+                while cursor < text.endIndex {
+                    if text[cursor] == "\u{7}" {
+                        cursor = text.index(after: cursor)
+                        break
+                    }
+                    if text[cursor] == "\u{001B}" {
+                        let next = text.index(after: cursor)
+                        if next < text.endIndex, text[next] == "\\" {
+                            cursor = text.index(after: next)
+                            break
+                        }
+                    }
+                    cursor = text.index(after: cursor)
+                }
+                index = cursor
+                continue
+            }
+
+            index = text.index(after: cursor)
+        }
+        return output
     }
 
     private static func mobileTerminalLines(from text: String) -> [String] {

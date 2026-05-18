@@ -479,7 +479,8 @@ struct SignInView: View {
     }
 
     private func detailedErrorMessage(_ error: Error) -> String {
-        if let stackError = error as? StackAuthErrorProtocol {
+        let displayError = AuthManager.displaySafeAuthError(error)
+        if let stackError = displayError as? StackAuthErrorProtocol {
             switch stackError.code {
             case "SCHEMA_ERROR":
                 return L10n.string("auth.error.invalid_email", defaultValue: "Please enter a valid email address.")
@@ -512,18 +513,18 @@ struct SignInView: View {
             }
         }
 
-        if let authError = error as? AuthError {
+        if let authError = displayError as? AuthError {
             return authError.localizedDescription
         }
 
-        let nsError = error as NSError
+        let nsError = displayError as NSError
         if nsError.domain == NSURLErrorDomain {
             return L10n.string("auth.error.network", defaultValue: "Could not connect to the server. Check your internet connection and try again.")
         }
 
         #if DEBUG
-        var debug = "\(error.localizedDescription)\n\(String(reflecting: type(of: error)))"
-        if let stackError = error as? StackAuthErrorProtocol {
+        var debug = "\(displayError.localizedDescription)\n\(String(reflecting: type(of: displayError)))"
+        if let stackError = displayError as? StackAuthErrorProtocol {
             debug += "\ncode: \(stackError.code)\nmessage: \(stackError.message)"
             if let details = stackError.details {
                 debug += "\ndetails: \(details)"

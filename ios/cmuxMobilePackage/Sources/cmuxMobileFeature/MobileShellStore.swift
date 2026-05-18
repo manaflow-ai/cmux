@@ -201,7 +201,7 @@ public struct CMUXMobileRuntime: Sendable {
     }
 
     public init(
-        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
@@ -314,11 +314,17 @@ public final class CMUXMobileShellStore {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelSelectedTerminalSnapshotRefresh()
+                cancelRemoteOperationTasks()
             }
         }
     }
     private var terminalRefreshPollTask: Task<Void, Never>?
     private var selectedTerminalSnapshotRefreshTask: Task<Void, Never>?
+    private var createWorkspaceTask: Task<Void, Never>?
+    private var createTerminalTask: Task<Void, Never>?
+    private var createWorkspaceTaskID: UUID?
+    private var createTerminalTaskID: UUID?
+    private var connectionGeneration: UUID
     private var isSuppressingSelectedWorkspaceRefresh: Bool
     private var isRefreshingSelectedTerminalSnapshot: Bool
     private var needsSelectedTerminalSnapshotRefresh: Bool
@@ -376,6 +382,13 @@ public final class CMUXMobileShellStore {
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
+        self.terminalRefreshPollTask = nil
+        self.selectedTerminalSnapshotRefreshTask = nil
+        self.createWorkspaceTask = nil
+        self.createTerminalTask = nil
+        self.createWorkspaceTaskID = nil
+        self.createTerminalTaskID = nil
+        self.connectionGeneration = UUID()
         self.isSuppressingSelectedWorkspaceRefresh = false
         self.isRefreshingSelectedTerminalSnapshot = false
         self.needsSelectedTerminalSnapshotRefresh = false
@@ -407,6 +420,7 @@ public final class CMUXMobileShellStore {
     }
 
     public func signOut() {
+        connectionGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
         connectedHostName = ""
@@ -419,6 +433,7 @@ public final class CMUXMobileShellStore {
         isRefreshingSelectedTerminalSnapshot = false
         needsSelectedTerminalSnapshotRefresh = false
         cancelSelectedTerminalSnapshotRefresh()
+        cancelRemoteOperationTasks()
         reportedViewportSizesByTerminalKey = [:]
         viewportSettlingRefreshesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
@@ -438,7 +453,9 @@ public final class CMUXMobileShellStore {
             return
         }
         if trimmedCode.hasPrefix("cmux-ios://") {
-            Task { await connectPairingURL(trimmedCode) }
+            Task { @MainActor [weak self] in
+                await self?.connectPairingURL(trimmedCode)
+            }
             return
         }
         remoteClient = nil
@@ -650,7 +667,14 @@ public final class CMUXMobileShellStore {
 
     public func createWorkspace() {
         guard remoteClient == nil else {
-            Task { await createRemoteWorkspace() }
+            guard createWorkspaceTask == nil else { return }
+            let taskID = UUID()
+            createWorkspaceTaskID = taskID
+            createWorkspaceTask = Task { @MainActor [weak self] in
+                defer { self?.clearCreateWorkspaceTask(id: taskID) }
+                guard let self else { return }
+                await self.createRemoteWorkspace()
+            }
             return
         }
         let nextIndex = workspaces.count + 1
@@ -676,7 +700,14 @@ public final class CMUXMobileShellStore {
 
     public func createTerminal() {
         guard remoteClient == nil else {
-            Task { await createRemoteTerminal() }
+            guard createTerminalTask == nil else { return }
+            let taskID = UUID()
+            createTerminalTaskID = taskID
+            createTerminalTask = Task { @MainActor [weak self] in
+                defer { self?.clearCreateTerminalTask(id: taskID) }
+                guard let self else { return }
+                await self.createRemoteTerminal()
+            }
             return
         }
         guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspace?.id }) else {
@@ -739,7 +770,9 @@ public final class CMUXMobileShellStore {
     }
 
     public func sendTerminalInput() {
-        Task { await submitTerminalInput() }
+        Task { @MainActor [weak self] in
+            await self?.submitTerminalInput()
+        }
     }
 
     public func submitTerminalInput() async {
@@ -760,7 +793,9 @@ public final class CMUXMobileShellStore {
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
         guard rawTerminalInputBuffer.enqueue(text) else { return }
-        Task { await drainRawTerminalInputBuffer() }
+        Task { @MainActor [weak self] in
+            await self?.drainRawTerminalInputBuffer()
+        }
     }
 
     public func submitTerminalRawInput(_ text: String) async {
@@ -779,6 +814,9 @@ public final class CMUXMobileShellStore {
     }
 
     private func connect(ticket: CmxAttachTicket) async throws {
+        let generation = UUID()
+        connectionGeneration = generation
+        cancelRemoteOperationTasks()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -794,6 +832,7 @@ public final class CMUXMobileShellStore {
         remoteClient = nil
 
         guard let runtime else {
+            guard generation == connectionGeneration else { return }
             connectionError = nil
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
@@ -812,6 +851,7 @@ public final class CMUXMobileShellStore {
             do {
                 let resultData = try await client.sendRequest(requestData)
                 let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+                guard generation == connectionGeneration, isSignedIn else { return }
                 remoteClient = client
                 startTerminalRefreshPolling()
                 connectionError = nil
@@ -822,6 +862,7 @@ public final class CMUXMobileShellStore {
                 return
             } catch {
                 lastError = error
+                guard generation == connectionGeneration, isSignedIn else { return }
                 mobileShellLog.error(
                     "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private): \(String(describing: error), privacy: .private)"
                 )
@@ -865,8 +906,38 @@ public final class CMUXMobileShellStore {
     }
 
     private func clearRemoteConnectionContext() {
+        connectionGeneration = UUID()
+        cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         remoteClient = nil
+    }
+
+    private func cancelRemoteOperationTasks() {
+        createWorkspaceTask?.cancel()
+        createWorkspaceTask = nil
+        createWorkspaceTaskID = nil
+        createTerminalTask?.cancel()
+        createTerminalTask = nil
+        createTerminalTaskID = nil
+    }
+
+    private func clearCreateWorkspaceTask(id: UUID) {
+        guard createWorkspaceTaskID == id else { return }
+        createWorkspaceTask = nil
+        createWorkspaceTaskID = nil
+    }
+
+    private func clearCreateTerminalTask(id: UUID) {
+        guard createTerminalTaskID == id else { return }
+        createTerminalTask = nil
+        createTerminalTaskID = nil
+    }
+
+    private func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
+        generation == connectionGeneration
+            && client === remoteClient
+            && isSignedIn
+            && connectionState == .connected
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -915,11 +986,14 @@ public final class CMUXMobileShellStore {
 
     private func createRemoteWorkspace() async {
         guard let client = remoteClient else { return }
+        let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: "workspace.create")
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response)
             if let createdID = response.createdWorkspaceID {
                 setSelectedWorkspaceID(MobileWorkspacePreview.ID(rawValue: createdID), refreshSnapshot: false)
@@ -927,6 +1001,7 @@ public final class CMUXMobileShellStore {
             syncSelectedTerminalForWorkspace()
             await refreshSelectedTerminalSnapshot()
         } catch {
+            guard generation == connectionGeneration, !Task.isCancelled else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -934,6 +1009,7 @@ public final class CMUXMobileShellStore {
     private func createRemoteTerminal() async {
         guard let client = remoteClient,
               let workspaceID = selectedWorkspace?.id.rawValue else { return }
+        let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
@@ -942,12 +1018,15 @@ public final class CMUXMobileShellStore {
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if let createdID = response.createdTerminalID {
                 selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
             }
             await refreshSelectedTerminalSnapshot()
         } catch {
+            guard generation == connectionGeneration, !Task.isCancelled else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
     }
@@ -956,6 +1035,7 @@ public final class CMUXMobileShellStore {
         guard let client = remoteClient,
               let workspace = selectedWorkspace,
               let terminalID = selectedTerminalID?.rawValue else { return }
+        let generation = connectionGeneration
         guard !isRefreshingSelectedTerminalSnapshot else {
             needsSelectedTerminalSnapshotRefresh = true
             return
@@ -980,6 +1060,7 @@ public final class CMUXMobileShellStore {
                 )
             )
             let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
             replaceTerminalSnapshot(
                 workspaceID: workspace.id,
                 terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID),
@@ -992,6 +1073,7 @@ public final class CMUXMobileShellStore {
                 terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
             )
         } catch {
+            guard generation == connectionGeneration else { return }
             mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .private)")
             if Self.isTerminalSurfaceNotReady(error) {
                 if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
@@ -1026,6 +1108,7 @@ public final class CMUXMobileShellStore {
         excluding terminalID: String
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        let generation = connectionGeneration
         let excludedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
         for candidate in terminalSnapshotFallbackCandidates(
             preferredWorkspaceID: workspace.id,
@@ -1042,6 +1125,7 @@ public final class CMUXMobileShellStore {
                     )
                 )
                 let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
+                guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
                 let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? candidate.terminalID.rawValue)
                 replaceTerminalSnapshot(
                     workspaceID: candidate.workspaceID,
@@ -1055,6 +1139,7 @@ public final class CMUXMobileShellStore {
                 mobileShellLog.info("selected fallback ready terminal workspace=\(candidate.workspaceID.rawValue, privacy: .private) terminal=\(resolvedTerminalID.rawValue, privacy: .private)")
                 return true
             } catch {
+                guard generation == connectionGeneration else { return false }
                 if Self.isTerminalSurfaceNotReady(error) {
                     continue
                 }
@@ -1124,6 +1209,7 @@ public final class CMUXMobileShellStore {
             #endif
             return
         }
+        let generation = connectionGeneration
         do {
             #if DEBUG
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspace.id.rawValue, privacy: .private) terminal=\(terminalID, privacy: .private)")
@@ -1144,8 +1230,10 @@ public final class CMUXMobileShellStore {
                     ]
                 )
             )
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
             scheduleSelectedTerminalSnapshotRefresh()
         } catch {
+            guard generation == connectionGeneration else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
     }

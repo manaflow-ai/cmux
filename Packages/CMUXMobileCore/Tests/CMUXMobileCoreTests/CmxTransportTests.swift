@@ -431,6 +431,29 @@ import Testing
     }
 }
 
+@Test func networkTransportCloseCompletesInFlightReceiveWithEndOfStream() async throws {
+    let server = try NetworkEchoServer(response: Data("unused".utf8))
+    let port = try await server.start()
+    defer { server.stop() }
+
+    let route = try CmxAttachRoute(
+        id: "loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
+    )
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+
+    try await transport.connect()
+    let receiveTask = Task {
+        try await transport.receive()
+    }
+    await Task.yield()
+    await transport.close()
+
+    #expect(try await receiveTask.value == nil)
+    #expect(try await transport.receive() == nil)
+}
+
 private struct TaggedTransportFactory: CmxByteTransportFactory {
     var tag: String
 

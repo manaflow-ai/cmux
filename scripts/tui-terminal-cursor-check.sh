@@ -48,7 +48,7 @@ read_size() {
   rows="${size%% *}"
   cols="${size##* }"
 
-  if ! is_positive_int "$rows" || ! is_positive_int "$cols" || [[ "$rows" == "$cols" ]]; then
+  if ! is_positive_int "$rows" || ! is_positive_int "$cols"; then
     rows="${LINES:-0}"
     cols="${COLUMNS:-0}"
   fi

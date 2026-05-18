@@ -356,6 +356,10 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         // true Ghostty grid exporter: plain text snapshots have already lost
         // cell colors, width metadata, hyperlinks, and unsupported attributes.
         let visibleGrid = styledGrid(from: viewportText, columns: columns)
+        let sourceCursorRow = min(
+            max(visibleGrid.cursorRow, 0),
+            max(visibleGrid.rows.count - 1, 0)
+        )
         var scrollbackRows = styledRows(from: scrollbackText ?? "", columns: columns)
         if let maxScrollbackRows {
             scrollbackRows = Array(scrollbackRows.suffix(max(0, maxScrollbackRows)))
@@ -383,7 +387,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 columns: columns,
                 count: rows,
                 cursorRow: resolvedCursor.isVisible ? resolvedCursor.row : nil,
-                sourceCursorRow: visibleGrid.cursorRow
+                sourceCursorRow: sourceCursorRow
             ),
             cursor: resolvedCursor,
             modes: resolvedModes,
@@ -761,6 +765,8 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
 
         if text.hasSuffix("\n"), rows.last?.isEmpty == true {
             rows.removeLast()
+            row = max(row, 0)
+            column = 0
         }
 
         return StyledTerminalGrid(
@@ -1117,6 +1123,9 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         }
 
         let clamped = max(0, min(index, 255))
+        if clamped < base.count {
+            return base[clamped]
+        }
         if clamped >= 16, clamped <= 231 {
             let value = clamped - 16
             let red = value / 36

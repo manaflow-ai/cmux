@@ -139,6 +139,20 @@ import Testing
     #expect(snapshot.cursor.column == 0)
 }
 
+@Test func ghosttyTextBuilderKeepsTrailingNewlineCursorInsideSingleRowViewport() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-trailing-newline",
+        columns: 8,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "prompt\n"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["prompt"])
+    #expect(snapshot.cursor.row == 0)
+    #expect(snapshot.cursor.column == 0)
+}
+
 @Test func ghosttyTextBuilderKeepsTopAddressedRowsFromFullVTScreenExport() throws {
     let viewportText =
         "\u{001B}[1;1Hfirst line" +
@@ -190,6 +204,18 @@ import Testing
     #expect(snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
     #expect(snapshot.visibleRows[0].cells[4].style.foreground == nil)
     #expect(snapshot.visibleRows[1].cells[0].style.background == MobileTerminalGhosttyColor(red: 36, green: 114, blue: 200))
+}
+
+@Test func ghosttyTextBuilderClampsMalformedExtendedXtermColorIndexes() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-malformed-xterm-color",
+        columns: 12,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[38;5;-1mneg\u{001B}[0m"
+    )
+
+    #expect(snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 0, green: 0, blue: 0))
 }
 
 @Test func ghosttyTextBuilderAppliesCursorAddressingSequences() throws {
