@@ -819,7 +819,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceNameField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.y.z or your-mac.local"),
+                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "your-mac.tailnet.ts.net"),
                         text: $host
                     )
                     .focused($focusedField, equals: .host)
@@ -838,7 +838,7 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale MagicDNS name, LAN IP, or local device name. On your Mac, enable Mobile sync in cmux."))
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale MagicDNS name. For IP, LAN, or local pairing, scan a QR code or open a link from that Mac."))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG

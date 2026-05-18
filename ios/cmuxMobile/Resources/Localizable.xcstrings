@@ -11,8 +11,8 @@
     "mobile.addDevice.help" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a Tailscale MagicDNS name, LAN IP, or local device name. cmux will switch to Tailscale when available." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale MagicDNS 名、LAN IP、またはローカルデバイス名を入力してください。利用可能な場合、cmux は Tailscale に切り替えます。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a Tailscale MagicDNS name. For IP, LAN, or local pairing, scan a QR code or open a link from that Mac." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale MagicDNS 名を入力してください。IP、LAN、ローカルでペアリングするには、その Mac の QR コードをスキャンするかリンクを開いてください。" } }
       }
     },
     "mobile.addDevice.hostLabel" : {
@@ -25,8 +25,8 @@
     "mobile.addDevice.hostPlaceholder" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "your-mac.tailnet.ts.net or your-mac.local" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "your-mac.tailnet.ts.net または your-mac.local" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "your-mac.tailnet.ts.net" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "your-mac.tailnet.ts.net" } }
       }
     },
     "mobile.addDevice.invalidHost" : {
@@ -221,8 +221,8 @@
     "mobile.pairing.secureRouteRequired" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use a secure host name for your Mac, or pair with a QR/link from that Mac." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の安全なホスト名を使うか、その Mac の QR/リンクでペアリングしてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale MagicDNS 名を入力するか、その Mac の QR/リンクでペアリングしてください。" } }
       }
     },
     "mobile.pairing.unsupportedRoute" : {

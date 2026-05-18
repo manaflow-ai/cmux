@@ -582,22 +582,7 @@ public final class CMUXMobileShellStore {
                 route: directRoute
             )
         }
-
-        let discoveredRoute = try await discoverSecureManualRoute(
-            probeRoute: directRoute,
-            displayName: displayName
-        )
-        if let ticket = try? await requestManualAttachTicket(
-            route: discoveredRoute,
-            displayName: displayName
-        ) {
-            return ticket
-        }
-        return try Self.manualHostTicket(
-            displayName: displayName,
-            macDeviceID: "manual-\(host):\(port)",
-            route: discoveredRoute
-        )
+        throw MobileShellConnectionError.insecureManualRoute
     }
 
     private static func manualHostTicket(
@@ -613,33 +598,6 @@ public final class CMUXMobileShellStore {
             routes: [route],
             expiresAt: Date().addingTimeInterval(60 * 60)
         )
-    }
-
-    private func discoverSecureManualRoute(
-        probeRoute: CmxAttachRoute,
-        displayName: String
-    ) async throws -> CmxAttachRoute {
-        guard let runtime else {
-            throw MobileShellConnectionError.insecureManualRoute
-        }
-        let probeTicket = try Self.manualHostTicket(
-            displayName: displayName,
-            macDeviceID: "manual-probe",
-            route: probeRoute
-        )
-        let client = MobileCoreRPCClient(runtime: runtime, route: probeRoute, ticket: probeTicket)
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(method: "mobile.host.status")
-        )
-        let status = try MobileManualHostStatusResponse.decode(resultData)
-        let supportedKinds = Set(runtime.supportedRouteKinds)
-        let secureRoutes = status.routes.filter { route in
-            supportedKinds.contains(route.kind) && MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
-        }
-        guard let route = secureRoutes.sorted(by: Self.routeSortsBefore).first else {
-            throw MobileShellConnectionError.insecureManualRoute
-        }
-        return route
     }
 
     private func requestManualAttachTicket(
@@ -1398,7 +1356,7 @@ public final class CMUXMobileShellStore {
         case .requestTimedOut:
             return L10n.string("mobile.pairing.requestTimedOut", defaultValue: "The Mac did not respond. Check the host and port, then try again.")
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Use a secure host name for your Mac, or pair with a QR/link from that Mac.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
         case .authorizationFailed:
             return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in to cmux on your Mac with the same account, or pair with a QR/link from that Mac.")
         case .invalidResponse, .connectionClosed, .rpcError:
@@ -1492,32 +1450,6 @@ private struct MobileTerminalSnapshotCandidate: Sendable {
 private struct MobileTerminalViewportKey: Hashable, Sendable {
     var workspaceID: MobileWorkspacePreview.ID
     var terminalID: MobileTerminalPreview.ID
-}
-
-private struct MobileManualHostStatusResponse: Decodable, Sendable {
-    private struct HostService: Decodable, Sendable {
-        var routes: [CmxAttachRoute]
-    }
-
-    var routes: [CmxAttachRoute]
-
-    private enum CodingKeys: String, CodingKey {
-        case routes
-        case hostService = "host_service"
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let routes = try container.decodeIfPresent([CmxAttachRoute].self, forKey: .routes) {
-            self.routes = routes
-            return
-        }
-        routes = try container.decode(HostService.self, forKey: .hostService).routes
-    }
-
-    static func decode(_ data: Data) throws -> MobileManualHostStatusResponse {
-        try JSONDecoder().decode(MobileManualHostStatusResponse.self, from: data)
-    }
 }
 
 private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
