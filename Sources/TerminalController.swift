@@ -18152,6 +18152,23 @@ class TerminalController {
         }
     }
 
+    func clearAllMobileViewportReports(reason: String) {
+        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
+            return
+        }
+
+        for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
+            timer.cancel()
+        }
+        let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
+        mobileViewportReportsBySurfaceID.removeAll()
+        mobileViewportReportCleanupTimersBySurfaceID.removeAll()
+
+        for surfaceID in surfaceIDs {
+            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+        }
+    }
+
     private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
         guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceID),
               let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {

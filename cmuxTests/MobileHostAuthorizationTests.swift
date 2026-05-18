@@ -1,4 +1,5 @@
 import CMUXMobileCore
+@preconcurrency import Network
 import XCTest
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -382,6 +383,48 @@ final class MobileHostAuthorizationTests: XCTestCase {
                 remoteUserID: "user_local"
             )
         )
+    }
+
+    func testMobileHostConnectionCloseLeavesViewportReportsToTTL() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+
+        XCTAssertEqual(service.debugTrackedClientIDsForTesting(connectionID: connectionID), Set(["ios-client"]))
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+
+        XCTAssertNil(service.debugTrackedClientIDsForTesting(connectionID: connectionID))
+    }
+
+    func testMobileHostIgnoresStaleListenerStateCallbacks() {
+        let service = MobileHostService.shared
+        let currentGeneration = UUID()
+        let staleGeneration = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+        service.debugSetListenerStateForTesting(
+            generation: currentGeneration,
+            usesEphemeralFallback: true,
+            port: 61234
+        )
+
+        service.debugHandleListenerStateForTesting(
+            .failed(.posix(.ECONNRESET)),
+            generation: staleGeneration
+        )
+
+        XCTAssertEqual(service.debugListenerGenerationForTesting(), currentGeneration)
+        XCTAssertTrue(service.debugListenerUsesEphemeralFallbackForTesting())
+        XCTAssertEqual(service.debugListenerPortForTesting(), 61234)
+
+        service.debugHandleListenerStateForTesting(.cancelled, generation: staleGeneration)
+
+        XCTAssertEqual(service.debugListenerGenerationForTesting(), currentGeneration)
+        XCTAssertTrue(service.debugListenerUsesEphemeralFallbackForTesting())
+        XCTAssertEqual(service.debugListenerPortForTesting(), 61234)
     }
 
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {

@@ -55,13 +55,13 @@ final class MobileHostService {
         do {
             let parameters = NWParameters.tcp
             let nextListener = try makeListener(parameters: parameters, usePreferredPort: usePreferredPort)
-            nextListener.stateUpdateHandler = { state in
-                Task { @MainActor in
-                    MobileHostService.shared.handleListenerState(state)
-                }
-            }
             let generation = UUID()
             listenerGeneration = generation
+            nextListener.stateUpdateHandler = { state in
+                Task { @MainActor in
+                    MobileHostService.shared.handleListenerState(state, generation: generation)
+                }
+            }
             nextListener.newConnectionHandler = { connection in
                 Task { @MainActor in
                     MobileHostService.shared.accept(connection, generation: generation)
@@ -102,7 +102,8 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
-        clearAllConnectionClientIDs()
+        clientIDsByConnectionID.removeAll()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
@@ -199,30 +200,13 @@ final class MobileHostService {
 
     private func removeConnection(id: UUID) {
         activeConnections.removeValue(forKey: id)
-        clearClientIDs(for: id)
+        clientIDsByConnectionID.removeValue(forKey: id)
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
         var clientIDs = clientIDsByConnectionID[connectionID] ?? []
         clientIDs.insert(clientID)
         clientIDsByConnectionID[connectionID] = clientIDs
-    }
-
-    private func clearClientIDs(for connectionID: UUID) {
-        guard let clientIDs = clientIDsByConnectionID.removeValue(forKey: connectionID),
-              !clientIDs.isEmpty else {
-            return
-        }
-        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
-    }
-
-    private func clearAllConnectionClientIDs() {
-        let clientIDs = Set(clientIDsByConnectionID.values.flatMap { $0 })
-        clientIDsByConnectionID.removeAll()
-        guard !clientIDs.isEmpty else {
-            return
-        }
-        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
     }
 
     private nonisolated static func clientID(from params: [String: Any]) -> String? {
@@ -356,7 +340,11 @@ final class MobileHostService {
         }
     }
 
-    private func handleListenerState(_ state: NWListener.State) {
+    private func handleListenerState(_ state: NWListener.State, generation: UUID) {
+        guard generation == listenerGeneration else {
+            return
+        }
+
         switch state {
         case .ready:
             listenerPort = listener?.port.map { Int($0.rawValue) }
@@ -369,6 +357,7 @@ final class MobileHostService {
             listener?.stateUpdateHandler = nil
             listener?.newConnectionHandler = nil
             listener?.cancel()
+            listenerGeneration = UUID()
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
@@ -377,6 +366,7 @@ final class MobileHostService {
                 startListener(usePreferredPort: false)
             }
         case .cancelled:
+            listenerGeneration = UUID()
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
@@ -387,6 +377,56 @@ final class MobileHostService {
         }
     }
 }
+
+#if DEBUG
+extension MobileHostService {
+    func debugResetMobileLifecycleStateForTesting() {
+        listenerGeneration = UUID()
+        listenerUsesEphemeralFallback = false
+        listenerPort = nil
+        activeConnections.removeAll()
+        clientIDsByConnectionID.removeAll()
+    }
+
+    func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
+        recordClientID(clientID, for: connectionID)
+    }
+
+    func debugRemoveConnectionForTesting(id: UUID) {
+        removeConnection(id: id)
+    }
+
+    func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
+        clientIDsByConnectionID[connectionID]
+    }
+
+    func debugSetListenerStateForTesting(
+        generation: UUID,
+        usesEphemeralFallback: Bool,
+        port: Int?
+    ) {
+        listenerGeneration = generation
+        listenerUsesEphemeralFallback = usesEphemeralFallback
+        listenerPort = port
+    }
+
+    func debugHandleListenerStateForTesting(_ state: NWListener.State, generation: UUID) {
+        handleListenerState(state, generation: generation)
+    }
+
+    func debugListenerGenerationForTesting() -> UUID {
+        listenerGeneration
+    }
+
+    func debugListenerPortForTesting() -> Int? {
+        listenerPort
+    }
+
+    func debugListenerUsesEphemeralFallbackForTesting() -> Bool {
+        listenerUsesEphemeralFallback
+    }
+}
+#endif
 
 private enum MobileHostAuthorizationError: Error {
     case missingStackTokens
