@@ -1,0 +1,38 @@
+name: Linux Rust
+
+on:
+  pull_request:
+    paths:
+      - 'linux/**'
+      - '.github/workflows/linux-rust.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'linux/**'
+      - '.github/workflows/linux-rust.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - name: Format
+        working-directory: linux
+        run: cargo fmt --all -- --check
+      - name: Check
+        working-directory: linux
+        run: cargo check --workspace
+      - name: Clippy
+        working-directory: linux
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        working-directory: linux
+        run: cargo test --workspace
