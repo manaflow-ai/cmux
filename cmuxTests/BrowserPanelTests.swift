@@ -3438,7 +3438,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testRegistryNavigationRefreshDoesNotForceVisiblePortalRenderingReattach() {
+    func testRegistryNavigationRefreshSkipsVisiblePortalWithoutQueuedRepair() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -3469,29 +3469,29 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let afterFirstNavigationDisplayCount = webView.displayIfNeededCount
         let afterFirstNavigationReattachCount = webView.reattachRenderingStateCount
 
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             afterFirstNavigationDisplayCount,
             afterBindDisplayCount,
-            "Navigation completion should refresh the visible browser presentation"
+            "Navigation completion without a queued repair should not repaint the visible browser presentation"
         )
         XCTAssertEqual(
             afterFirstNavigationReattachCount,
             afterBindReattachCount,
-            "Navigation completion should not force private WebKit reattach selectors on an already-visible browser"
+            "Navigation completion without a queued repair should not force private WebKit reattach selectors"
         )
 
         BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
         advanceAnimations()
 
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             afterFirstNavigationDisplayCount,
-            "Later navigation completions should still repaint the visible portal-hosted browser"
+            "Later navigation completions without a queued repair should stay no-op"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
             afterFirstNavigationReattachCount,
-            "Later navigation completions should not keep firing private WebKit reattach selectors"
+            "Later navigation completions without a queued repair should stay selector-free"
         )
     }
 

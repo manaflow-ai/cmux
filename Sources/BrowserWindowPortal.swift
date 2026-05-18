@@ -4347,6 +4347,7 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         let forceRenderingStateReattach = webView.browserPortalHasPendingNavigationRenderingStateReattach
+        guard forceRenderingStateReattach else { return }
         let didRefresh = portal.forceRefreshWebView(
             withId: webViewId,
             reason: "navigation.didFinish",
