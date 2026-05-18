@@ -116,7 +116,8 @@ extension CMUXCLI {
         func matchesOriginal(_ candidate: MemoryAgentCandidate, original: MemoryAgentCandidate) -> Bool {
             guard candidate.pid == original.pid,
                   candidate.key == original.key,
-                  candidate.identity == original.identity else {
+                  candidate.identity == original.identity,
+                  candidate.owned else {
                 return false
             }
             if let surfaceId = original.surfaceId, candidate.surfaceId != surfaceId {
