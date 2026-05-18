@@ -2959,8 +2959,14 @@ struct CMUXCLI {
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                surfaceRaw,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
@@ -2970,6 +2976,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             let payload = try client.sendV2(method: "pane.list", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -2995,8 +3002,14 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
+            let paneId = try normalizePaneHandle(
+                paneRaw,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let paneId { params["pane_id"] = paneId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, paneId: paneId)
             let payload = try client.sendV2(method: "pane.surfaces", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3030,8 +3043,14 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
+            let paneId = try normalizePaneHandle(
+                paneRaw,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let paneId { params["pane_id"] = paneId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, paneId: paneId)
             let payload = try client.sendV2(method: "pane.focus", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
@@ -3044,6 +3063,7 @@ struct CMUXCLI {
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             if let type { params["type"] = type }
             if let url { params["url"] = url }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
@@ -3059,8 +3079,14 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
+            let paneId = try normalizePaneHandle(
+                paneRaw,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let paneId { params["pane_id"] = paneId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, paneId: paneId)
             if let type { params["type"] = type }
             if let url { params["url"] = url }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
@@ -3074,8 +3100,14 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                surfaceRaw,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
                let closedSurfaceId = (payload["surface_id"] as? String) ?? sfId {
@@ -3105,6 +3137,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             let payload = try client.sendV2(method: "surface.health", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3158,12 +3191,20 @@ struct CMUXCLI {
                 if explicitWorkspaceArg != nil {
                     return try normalizeWorkspaceHandle(workspaceArg, client: client)
                 }
+                if globalWindowOverride != nil {
+                    return nil
+                }
                 return try resolveWorkspaceIdAllowingFallback(workspaceArg, client: client)
             }()
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try {
                 if explicitSurfaceArg != nil {
-                    return try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+                    return try normalizeSurfaceHandle(
+                        surfaceArg,
+                        client: client,
+                        workspaceHandle: wsId,
+                        windowHandle: globalWindowOverride
+                    )
                 }
                 guard let wsId else { return nil }
                 return try resolveSurfaceIdAllowingFallback(
@@ -3173,6 +3214,7 @@ struct CMUXCLI {
                 )
             }()
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.trigger_flash", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -3181,6 +3223,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             let payload = try client.sendV2(method: "surface.list", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3210,8 +3253,14 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(panelRaw, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                panelRaw,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.focus", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -3252,7 +3301,9 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
-            let response = try client.sendV2(method: "workspace.current")
+            var params: [String: Any] = [:]
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params)
+            let response = try client.sendV2(method: "workspace.current", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
             } else {
@@ -3277,8 +3328,14 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                surfaceArg,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
 
             let includeScrollback = rem2.contains("--scrollback")
             if includeScrollback {
@@ -3310,8 +3367,14 @@ struct CMUXCLI {
             var params: [String: Any] = ["text": text]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                surfaceArg,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -3325,8 +3388,14 @@ struct CMUXCLI {
             var params: [String: Any] = ["key": key]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                surfaceArg,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.send_key", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -3343,8 +3412,14 @@ struct CMUXCLI {
             var params: [String: Any] = ["text": text]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                panelArg,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -3361,8 +3436,14 @@ struct CMUXCLI {
             var params: [String: Any] = ["key": key]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(panelArg, client: client, workspaceHandle: wsId)
+            let sfId = try normalizeSurfaceHandle(
+                panelArg,
+                client: client,
+                workspaceHandle: wsId,
+                windowHandle: globalWindowOverride
+            )
             if let sfId { params["surface_id"] = sfId }
+            applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId, surfaceId: sfId)
             let payload = try client.sendV2(method: "surface.send_key", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -4236,11 +4317,16 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
+        windowHandle: String? = nil,
         allowFocused: Bool = false
     ) throws -> String? {
         guard let raw else {
             if !allowFocused { return nil }
-            let ident = try client.sendV2(method: "system.identify")
+            var params: [String: Any] = [:]
+            if let windowHandle {
+                params["window_id"] = windowHandle
+            }
+            let ident = try client.sendV2(method: "system.identify", params: params)
             let focused = ident["focused"] as? [String: Any] ?? [:]
             return (focused["pane_ref"] as? String) ?? (focused["pane_id"] as? String)
         }
@@ -4257,6 +4343,8 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
+        } else if let windowHandle {
+            params["window_id"] = windowHandle
         }
         let listed = try client.sendV2(method: "pane.list", params: params)
         let items = listed["panes"] as? [[String: Any]] ?? []
@@ -4270,11 +4358,16 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
+        windowHandle: String? = nil,
         allowFocused: Bool = false
     ) throws -> String? {
         guard let raw else {
             if !allowFocused { return nil }
-            let ident = try client.sendV2(method: "system.identify")
+            var params: [String: Any] = [:]
+            if let windowHandle {
+                params["window_id"] = windowHandle
+            }
+            let ident = try client.sendV2(method: "system.identify", params: params)
             let focused = ident["focused"] as? [String: Any] ?? [:]
             return (focused["surface_ref"] as? String) ?? (focused["surface_id"] as? String)
         }
@@ -4291,6 +4384,8 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
+        } else if let windowHandle {
+            params["window_id"] = windowHandle
         }
         let listed = try client.sendV2(method: "surface.list", params: params)
         let items = listed["surfaces"] as? [[String: Any]] ?? []
@@ -10717,6 +10812,20 @@ struct CMUXCLI {
         // When --window is explicitly targeted, don't fall back to env workspace from a different window
         if windowOverride != nil { return nil }
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+    }
+
+    private func applyWindowOverrideIfUntargeted(
+        _ windowOverride: String?,
+        to params: inout [String: Any],
+        workspaceId: String? = nil,
+        paneId: String? = nil,
+        surfaceId: String? = nil
+    ) {
+        guard let windowOverride,
+              workspaceId == nil,
+              paneId == nil,
+              surfaceId == nil else { return }
+        params["window_id"] = windowOverride
     }
 
     private func applyWindowOrCallerContext(to params: inout [String: Any], client: SocketClient, windowRaw: String?) throws {

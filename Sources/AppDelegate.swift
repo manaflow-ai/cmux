@@ -5763,8 +5763,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch command {
         case .toggle:
-            guard target.isActiveTarget || preferredWindow != nil else {
-                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            if !target.isActiveTarget {
+                state.toggle()
+                return .ok
             }
             guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
                 return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
@@ -5775,8 +5776,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !state.isVisible else {
                 return .ok
             }
-            guard target.isActiveTarget || preferredWindow != nil else {
-                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            if !target.isActiveTarget {
+                state.setVisible(true)
+                return .ok
             }
             guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
                 return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))

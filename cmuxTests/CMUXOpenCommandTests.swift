@@ -203,6 +203,60 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual((payloads.first?["params"] as? [String: Any])?["window_id"] as? String, "window:2")
     }
 
+    func testGlobalWindowOptionRoutesSendWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-send")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            if method == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+            guard method == "surface.send_text" else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard params["window_id"] as? String == "window:2",
+                  params["workspace_id"] == nil,
+                  params["surface_id"] == nil,
+                  params["text"] as? String == "echo hi" else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-routing",
+                    "message": "\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "window_id": "window-uuid",
+                "workspace_id": "workspace-uuid",
+                "surface_id": "surface-uuid"
+            ])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "send", "echo hi"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let payloads = state.commands.compactMap { Self.v2Payload(from: $0) }
+        XCTAssertEqual(payloads.compactMap { $0["method"] as? String }, ["surface.send_text"])
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")
