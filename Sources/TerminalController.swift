@@ -6064,6 +6064,9 @@ class TerminalController {
     }
 
     private func v2SurfaceResumeSet(params: [String: Any]) -> V2CallResult {
+        if let error = v2SurfaceResumeTargetValidationError(params: params) {
+            return error
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: Self.v2WindowUnavailableMessage, data: nil)
         }
@@ -6105,6 +6108,9 @@ class TerminalController {
     }
 
     private func v2SurfaceResumeGet(params: [String: Any]) -> V2CallResult {
+        if let error = v2SurfaceResumeTargetValidationError(params: params) {
+            return error
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: Self.v2WindowUnavailableMessage, data: nil)
         }
@@ -6127,6 +6133,9 @@ class TerminalController {
     }
 
     private func v2SurfaceResumeClear(params: [String: Any]) -> V2CallResult {
+        if let error = v2SurfaceResumeTargetValidationError(params: params) {
+            return error
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: Self.v2WindowUnavailableMessage, data: nil)
         }
@@ -6174,6 +6183,15 @@ class TerminalController {
     }
 
     private static let v2WindowUnavailableMessage = "cmux window is not available. Reopen the window and try again."
+
+    private func v2SurfaceResumeTargetValidationError(params: [String: Any]) -> V2CallResult? {
+        for key in ["window_id", "workspace_id", "surface_id"] {
+            if v2HasNonNullParam(params, key), v2UUID(params, key) == nil {
+                return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
+            }
+        }
+        return nil
+    }
 
     @MainActor
     private func v2ResolveSurfaceResumeTarget(

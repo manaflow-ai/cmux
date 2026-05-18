@@ -176,6 +176,58 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanelId))
     }
 
+    func testSurfaceResumeRejectsMalformedSurfaceIdWithoutFocusedFallback() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(command: "echo keep", source: "test"),
+            panelId: panelId
+        ))
+
+        for method in ["surface.resume.set", "surface.resume.clear"] {
+            var params: [String: Any] = [
+                "window_id": windowId.uuidString,
+                "surface_id": "not-a-surface"
+            ]
+            if method == "surface.resume.set" {
+                params["command"] = "echo bad"
+            }
+
+            let (raw, envelope) = try v2Envelope(method: method, params: params)
+
+            XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
+            let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
+            XCTAssertEqual(error["code"] as? String, "invalid_params", raw)
+            XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.command, "echo keep")
+        }
+    }
+
     func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
