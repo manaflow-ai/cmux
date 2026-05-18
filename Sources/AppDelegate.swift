@@ -11468,6 +11468,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
+            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
+            flags: event.modifierFlags
+        ) {
+            return false
+        }
+
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
             return true

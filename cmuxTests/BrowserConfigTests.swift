@@ -3272,6 +3272,51 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
         )
     }
 
+    func testMarkedTextBypassesOmnibarShortcutRoutingUnlessCommandModified() {
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.control]
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.function]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.command]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: false,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: false,
+                flags: []
+            )
+        )
+    }
+
     func testControlNavigationRepeatLifecycleRequiresControlOnly() {
         XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
         XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
