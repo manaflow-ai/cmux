@@ -12394,6 +12394,11 @@ struct CMUXCLI {
         return String(repeating: " ", count: width - value.count) + value
     }
 
+    func padRight(_ value: String, width: Int) -> String {
+        guard value.count < width else { return value }
+        return value + String(repeating: " ", count: width - value.count)
+    }
+
     func topInt(_ raw: Any?) -> Int? {
         Self.topIntValue(raw)
     }
@@ -12405,21 +12410,14 @@ struct CMUXCLI {
         if let value = raw as? Int64 {
             return Int(exactly: value)
         }
+        if let value = raw as? NSNumber {
+            return topInt64NumberValue(value).flatMap { Int(exactly: $0) }
+        }
         if let value = raw as? Double {
             return Int(exactly: value)
         }
         if let value = raw as? Float {
             return Int(exactly: Double(value))
-        }
-        if let value = raw as? NSNumber {
-            let text = value.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let parsed = Int64(text) {
-                return Int(exactly: parsed)
-            }
-            if let parsed = Double(text) {
-                return Int(exactly: parsed)
-            }
-            return nil
         }
         if let value = raw as? String {
             return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -12438,28 +12436,35 @@ struct CMUXCLI {
         if let value = raw as? Int {
             return Int64(value)
         }
+        if let value = raw as? NSNumber {
+            return topInt64NumberValue(value) ?? 0
+        }
         if let value = raw as? Double {
             return Int64(exactly: value) ?? 0
         }
         if let value = raw as? Float {
             return Int64(exactly: Double(value)) ?? 0
         }
-        if let value = raw as? NSNumber {
-            let text = value.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let parsed = Int64(text) {
-                return parsed
-            }
-            if let parsed = Double(text),
-               let exact = Int64(exactly: parsed) {
-                return exact
-            }
-            return 0
-        }
         if let value = raw as? String,
            let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return parsed
         }
         return 0
+    }
+
+    private static func topInt64NumberValue(_ value: NSNumber) -> Int64? {
+        let number = value as CFNumber
+        if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            return value.boolValue ? 1 : 0
+        }
+        if CFNumberIsFloatType(number) {
+            return Int64(exactly: value.doubleValue)
+        }
+        var integer: Int64 = 0
+        guard CFNumberGetValue(number, .sInt64Type, &integer) else {
+            return nil
+        }
+        return integer
     }
 
     func topDouble(_ raw: Any?) -> Double {

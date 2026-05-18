@@ -110,7 +110,7 @@ extension CMUXCLI {
             let workspaceId = (workspace["id"] as? String) ?? workspaceHandle
             let workspaceRef = workspace["ref"] as? String
             let candidates = memoryAgentCandidates(in: workspace)
-            guard let candidate = selectMemoryAgentCandidate(candidates, requested: options.agent) else {
+            guard let candidate = try selectMemoryAgentCandidate(candidates, requested: options.agent) else {
                 throw CLIError(message: memoryNoAgentMessage(candidates: candidates, requested: options.agent))
             }
 
@@ -119,6 +119,7 @@ extension CMUXCLI {
             var terminated = false
             var killed = false
             var attemptedShutdown = false
+            var processExited = false
 
             if !options.dryRun {
                 if let graceful {
@@ -131,13 +132,13 @@ extension CMUXCLI {
                         _ = try client.sendV2(method: "surface.send_text", params: params)
                         gracefulAction = graceful.label
                         attemptedShutdown = true
-                        _ = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
+                        processExited = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
                     } catch {
                         gracefulAction = nil
                     }
                 }
 
-                if let liveCandidate = try revalidatedSignalCandidate(
+                if !processExited, let liveCandidate = try revalidatedSignalCandidate(
                     matching: candidate,
                     workspaceHandle: workspaceHandle
                 ) {
@@ -145,10 +146,10 @@ extension CMUXCLI {
                         terminated = true
                         attemptedShutdown = true
                     }
-                    _ = waitForProcessExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                    processExited = waitForProcessExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
 
-                if let liveCandidate = try revalidatedSignalCandidate(
+                if !processExited, let liveCandidate = try revalidatedSignalCandidate(
                     matching: candidate,
                     workspaceHandle: workspaceHandle
                 ) {
@@ -404,25 +405,38 @@ extension CMUXCLI {
         private func selectMemoryAgentCandidate(
             _ candidates: [MemoryAgentCandidate],
             requested: String?
-        ) -> MemoryAgentCandidate? {
+        ) throws -> MemoryAgentCandidate? {
             guard let requestedRaw = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !requestedRaw.isEmpty,
                   requestedRaw.lowercased() != "auto" else {
                 return candidates.first { $0.owned }
             }
             if let pid = Int(requestedRaw) {
-                return candidates.first { $0.pid == pid }
+                guard let candidate = candidates.first(where: { $0.pid == pid }) else {
+                    return nil
+                }
+                guard candidate.owned else {
+                    throw CLIError(message: "memory trim refused PID \(pid) because it is not a cmux-owned recoverable agent")
+                }
+                return candidate
             }
             let normalized = memoryAgentKey(for: requestedRaw) ?? requestedRaw.lowercased()
-            return candidates.first {
+            guard let candidate = candidates.first(where: {
                 $0.key == normalized ||
                     $0.processName?.lowercased() == normalized
+            }) else {
+                return nil
             }
+            guard candidate.owned else {
+                throw CLIError(message: "memory trim refused agent '\(requestedRaw)' because it is not a cmux-owned recoverable agent")
+            }
+            return candidate
         }
 
         private func memoryNoAgentMessage(candidates: [MemoryAgentCandidate], requested: String?) -> String {
+            let recoverableCandidates = candidates.filter(\.owned)
             if let requested, !requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let available = candidates.map { "\($0.key):\($0.pid)" }.joined(separator: ", ")
+                let available = recoverableCandidates.map { "\($0.key):\($0.pid)" }.joined(separator: ", ")
                 return available.isEmpty
                     ? "memory trim found no recoverable agent PIDs in this workspace"
                     : "memory trim could not find agent '\(requested)'. Available: \(available)"

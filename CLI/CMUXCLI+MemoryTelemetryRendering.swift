@@ -16,7 +16,7 @@ extension CMUXCLI {
             let proc = padLeft(String(sample.processCount), width: 5)
             let title = sample.workspaceTitle.isEmpty ? "-" : sample.workspaceTitle
             let processes = sample.topProcessNames.isEmpty ? "-" : sample.topProcessNames.joined(separator: ",")
-            lines.append("\(rss)  \(mem)  \(cpu)  \(proc)  \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title)  \(processes)")
+            lines.append("\(rss)  \(mem)  \(cpu)  \(proc)  \(padRight(handle, width: 15)) \(title)  \(processes)")
         }
         return lines.joined(separator: "\n")
     }
@@ -39,7 +39,7 @@ extension CMUXCLI {
             let samples = padLeft(String(topInt(row["sample_count"]) ?? 0), width: 7)
             let lastSample = (row["last_sampled_at"] as? String) ?? "-"
             let title = topLabelText(row["workspace_title"] as? String)
-            lines.append("\(peakRSS)  \(avgRSS)  \(peakMem)  \(avgMem)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(handle.padding(toLength: 15, withPad: " ", startingAt: 0)) \(title.isEmpty ? "-" : title)")
+            lines.append("\(peakRSS)  \(avgRSS)  \(peakMem)  \(avgMem)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(padRight(handle, width: 15)) \(title.isEmpty ? "-" : title)")
         }
         return lines.joined(separator: "\n")
     }

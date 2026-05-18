@@ -930,6 +930,88 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimExplicitSelectionRejectsProcessNameFallbackWithoutOwnedTag() throws {
+        let cliPath = try bundledCLIPath()
+        let cases = [
+            ("pid", "737373"),
+            ("name", "codex"),
+        ]
+
+        for testCase in cases {
+            let socketPath = makeSocketPath("mem-trim-explicit-\(testCase.0)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                guard method == "system.top" else {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: self.memorySystemTopFixture(
+                        workspaceId: "88888888-8888-8888-8888-888888888888",
+                        workspaceRef: "workspace:9",
+                        surfaceId: "99999999-9999-9999-9999-999999999999",
+                        agentKey: "codex",
+                        agentPID: 737_373,
+                        secretCommandLine: "/usr/local/bin/codex --secret ignored",
+                        includeAgentTag: false
+                    )
+                )
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "memory",
+                    "trim",
+                    "--workspace",
+                    "workspace:9",
+                    "--agent",
+                    testCase.1,
+                    "--dry-run",
+                    "--json",
+                    "--id-format",
+                    "uuids",
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertNotEqual(result.status, 0)
+            XCTAssertTrue(result.stderr.contains("not a cmux-owned recoverable agent"), result.stderr)
+            XCTAssertFalse(
+                state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+                "explicit trim must not act on process-name-only fallback candidates, saw \(state.commands)"
+            )
+            XCTAssertEqual(
+                state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+                ["system.top"]
+            )
+        }
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
