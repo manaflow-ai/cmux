@@ -6863,7 +6863,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.refresh(
                 webView: webView,
-                reason: "portalHostBind.didMoveToWindow"
+                reason: "portalHostBind.didMoveToWindow",
+                forceRenderingStateReattach: true
             )
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
@@ -6899,7 +6900,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 BrowserWindowPortalRegistry.refresh(
                     webView: webView,
-                    reason: "portalHostBind.geometryChanged"
+                    reason: "portalHostBind.geometryChanged",
+                    forceRenderingStateReattach: true
                 )
                 BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                     for: webView,
@@ -6945,7 +6947,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // web view is reparented to a new container during bind.
                 BrowserWindowPortalRegistry.refresh(
                     webView: webView,
-                    reason: "portalHostBind"
+                    reason: "portalHostBind",
+                    forceRenderingStateReattach: true
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
