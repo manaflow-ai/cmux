@@ -151,6 +151,7 @@ final class AuthManager: ObservableObject {
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let settingsStore: AuthSettingsStore
     private let urlOpener: (URL) -> Void
+    private let credentialSignIn: @Sendable (_ email: String, _ password: String) async throws -> SignInResult
 
     /// Resolves when the on-launch session restoration finishes (success or failure).
     /// Any probe that needs a definitive `isAuthenticated` value must `await` this
@@ -163,12 +164,16 @@ final class AuthManager: ObservableObject {
         client: (any AuthClientProtocol)? = nil,
         tokenStore: any StackAuthTokenStoreProtocol = KeychainStackTokenStore(),
         settingsStore: AuthSettingsStore = AuthSettingsStore(),
-        urlOpener: ((URL) -> Void)? = nil
+        urlOpener: ((URL) -> Void)? = nil,
+        credentialSignIn: (@Sendable (_ email: String, _ password: String) async throws -> SignInResult)? = nil
     ) {
         self.tokenStore = tokenStore
         self.settingsStore = settingsStore
         self.client = client ?? Self.makeDefaultClient(tokenStore: tokenStore)
         self.urlOpener = urlOpener ?? Self.defaultURLOpener
+        self.credentialSignIn = credentialSignIn ?? { email, password in
+            try await Self.signInWithCredentialDirectly(email: email, password: password)
+        }
         let cachedUser = settingsStore.cachedUser()
         self.currentUser = cachedUser
         self.selectedTeamID = settingsStore.selectedTeamID
@@ -207,6 +212,11 @@ final class AuthManager: ObservableObject {
     #if DEBUG
     func markBrowserSignInLoadingForTesting() {
         _ = startBrowserSignInAttempt()
+    }
+
+    func markCredentialSignInLoadingForTesting() {
+        _ = beginAuthMutation(.signIn)
+        isLoading = true
     }
     #endif
 
@@ -597,6 +607,12 @@ final class AuthManager: ObservableObject {
 
     func applySignInResult(_ result: SignInResult) async {
         let mutationGeneration = beginAuthMutation(.signIn)
+        isLoading = true
+        defer {
+            if isCurrentAuthMutation(mutationGeneration) {
+                isLoading = false
+            }
+        }
         await tokenStore.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
         guard await keepAuthMutationIfCurrent(
             mutationGeneration,
@@ -606,15 +622,7 @@ final class AuthManager: ObservableObject {
             return
         }
 
-        lastKnownAccessToken = result.accessToken
-        let user = CMUXAuthUser(id: result.userId, primaryEmail: result.email, displayName: result.displayName)
-        currentUser = user
-        settingsStore.saveCachedUser(user)
-        availableTeams = result.teams
-        isAuthenticated = true
-        selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: result.teams)
-        didCompleteBrowserSignIn = true
-        lastSignInError = nil
+        publishSignInResult(result)
         authLog("applySignInResult: user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
     }
 
@@ -632,83 +640,38 @@ final class AuthManager: ObservableObject {
         // Sign in directly via the Stack Auth API and store tokens ourselves,
         // bypassing the StackClientApp which has token refresh issues.
         do {
-            let json = try await Self.stackAPIRequest(
-                url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/auth/password/sign-in",
-                body: try JSONSerialization.data(withJSONObject: ["email": email, "password": password]),
-                projectID: AuthEnvironment.stackProjectID,
-                clientKey: AuthEnvironment.stackPublishableClientKey
-            )
-            guard let accessToken = json["access_token"] as? String,
-                  let refreshToken = json["refresh_token"] as? String else {
-                throw AuthManagerError.invalidCallback
-            }
-            await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+            let result = try await credentialSignIn(email, password)
+            await tokenStore.setTokens(accessToken: result.accessToken, refreshToken: result.refreshToken)
             guard await keepAuthMutationIfCurrent(
                 mutationGeneration,
-                accessToken: accessToken,
-                refreshToken: refreshToken
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken
             ) else {
                 throw AuthMutationSupersededError()
             }
-            lastKnownAccessToken = accessToken
-
-            // Fetch user info directly with the access token
-            let userJSON = try await Self.stackAPIRequest(
-                url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/users/me",
-                body: Data(),
-                projectID: AuthEnvironment.stackProjectID,
-                clientKey: AuthEnvironment.stackPublishableClientKey,
-                extraHeaders: ["x-stack-access-token": accessToken],
-                method: "GET"
-            )
-            let user = CMUXAuthUser(
-                id: userJSON["id"] as? String ?? "",
-                primaryEmail: userJSON["primary_email"] as? String,
-                displayName: userJSON["display_name"] as? String
-            )
-
-            // Fetch teams
-            let teamsJSON = try await Self.stackAPIRequest(
-                url: "\(AuthEnvironment.stackBaseURL.absoluteString)/api/v1/teams?user_id=me",
-                body: Data(),
-                projectID: AuthEnvironment.stackProjectID,
-                clientKey: AuthEnvironment.stackPublishableClientKey,
-                extraHeaders: ["x-stack-access-token": accessToken],
-                method: "GET"
-            )
-            var teams: [AuthTeamSummary] = []
-            if let items = teamsJSON["items"] as? [[String: Any]] {
-                for item in items {
-                    if let id = item["id"] as? String {
-                        teams.append(AuthTeamSummary(
-                            id: id,
-                            displayName: item["display_name"] as? String ?? ""
-                        ))
-                    }
-                }
-            }
-
-            guard await keepAuthMutationIfCurrent(
-                mutationGeneration,
-                accessToken: accessToken,
-                refreshToken: refreshToken
-            ) else {
-                throw AuthMutationSupersededError()
-            }
-            currentUser = user
-            settingsStore.saveCachedUser(user)
-            availableTeams = teams
-            isAuthenticated = true
-            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
-            lastSignInError = nil
-            authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
-            didCompleteBrowserSignIn = true
+            publishSignInResult(result)
+            authLog("signInWithCredential: success user=\(result.email ?? "nil") teams=\(result.teams.count) teamID=\(selectedTeamID ?? "nil")")
+        } catch is AuthMutationSupersededError {
+            authLog("signInWithCredential: superseded by a newer auth mutation")
+            return
         } catch {
             if isCurrentAuthMutation(mutationGeneration) {
                 lastSignInError = Self.signInError(from: error)
             }
             throw error
         }
+    }
+
+    private func publishSignInResult(_ result: SignInResult) {
+        lastKnownAccessToken = result.accessToken
+        let user = CMUXAuthUser(id: result.userId, primaryEmail: result.email, displayName: result.displayName)
+        currentUser = user
+        settingsStore.saveCachedUser(user)
+        availableTeams = result.teams
+        isAuthenticated = true
+        selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: result.teams)
+        didCompleteBrowserSignIn = true
+        lastSignInError = nil
     }
 
     func signOut() async {

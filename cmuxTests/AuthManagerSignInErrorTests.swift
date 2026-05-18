@@ -115,6 +115,75 @@ final class AuthManagerSignInErrorTests: XCTestCase {
         XCTAssertNil(storedRefreshToken)
     }
 
+    func testApplySignInResultClearsSupersededCredentialLoadingState() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.ApplyClearsLoading.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AuthManager(
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markCredentialSignInLoadingForTesting()
+        XCTAssertTrue(manager.isLoading)
+
+        await manager.applySignInResult(makeSignInResult())
+
+        XCTAssertTrue(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNil(manager.lastSignInError)
+    }
+
+    func testSupersededCredentialSignInDoesNotLeakInternalError() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.CredentialSuperseded.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = TestTokenStore()
+        let credentialSignIn = BlockingCredentialSignIn(result: makeSignInResult())
+        let manager = AuthManager(
+            client: TestAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults),
+            credentialSignIn: { _, _ in
+                try await credentialSignIn.signIn()
+            }
+        )
+        await manager.awaitBootstrapped()
+
+        let signInTask = Task {
+            try await manager.signInWithCredential(email: "user@example.com", password: "password")
+        }
+        await credentialSignIn.waitForRequest()
+        XCTAssertTrue(manager.isLoading)
+
+        await manager.signOut()
+        await credentialSignIn.release()
+
+        do {
+            try await signInTask.value
+        } catch {
+            XCTFail("Expected superseded credential sign-in to return without leaking an internal error, got \(error)")
+        }
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNil(manager.currentUser)
+        XCTAssertNil(manager.lastSignInError)
+        let storedAccessToken = await tokenStore.currentAccessToken()
+        let storedRefreshToken = await tokenStore.currentRefreshToken()
+        XCTAssertNil(storedAccessToken)
+        XCTAssertNil(storedRefreshToken)
+    }
+
     func testStaleCallbackFailureDoesNotOverwriteSignOutState() async throws {
         let suiteName = "AuthManagerSignInErrorTests.StaleCallbackFailure.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -152,6 +221,54 @@ private struct TestAuthClient: AuthClientProtocol {
     func listTeams() async throws -> [AuthTeamSummary] { [] }
     func currentAccessToken() async throws -> String? { nil }
     func signOut() async throws {}
+}
+
+private func makeSignInResult() -> AuthManager.SignInResult {
+    AuthManager.SignInResult(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        email: "user@example.com",
+        displayName: "Test User",
+        userId: "user-id",
+        selectedTeamId: nil,
+        teams: []
+    )
+}
+
+private actor BlockingCredentialSignIn {
+    private let result: AuthManager.SignInResult
+    private var signInContinuation: CheckedContinuation<AuthManager.SignInResult, any Error>?
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(result: AuthManager.SignInResult) {
+        self.result = result
+    }
+
+    func signIn() async throws -> AuthManager.SignInResult {
+        try await withCheckedThrowingContinuation { continuation in
+            signInContinuation = continuation
+            let waiters = requestWaiters
+            requestWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    func waitForRequest() async {
+        if signInContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let continuation = signInContinuation
+        signInContinuation = nil
+        continuation?.resume(returning: result)
+    }
 }
 
 private actor BlockingFailureAuthClient: AuthClientProtocol {
