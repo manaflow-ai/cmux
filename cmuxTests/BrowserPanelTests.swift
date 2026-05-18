@@ -3061,10 +3061,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             initialReattachCount,
             "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
         )
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             hiddenHiddenCount,
             initialHiddenCount,
-            "Hiding a portal-hosted browser should keep WebKit's window render state attached"
+            "Hiding a portal-hosted browser should explicitly mark WebKit's render state hidden before reveal"
         )
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,

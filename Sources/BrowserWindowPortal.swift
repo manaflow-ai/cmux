@@ -3477,8 +3477,15 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
-            // Tab/workspace visibility changes suppress the portal slot without sending
-            // WebKit through `_exitInWindow`; the WKWebView stays in the window render tree.
+            if !containerView.isPortalHidden {
+                notifyHostedWebKitHidden(
+                    in: containerView,
+                    primaryWebView: webView,
+                    reason: reason
+                )
+            }
+            // Tab/workspace visibility changes keep the WKWebView in the AppKit
+            // tree while explicitly pairing WebKit's hidden/reveal render-state hooks.
             containerView.setPortalHidden(true)
         }
         func scheduleTransientDetachRecovery(reason: String) -> Bool {
