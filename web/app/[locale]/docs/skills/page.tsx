@@ -16,6 +16,14 @@ const skills = [
     useKey: "cmuxUse",
   },
   {
+    id: "cmux-automate",
+    path: "skills/cmux-automate/SKILL.md",
+    command: "cmux tree",
+    nameKey: "automateName",
+    descriptionKey: "automateDescription",
+    useKey: "automateUse",
+  },
+  {
     id: "cmux-workspace",
     path: "skills/cmux-workspace/SKILL.md",
     command: "cmux current-workspace --json",
@@ -71,6 +79,12 @@ const skillCoverage = [
     nameKey: "cmuxName",
     scopeKey: "cmuxScope",
     referencesKey: "cmuxReferences",
+  },
+  {
+    id: "cmux-automate",
+    nameKey: "automateName",
+    scopeKey: "automateScope",
+    referencesKey: "automateReferences",
   },
   {
     id: "cmux-workspace",
@@ -207,8 +221,8 @@ export default function SkillsPage() {
       <CodeBlock title={t("installWithVercel")} lang="bash">{`# Install all cmux skills
 npx skills add manaflow-ai/cmux -g -y
 
-# Or install just diagnostics
-npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
+# Or install just automation
+npx skills add manaflow-ai/cmux --skill cmux-automate -g -y`}</CodeBlock>
       <CodeBlock title={t("installWithSkillsSh")} lang="bash">{`curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash`}</CodeBlock>
       <Callout type="info">
         {t.rich("installDestination", {
@@ -220,7 +234,7 @@ npx skills add manaflow-ai/cmux --skill cmux-diagnostics -g -y`}</CodeBlock>
       <p>{t("localInstallIntro")}</p>
       <CodeBlock title={t("localInstallCommands")} lang="bash">{`./skills.sh
 ./skills.sh --list
-./skills.sh --skill cmux --skill cmux-browser
+./skills.sh --skill cmux --skill cmux-automate --skill cmux-browser
 ./skills.sh --dest ~/.codex/skills
 ./skills.sh --dry-run`}</CodeBlock>
       <p>{t("pinRefIntro")}</p>
