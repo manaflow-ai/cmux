@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Bindingen er knyttet til cmux-surfacen og kjøres etter sesjonsgjenoppretting når automatisk gjenopptak er aktivert.
+Bindingen forblir knyttet til cmux-surfacen. Bindinger opprettet via offentlig CLI eller socket lagres for inspeksjon og manuell gjenopptakelse. cmux auto-kjører bare resume-bindinger den markerer som klarerte, for eksempel tmux-bindinger oppdaget fra levende prosesser.
 
 ## Stjernehistorikk
 

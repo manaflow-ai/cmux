@@ -281,8 +281,9 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-The binding is associated with the cmux surface and runs after session restore
-when automatic resume is enabled.
+The binding stays attached to the cmux surface. Public CLI or socket-created
+bindings are stored for inspection and manual restore. cmux only auto-runs
+resume bindings it marks trusted, such as live process-detected tmux bindings.
 
 To keep restored agent terminals idle instead of automatically running their resume commands,
 turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set this in

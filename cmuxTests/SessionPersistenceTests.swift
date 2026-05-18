@@ -3646,6 +3646,42 @@ extension SessionPersistenceTests {
         )
     }
 
+    @MainActor
+    func testAutosaveFingerprintIncludesSurfaceResumeBindingAutoResumeTrust() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let untrustedIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let trustedIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: untrustedIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: trustedIndex)
+        )
+    }
+
     func testSurfaceResumeBindingPreservesExactEnvironmentValues() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",
@@ -3674,6 +3710,7 @@ extension SessionPersistenceTests {
                 cwd: "/tmp/new",
                 checkpointId: "script",
                 source: "cli",
+                autoResume: true,
                 updatedAt: 10
             ),
         ])
@@ -3692,6 +3729,38 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testRestoreDoesNotRunUntrustedSurfaceResumeBindingByDefault() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/sticky",
+                checkpointId: "script",
+                source: "cli",
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.command,
+            "./resume.sh"
+        )
+    }
+
+    @MainActor
     func testRestoreScopesSurfaceResumeBindingEnvironmentToInitialInput() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
@@ -3707,6 +3776,7 @@ extension SessionPersistenceTests {
                     "CODEX_HOME": "/tmp/codex home",
                     "EMPTY": "",
                 ],
+                autoResume: true,
                 updatedAt: 10
             ),
         ])
@@ -3744,6 +3814,7 @@ extension SessionPersistenceTests {
                 environment: [
                     "CODEX_HOME": "/tmp/codex home",
                 ],
+                autoResume: true,
                 updatedAt: 10
             ),
         ])
@@ -3918,6 +3989,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(binding.kind, "tmux")
         XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.allowsAutomaticResume, true)
         XCTAssertEqual(binding.checkpointId, "work")
         XCTAssertEqual(binding.cwd, "/tmp/project")
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")

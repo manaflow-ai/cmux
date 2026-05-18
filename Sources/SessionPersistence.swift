@@ -229,6 +229,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var checkpointId: String?
     var source: String?
     var environment: [String: String]?
+    var autoResume: Bool?
     var updatedAt: TimeInterval
 
     init(
@@ -239,6 +240,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         checkpointId: String? = nil,
         source: String? = nil,
         environment: [String: String]? = nil,
+        autoResume: Bool? = nil,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         self.name = Self.normalized(name)
@@ -248,11 +250,16 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.checkpointId = Self.normalized(checkpointId)
         self.source = Self.normalized(source)
         self.environment = Self.normalizedEnvironment(environment)
+        self.autoResume = autoResume
         self.updatedAt = updatedAt
     }
 
     var isProcessDetected: Bool {
         source == "process-detected"
+    }
+
+    var allowsAutomaticResume: Bool {
+        autoResume == true
     }
 
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes

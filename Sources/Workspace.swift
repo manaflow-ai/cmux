@@ -589,6 +589,7 @@ extension Workspace {
         allowLauncherScript: Bool = false
     ) -> String? {
         guard let resumeBinding else { return nil }
+        guard resumeBinding.allowsAutomaticResume else { return nil }
         if resumeBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }

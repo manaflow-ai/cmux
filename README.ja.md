@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-この紐づけはcmuxサーフェスに保存され、自動復元が有効な場合にセッション復元後に実行されます。
+この紐づけはcmuxサーフェスに保存されます。公開CLIやsocketで作成された紐づけは確認と手動復元用に保存されます。cmuxが自動実行するのは、実行中プロセスから検出したtmux紐づけなど、信頼済みとして扱う復元紐づけだけです。
 
 ## Star History
 

@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Bu binding cmux surface'ine bağlıdır ve otomatik resume açıkken oturum geri yüklemesinden sonra çalışır.
+Bu binding cmux surface'ine bağlı kalır. Genel CLI veya socket ile oluşturulan bindingler inceleme ve manuel resume için saklanır. cmux yalnızca güvenilir olarak işaretlediği resume bindinglerini otomatik çalıştırır, örneğin canlı processlerden algılanan tmux bindingleri.
 
 ## Yıldız Geçmişi
 

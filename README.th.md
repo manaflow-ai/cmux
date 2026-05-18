@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-binding นี้จะเชื่อมกับ cmux surface และทำงานหลังการกู้คืนเซสชันเมื่อเปิด automatic resume ไว้
+binding นี้ยังเชื่อมกับ cmux surface อยู่ binding ที่สร้างผ่าน public CLI หรือ socket จะถูกเก็บไว้สำหรับตรวจสอบและ resume ด้วยตนเอง cmux จะ auto-run เฉพาะ resume binding ที่ถูกทำเครื่องหมายว่า trusted เช่น tmux binding ที่ตรวจพบจาก process ที่กำลังทำงาน
 
 ## ประวัติดาว
 

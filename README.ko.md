@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-이 binding은 cmux surface에 연결되며 자동 resume이 켜져 있으면 세션 복원 후 실행됩니다.
+이 binding은 cmux surface에 계속 연결됩니다. 공개 CLI나 socket으로 만든 binding은 확인과 수동 resume용으로 저장됩니다. cmux는 실행 중인 프로세스에서 감지한 tmux binding처럼 신뢰됨으로 표시한 resume binding만 자동 실행합니다.
 
 ## Star History
 

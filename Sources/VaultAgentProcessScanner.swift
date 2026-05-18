@@ -597,6 +597,7 @@ extension SurfaceResumeBindingIndex {
             cwd: cwd,
             checkpointId: invocation.sessionName,
             source: "process-detected",
+            autoResume: true,
             updatedAt: capturedAt
         )
     }

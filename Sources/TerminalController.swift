@@ -6268,6 +6268,7 @@ class TerminalController {
             "checkpoint_id": v2OrNull(binding.checkpointId),
             "source": v2OrNull(binding.source),
             "environment": v2OrNull(binding.environment),
+            "auto_resume": binding.allowsAutomaticResume,
             "updated_at": binding.updatedAt
         ]
     }

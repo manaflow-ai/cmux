@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Die Bindung gehört zur cmux-Surface und wird nach der Sitzungswiederherstellung ausgeführt, wenn automatische Wiederaufnahme aktiviert ist.
+Die Bindung bleibt mit der cmux-Surface verknüpft. Über öffentliche CLI oder Socket erstellte Bindungen werden zur Prüfung und manuellen Wiederaufnahme gespeichert. cmux startet nur Wiederaufnahme-Bindungen automatisch, die als vertrauenswürdig markiert sind, zum Beispiel aus laufenden Prozessen erkannte tmux-Bindungen.
 
 ## Star-Verlauf
 

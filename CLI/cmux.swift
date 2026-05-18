@@ -10036,7 +10036,8 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume clear [flags]
 
-            Attach a restart command to a terminal surface.
+            Attach restart command metadata to a terminal surface.
+            Public CLI bindings are stored for inspection and manual restore.
 
             Flags:
               --workspace <id|ref>     Workspace context (default: $CMUX_WORKSPACE_ID)

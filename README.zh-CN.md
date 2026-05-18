@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-这个绑定会关联到 cmux surface，并在启用自动恢复时于会话恢复后运行。
+这个绑定会继续关联到 cmux surface。通过公开 CLI 或 socket 创建的绑定会保存用于检查和手动恢复。cmux 只会自动运行被标记为可信的恢复绑定，例如从运行中进程检测到的 tmux 绑定。
 
 ## Star History
 

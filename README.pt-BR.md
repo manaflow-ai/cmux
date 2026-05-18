@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-A associação fica ligada à surface do cmux e roda depois da restauração da sessão quando a retomada automática está ativada.
+A associação fica ligada à surface do cmux. Associações criadas pela CLI pública ou pelo socket são salvas para inspeção e retomada manual. O cmux só executa automaticamente associações de retomada que marca como confiáveis, como associações tmux detectadas a partir de processos ativos.
 
 ## Histórico de Estrelas
 

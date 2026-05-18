@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-這個綁定會關聯到 cmux surface，並在啟用自動還原時於工作階段還原後執行。
+這個綁定會繼續關聯到 cmux surface。透過公開 CLI 或 socket 建立的綁定會儲存供檢查與手動還原。cmux 只會自動執行標記為可信任的還原綁定，例如從執行中程序偵測到的 tmux 綁定。
 
 ## Star 歷史
 

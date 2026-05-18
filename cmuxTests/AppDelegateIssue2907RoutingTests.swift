@@ -272,6 +272,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let setEnvironment = try XCTUnwrap(setBinding["environment"] as? [String: Any])
         XCTAssertEqual(setEnvironment["EMPTY"] as? String, "")
         XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
+        XCTAssertEqual(setBinding["auto_resume"] as? Bool, false)
 
         let getResult = try v2Result(
             method: "surface.resume.get",
@@ -285,6 +286,53 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let getEnvironment = try XCTUnwrap(getBinding["environment"] as? [String: Any])
         XCTAssertEqual(getEnvironment["EMPTY"] as? String, "")
         XCTAssertEqual(getEnvironment["SPACED"] as? String, "  keep exact  ")
+        XCTAssertEqual(getBinding["auto_resume"] as? Bool, false)
+    }
+
+    func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let result = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "command": "tmux attach -t sticky",
+                "source": "process-detected",
+                "auto_resume": true,
+            ]
+        )
+
+        let binding = try XCTUnwrap(result["resume_binding"] as? [String: Any])
+        XCTAssertEqual(binding["auto_resume"] as? Bool, false)
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, false)
     }
 
     func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {

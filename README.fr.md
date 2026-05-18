@@ -262,7 +262,7 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Cette association est liée à la surface cmux et s'exécute après la restauration de session lorsque la reprise automatique est activée.
+Cette association reste liée à la surface cmux. Les associations créées par le CLI public ou le socket sont conservées pour inspection et reprise manuelle. cmux exécute automatiquement seulement les associations de reprise qu'il marque comme fiables, comme les associations tmux détectées depuis des processus actifs.
 
 ## Historique des étoiles
 
