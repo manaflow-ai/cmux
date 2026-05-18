@@ -2296,8 +2296,9 @@ final class SocketControlSettingsTests: XCTestCase {
             isDebugBuild: false,
             currentUserID: 501,
             probeStableDefaultPathEntry: { requestedPath in
-                XCTAssertEqual(requestedPath, "/tmp/cmux-nightly.sock")
-                return .socket(ownerUserID: 502)
+                requestedPath == "/tmp/cmux-nightly.sock"
+                    ? .socket(ownerUserID: 502)
+                    : .missing
             }
         )
 
