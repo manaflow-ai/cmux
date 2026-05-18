@@ -19105,6 +19105,12 @@ struct CMUXCLI {
             launchCommand: launchCommand,
             workingDirectory: cwd
         ) else {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: nil
+            )
             return
         }
         var params: [String: Any] = [
@@ -19130,7 +19136,7 @@ struct CMUXCLI {
         client: SocketClient,
         workspaceId: String,
         surfaceId: String,
-        sessionId: String
+        sessionId: String?
     ) {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [

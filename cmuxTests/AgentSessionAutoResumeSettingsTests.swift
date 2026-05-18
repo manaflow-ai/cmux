@@ -171,6 +171,55 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testDisabledAutoResumeKeepsScrollbackForSuppressedAgentHookBinding() throws {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "OpenCode",
+                kind: "opencode",
+                command: "opencode --session suppressed-binding-session",
+                cwd: "/tmp/repo",
+                checkpointId: "suppressed-binding-session",
+                source: "agent-hook",
+                updatedAt: 1_777_777_777
+            ),
+        ])
+        var snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let panelIndex = try XCTUnwrap(snapshot.panels.indices.first)
+        let savedScrollback = "previous output\n"
+        snapshot.panels[panelIndex].terminal?.scrollback = savedScrollback
+
+        defaults.set(false, forKey: key)
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        let input = restoredPanel.surface.debugInitialInputMetadata()
+
+        XCTAssertFalse(input.hasInitialInput)
+        XCTAssertEqual(input.byteCount, 0)
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback,
+            savedScrollback
+        )
+    }
+
+    @MainActor
     func testAgentHookResumeBindingKeepsRestoredAgentPendingDuringStartupCommand() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey

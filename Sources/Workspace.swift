@@ -460,13 +460,17 @@ extension Workspace {
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
+            let resumeStartupInput = Self.surfaceResumeStartupInput(
+                resumeBinding,
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled()
+            )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
                 shellActivityState: panelShellActivityStates[panelId],
                 fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
             ) && Self.shouldReplaySessionScrollback(
                 restorableAgent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
-                resumeBinding: resumeBinding
+                resumeStartupInput: resumeStartupInput
             )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
@@ -571,12 +575,23 @@ extension Workspace {
     nonisolated static func shouldReplaySessionScrollback(
         restorableAgent: SessionRestorableAgentSnapshot?,
         tmuxStartCommand: String? = nil,
-        resumeBinding: SurfaceResumeBindingSnapshot? = nil
+        resumeStartupInput: String? = nil
     ) -> Bool {
         // Agent restores relaunch from the provider's session ID. Replaying the
         // old TUI scrollback can print stale launch commands and race the resume input.
         // OMX HUD panes restore from their tmux start command for the same reason.
-        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeBinding?.startupInput == nil
+        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeStartupInput == nil
+    }
+
+    nonisolated static func surfaceResumeStartupInput(
+        _ resumeBinding: SurfaceResumeBindingSnapshot?,
+        autoResumeAgentSessions: Bool
+    ) -> String? {
+        guard let resumeBinding else { return nil }
+        if resumeBinding.source == "agent-hook", !autoResumeAgentSessions {
+            return nil
+        }
+        return resumeBinding.startupInput
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
@@ -800,9 +815,10 @@ extension Workspace {
             let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
-            let restoredBindingInput = resumeBinding?.source == "agent-hook" && !autoResumeAgentSessions
-                ? nil
-                : resumeBinding?.startupInput
+            let restoredBindingInput = Self.surfaceResumeStartupInput(
+                resumeBinding,
+                autoResumeAgentSessions: autoResumeAgentSessions
+            )
             let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
             let workingDirectory =
                 effectiveResumeBinding?.cwd
@@ -824,7 +840,7 @@ extension Workspace {
             let shouldReplayScrollback = Self.shouldReplaySessionScrollback(
                 restorableAgent: restorableAgent,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                resumeBinding: effectiveResumeBinding
+                resumeStartupInput: restoredBindingInput
             )
             let restoredAgentResumeInput = autoResumeAgentSessions
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
