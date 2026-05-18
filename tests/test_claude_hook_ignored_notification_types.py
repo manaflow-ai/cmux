@@ -119,7 +119,7 @@ def run_notification_hook(
     cli_path: str,
     server: CapturingSocketServer,
     env: dict[str, str],
-    payload: dict,
+    payload: object,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [cli_path, "--socket", server.socket_path, "claude-hook", "notification"],
@@ -205,6 +205,64 @@ def main() -> int:
         ]
         if nested_rendered_commands:
             print("FAIL: nested idle_prompt rendered despite ignored notification type")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        json_string_idle = run_notification_hook(
+            cli_path,
+            server,
+            env,
+            json.dumps(
+                {
+                    "session_id": f"sess-{uuid.uuid4().hex}",
+                    "hook_event_name": "Notification",
+                    "notification_type": "idle_prompt",
+                    "message": "Claude is waiting from a raw JSON string payload",
+                }
+            ),
+        )
+        if json_string_idle.returncode != 0 or json_string_idle.stdout.strip() != "OK":
+            print("FAIL: JSON-string ignored idle prompt hook did not complete cleanly")
+            print(f"stdout={json_string_idle.stdout!r}")
+            print(f"stderr={json_string_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        json_string_rendered_commands = [
+            line for line in server.commands
+            if line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+        ]
+        if json_string_rendered_commands:
+            print("FAIL: JSON-string idle_prompt rendered despite ignored notification type")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        raw_fallback_idle = run_notification_hook(
+            cli_path,
+            server,
+            env,
+            [
+                {
+                    "session_id": f"sess-{uuid.uuid4().hex}",
+                    "hook_event_name": "Notification",
+                    "notification_type": "idle_prompt",
+                    "message": "Claude is waiting from a fallback JSON array payload",
+                }
+            ],
+        )
+        if raw_fallback_idle.returncode != 0 or raw_fallback_idle.stdout.strip() != "OK":
+            print("FAIL: fallback JSON ignored idle prompt hook did not complete cleanly")
+            print(f"stdout={raw_fallback_idle.stdout!r}")
+            print(f"stderr={raw_fallback_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        raw_fallback_rendered_commands = [
+            line for line in server.commands
+            if line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+        ]
+        if raw_fallback_rendered_commands:
+            print("FAIL: fallback JSON idle_prompt rendered despite ignored notification type")
             print(f"commands={server.commands!r}")
             return 1
 

@@ -371,6 +371,7 @@ private struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
     let rawFallback: String?
+    let rawFallbackNotificationTypeValues: [String]
     let sessionId: String?
     let turnId: String?
     let cwd: String?
@@ -17500,7 +17501,7 @@ struct CMUXCLI {
         guard !trimmed.isEmpty,
               let data = trimmed.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: []),
-              let object = json as? [String: Any] else {
+              let object = Self.claudeHookObject(fromJSONValue: json) else {
             let fallback = trimmed.isEmpty ? nil : truncate(
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
@@ -17509,6 +17510,7 @@ struct CMUXCLI {
                 rawObject: nil,
                 object: nil,
                 rawFallback: fallback,
+                rawFallbackNotificationTypeValues: Self.claudeNotificationTypeValues(inRawFallback: trimmed),
                 sessionId: nil,
                 turnId: nil,
                 cwd: nil,
@@ -17525,11 +17527,25 @@ struct CMUXCLI {
             rawObject: object,
             object: compactObject,
             rawFallback: nil,
+            rawFallbackNotificationTypeValues: [],
             sessionId: sessionId,
             turnId: turnId,
             cwd: cwd,
             transcriptPath: transcriptPath
         )
+    }
+
+    private static func claudeHookObject(fromJSONValue value: Any) -> [String: Any]? {
+        if let object = value as? [String: Any] {
+            return object
+        }
+        guard let string = value as? String,
+              let data = string.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let nested = try? JSONSerialization.jsonObject(with: data, options: []),
+              let object = nested as? [String: Any] else {
+            return nil
+        }
+        return object
     }
 
     private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {
@@ -18944,17 +18960,39 @@ struct CMUXCLI {
     private static func claudeNotificationTypes(parsedInput: ClaudeHookParsedInput) -> Set<String> {
         var rawValues: [String] = []
         if let object = parsedInput.rawObject ?? parsedInput.object {
-            rawValues.append(contentsOf: claudeNotificationTypeValues(in: object))
+            rawValues.append(contentsOf: claudeNotificationTypeValues(inJSONValue: object))
+        }
+        rawValues.append(contentsOf: parsedInput.rawFallbackNotificationTypeValues)
+        return normalizedClaudeNotificationTypes(rawValues)
+    }
+
+    private static func claudeNotificationTypeValues(inRawFallback fallback: String) -> [String] {
+        let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: []) else {
+            return []
+        }
+        return claudeNotificationTypeValues(inJSONValue: json)
+    }
+
+    private static func claudeNotificationTypeValues(inJSONValue value: Any) -> [String] {
+        if let object = value as? [String: Any] {
+            var values = claudeNotificationTypeValues(in: object)
             for key in ["notification", "data"] {
-                if let nested = object[key] as? [String: Any] {
-                    rawValues.append(contentsOf: claudeNotificationTypeValues(in: nested))
+                if let nested = object[key] {
+                    values.append(contentsOf: claudeNotificationTypeValues(inJSONValue: nested))
                 }
             }
+            return values
         }
-        if let fallback = parsedInput.rawFallback {
-            rawValues.append(fallback)
+        if let values = value as? [Any] {
+            return values.flatMap { claudeNotificationTypeValues(inJSONValue: $0) }
         }
-        return normalizedClaudeNotificationTypes(rawValues)
+        if let string = value as? String {
+            return claudeNotificationTypeValues(inRawFallback: string)
+        }
+        return []
     }
 
     private static func claudeNotificationTypeValues(in object: [String: Any]) -> [String] {
