@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		8B41F6832DEDD23B001A66F9 /* cmuxMobileFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxMobileFeature */; };
 		8B41F6852DEDD25C001A66F9 /* cmuxMobileFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxMobileFeature */; };
+		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
+		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +69,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B41F6852DEDD25C001A66F9 /* cmuxMobileFeature in Frameworks */,
+				8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,6 +78,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B41F6832DEDD23B001A66F9 /* cmuxMobileFeature in Frameworks */,
+				8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -130,6 +134,7 @@
 			name = cmuxMobile;
 			packageProductDependencies = (
 				8B41F6842DEDD25C001A66F9 /* cmuxMobileFeature */,
+				8B7E20032DF3A00100A66F90 /* CMUXMobileCore */,
 			);
 			productName = cmuxMobile;
 			productReference = 8B41F6452DEDD0D5001A66F9 /* cmuxMobile.app */;
@@ -154,6 +159,7 @@
 			name = cmuxMobileUITests;
 			packageProductDependencies = (
 				8B41F6822DEDD23B001A66F9 /* cmuxMobileFeature */,
+				8B7E20042DF3A00100A66F90 /* CMUXMobileCore */,
 			);
 			productName = cmuxMobileUITests;
 			productReference = 8B41F65C2DEDD0D6001A66F9 /* cmuxMobile.xctest */;
@@ -478,6 +484,14 @@
 		8B41F6842DEDD25C001A66F9 /* cmuxMobileFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = cmuxMobileFeature;
+		};
+		8B7E20032DF3A00100A66F90 /* CMUXMobileCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CMUXMobileCore;
+		};
+		8B7E20042DF3A00100A66F90 /* CMUXMobileCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CMUXMobileCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
