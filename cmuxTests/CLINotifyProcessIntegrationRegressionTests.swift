@@ -187,6 +187,66 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
+        let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-redacted-env-session"
+        let launchEnvironment = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/claude",
+                "--model",
+                "sonnet",
+            ]),
+            "ANTHROPIC_API_KEY": "should-not-persist",
+            "ANTHROPIC_BASE_URL": "https://api.example.test",
+            "ANTHROPIC_MODEL": "claude-sonnet-test",
+            "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
+        ]
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let commandStart = context.state.commands.count
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let promptCommands = Array(context.state.commands.dropFirst(commandStart))
+        let resumeBindingRequests = promptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        let environment = try XCTUnwrap(request["environment"] as? [String: Any])
+        XCTAssertEqual(environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
+        XCTAssertEqual(
+            environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String,
+            "ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR"
+        )
+        XCTAssertNil(environment["ANTHROPIC_API_KEY"])
+        XCTAssertNil(environment["ANTHROPIC_BASE_URL"])
+        XCTAssertNil(environment["ANTHROPIC_MODEL"])
+        XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
+    }
+
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-session-end-workspace")
         defer { context.cleanup() }
@@ -1147,6 +1207,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             return payload["params"] as? [String: Any]
         }
+        XCTAssertEqual(resumeBindingRequests.count, 1, state.commands.joined(separator: "\n"))
         let request = try XCTUnwrap(resumeBindingRequests.first)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(
@@ -1557,7 +1618,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func runClaudeHook(
         context: ClaudeHookContext,
         arguments: [String],
-        standardInput: String
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
         let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
@@ -1578,19 +1640,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
         }
 
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: arguments,
-            environment: [
-                "HOME": context.root.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_SOCKET_PATH": context.socketPath,
-                "CMUX_WORKSPACE_ID": context.workspaceId,
-                "CMUX_SURFACE_ID": context.surfaceId,
-                "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
-            ],
+            environment: environment,
             standardInput: standardInput,
             timeout: 5
         )

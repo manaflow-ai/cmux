@@ -756,4 +756,68 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             destinationPaneIdString
         )
     }
+
+    func testSurfaceResumeSetUsesLiveSurfaceWhenWorkspaceIdIsStaleAfterMove() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanel = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel)
+        let splitPanel = try XCTUnwrap(sourceWorkspace.newTerminalSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        let moved = try v2Result(
+            method: "pane.break",
+            params: [
+                "surface_id": splitPanel.id.uuidString,
+                "focus": false,
+            ]
+        )
+        let destinationWorkspaceId = try XCTUnwrap(moved["workspace_id"] as? String)
+        let destinationWorkspace = try XCTUnwrap(
+            manager.tabs.first { $0.id.uuidString == destinationWorkspaceId }
+        )
+
+        _ = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "workspace_id": sourceWorkspace.id.uuidString,
+                "surface_id": splitPanel.id.uuidString,
+                "command": "tmux attach -t moved",
+                "source": "agent-hook",
+            ]
+        )
+
+        XCTAssertNil(sourceWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
+        XCTAssertEqual(
+            destinationWorkspace.surfaceResumeBinding(panelId: splitPanel.id)?.command,
+            "tmux attach -t moved"
+        )
+    }
 }

@@ -6199,14 +6199,6 @@ class TerminalController {
         fallbackTabManager: TabManager
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID)? {
         if let explicitSurfaceId = v2UUID(params, "surface_id") {
-            if let explicitWorkspaceId = v2UUID(params, "workspace_id") {
-                guard let workspace = fallbackTabManager.tabs.first(where: { $0.id == explicitWorkspaceId }),
-                      workspace.terminalPanel(for: explicitSurfaceId) != nil else {
-                    return nil
-                }
-                return (fallbackTabManager, workspace, explicitSurfaceId)
-            }
-
             if v2UUID(params, "window_id") != nil {
                 guard let workspace = fallbackTabManager.tabs.first(where: {
                     $0.terminalPanel(for: explicitSurfaceId) != nil
@@ -6220,6 +6212,11 @@ class TerminalController {
                let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
                workspace.terminalPanel(for: explicitSurfaceId) != nil {
                 return (located.tabManager, workspace, explicitSurfaceId)
+            }
+            if let workspace = fallbackTabManager.tabs.first(where: {
+                $0.terminalPanel(for: explicitSurfaceId) != nil
+            }) {
+                return (fallbackTabManager, workspace, explicitSurfaceId)
             }
             if let workspace = v2ResolveWorkspace(params: params, tabManager: fallbackTabManager),
                workspace.terminalPanel(for: explicitSurfaceId) != nil {
