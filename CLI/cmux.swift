@@ -10710,7 +10710,15 @@ struct CMUXCLI {
             throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object: \(error.localizedDescription)")
         }
 
-        guard let encoded = try? JSONEncoder().encode(icon),
+        let socketIcon: CmuxButtonIcon
+        switch icon {
+        case .imagePath(let path):
+            socketIcon = .imagePath(resolvePath(path))
+        case .symbol, .emoji:
+            socketIcon = icon
+        }
+
+        guard let encoded = try? JSONEncoder().encode(socketIcon),
               let object = try? JSONSerialization.jsonObject(with: encoded, options: []),
               let iconObject = object as? [String: Any],
               JSONSerialization.isValidJSONObject(iconObject) else {

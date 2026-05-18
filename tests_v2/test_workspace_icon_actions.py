@@ -102,6 +102,22 @@ def main() -> int:
             expected_symbol = {"type": "symbol", "name": "folder.fill"}
             _must(cli_set.get("custom_icon") == expected_symbol, f"CLI set-icon should return symbol payload: {cli_set}")
             _must(_workspace_icon(c, ws_id) == expected_symbol, "CLI set-icon should persist through socket state")
+
+            relative_image_path = "relative-workspace-icon.png"
+            image_json = json.dumps({"type": "image", "path": relative_image_path})
+            cli_image_set = _run_cli_json(
+                cli,
+                ["workspace-action", "--workspace", ws_id, "--action", "set-icon", "--icon", image_json],
+            )
+            expected_image = {"type": "image", "path": str(Path.cwd() / relative_image_path)}
+            _must(
+                cli_image_set.get("custom_icon") == expected_image,
+                f"CLI set-icon should absolutize image paths: {cli_image_set}",
+            )
+            _must(
+                _workspace_icon(c, ws_id) == expected_image,
+                "CLI image set-icon should persist the absolute path",
+            )
         finally:
             try:
                 c.close_workspace(ws_id)
