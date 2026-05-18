@@ -4,7 +4,9 @@ import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
 import {
   isVmBillingError,
   isVmCreateCreditsInsufficientError,
+  isVmCreateDisabledError,
   isVmDatabaseError,
+  isVmImageConfigError,
   isVmLimitExceededError,
   isVmProviderOperationError,
 } from "./errors";
@@ -150,6 +152,24 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
       extra: { amount: err.amount },
       details: { amount: err.amount },
+    });
+  }
+
+  if (isVmCreateDisabledError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_disabled",
+      status: 503,
+      message: "Cloud VM creation is disabled for this environment.",
+      action: "Ask an admin to enable Cloud VM creation, then retry.",
+    });
+  }
+
+  if (isVmImageConfigError(err)) {
+    return vmErrorResponse({
+      error: "vm_image_config_error",
+      status: 503,
+      message: "The requested Cloud VM image is not available in this environment.",
+      action: "Ask an admin to publish the Cloud VM image for this environment, then retry.",
     });
   }
 

@@ -33,7 +33,7 @@ extension CMUXCLI {
         let sub = commandArgs.first?.lowercased() ?? "list"
         if sub != "run" { return true }
         let rest = Array(commandArgs.dropFirst())
-        if rest.contains(where: { Self.isActionsRunHelpToken($0) }) { return true }
+        if Self.isActionsRunHelpRequest(rest) { return true }
         guard let action = rest.first else { return true }
         return isFlagToken(action)
     }
@@ -48,7 +48,7 @@ extension CMUXCLI {
             }
             printActionsList(jsonOutput: jsonOutput)
         case "run":
-            if rest.contains(where: { Self.isActionsRunHelpToken($0) }) {
+            if Self.isActionsRunHelpRequest(rest) {
                 printActionsRunUsage()
                 return
             }
@@ -102,7 +102,7 @@ extension CMUXCLI {
         client: SocketClient,
         idFormat: CLIIDFormat
     ) throws {
-        if rest.contains(where: { Self.isActionsRunHelpToken($0) }) {
+        if Self.isActionsRunHelpRequest(rest) {
             printActionsRunUsage()
             return
         }
@@ -208,6 +208,23 @@ extension CMUXCLI {
     private static func isActionsRunHelpToken(_ token: String) -> Bool {
         let lowered = token.lowercased()
         return lowered == "help" || lowered == "--help" || lowered == "-h"
+    }
+
+    private static func isActionsRunHelpRequest(_ args: [String]) -> Bool {
+        guard let first = args.first else { return false }
+        if Self.isActionsRunHelpToken(first) { return true }
+        guard !Self.isFlagToken(first) else { return false }
+        var index = 1
+        while index < args.count {
+            let token = args[index].lowercased()
+            if token == "--ref" || token == "--mode" {
+                index += 2
+                continue
+            }
+            if token == "--help" || token == "-h" { return true }
+            index += 1
+        }
+        return false
     }
 
     static func actionsRunUsageText() -> String {

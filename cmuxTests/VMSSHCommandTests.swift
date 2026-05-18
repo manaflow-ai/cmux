@@ -79,6 +79,75 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testActionsRunRefNamedHelpStillUsesSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("actions-run-ref-help")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let homeURL = try makeTemporaryCLIHome("actions-run-ref-help")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "actions.run" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["action"] as? String, "hexclave/stack-auth:fresh-env")
+            XCTAssertEqual(params["ref"] as? String, "help")
+            XCTAssertEqual(params["dry_run"] as? Bool, true)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "action": "hexclave/stack-auth:fresh-env",
+                    "title": "Fresh Stack Auth environment",
+                    "ref": "help",
+                    "mode": "full",
+                    "dry_run": true,
+                    "cache": [
+                        "hit": false,
+                    ],
+                    "setup_ran": false,
+                    "started": false,
+                    "ports": [],
+                    "instructions": [],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["actions", "run", "hexclave/stack-auth:fresh-env", "--ref", "help", "--dry-run"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("ref:     help"), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["actions.run"]
+        )
+        XCTAssertEqual(try vmCreateIdempotencyRecordCount(homeURL: homeURL), 0)
+    }
+
     func testVMSSHOpensManagedWorkspaceThroughSharedSSHPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh")
