@@ -1055,10 +1055,6 @@ class TabManager: ObservableObject {
         label: "com.cmux.initial-workspace-git-probe",
         qos: .utility
     )
-    private let workspaceSessionRestoreQueue = DispatchQueue(
-        label: "com.cmux.workspace-session-restore",
-        qos: .utility
-    )
     private var workspaceGitProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
     private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
@@ -2280,37 +2276,45 @@ class TabManager: ObservableObject {
         expectedPanelIds: Set<UUID>,
         explicitTitle: String?
     ) {
-        workspaceSessionRestoreQueue.async { [workingDirectory, bundleIdentifier, appSupportDirectory] in
-            let restoredSnapshot = SessionPersistenceStore.loadWorkspaceSnapshot(
-                workingDirectory: workingDirectory,
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: appSupportDirectory
-            )
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard let workspace = self.tabs.first(where: { $0.id == workspaceId }) else { return }
-                guard workspace.customTitle == expectedCustomTitle,
-                      workspace.currentDirectory == expectedCurrentDirectory,
-                      Set(workspace.panels.keys) == expectedPanelIds else {
-                    return
+        Task { [weak self, workingDirectory, bundleIdentifier, appSupportDirectory] in
+            let restoredSnapshot = await Task.detached(priority: .utility) {
+                SessionPersistenceStore.loadWorkspaceSnapshot(
+                    workingDirectory: workingDirectory,
+                    bundleIdentifier: bundleIdentifier,
+                    appSupportDirectory: appSupportDirectory
+                )
+            }.value
+            guard let self else { return }
+            guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return }
+            guard workspace.customTitle == expectedCustomTitle,
+                  workspace.currentDirectory == expectedCurrentDirectory,
+                  Set(workspace.panels.keys) == expectedPanelIds else {
+                return
+            }
+            if let restoredSnapshot {
+                workspace.restoreSessionSnapshot(restoredSnapshot)
+                clearWorkspaceGitProbes(workspaceId: workspace.id)
+                for terminalPanel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
+                    scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: workspace.id,
+                        panelId: terminalPanel.id,
+                        reason: "workspace-session-restore"
+                    )
                 }
-                if let restoredSnapshot {
-                    workspace.restoreSessionSnapshot(restoredSnapshot)
-                    if let explicitTitle {
-                        workspace.setCustomTitle(explicitTitle)
-                    }
-                    return
+                if let explicitTitle {
+                    workspace.setCustomTitle(explicitTitle)
                 }
-                guard autoWelcomeIfNeeded,
-                      select,
-                      !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) else {
-                    return
-                }
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: workspace)
-                }
+                return
+            }
+            guard autoWelcomeIfNeeded,
+                  select,
+                  !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) else {
+                return
+            }
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+            } else {
+                sendWelcomeWhenReady(to: workspace)
             }
         }
     }
