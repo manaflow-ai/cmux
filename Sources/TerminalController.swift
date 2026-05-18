@@ -4544,6 +4544,20 @@ class TerminalController {
         )
     }
 
+    private func workspaceLastVisibleMoveMessage() -> String {
+        String(
+            localized: "workspace.moveLastVisible.message",
+            defaultValue: "Cannot move the last visible workspace. Wake or create another workspace first."
+        )
+    }
+
+    private func workspaceLastVisibleHideMessage() -> String {
+        String(
+            localized: "workspace.hideLastVisible.message",
+            defaultValue: "Cannot hide the last visible workspace"
+        )
+    }
+
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -4561,6 +4575,21 @@ class TerminalController {
             }
             guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
                 result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+                return
+            }
+            guard let liveWorkspace = srcTM.tabs.first(where: { $0.id == wsId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
+                return
+            }
+            guard srcTM.canCloseWorkspace(liveWorkspace, allowPinned: true) else {
+                result = .err(
+                    code: "last_visible_workspace",
+                    message: workspaceLastVisibleMoveMessage(),
+                    data: [
+                        "workspace_id": wsId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                    ]
+                )
                 return
             }
             guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
@@ -4645,7 +4674,7 @@ class TerminalController {
             if hidden, !tabManager.canHideWorkspaces([workspaceId]) {
                 result = .err(
                     code: "last_visible_workspace",
-                    message: "Cannot hide the last visible workspace",
+                    message: workspaceLastVisibleHideMessage(),
                     data: [
                         "workspace_id": workspaceId.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
@@ -14396,12 +14425,27 @@ class TerminalController {
         guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
 
         var ok = false
+        var failure: String?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
-                ok = false
+            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId) else {
+                failure = "ERROR: Workspace not found"
+                return
+            }
+            guard let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+                failure = "ERROR: Window not found"
+                return
+            }
+            guard let liveWorkspace = srcTM.tabs.first(where: { $0.id == wsId }) else {
+                failure = "ERROR: Workspace not found"
+                return
+            }
+            guard srcTM.canCloseWorkspace(liveWorkspace, allowPinned: true) else {
+                failure = "ERROR: \(workspaceLastVisibleMoveMessage())"
+                return
+            }
+            guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
+                failure = "ERROR: Move failed"
                 return
             }
             dstTM.attachWorkspace(ws, select: focus)
@@ -14412,7 +14456,7 @@ class TerminalController {
             ok = true
         }
 
-        return ok ? "OK" : "ERROR: Move failed"
+        return ok ? "OK" : (failure ?? "ERROR: Move failed")
     }
 
     private func listWorkspaces() -> String {

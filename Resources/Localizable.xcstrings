@@ -101072,6 +101072,40 @@
         }
       }
     },
+    "workspace.hideLastVisible.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot hide the last visible workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後の表示中ワークスペースは非表示にできません"
+          }
+        }
+      }
+    },
+    "workspace.moveLastVisible.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot move the last visible workspace. Wake or create another workspace first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後の表示中ワークスペースは移動できません。別のワークスペースを表示するか作成してください。"
+          }
+        }
+      }
+    },
     "workspace.placement.afterCurrent": {
       "extractionState": "manual",
       "localizations": {
