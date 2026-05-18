@@ -149,9 +149,8 @@ final class ShortcutSettingsFileWatcher {
             guard let self else { return }
             if self.fileManager.fileExists(atPath: self.path) {
                 self.start()
-            } else {
-                self.onChange()
             }
+            self.onChange()
         }
 
         source.setCancelHandler {
