@@ -131,8 +131,10 @@ final class MarkdownPanelTests: XCTestCase {
 
         let markdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
         XCTAssertEqual(markdownPanels.count, 1)
-        XCTAssertEqual(markdownPanels.first?.filePath, fileURL.path)
-        XCTAssertEqual(markdownPanels.first?.displayMode, .preview)
+        let originalMarkdownPanel = try XCTUnwrap(markdownPanels.first)
+        let originalMarkdownPanelID = ObjectIdentifier(originalMarkdownPanel)
+        XCTAssertEqual(originalMarkdownPanel.filePath, fileURL.path)
+        XCTAssertEqual(originalMarkdownPanel.displayMode, .preview)
         XCTAssertTrue(workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.isEmpty)
 
         XCTAssertTrue(
@@ -141,7 +143,9 @@ final class MarkdownPanelTests: XCTestCase {
                 debugSource: "unit-test-reopen"
             )
         )
-        XCTAssertEqual(workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count, 1)
+        let reopenedMarkdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
+        XCTAssertEqual(reopenedMarkdownPanels.count, 1)
+        XCTAssertTrue(reopenedMarkdownPanels.contains { ObjectIdentifier($0) == originalMarkdownPanelID })
     }
 
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
