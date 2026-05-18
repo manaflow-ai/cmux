@@ -291,6 +291,38 @@ private final class TerminalStatusBarProcessWaitState: @unchecked Sendable {
     }
 }
 
+private final class TerminalStatusBarOutputCollector: @unchecked Sendable {
+    private let maxBytes: Int
+    // FileHandle readability callbacks arrive off-actor; the lock keeps the
+    // bounded stdout snapshot safe without involving the MainActor.
+    private let lock = NSLock()
+    private var data = Data()
+
+    init(maxBytes: Int) {
+        self.maxBytes = max(0, maxBytes)
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard data.count < maxBytes else { return }
+        let remainingBytes = maxBytes - data.count
+        if chunk.count <= remainingBytes {
+            data.append(chunk)
+        } else {
+            data.append(contentsOf: chunk.prefix(remainingBytes))
+        }
+    }
+
+    func stringValue() -> String {
+        lock.lock()
+        let snapshot = data
+        lock.unlock()
+        return String(data: snapshot, encoding: .utf8) ?? ""
+    }
+}
+
 @MainActor
 final class TerminalStatusBarCommandController {
     private struct AppliedState: Equatable {
@@ -411,36 +443,32 @@ final class TerminalStatusBarCommandController {
 
         let process = Process()
         let shell = resolvedShell()
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-terminal-status-\(UUID().uuidString).txt", isDirectory: false)
-
-        _ = FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-        guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
-            try? FileManager.default.removeItem(at: outputURL)
-            return ""
+        let outputPipe = Pipe()
+        let outputReadHandle = outputPipe.fileHandleForReading
+        let outputCollector = TerminalStatusBarOutputCollector(maxBytes: 8192)
+        outputReadHandle.readabilityHandler = { handle in
+            outputCollector.append(handle.availableData)
         }
         defer {
-            outputHandle.closeFile()
-            try? FileManager.default.removeItem(at: outputURL)
+            outputReadHandle.readabilityHandler = nil
+            try? outputPipe.fileHandleForWriting.close()
+            try? outputReadHandle.close()
         }
 
         process.executableURL = URL(fileURLWithPath: shell)
         process.arguments = shellArguments(for: shell, command: command)
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = outputHandle
+        process.standardOutput = outputPipe
         process.standardError = FileHandle.nullDevice
         process.environment = environment(for: context)
         process.currentDirectoryURL = validatedDirectory(context.workingDirectory)
 
         _ = await runAndWaitForTermination(process: process, timeout: timeout)
         guard !Task.isCancelled else { return "" }
-        outputHandle.synchronizeFile()
-        guard let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
-            return ""
-        }
-        defer { readHandle.closeFile() }
-        let data = readHandle.readData(ofLength: 8192)
-        return String(data: data, encoding: .utf8) ?? ""
+        outputReadHandle.readabilityHandler = nil
+        try? outputPipe.fileHandleForWriting.close()
+        outputCollector.append(outputReadHandle.readDataToEndOfFile())
+        return outputCollector.stringValue()
     }
 
 #if compiler(>=6.2)
