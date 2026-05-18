@@ -728,6 +728,115 @@ struct TitlebarControlsView: View {
     }
 }
 
+private enum TitlebarPaneActionItem: String, CaseIterable, Identifiable {
+    case newTerminal
+    case newBrowser
+    case splitRight
+    case splitDown
+
+    var id: String { rawValue }
+
+    var builtInAction: CmuxSurfaceTabBarBuiltInAction {
+        switch self {
+        case .newTerminal:
+            return .newTerminal
+        case .newBrowser:
+            return .newBrowser
+        case .splitRight:
+            return .splitRight
+        case .splitDown:
+            return .splitDown
+        }
+    }
+
+    var shortcutAction: KeyboardShortcutSettings.Action {
+        switch self {
+        case .newTerminal:
+            return .newSurface
+        case .newBrowser:
+            return .openBrowser
+        case .splitRight:
+            return .splitRight
+        case .splitDown:
+            return .splitDown
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        "titlebarPaneAction.\(rawValue)"
+    }
+
+    var title: String {
+        switch self {
+        case .newTerminal:
+            return String(localized: "shortcut.newSurface.label", defaultValue: "New Terminal")
+        case .newBrowser:
+            return String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
+        case .splitRight:
+            return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
+        case .splitDown:
+            return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
+        }
+    }
+
+    var tooltip: String {
+        shortcutAction.tooltip(title)
+    }
+}
+
+struct TitlebarPaneActionsView: View {
+    let onAction: (CmuxSurfaceTabBarBuiltInAction) -> Void
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @State private var shortcutRefreshTick = 0
+
+    var body: some View {
+        let _ = shortcutRefreshTick
+        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let config = style.config
+
+        HStack(spacing: min(config.spacing, 8)) {
+            ForEach(TitlebarPaneActionItem.allCases) { item in
+                TitlebarControlButton(
+                    config: config,
+                    accessibilityIdentifier: item.accessibilityIdentifier,
+                    accessibilityLabel: item.title,
+                    action: {
+                        #if DEBUG
+                        cmuxDebugLog("titlebar.paneAction action=\(item.rawValue)")
+                        #endif
+                        onAction(item.builtInAction)
+                    }
+                ) {
+                    iconLabel(systemName: item.builtInAction.defaultIcon, config: config)
+                }
+                .safeHelp(item.tooltip)
+            }
+        }
+        .padding(.leading, 2)
+        .padding(.trailing, 6)
+        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
+            shortcutRefreshTick &+= 1
+        }
+    }
+
+    @ViewBuilder
+    private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
+        let icon = Image(systemName: systemName)
+            .font(.system(size: config.iconSize, weight: .semibold))
+            .frame(width: config.buttonSize, height: config.buttonSize)
+
+        if config.buttonBackground {
+            icon
+                .background(
+                    RoundedRectangle(cornerRadius: config.buttonCornerRadius)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                )
+        } else {
+            icon
+        }
+    }
+}
+
 private struct TitlebarControlsGapDragView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
 
@@ -1605,6 +1714,134 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
+final class TitlebarPaneActionsAccessoryViewController: NSTitlebarAccessoryViewController {
+    private let hostingView: NonDraggableHostingView<TitlebarPaneActionsView>
+    private let containerView: NSView
+    private var pendingSizeUpdate = false
+    private var fittingSizeNeedsRefresh = true
+    private var cachedFittingSize: NSSize?
+    private var lastObservedViewSize: NSSize = .zero
+    private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
+    private var userDefaultsObserver: NSObjectProtocol?
+
+    init(onAction: @escaping (CmuxSurfaceTabBarBuiltInAction, NSWindow?) -> Void) {
+        let containerView = NSView()
+        self.containerView = containerView
+        hostingView = NonDraggableHostingView(
+            rootView: TitlebarPaneActionsView { [weak containerView] action in
+                onAction(action, containerView?.window)
+            }
+        )
+
+        super.init(nibName: nil, bundle: nil)
+
+        view = containerView
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        containerView.wantsLayer = true
+        containerView.layer?.masksToBounds = false
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = []
+        containerView.addSubview(hostingView)
+
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleSizeUpdate(invalidateFittingSize: true)
+        }
+
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let userDefaultsObserver {
+            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        scheduleSizeUpdate(invalidateFittingSize: true)
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        let currentViewSize = view.bounds.size
+        guard titlebarControlsShouldScheduleForViewSizeChange(
+            previous: lastObservedViewSize,
+            current: currentViewSize
+        ) else {
+            return
+        }
+        lastObservedViewSize = currentViewSize
+        scheduleSizeUpdate()
+    }
+
+    private func scheduleSizeUpdate(invalidateFittingSize: Bool = false) {
+        if invalidateFittingSize {
+            fittingSizeNeedsRefresh = true
+        }
+        guard !pendingSizeUpdate else { return }
+        pendingSizeUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            self?.pendingSizeUpdate = false
+            self?.updateSize()
+        }
+    }
+
+    private func updateSize() {
+        let contentSize: NSSize
+        if fittingSizeNeedsRefresh || cachedFittingSize == nil {
+            hostingView.invalidateIntrinsicContentSize()
+            hostingView.layoutSubtreeIfNeeded()
+            cachedFittingSize = hostingView.fittingSize
+            fittingSizeNeedsRefresh = false
+        }
+        contentSize = cachedFittingSize ?? .zero
+
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+        let titlebarHeight: CGFloat = {
+            if let window = view.window,
+               let closeButton = window.standardWindowButton(.closeButton),
+               let titlebarView = closeButton.superview,
+               titlebarView.frame.height > 0 {
+                return titlebarView.frame.height
+            }
+            return view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        }()
+        let containerHeight = max(contentSize.height, titlebarHeight)
+        let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
+            contentSize: contentSize,
+            containerHeight: containerHeight,
+            xOffset: 0,
+            yOffset: yOffset
+        )
+        guard titlebarControlsShouldApplyLayout(
+            previous: lastAppliedLayoutSnapshot,
+            next: nextLayoutSnapshot
+        ) else {
+            return
+        }
+        lastAppliedLayoutSnapshot = nextLayoutSnapshot
+        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
+        containerView.setFrameSize(preferredContentSize)
+        hostingView.frame = NSRect(
+            x: 0,
+            y: yOffset,
+            width: contentSize.width,
+            height: contentSize.height
+        )
+    }
+}
+
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -1798,7 +2035,9 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let paneActionsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarPaneActions")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
+    private let paneActionControllers = NSHashTable<TitlebarPaneActionsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
@@ -1935,11 +2174,7 @@ final class UpdateTitlebarAccessoryController {
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
         guard canAccessTitlebarAccessories(on: window) else { return }
 
-        // Don't re-attach controls if already attached.
-        guard !attachedWindows.contains(window) else {
-            applyAccessoryVisibility(for: window)
-            return
-        }
+        let wasAlreadyAttached = attachedWindows.contains(window)
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
@@ -1951,12 +2186,25 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == paneActionsIdentifier }) {
+            let paneActions = TitlebarPaneActionsAccessoryViewController { action, preferredWindow in
+                _ = AppDelegate.shared?.performTitlebarPaneAction(
+                    action,
+                    preferredWindow: preferredWindow
+                )
+            }
+            paneActions.layoutAttribute = .right
+            paneActions.view.identifier = paneActionsIdentifier
+            window.addTitlebarAccessoryViewController(paneActions)
+            paneActionControllers.add(paneActions)
+        }
+
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
-        if env["CMUX_UI_TEST_MODE"] == "1" {
+        if !wasAlreadyAttached, env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
             UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
         }
@@ -1972,7 +2220,8 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier
+                || accessory.view.identifier == paneActionsIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -1987,7 +2236,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == paneActionsIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
