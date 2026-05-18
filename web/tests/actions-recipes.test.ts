@@ -28,6 +28,8 @@ describe("cloud action recipes", () => {
     expect(script).toContain("docker.io docker-compose-v2");
     expect(script).toContain("docker compose version");
     expect(script).toContain("systemctl is-active --quiet docker");
+    expect(script).toContain("corepack@0.35.0");
+    expect(script).not.toContain("corepack@latest");
     expect(script).toContain("corepack prepare pnpm@10.23.0 --activate");
     expect(script).toContain("git clone");
     expect(script).toContain("https://github.com/hexclave/stack-auth.git");

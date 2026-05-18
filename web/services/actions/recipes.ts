@@ -32,6 +32,7 @@ const STACK_AUTH_REPO_URL = "https://github.com/hexclave/stack-auth.git";
 const STACK_AUTH_DEFAULT_REF = "dev";
 const STACK_AUTH_CACHE_VERSION = "20260518b";
 const STACK_AUTH_WORKDIR = "/workspace/stack-auth";
+const STACK_AUTH_COREPACK_VERSION = "0.35.0";
 const STACK_AUTH_PNPM_VERSION = "10.23.0";
 const STACK_AUTH_PORT_PREFIX = "81";
 
@@ -75,6 +76,7 @@ export const stackAuthFreshEnvRecipe: ActionRecipe = {
       input.baseImage,
       STACK_AUTH_REPO_URL,
       STACK_AUTH_DEFAULT_REF,
+      `corepack@${STACK_AUTH_COREPACK_VERSION}`,
       `pnpm@${STACK_AUTH_PNPM_VERSION}`,
       "docker",
       "devcontainer-lifecycle:v1",
@@ -165,7 +167,7 @@ function dockerCommands(): string[] {
 
 function pnpmCommands(): string[] {
   return [
-    "if ! command -v corepack >/dev/null 2>&1; then npm install -g --omit=dev --no-audit --fund=false corepack@latest; fi",
+    `if ! command -v corepack >/dev/null 2>&1; then npm install -g --omit=dev --no-audit --fund=false corepack@${STACK_AUTH_COREPACK_VERSION}; fi`,
     "corepack enable",
     `corepack prepare pnpm@${STACK_AUTH_PNPM_VERSION} --activate`,
     `test "$(pnpm --version)" = ${shellQuote(STACK_AUTH_PNPM_VERSION)}`,

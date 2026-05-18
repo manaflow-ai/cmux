@@ -1759,6 +1759,7 @@ struct CMUXCLI {
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
+    static let actionRunResponseTimeoutSeconds: TimeInterval = CloudActionRunTimeouts.runResponseSeconds
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {

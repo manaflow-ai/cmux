@@ -1,6 +1,8 @@
 import Foundation
 
 extension TerminalController {
+    nonisolated static let actionRunSocketTimeoutSeconds: TimeInterval = CloudActionRunTimeouts.runResponseSeconds
+
     nonisolated func socketWorkerCloudVMResponse(
         method: String,
         id: Any?,
@@ -22,7 +24,10 @@ extension TerminalController {
                 ?? false
             let idempotencyKey = Self.socketWorkerString(params["idempotency_key"])
                 ?? Self.socketWorkerString(params["idempotencyKey"])
-            return v2VmCall(id: id, timeoutSeconds: dryRun ? 30 : 16 * 60) {
+            return v2VmCall(
+                id: id,
+                timeoutSeconds: dryRun ? CloudActionRunTimeouts.dryRunResponseSeconds : Self.actionRunSocketTimeoutSeconds
+            ) {
                 let result = try await VMClient.shared.runAction(
                     action: action,
                     ref: ref,

@@ -166,10 +166,15 @@ extension CMUXCLI {
         let response = try client.sendV2(
             method: "actions.run",
             params: params,
-            responseTimeout: dryRun ? 30 : Self.vmCreateResponseTimeoutSeconds
+            responseTimeout: dryRun ? CloudActionRunTimeouts.dryRunResponseSeconds : Self.actionRunResponseTimeoutSeconds
         )
+        var shouldClearIdempotency = true
+        defer {
+            if shouldClearIdempotency {
+                Self.clearVMCreateIdempotency(idempotency)
+            }
+        }
         try validateActionRunResponse(response)
-        defer { Self.clearVMCreateIdempotency(idempotency) }
 
         if jsonOutput {
             print(jsonString(sanitizedActionRunResponse(response)))
@@ -180,6 +185,7 @@ extension CMUXCLI {
             return
         }
         let shortId = String(vmId.prefix(8))
+        shouldClearIdempotency = false
         try vmOpenShell(
             id: vmId,
             workspaceName: "action:\(shortId)",
@@ -187,6 +193,7 @@ extension CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
+        shouldClearIdempotency = true
     }
 
     private func validateActionRunResponse(_ response: [String: Any]) throws {

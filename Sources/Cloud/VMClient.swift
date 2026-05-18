@@ -297,7 +297,7 @@ actor VMClient {
     private static let createTimeoutSeconds: TimeInterval = 16 * 60
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
     // Action cold starts can spend up to 15 minutes in setup and 15 minutes in start.
-    static let actionRunTimeoutSeconds: TimeInterval = 35 * 60
+    static let actionRunTimeoutSeconds: TimeInterval = CloudActionRunTimeouts.runResponseSeconds
 
     private let session: URLSession
 
@@ -457,7 +457,7 @@ actor VMClient {
             "POST",
             path: "/api/actions/run",
             jsonBody: body,
-            timeoutSeconds: dryRun ? 30 : Self.actionRunTimeoutSeconds
+            timeoutSeconds: dryRun ? CloudActionRunTimeouts.dryRunResponseSeconds : Self.actionRunTimeoutSeconds
         )
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)

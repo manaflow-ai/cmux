@@ -235,10 +235,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("actions-run-dry")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
+        let homeURL = try makeTemporaryCLIHome("actions-run-dry")
 
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -280,6 +282,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -300,6 +303,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["actions.run"]
         )
+        XCTAssertEqual(try vmCreateIdempotencyRecordCount(homeURL: homeURL), 0)
     }
 
     func testActionsRunRejectsInvalidPortResponses() throws {
@@ -307,10 +311,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketPath = makeSocketPath("actions-run-invalid-port")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
+        let homeURL = try makeTemporaryCLIHome("actions-run-invalid-port")
 
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -347,6 +353,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -363,10 +370,112 @@ extension CLINotifyProcessIntegrationRegressionTests {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["actions.run"]
         )
+        XCTAssertEqual(try vmCreateIdempotencyRecordCount(homeURL: homeURL), 0)
+    }
+
+    func testActionsRunKeepsIdempotencyWhenAttachFails() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("actions-run-attach-fail")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let homeURL = try makeTemporaryCLIHome("actions-run-attach-fail")
+        let vmID = "vm-action-attach-fail"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "actions.run":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "action": "hexclave/stack-auth:fresh-env",
+                        "title": "Fresh Stack Auth environment",
+                        "ref": "dev",
+                        "mode": "basic",
+                        "dry_run": false,
+                        "vm_id": vmID,
+                        "cache": [
+                            "hit": true,
+                        ],
+                        "setup_ran": false,
+                        "started": true,
+                        "ports": [],
+                        "instructions": [],
+                    ]
+                )
+            case "vm.attach_info":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "attach_failed", "message": "attach unavailable"]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["actions", "run", "hexclave/stack-auth:fresh-env", "--mode", "basic"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["actions.run", "vm.attach_info"]
+        )
+        XCTAssertEqual(try vmCreateIdempotencyRecordCount(homeURL: homeURL), 1)
     }
 
     func testActionsRunTimeoutCoversColdStartBudget() {
-        XCTAssertGreaterThanOrEqual(VMClient.actionRunTimeoutSeconds, 30 * 60)
-        XCTAssertLessThanOrEqual(VMClient.actionRunTimeoutSeconds, 40 * 60)
+        XCTAssertGreaterThanOrEqual(CloudActionRunTimeouts.runResponseSeconds, 30 * 60)
+        XCTAssertLessThanOrEqual(CloudActionRunTimeouts.runResponseSeconds, 40 * 60)
+        XCTAssertEqual(VMClient.actionRunTimeoutSeconds, CloudActionRunTimeouts.runResponseSeconds)
+        XCTAssertEqual(TerminalController.actionRunSocketTimeoutSeconds, CloudActionRunTimeouts.runResponseSeconds)
+    }
+
+    private func makeTemporaryCLIHome(_ name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func vmCreateIdempotencyRecordCount(homeURL: URL) throws -> Int {
+        let url = homeURL
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("vm-create-idempotency.json", isDirectory: false)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return 0
+        }
+        let data = try Data(contentsOf: url)
+        let object = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+        let records = object?["records"] as? [String: Any]
+        return records?.count ?? 0
     }
 }
