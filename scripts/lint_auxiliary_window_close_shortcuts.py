@@ -18,6 +18,7 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 # closable.
 IGNORED_IDENTIFIERS = {
     "cmux.bootstrap",
+    "cmux.xctest.keepalive",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(
