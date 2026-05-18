@@ -160,6 +160,29 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
     }
 
+    func testRemoteSplitStartupCommandDoesNotRequestWaitAfterCommand() throws {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane in new workspace")
+            return
+        }
+
+        let panel = try XCTUnwrap(workspace.splitPaneWithNewTerminal(
+            targetPane: paneId,
+            orientation: .vertical,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil,
+            remoteStartupCommand: "ssh example.com"
+        ))
+
+        XCTAssertEqual(panel.surface.debugInitialCommand(), "ssh example.com")
+        XCTAssertFalse(
+            panel.surface.debugConfigTemplateWaitAfterCommand(),
+            "Remote startup splits must not ask Ghostty to retain a child-exited PTY"
+        )
+    }
+
     func testRuntimeSurfaceDisablesWaitAfterCommandEvenWhenTemplateRequestsIt() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.waitAfterCommand = true
