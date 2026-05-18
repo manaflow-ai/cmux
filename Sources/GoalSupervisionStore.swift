@@ -9,7 +9,7 @@ private enum GoalSupervisionFileIO {
 
     static func loadData(from fileURL: URL) async throws -> Data? {
         try Task.checkCancellation()
-        let data = try await perform {
+        let data: Data? = try await perform {
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
                 return nil
             }
