@@ -12233,6 +12233,11 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 }
 
+enum SidebarWorkspaceTitleRowMetrics {
+    static let badgeSize: CGFloat = 16
+    static let minimumHeight: CGFloat = badgeSize
+}
+
 #if DEBUG
 private enum SidebarWorkspaceRowHeightUITestProbe {
     static func publish(workspaceId: UUID, index: Int, count: Int, height: CGFloat, unreadCount: Int, isSelected: Bool) {
@@ -12807,7 +12812,10 @@ private struct TabItemView: View, Equatable {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
                     }
-                    .frame(width: 16, height: 16)
+                    .frame(
+                        width: SidebarWorkspaceTitleRowMetrics.badgeSize,
+                        height: SidebarWorkspaceTitleRowMetrics.badgeSize
+                    )
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -12826,6 +12834,7 @@ private struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
             }
+            .frame(minHeight: SidebarWorkspaceTitleRowMetrics.minimumHeight, alignment: .center)
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
@@ -13068,7 +13077,9 @@ private struct TabItemView: View, Equatable {
                 unreadCount: unreadCount,
                 isSelected: isActive
             ) { height in
-                rowHeight = height
+                if abs(rowHeight - height) > 0.5 {
+                    rowHeight = height
+                }
             }
         }
         .contentShape(Rectangle())
