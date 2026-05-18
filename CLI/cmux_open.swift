@@ -35,7 +35,7 @@ extension CMUXCLI {
             focus = false
         } else if let focusOpt = parsedArgs.focus {
             guard let parsed = parseBoolString(focusOpt) else {
-                throw CLIError(message: "--focus must be true|false")
+                throw CLIError(message: "--focus must be true or false")
             }
             focus = parsed
         } else {
@@ -149,8 +149,14 @@ extension CMUXCLI {
                     index += 2
                     continue
                 case "--focus":
-                    parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
-                    index += 2
+                    if index + 1 < commandArgs.count,
+                       let parsedFocus = parseBoolString(commandArgs[index + 1]) {
+                        parsed.focus = parsedFocus ? "true" : "false"
+                        index += 2
+                    } else {
+                        parsed.focus = "true"
+                        index += 1
+                    }
                     continue
                 case "--no-focus":
                     parsed.noFocus = true
@@ -158,13 +164,17 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-") {
-                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]")
+                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus [true|false]] [--no-focus]")
                     }
                 }
             }
 
             parsed.targets.append(arg)
             index += 1
+        }
+
+        if parsed.focus != nil, parsed.noFocus {
+            throw CLIError(message: "--focus and --no-focus cannot be used together")
         }
 
         return parsed
@@ -209,7 +219,7 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
-          --focus <true|false>         Focus opened targets (default: false)
+          --focus [true|false]         Focus opened targets (default: false; no value means true)
           --no-focus                   Do not focus opened targets
 
         Examples:

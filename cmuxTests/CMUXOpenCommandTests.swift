@@ -156,6 +156,79 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
     }
 
+    func testOpenCommandBareFocusOptInIsPreservedBeforeTarget() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-bare-f")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("focused.txt")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "focused\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "file.open",
+                  params["paths"] as? [String] == [fileURL.path],
+                  params["focus"] as? Bool == true else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-focus",
+                    "message": "\(method) params=\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["surface_id": "surface-id", "pane_id": "pane-id"])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", "--focus", fileURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+    }
+
+    func testOpenCommandRejectsFocusAndNoFocusTogetherBeforeConnecting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-focus-conflict")
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("conflict.txt")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "conflict\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        defer {
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path, "--focus", "--no-focus"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.contains("--focus and --no-focus cannot be used together"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
     func testGlobalWindowOptionRoutesWithoutFocusingWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("win-nf")

@@ -278,6 +278,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar --focus set find",
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar set find --focus true",
                 RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
             ),
@@ -344,6 +348,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ("right_sidebar focus", true),
             ("right_sidebar set find", false),
             ("right_sidebar set find --focus", true),
+            ("right_sidebar --focus set find", true),
             ("right_sidebar sessions", false),
             ("right_sidebar sessions --focus", true),
             ("right_sidebar set vault --no-focus", false),

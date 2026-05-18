@@ -63,13 +63,17 @@ extension RightSidebarRemoteRequest {
                     return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusConflict", defaultValue: "ERROR: --focus and --no-focus cannot be used together")))
                 }
                 sawFocus = true
-                if index + 1 < tokens.count,
-                   !tokens[index + 1].hasPrefix("--") {
-                    guard let parsed = parseFocusValue(tokens[index + 1]) else {
+                if index + 1 < tokens.count, !tokens[index + 1].hasPrefix("--") {
+                    let next = tokens[index + 1]
+                    if let parsed = parseFocusValue(next) {
+                        focusOverride = parsed
+                        index += 2
+                    } else if Self.isKnownPositionalToken(next) {
+                        focusOverride = true
+                        index += 1
+                    } else {
                         return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusValue", defaultValue: "ERROR: --focus must be true or false")))
                     }
-                    focusOverride = parsed
-                    index += 2
                 } else {
                     focusOverride = true
                     index += 1
@@ -132,7 +136,7 @@ extension RightSidebarRemoteRequest {
         }
 
         guard let action = positional.first?.lowercased() else {
-            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--focus] [--no-focus]")))
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--focus[=true|false]] [--no-focus]")))
         }
 
         switch action {
@@ -163,7 +167,7 @@ extension RightSidebarRemoteRequest {
             return .success(.init(command: .getState, target: target))
         case "set":
             guard positional.count == 2 else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--focus] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock> [--focus[=true|false]] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             guard let mode = RightSidebarMode.from(cliArgument: positional[1]) else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '\(positional[1])'")))
@@ -185,6 +189,15 @@ extension RightSidebarRemoteRequest {
             return false
         default:
             return nil
+        }
+    }
+
+    private static func isKnownPositionalToken(_ raw: String) -> Bool {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "toggle", "show", "hide", "focus", "set", "mode", "state", "files", "find", "vault", "sessions", "feed", "dock":
+            return true
+        default:
+            return false
         }
     }
 

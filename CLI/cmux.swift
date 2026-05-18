@@ -10534,7 +10534,7 @@ struct CMUXCLI {
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
               set <files|find|vault|sessions|feed|dock>
-                                             Show and switch mode without moving focus
+                                             Show and switch mode
               mode                           Print {"visible":bool,"mode":string}
               files|find|vault|sessions|feed|dock
                                              Alias for show + set
@@ -10964,13 +10964,17 @@ struct CMUXCLI {
                 guard !noFocus else {
                     throw CLIError(message: String(localized: "cli.rightSidebar.error.focusConflict", defaultValue: "right-sidebar: --focus and --no-focus cannot be used together"))
                 }
-                if index + 1 < args.count,
-                   !args[index + 1].hasPrefix("--") {
-                    guard let parsed = parseBoolString(args[index + 1]) else {
+                if index + 1 < args.count, !args[index + 1].hasPrefix("--") {
+                    let next = args[index + 1]
+                    if let parsed = parseBoolString(next) {
+                        focus = parsed
+                        index += 2
+                    } else if isRightSidebarCLIKnownPositionalToken(next) {
+                        focus = true
+                        index += 1
+                    } else {
                         throw CLIError(message: String(localized: "cli.rightSidebar.error.focusValue", defaultValue: "right-sidebar: --focus must be true or false"))
                     }
-                    focus = parsed
-                    index += 2
                 } else {
                     focus = true
                     index += 1
@@ -11063,6 +11067,15 @@ struct CMUXCLI {
     private func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value {
         case "files", "find", "vault", "sessions", "feed", "dock":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isRightSidebarCLIKnownPositionalToken(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "toggle", "show", "hide", "focus", "set", "mode", "files", "find", "vault", "sessions", "feed", "dock":
             return true
         default:
             return false
@@ -24219,7 +24232,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           restore-session
-          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus [true|false]] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]

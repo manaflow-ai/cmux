@@ -314,6 +314,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("focus", ["right-sidebar", "focus"], "right_sidebar focus", "OK", ""),
             ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find --no-focus", "OK", ""),
             ("set-focus", ["right-sidebar", "set", "find", "--focus"], "right_sidebar set find --focus", "OK", ""),
+            ("set-prefix-focus", ["right-sidebar", "--focus", "set", "find"], "right_sidebar set find --focus", "OK", ""),
             ("set-no-focus", ["right-sidebar", "set", "vault", "--no-focus"], "right_sidebar set vault --no-focus", "OK", ""),
             ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions --no-focus", "OK", ""),
             ("files-alias", ["right-sidebar", "files"], "right_sidebar set files --no-focus", "OK", ""),
