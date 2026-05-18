@@ -766,8 +766,10 @@ private struct TitlebarControlsGapDragView: NSViewRepresentable {
             guard !isWindowDragSuppressed(window: window) else { return }
 
             if let window {
-                withTemporaryWindowMovableEnabled(window: window) {
-                    window.performDrag(with: event)
+                withWindowMoveTerminalInputSuppression(window: window) {
+                    withTemporaryWindowMovableEnabled(window: window) {
+                        window.performDrag(with: event)
+                    }
                 }
             } else {
                 super.mouseDown(with: event)

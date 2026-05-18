@@ -8387,6 +8387,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #if DEBUG
         cmuxDebugLog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
@@ -9144,6 +9145,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -9167,6 +9169,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -9211,6 +9214,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NSCursor.pop()
         }
         guard let surface = surface else { return }
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
@@ -9218,6 +9222,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
