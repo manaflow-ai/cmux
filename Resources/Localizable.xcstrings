@@ -65723,6 +65723,14 @@
         }
       }
     },
+    "settings.browser.hiddenWebViewDiscard": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Browser Memory Saver" } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザメモリセーバー" } } } },
+    "settings.browser.hiddenWebViewDiscard.subtitleOff": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hidden browser tabs keep page memory until closed." } }, "ja": { "stringUnit": { "state": "translated", "value": "非表示のブラウザタブは、閉じるまでページメモリを保持します。" } } } },
+    "settings.browser.hiddenWebViewDiscard.subtitleOn": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Hidden browser tabs release page memory after the delay below, then restore when shown again." } }, "ja": { "stringUnit": { "state": "translated", "value": "非表示のブラウザタブは下の遅延後にページメモリを解放し、再表示時に復元します。" } } } },
+    "settings.browser.hiddenWebViewDiscardDelay": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Memory Saver Delay" } }, "ja": { "stringUnit": { "state": "translated", "value": "メモリセーバーの遅延" } } } },
+    "settings.browser.hiddenWebViewDiscardDelay.minutes": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lldm" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld分" } } } },
+    "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%lldm %llds" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld分%lld秒" } } } },
+    "settings.browser.hiddenWebViewDiscardDelay.seconds": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "%llds" } }, "ja": { "stringUnit": { "state": "translated", "value": "%lld秒" } } } },
+    "settings.browser.hiddenWebViewDiscardDelay.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped." } }, "ja": { "stringUnit": { "state": "translated", "value": "ブラウザタブが非表示になってから、cmux がページメモリを解放するまでの時間です。進行中のダウンロード、ポップアップ、開発者ツール、フルスクリーン、読み込み中のページは対象外です。" } } } },
     "settings.browser.interceptOpen": {
       "extractionState": "manual",
       "localizations": {
@@ -78802,6 +78810,40 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "browser.theme web page theme color scheme light dark system браузер веб webview адресний рядок посилання url вбудований сторінка вкладки вигляд тема колір кольори схема світлий темний система режим Темна Світла Системна Браузер: %@ браузера: • браузера"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.browser.hidden-webview-discard": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim メモリ 非表示 タブ 破棄 解放 復元 ブラウザ"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.browser.hidden-webview-discard-delay": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload メモリ 非表示 タブ 遅延 秒 破棄 解放"
                 }
             }
         }
