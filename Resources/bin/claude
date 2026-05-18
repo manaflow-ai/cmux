@@ -238,51 +238,54 @@ EOF
     printf '%s' "$guard_path"
 }
 
-node_options_restore_dir() {
-    if [[ -n "${CMUX_NODE_OPTIONS_RESTORE_DIR:-}" ]]; then
-        local override="${CMUX_NODE_OPTIONS_RESTORE_DIR:-}"
-        override="${override#"${override%%[![:space:]]*}"}"
-        override="${override%"${override##*[![:space:]]}"}"
-        [[ -n "$override" ]] || return 1
+node_options_restore_dir_from_override() {
+    local override="${CMUX_NODE_OPTIONS_RESTORE_DIR:-}"
+    override="${override#"${override%%[![:space:]]*}"}"
+    override="${override%"${override##*[![:space:]]}"}"
+    [[ -n "$override" ]] || return 1
 
-        if [[ "$override" == "~" || "$override" == "~/"* ]]; then
-            local home="${HOME:-}"
-            [[ -n "$home" ]] || return 1
-            if [[ "$override" == "~" ]]; then
-                override="$home"
-            else
-                override="${home%/}/${override#~/}"
-            fi
-        elif [[ "$override" == "~"* ]]; then
-            return 1
+    if [[ "$override" == "~" || "$override" == "~/"* ]]; then
+        local home="${HOME:-}"
+        [[ -n "$home" ]] || return 1
+        if [[ "$override" == "~" ]]; then
+            override="$home"
+        else
+            override="${home%/}/${override#~/}"
         fi
-
-        if [[ "$override" != /* ]]; then
-            local cwd="${PWD:-}"
-            [[ -n "$cwd" ]] || return 1
-            override="${cwd%/}/$override"
-        fi
-
-        while [[ "$override" == */ && "$override" != "/" ]]; do
-            override="${override%/}"
-        done
-        case "$override" in
-            */cmux/node-options|*/cmux-claude-node-options)
-                ;;
-            *)
-                override="${override%/}/cmux/node-options"
-                ;;
-        esac
-        printf '%s' "$override"
-        return 0
+    elif [[ "$override" == "~"* ]]; then
+        return 1
     fi
 
-    local home="${HOME:-}"
-    if [[ -n "$home" ]]; then
-        printf '%s' "${home%/}/Library/Application Support/cmux/node-options"
-        return 0
+    if [[ "$override" != /* ]]; then
+        local cwd="${PWD:-}"
+        [[ -n "$cwd" ]] || return 1
+        override="${cwd%/}/$override"
     fi
 
+    while [[ "$override" == */ && "$override" != "/" ]]; do
+        override="${override%/}"
+    done
+    case "$override" in
+        */cmux/node-options|*/cmux-claude-node-options)
+            ;;
+        *)
+            override="${override%/}/cmux/node-options"
+            ;;
+    esac
+    printf '%s' "$override"
+}
+
+node_options_prepare_restore_dir() {
+    local dir="$1"
+    mkdir -p "$dir" 2>/dev/null || return 1
+    [[ ! -L "$dir" && -d "$dir" ]] || return 1
+
+    local probe
+    probe="$(mktemp "$dir/.cmux-node-options-probe.XXXXXX" 2>/dev/null)" || return 1
+    rm -f "$probe" 2>/dev/null || return 1
+}
+
+node_options_temp_restore_dir() {
     local fallback_root="${TMPDIR:-/tmp}"
     while [[ "$fallback_root" == */ && "$fallback_root" != "/" ]]; do
         fallback_root="${fallback_root%/}"
@@ -297,12 +300,36 @@ node_options_restore_dir() {
     if [[ -L "$fallback_dir" || ( -e "$fallback_dir" && ! -d "$fallback_dir" ) ]]; then
         return 1
     fi
-    mkdir -p "$fallback_dir" || return 1
+    mkdir -p "$fallback_dir" 2>/dev/null || return 1
     if [[ -L "$fallback_dir" || ! -d "$fallback_dir" || ! -O "$fallback_dir" ]]; then
         return 1
     fi
-    chmod 0700 "$fallback_dir" || return 1
+    chmod 0700 "$fallback_dir" 2>/dev/null || return 1
     printf '%s' "$fallback_dir/cmux/node-options"
+}
+
+node_options_restore_dir() {
+    local candidate
+    if [[ -n "${CMUX_NODE_OPTIONS_RESTORE_DIR:-}" ]]; then
+        if candidate="$(node_options_restore_dir_from_override)" &&
+            node_options_prepare_restore_dir "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    fi
+
+    local home="${HOME:-}"
+    if [[ -n "$home" ]]; then
+        candidate="${home%/}/Library/Application Support/cmux/node-options"
+        if node_options_prepare_restore_dir "$candidate"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    fi
+
+    candidate="$(node_options_temp_restore_dir)" || return 1
+    node_options_prepare_restore_dir "$candidate" || return 1
+    printf '%s' "$candidate"
 }
 
 node_options_split() {

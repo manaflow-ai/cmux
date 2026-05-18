@@ -1,27 +1,166 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public enum NodeOptionsSupport {
     public static let restoreModuleFilename = "restore-node-options.cjs"
 
     public static func claudeRestoreDirectory(
         homePath: String?,
-        appSupportDirectory: URL? = nil
+        appSupportDirectory: URL? = nil,
+        tempDirectory: URL = FileManager.default.temporaryDirectory,
+        fileManager: FileManager = .default
     ) -> URL {
-        let trimmedHome = homePath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let appSupport: URL
-        if let trimmedHome, !trimmedHome.isEmpty {
-            appSupport = URL(fileURLWithPath: trimmedHome, isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
-        } else if let appSupportDirectory {
-            appSupport = appSupportDirectory
-        } else {
-            appSupport = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        for candidate in claudeRestoreDirectoryCandidates(
+            homePath: homePath,
+            appSupportDirectory: appSupportDirectory
+        ) where prepareWritableRestoreDirectory(candidate, fileManager: fileManager) {
+            return candidate
         }
 
-        return appSupport
+        for candidate in temporaryRestoreDirectoryCandidates(tempDirectory: tempDirectory)
+        where prepareSecureTemporaryRestoreDirectory(candidate, fileManager: fileManager) {
+            return candidate
+        }
+
+        return temporaryRestoreDirectory(under: tempDirectory)
+    }
+
+    private static func claudeRestoreDirectoryCandidates(
+        homePath: String?,
+        appSupportDirectory: URL?
+    ) -> [URL] {
+        var appSupportRoots: [URL] = []
+        let trimmedHome = homePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedHome, !trimmedHome.isEmpty {
+            appSupportRoots.append(
+                URL(fileURLWithPath: trimmedHome, isDirectory: true)
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+            )
+        }
+        if let appSupportDirectory {
+            appSupportRoots.append(appSupportDirectory)
+        }
+        if appSupportRoots.isEmpty {
+            appSupportRoots.append(
+                URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+            )
+        }
+
+        var seen = Set<String>()
+        return appSupportRoots.compactMap { appSupport in
+            let restoreDirectory = appSupport
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("node-options", isDirectory: true)
+                .standardizedFileURL
+            guard seen.insert(restoreDirectory.path).inserted else { return nil }
+            return restoreDirectory
+        }
+    }
+
+    private static func temporaryRestoreDirectoryCandidates(tempDirectory: URL) -> [URL] {
+        let candidates = [
+            temporaryRestoreDirectory(under: tempDirectory),
+            temporaryRestoreDirectory(under: URL(fileURLWithPath: "/tmp", isDirectory: true))
+        ]
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    private static func temporaryRestoreDirectory(under tempDirectory: URL) -> URL {
+        tempDirectory
+            .standardizedFileURL
+            .appendingPathComponent("cmux-node-options-\(getuid())", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("node-options", isDirectory: true)
+    }
+
+    private static func prepareSecureTemporaryRestoreDirectory(
+        _ restoreDirectory: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        let root = restoreDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        guard !isSymbolicLink(root, fileManager: fileManager) else {
+            return false
+        }
+
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+            return false
+        }
+
+        do {
+            try fileManager.createDirectory(
+                at: root,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            guard !isSymbolicLink(root, fileManager: fileManager) else {
+                return false
+            }
+            let attributes = try fileManager.attributesOfItem(atPath: root.path)
+            if let owner = attributes[.ownerAccountID] as? NSNumber,
+               owner.uint32Value != getuid() {
+                return false
+            }
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+            return prepareWritableRestoreDirectory(restoreDirectory, fileManager: fileManager)
+        } catch {
+            return false
+        }
+    }
+
+    private static func prepareWritableRestoreDirectory(
+        _ directory: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        guard !isSymbolicLink(directory, fileManager: fileManager) else {
+            return false
+        }
+
+        do {
+            try fileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            guard !isSymbolicLink(directory, fileManager: fileManager) else {
+                return false
+            }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return false
+            }
+
+            let probeURL = directory.appendingPathComponent(
+                ".cmux-node-options-probe-\(UUID().uuidString)",
+                isDirectory: false
+            )
+            guard fileManager.createFile(atPath: probeURL.path, contents: Data(), attributes: nil) else {
+                return false
+            }
+            try? fileManager.removeItem(at: probeURL)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func isSymbolicLink(_ url: URL, fileManager: FileManager) -> Bool {
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: url.path)
+            return (attributes[.type] as? FileAttributeType) == .typeSymbolicLink
+        } catch {
+            return false
+        }
     }
 
     public static func requirePath(_ path: String) -> String {

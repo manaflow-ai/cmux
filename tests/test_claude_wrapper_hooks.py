@@ -1245,6 +1245,44 @@ def test_live_socket_missing_home_still_injects_node_options_restore(failures: l
     expect(child_node_options == "--trace-warnings", f"missing home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
 
 
+def test_live_socket_invalid_home_falls_back_to_temp_restore_dir(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-home-") as td:
+        root = Path(td)
+        bad_home = root / "home-file"
+        bad_home.write_text("not a directory", encoding="utf-8")
+        fallback_tmp = root / "fallback-tmp"
+        fallback_tmp.mkdir(parents=True, exist_ok=True)
+        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["--print", "hello"],
+            node_options="--trace-warnings",
+            tmpdir=str(fallback_tmp),
+            extra_env={"HOME": str(bad_home)},
+        )
+
+    expect(code == 0, f"invalid home: wrapper exited {code}: {stderr}", failures)
+    require_flag, remaining_flags = restore_require_and_remaining(node_options)
+    restore_path = require_flag.removeprefix("--require=")
+    expected_restore_path = fallback_tmp / f"cmux-node-options-{os.getuid()}" / "cmux" / "node-options" / "restore-node-options.cjs"
+    expect(
+        require_flag.startswith("--require="),
+        f"invalid home: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+    expect(
+        Path(restore_path) == expected_restore_path,
+        f"invalid home: expected stable fallback restore module {expected_restore_path}, got {restore_path!r}",
+        failures,
+    )
+    expect(
+        remaining_flags == "--max-old-space-size=4096 --trace-warnings",
+        f"invalid home: expected original NODE_OPTIONS after injected heap cap, got {node_options!r}",
+        failures,
+    )
+    expect(runtime_node_options == "--trace-warnings", f"invalid home: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
+    expect(child_node_options == "--trace-warnings", f"invalid home: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+
+
 def test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-restore-override-") as td:
         override_root = Path(td) / "custom restore root"
@@ -1508,6 +1546,7 @@ def main() -> int:
     test_live_socket_preserves_quoted_literal_backslash_require_path(failures)
     test_live_socket_bad_tmpdir_still_uses_durable_node_options_injection(failures)
     test_live_socket_missing_home_still_injects_node_options_restore(failures)
+    test_live_socket_invalid_home_falls_back_to_temp_restore_dir(failures)
     test_live_socket_restore_dir_override_keeps_sanitizer_suffix(failures)
     test_live_socket_strips_stale_cmux_restore_require_from_node_options(failures)
     test_live_socket_preserves_non_cmux_restore_component_suffix(failures)

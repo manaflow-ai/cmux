@@ -334,9 +334,47 @@ func ensureClaudeNodeOptionsRestoreModule() (string, error) {
 func claudeNodeOptionsRestoreDir() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err == nil && strings.TrimSpace(configDir) != "" {
-		return filepath.Join(configDir, "cmux", "node-options"), nil
+		candidate := filepath.Join(configDir, "cmux", "node-options")
+		if err := ensureWritableNodeOptionsDir(candidate); err == nil {
+			return candidate, nil
+		}
 	}
 	return claudeNodeOptionsTempRestoreDir()
+}
+
+func ensureWritableNodeOptionsDir(dir string) error {
+	if info, err := os.Lstat(dir); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("node options directory is a symlink: %s", dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("node options path is not a directory: %s", dir)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(dir); err != nil {
+		return err
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("node options directory is a symlink: %s", dir)
+	} else if !info.IsDir() {
+		return fmt.Errorf("node options path is not a directory: %s", dir)
+	}
+
+	probe, err := os.CreateTemp(dir, ".cmux-node-options-probe-*")
+	if err != nil {
+		return err
+	}
+	probePath := probe.Name()
+	closeErr := probe.Close()
+	removeErr := os.Remove(probePath)
+	if closeErr != nil {
+		return closeErr
+	}
+	return removeErr
 }
 
 func claudeNodeOptionsTempRestoreDir() (string, error) {
@@ -372,7 +410,11 @@ func claudeNodeOptionsTempRestoreDir() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(fallbackRoot, "cmux", "node-options"), nil
+	dir := filepath.Join(fallbackRoot, "cmux", "node-options")
+	if err := ensureWritableNodeOptionsDir(dir); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // --- Focused context ---

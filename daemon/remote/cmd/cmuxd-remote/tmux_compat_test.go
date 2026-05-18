@@ -505,6 +505,33 @@ func TestClaudeNodeOptionsRestoreDirFallsBackWhenUserConfigDirUnavailable(t *tes
 	}
 }
 
+func TestClaudeNodeOptionsRestoreDirFallsBackWhenUserConfigDirUnusable(t *testing.T) {
+	tempDir := t.TempDir()
+	badConfigDir := filepath.Join(tempDir, "config-file")
+	if err := os.WriteFile(badConfigDir, []byte("not a directory"), 0644); err != nil {
+		t.Fatalf("write bad config dir: %v", err)
+	}
+	t.Setenv("HOME", badConfigDir)
+	t.Setenv("XDG_CONFIG_HOME", badConfigDir)
+	t.Setenv("TMPDIR", tempDir)
+
+	got, err := claudeNodeOptionsRestoreDir()
+	if err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should fall back when config dir is unusable: %v", err)
+	}
+
+	expectedRoot := filepath.Join(tempDir, fmt.Sprintf("cmux-node-options-%d", os.Getuid()))
+	want := filepath.Join(expectedRoot, "cmux", "node-options")
+	if got != want {
+		t.Fatalf("claudeNodeOptionsRestoreDir invalid config fallback = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(want); err != nil {
+		t.Fatalf("claudeNodeOptionsRestoreDir should create fallback restore dir: %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("claudeNodeOptionsRestoreDir fallback restore path is not a directory: %q", want)
+	}
+}
+
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
 	path := tmuxWaitForSignalPath(name)

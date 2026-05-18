@@ -37,6 +37,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td:
         tmp = Path(td)
@@ -136,6 +137,8 @@ fs.writeFileSync(
         env["NODE_OPTIONS"] = node_options
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
+        if extra_env is not None:
+            env.update(extra_env)
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
@@ -481,6 +484,62 @@ def main() -> int:
     if child_node_options_value != "--trace-warnings":
         print(
             "FAIL: expected child NODE_OPTIONS to inherit restored original value when TMPDIR is unusable, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-home-") as td:
+        root = Path(td)
+        bad_home = root / "home-file"
+        bad_home.write_text("not a directory", encoding="utf-8")
+        fallback_tmp = root / "fallback-tmp"
+        fallback_tmp.mkdir(parents=True, exist_ok=True)
+        proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+            cli_path,
+            base_env,
+            "--trace-warnings",
+            tmpdir=str(fallback_tmp),
+            extra_env={"HOME": str(bad_home)},
+        )
+        expected_restore_path = fallback_tmp / f"cmux-node-options-{os.getuid()}" / "cmux" / "node-options" / "restore-node-options.cjs"
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` should still succeed when HOME is unusable")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    require_flag, remaining_flags = restore_require_and_remaining(node_options_value)
+    if not require_flag.startswith("--require="):
+        print(
+            "FAIL: expected claude-teams to inject restore preload even when HOME is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+    restore_path = require_flag.removeprefix("--require=")
+    if Path(restore_path) != expected_restore_path:
+        print(
+            "FAIL: expected claude-teams restore preload to fall back to stable temp when HOME is unusable, "
+            f"want {expected_restore_path}, got {restore_path!r}"
+        )
+        return 1
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected claude-teams to preserve existing NODE_OPTIONS after invalid HOME fallback, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored when HOME is unusable, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to inherit restored original value when HOME is unusable, "
             f"got {child_node_options_value!r}"
         )
         return 1

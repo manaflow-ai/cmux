@@ -78,6 +78,66 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         )
     }
 
+    func testClaudeRestoreDirectoryFallsBackWhenHomeCandidateIsUnusable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-node-options-dir-\(UUID().uuidString)", isDirectory: true)
+        let homeFile = root.appendingPathComponent("home-file", isDirectory: false)
+        let appSupport = root.appendingPathComponent("app-support", isDirectory: true)
+        let tmpDir = root.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        try "not a directory".write(to: homeFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let directory = NodeOptionsSupport.claudeRestoreDirectory(
+            homePath: homeFile.path,
+            appSupportDirectory: appSupport,
+            tempDirectory: tmpDir
+        )
+
+        XCTAssertEqual(
+            directory.path,
+            appSupport
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("node-options", isDirectory: true)
+                .path
+        )
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+    }
+
+    func testClaudeRestoreDirectoryFallsBackToStableTempWhenDurableCandidatesAreUnusable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-node-options-temp-\(UUID().uuidString)", isDirectory: true)
+        let homeFile = root.appendingPathComponent("home-file", isDirectory: false)
+        let appSupportFile = root.appendingPathComponent("app-support-file", isDirectory: false)
+        let tmpDir = root.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        try "not a directory".write(to: homeFile, atomically: true, encoding: .utf8)
+        try "not a directory".write(to: appSupportFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let directory = NodeOptionsSupport.claudeRestoreDirectory(
+            homePath: homeFile.path,
+            appSupportDirectory: appSupportFile,
+            tempDirectory: tmpDir
+        )
+        let fallbackRoot = tmpDir.appendingPathComponent("cmux-node-options-\(getuid())", isDirectory: true)
+        let expectedDirectory = fallbackRoot
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("node-options", isDirectory: true)
+
+        XCTAssertEqual(directory.path, expectedDirectory.path)
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: fallbackRoot.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
     func testCmuxRestoreEntryStrippingRemovesOnlyInjectedHeapCap() {
         let tokens = NodeOptionsSupport.tokens(
             """
