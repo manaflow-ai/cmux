@@ -3282,6 +3282,72 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
 
+    func testProcessDetectionResolvesClaudeForkChildFromProcessSessionFile() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_041
+        let process = makeTopProcess(
+            pid: 10_041,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fileManager = FileManager.default
+        let configDir = fileManager.temporaryDirectory
+            .appendingPathComponent("claude-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/claude fork repo"
+        let parentSessionId = "18f6c8c3-115b-40ff-8f6a-f8b0cc6352bf"
+        let childSessionId = "5f854a42-a167-45aa-b7d7-ab9fc32758c3"
+        try writeClaudeProcessSession(
+            configDir: configDir,
+            pid: process.pid,
+            sessionId: childSessionId,
+            cwd: workingDirectory
+        )
+        defer {
+            try? fileManager.removeItem(at: configDir)
+        }
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.local/bin/claude",
+                        "--resume",
+                        parentSessionId,
+                        "--fork-session",
+                        "--dangerously-skip-permissions"
+                    ],
+                    environment: [
+                        "CLAUDE_CONFIG_DIR": configDir.path,
+                        "CLAUDE_SESSION_ID": parentSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, childSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
+        XCTAssertTrue(snapshot.forkCommand?.contains(childSessionId) == true)
+        XCTAssertFalse(snapshot.forkCommand?.contains(parentSessionId) == true)
+    }
+
     func testProcessDetectionUsesFocusedTTYFallbackForOpenCodeWithoutCMUXEnvironment() throws {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -5978,6 +6044,29 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         data.append(0x0A)
         try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: fileURL.path)
+    }
+
+    private func writeClaudeProcessSession(
+        configDir: URL,
+        pid: Int,
+        sessionId: String,
+        cwd: String
+    ) throws {
+        let directory = configDir.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let payload: [String: Any] = [
+            "pid": pid,
+            "sessionId": sessionId,
+            "cwd": cwd,
+            "kind": "interactive",
+            "entrypoint": "cli",
+            "status": "idle"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try data.write(
+            to: directory.appendingPathComponent("\(pid).json", isDirectory: false),
+            options: .atomic
+        )
     }
 }
 
