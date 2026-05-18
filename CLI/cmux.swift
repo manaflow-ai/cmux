@@ -16936,18 +16936,24 @@ struct CMUXCLI {
             preToolNeedsInputSignature = nil
         }
 
+        var didPersistPreToolNeedsInputSignature = false
         if let sessionId {
-            try sessionStore.upsert(
-                sessionId: sessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: cwd,
-                transcriptPath: transcriptPath,
-                lastSubtitle: subtitle,
-                lastBody: body,
-                lastPreToolNeedsInputNotificationSignature: preToolNeedsInputSignature,
-                clearLastPreToolNeedsInputNotificationSignature: !markPreToolNeedsInput
-            )
+            do {
+                try sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    transcriptPath: transcriptPath,
+                    lastSubtitle: subtitle,
+                    lastBody: body,
+                    lastPreToolNeedsInputNotificationSignature: preToolNeedsInputSignature,
+                    clearLastPreToolNeedsInputNotificationSignature: !markPreToolNeedsInput
+                )
+                didPersistPreToolNeedsInputSignature = markPreToolNeedsInput
+            } catch {
+                telemetry.captureError(stage: "claude-hook.publish-needs-input.persist-summary", error: error)
+            }
         }
 
         let statusValue = String(localized: "agent.claude.input.status.needsInput", defaultValue: "Needs input")
@@ -16967,7 +16973,7 @@ struct CMUXCLI {
         do {
             return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
         } catch {
-            if markPreToolNeedsInput {
+            if didPersistPreToolNeedsInputSignature {
                 clearPreToolNeedsInputNotificationSignatureBestEffort(
                     sessionStore: sessionStore,
                     sessionId: sessionId,

@@ -381,6 +381,45 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
+        state_failure_session_id = f"ask-state-failure-{uuid.uuid4().hex}"
+        state_failure_payload = {
+            **payload,
+            "session_id": state_failure_session_id,
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Should state failure still notify?",
+                        "options": [
+                            {"label": "Deliver"},
+                            {"label": "Drop"},
+                        ],
+                    }
+                ]
+            },
+        }
+        state_failure_path = Path(server.root.name) / "state-path-is-directory"
+        state_failure_path.mkdir()
+        state_failure_env = env.copy()
+        state_failure_env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_failure_path)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            state_failure_payload,
+            state_failure_env,
+        )
+
+        if not has_command_with(
+            server.commands,
+            f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
+            "Should state failure still notify?",
+            "[Deliver]",
+            "[Drop]",
+        ):
+            print("FAIL: state persistence failure should not block AskUserQuestion notification")
+            print(f"commands={server.commands!r}")
+            return 1
+
     print("PASS: Claude AskUserQuestion PreToolUse handles needs-input notifications")
     return 0
 
