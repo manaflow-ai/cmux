@@ -21064,10 +21064,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         fallbackKind: def.name,
                         cwd: cwd
                     )
+                    let stopNotificationStatus: AgentHookNotificationStatus = codexFailure == nil ? .idle : .error
                     try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
                                       launchCommand: launchCommand,
                                       lastSubtitle: subtitle,
-                                      lastBody: body)
+                                      lastBody: body,
+                                      lastNotificationStatus: stopNotificationStatus,
+                                      updateLastNotificationStatus: true)
                 }
                 if let pid {
                     _ = try? sendV1Command(
@@ -21109,16 +21112,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
                 var summary = summarizeAgentHookNotification(def: def, parsedInput: input)
                 if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
-                    let restored = classifyAgentHookNotification(
-                        def: def,
-                        signal: mapped?.lastSubtitle ?? "",
-                        message: savedBody,
-                        isFallback: false
-                    )
                     summary = AgentHookNotificationSummary(
-                        subtitle: mapped?.lastSubtitle ?? restored.subtitle,
+                        subtitle: mapped?.lastSubtitle ?? summary.subtitle,
                         body: savedBody,
-                        status: restored.status,
+                        status: mapped?.lastNotificationStatus,
                         isFallback: false
                     )
                 }
