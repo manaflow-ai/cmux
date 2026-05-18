@@ -1635,7 +1635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 body: String(
                     localized: "crashBreadcrumb.body",
                     defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
-                )
+                ),
+                clickAction: .revealInFinder(path: pendingCrash.fileURL.path)
             )
             GhosttyCrashBreadcrumb.markShown(pendingCrash)
         }
@@ -7424,11 +7425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.showNotificationsPopoverFromMenuBar()
             },
             onOpenNotification: { [weak self] notification in
-                _ = self?.openNotification(
-                    tabId: notification.tabId,
-                    surfaceId: notification.surfaceId,
-                    notificationId: notification.id
-                )
+                _ = self?.openTerminalNotification(notification)
             },
             onJumpToLatestUnread: { [weak self] in
                 self?.jumpToLatestUnread()
@@ -10617,7 +10614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications where !notification.isRead && notification.id != excludedNotificationId {
-            if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
+            if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
@@ -13843,6 +13840,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return nil
             }()
+            if let clickAction = TerminalNotificationClickAction(userInfo: response.notification.request.content.userInfo) {
+                DispatchQueue.main.async {
+                    self.performTerminalNotificationClickAction(clickAction)
+                    if let notificationId {
+                        self.notificationStore?.markRead(id: notificationId)
+                    }
+                }
+                return
+            }
             DispatchQueue.main.async {
                 _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
             }
@@ -14146,6 +14152,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         window?.performClose(nil)
+    }
+
+    @discardableResult
+    func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
+        if let clickAction = notification.clickAction {
+            let perform = {
+                self.performTerminalNotificationClickAction(clickAction)
+                self.notificationStore?.markRead(id: notification.id)
+            }
+            if Thread.isMainThread {
+                perform()
+            } else {
+                DispatchQueue.main.async(execute: perform)
+            }
+            return true
+        }
+        return openNotification(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            notificationId: notification.id
+        )
+    }
+
+    private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) {
+        switch action {
+        case .revealInFinder(let path):
+            revealInFinder(path: path)
+        }
+    }
+
+    private func revealInFinder(path: String) {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        guard !expandedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let fileURL = URL(fileURLWithPath: expandedPath)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            return
+        }
+        let directoryURL = fileURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: directoryURL.path) {
+            NSWorkspace.shared.open(directoryURL)
+        }
     }
 
     @discardableResult

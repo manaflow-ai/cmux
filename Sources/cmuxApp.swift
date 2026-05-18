@@ -870,11 +870,7 @@ struct cmuxApp: App {
     }
 
     private func openNotificationFromMainMenu(_ notification: TerminalNotification) {
-        _ = appDelegate.openNotification(
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            notificationId: notification.id
-        )
+        _ = appDelegate.openTerminalNotification(notification)
     }
 
     private func performSplitFromMenu(direction: SplitDirection) {

@@ -613,6 +613,37 @@ final class NotificationDockBadgeTests: XCTestCase {
         super.tearDown()
     }
 
+    func testNotificationClickActionRoundTripsAndIsStored() {
+        let store = TerminalNotificationStore.shared
+        let path = "/tmp/cmux-crash-\(UUID().uuidString).ghosttycrash"
+        let action = TerminalNotificationClickAction.revealInFinder(path: path)
+        let userInfo = Dictionary(uniqueKeysWithValues: action.userInfo.map { (AnyHashable($0.key), $0.value as Any) })
+        var delivered: TerminalNotification?
+
+        XCTAssertEqual(TerminalNotificationClickAction(userInfo: userInfo), action)
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            delivered = notification
+        }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+
+        store.addNotification(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "Diagnostic",
+            body: "Diagnostic file saved",
+            clickAction: action
+        )
+
+        XCTAssertEqual(store.notifications.first?.clickAction, action)
+        XCTAssertEqual(delivered?.clickAction, action)
+    }
+
     func testDockBadgeLabelEnabledAndCounted() {
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 1, isEnabled: true), "1")
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 42, isEnabled: true), "42")
