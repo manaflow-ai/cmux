@@ -38,6 +38,7 @@ extension CMUXCLI {
         let surfaceRef: String?
         let processName: String?
         let residentBytes: Int64
+        let residentBytesKnown: Bool
         let source: MemoryAgentCandidateSource
         let identity: MemoryProcessIdentity?
 

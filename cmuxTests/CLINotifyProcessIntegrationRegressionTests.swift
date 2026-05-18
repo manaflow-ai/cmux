@@ -776,6 +776,112 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimAutoPrefersKnownResidentBytesOverUnknown() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-known-rss")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "31313131-3131-3131-3131-313131313131"
+        let knownSurfaceId = "32323232-3232-3232-3232-323232323232"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                    "windows": [
+                        [
+                            "id": "33333333-3333-3333-3333-333333333333",
+                            "ref": "window:1",
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:31",
+                                    "title": "Memory Workspace",
+                                    "tags": [
+                                        [
+                                            "kind": "tag",
+                                            "key": "codex",
+                                            "pid": 111,
+                                            "surface_id": "34343434-3434-3434-3434-343434343434",
+                                            "surface_ref": "surface:unknown-rss",
+                                        ],
+                                        [
+                                            "kind": "tag",
+                                            "key": "claude_code",
+                                            "pid": 222,
+                                            "surface_id": knownSurfaceId,
+                                            "surface_ref": "surface:known-rss",
+                                            "resources": ["resident_bytes": 0],
+                                        ],
+                                    ],
+                                    "panes": [],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:31",
+                "--dry-run",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        let agent = try XCTUnwrap(payload["agent"] as? [String: Any])
+        XCTAssertEqual(agent["pid"] as? Int, 222)
+        XCTAssertEqual(agent["surface_id"] as? String, knownSurfaceId)
+        XCTAssertEqual(agent["resident_bytes"] as? Int, 0)
+        XCTAssertFalse(
+            state.commands.contains { $0.contains(#""method":"surface.send_text""#) },
+            "dry-run trim must not send terminal input, saw \(state.commands)"
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
     func testMemoryTrimSendsGracefulExitToSurfaceUUID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim-send")

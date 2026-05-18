@@ -39,6 +39,7 @@ extension CMUXCLI {
                 }
                 let process = processIndex[pid]
                 let resources = (process?["resources"] as? [String: Any]) ?? (tag["resources"] as? [String: Any] ?? [:])
+                let residentBytes = memoryResidentBytes(from: resources["resident_bytes"])
                 let processName = cli.topLabelText(process?["name"] as? String)
                 let candidate = MemoryAgentCandidate(
                     key: key,
@@ -46,7 +47,8 @@ extension CMUXCLI {
                     surfaceId: tag["surface_id"] as? String,
                     surfaceRef: tag["surface_ref"] as? String,
                     processName: processName.isEmpty ? nil : processName,
-                    residentBytes: CMUXCLI.topInt64Value(resources["resident_bytes"]),
+                    residentBytes: residentBytes.value,
+                    residentBytesKnown: residentBytes.known,
                     source: .tag,
                     identity: process.flatMap { MemoryProcessIdentity(process: $0) }
                 )
@@ -66,6 +68,9 @@ extension CMUXCLI {
 
             return byPID.values.sorted {
                 if $0.owned != $1.owned { return $0.owned && !$1.owned }
+                if $0.residentBytesKnown != $1.residentBytesKnown {
+                    return $0.residentBytesKnown && !$1.residentBytesKnown
+                }
                 if $0.residentBytes != $1.residentBytes { return $0.residentBytes > $1.residentBytes }
                 return $0.pid < $1.pid
             }
@@ -207,13 +212,15 @@ extension CMUXCLI {
                 let name = cli.topLabelText(process["name"] as? String)
                 if let key = memoryAgentKey(for: name) {
                     let resources = process["resources"] as? [String: Any] ?? [:]
+                    let residentBytes = memoryResidentBytes(from: resources["resident_bytes"])
                     let candidate = MemoryAgentCandidate(
                         key: key,
                         pid: pid,
                         surfaceId: surfaceId,
                         surfaceRef: surfaceRef,
                         processName: name,
-                        residentBytes: CMUXCLI.topInt64Value(resources["resident_bytes"]),
+                        residentBytes: residentBytes.value,
+                        residentBytesKnown: residentBytes.known,
                         source: .process,
                         identity: MemoryProcessIdentity(process: process)
                     )
@@ -244,10 +251,62 @@ extension CMUXCLI {
             if existing.identity == nil && candidate.identity != nil {
                 return candidate
             }
+            if existing.residentBytesKnown != candidate.residentBytesKnown {
+                return candidate.residentBytesKnown ? candidate : existing
+            }
             if candidate.residentBytes > existing.residentBytes {
                 return candidate
             }
             return existing
+        }
+
+        private func memoryResidentBytes(from raw: Any?) -> (value: Int64, known: Bool) {
+            guard let raw else {
+                return (0, false)
+            }
+            if let value = raw as? Int64 {
+                return (value, true)
+            }
+            if let value = raw as? Int {
+                return (Int64(value), true)
+            }
+            if let value = raw as? NSNumber {
+                let number = value as CFNumber
+                if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                    return (value.boolValue ? 1 : 0, true)
+                }
+                if CFNumberIsFloatType(number) {
+                    guard let converted = Int64(exactly: value.doubleValue) else {
+                        return (0, false)
+                    }
+                    return (converted, true)
+                }
+                var converted: Int64 = 0
+                guard CFNumberGetValue(number, .sInt64Type, &converted) else {
+                    return (0, false)
+                }
+                return (converted, true)
+            }
+            if let value = raw as? Double {
+                guard let converted = Int64(exactly: value) else {
+                    return (0, false)
+                }
+                return (converted, true)
+            }
+            if let value = raw as? Float {
+                guard let converted = Int64(exactly: Double(value)) else {
+                    return (0, false)
+                }
+                return (converted, true)
+            }
+            if let value = raw as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let converted = Int64(trimmed) else {
+                    return (0, false)
+                }
+                return (converted, true)
+            }
+            return (0, false)
         }
 
         private func memoryAgentKey(for raw: String) -> String? {
