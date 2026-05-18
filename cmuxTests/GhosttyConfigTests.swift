@@ -1174,6 +1174,53 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    func testHiddenDiscardPolicyReadsUserDefaults() throws {
+        let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let hasEnabledEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
+        let hasDelayEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
+
+        if !hasEnabledEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultEnabled
+            )
+        }
+        if !hasDelayEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+        }
+
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(42.5, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+
+        if !hasEnabledEnvironmentOverride {
+            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults))
+        }
+        if !hasDelayEnvironmentOverride {
+            XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
+
+            defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+            )
+
+            defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+        }
+    }
+
     func testLifecycleStartsAsNewTabUntilRenderable() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -1223,6 +1270,42 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         panel.close()
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
+    }
+
+    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
+        let discardedAt = Date(timeIntervalSince1970: 200)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
+        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 }
 
