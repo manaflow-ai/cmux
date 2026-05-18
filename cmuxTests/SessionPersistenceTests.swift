@@ -3110,7 +3110,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' '--model' 'gpt-5.4' '--search' 'codex-session-123'"
+            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'"
         )
     }
 

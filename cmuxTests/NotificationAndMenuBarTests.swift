@@ -644,6 +644,33 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(delivered?.clickAction, action)
     }
 
+    func testNotificationClickActionDoesNotMarkReadWhenRevealTargetIsMissing() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalStore = appDelegate.notificationStore
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "Diagnostic",
+            body: "Diagnostic file saved",
+            createdAt: Date(),
+            isRead: false,
+            clickAction: .revealInFinder(path: "/tmp/cmux-missing-\(UUID().uuidString)/missing.ghosttycrash")
+        )
+
+        store.replaceNotificationsForTesting([notification])
+        appDelegate.notificationStore = store
+        defer {
+            appDelegate.notificationStore = originalStore
+            store.replaceNotificationsForTesting([])
+        }
+
+        XCTAssertFalse(appDelegate.openTerminalNotification(notification))
+        XCTAssertFalse(try XCTUnwrap(store.notifications.first).isRead)
+    }
+
     func testDockBadgeLabelEnabledAndCounted() {
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 1, isEnabled: true), "1")
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 42, isEnabled: true), "42")

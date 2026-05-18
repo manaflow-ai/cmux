@@ -13853,9 +13853,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return nil
             }()
             if let clickAction = TerminalNotificationClickAction(userInfo: response.notification.request.content.userInfo) {
-                DispatchQueue.main.async {
-                    self.performTerminalNotificationClickAction(clickAction)
-                    if let notificationId {
+                Task { @MainActor in
+                    let didPerform = self.performTerminalNotificationClickAction(clickAction)
+                    if didPerform, let notificationId {
                         self.notificationStore?.markRead(id: notificationId)
                     }
                 }
@@ -14167,18 +14167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
         if let clickAction = notification.clickAction {
-            let perform = {
-                self.performTerminalNotificationClickAction(clickAction)
-                self.notificationStore?.markRead(id: notification.id)
+            let didPerform = performTerminalNotificationClickAction(clickAction)
+            if didPerform {
+                notificationStore?.markRead(id: notification.id)
             }
-            if Thread.isMainThread {
-                perform()
-            } else {
-                DispatchQueue.main.async(execute: perform)
-            }
-            return true
+            return didPerform
         }
         return openNotification(
             tabId: notification.tabId,
@@ -14187,26 +14183,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) {
+    @discardableResult
+    private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
         switch action {
         case .revealInFinder(let path):
-            revealInFinder(path: path)
+            return revealInFinder(path: path)
         }
     }
 
-    private func revealInFinder(path: String) {
+    @discardableResult
+    private func revealInFinder(path: String) -> Bool {
         let expandedPath = (path as NSString).expandingTildeInPath
-        guard !expandedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !expandedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
         let fileURL = URL(fileURLWithPath: expandedPath)
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: fileURL.path) {
             NSWorkspace.shared.activateFileViewerSelecting([fileURL])
-            return
+            return true
         }
         let directoryURL = fileURL.deletingLastPathComponent()
         if fileManager.fileExists(atPath: directoryURL.path) {
-            NSWorkspace.shared.open(directoryURL)
+            return NSWorkspace.shared.open(directoryURL)
         }
+        return false
     }
 
     @discardableResult
