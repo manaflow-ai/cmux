@@ -268,6 +268,45 @@ def main() -> int:
             env,
         )
 
+        unrelated_attention_payload = {
+            "session_id": session_id,
+            "hook_event_name": "Notification",
+            "message": "Review the current plan when ready.",
+        }
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            unrelated_attention_payload,
+            env,
+        )
+
+        notify_commands = [
+            command for command in server.commands
+            if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
+        ]
+        if len(notify_commands) != 3:
+            print("FAIL: unrelated Attention notification should not be suppressed")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        if not has_command_with(
+            server.commands,
+            f"notify_target_async {workspace_id} {surface_id} Claude Code|Attention|",
+            "Review the current plan when ready.",
+        ):
+            print("FAIL: unrelated Attention notification should keep its own summary")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            payload,
+            env,
+        )
+
         permission_payload = {
             "session_id": session_id,
             "hook_event_name": "Notification",
@@ -286,7 +325,7 @@ def main() -> int:
             command for command in server.commands
             if command.startswith(f"notify_target_async {workspace_id} {surface_id} ")
         ]
-        if len(notify_commands) != 3:
+        if len(notify_commands) != 5:
             print("FAIL: non-duplicate Notification hook should not be suppressed")
             print(f"commands={server.commands!r}")
             return 1

@@ -16979,7 +16979,25 @@ struct CMUXCLI {
     }
 
     private func shouldUseSavedNeedsInputSummary(for summary: (subtitle: String, body: String)) -> Bool {
-        summary.subtitle == "Waiting" || summary.subtitle == "Attention"
+        summary.subtitle == "Waiting" || isGenericNeedsInputAttention(summary)
+    }
+
+    private func isGenericNeedsInputAttention(_ summary: (subtitle: String, body: String)) -> Bool {
+        guard summary.subtitle == "Attention" else { return false }
+        switch normalizedSingleLine(summary.body).lowercased() {
+        case "claude needs your attention",
+             "claude needs your input",
+             "needs input",
+             "needs your attention",
+             "needs your input",
+             "the assistant needs your attention",
+             "the assistant needs your input",
+             "入力が必要です",
+             "入力待ち":
+            return true
+        default:
+            return false
+        }
     }
 
     private func shouldSuppressPreToolNeedsInputDuplicate(
