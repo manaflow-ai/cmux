@@ -71,7 +71,10 @@ extension CMUXCLI {
         ]
         if let workspaceHandle {
             guard let normalized = try normalizeWorkspaceHandle(workspaceHandle, client: client) else {
-                throw CLIError(message: "Invalid workspace handle")
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.invalidWorkspaceHandle",
+                    defaultValue: "Invalid workspace handle. Use a UUID, a ref like workspace:1, or an index; run `cmux list-workspaces` to see available workspaces."
+                ))
             }
             params["workspace_id"] = normalized
         }

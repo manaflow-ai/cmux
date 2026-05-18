@@ -14,6 +14,20 @@ extension CMUXCLI {
             self.url = url
         }
 
+        private var telemetryAccessErrorMessage: String {
+            String(
+                localized: "cli.memory.error.telemetryUnavailable",
+                defaultValue: "Could not access memory telemetry. Try again, or run `cmux memory snapshot` after opening cmux to collect a fresh sample."
+            )
+        }
+
+        private var telemetrySaveErrorMessage: String {
+            String(
+                localized: "cli.memory.error.telemetrySaveFailed",
+                defaultValue: "Could not save memory telemetry. Try again after opening cmux, or check that cmux can write app data."
+            )
+        }
+
         deinit {
             close()
         }
@@ -28,11 +42,11 @@ extension CMUXCLI {
             let result = sqlite3_open_v2(url.path, &db, flags, nil)
             guard result == SQLITE_OK, db != nil else {
                 close()
-                throw CLIError(message: "memory telemetry database could not be opened")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
             _ = sqlite3_busy_timeout(db, 1000)
-            try exec("PRAGMA journal_mode=WAL", failureMessage: "memory telemetry database could not be configured")
-            try exec("PRAGMA foreign_keys=ON", failureMessage: "memory telemetry database could not be configured")
+            try exec("PRAGMA journal_mode=WAL", failureMessage: telemetryAccessErrorMessage)
+            try exec("PRAGMA foreign_keys=ON", failureMessage: telemetryAccessErrorMessage)
             try migrate()
         }
 
@@ -45,15 +59,15 @@ extension CMUXCLI {
 
         func insert(samples: [MemoryWorkspaceSample], retention: TimeInterval) throws {
             try open()
-            try exec("BEGIN IMMEDIATE", failureMessage: "memory telemetry samples could not be saved")
+            try exec("BEGIN IMMEDIATE", failureMessage: telemetrySaveErrorMessage)
             do {
                 for sample in samples {
                     try insert(sample: sample)
                 }
                 try prune(retention: retention)
-                try exec("COMMIT", failureMessage: "memory telemetry samples could not be saved")
+                try exec("COMMIT", failureMessage: telemetrySaveErrorMessage)
             } catch {
-                try? exec("ROLLBACK", failureMessage: "memory telemetry samples could not be saved")
+                try? exec("ROLLBACK", failureMessage: telemetrySaveErrorMessage)
                 throw error
             }
         }
@@ -92,7 +106,7 @@ extension CMUXCLI {
             """
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-                throw CLIError(message: "memory telemetry database could not be queried")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
             defer { sqlite3_finalize(stmt) }
             sqlite3_bind_double(stmt, 1, cutoff)
@@ -121,7 +135,7 @@ extension CMUXCLI {
                 stepResult = sqlite3_step(stmt)
             }
             guard stepResult == SQLITE_DONE else {
-                throw CLIError(message: "memory telemetry database query failed")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
             return rows
         }
@@ -143,20 +157,20 @@ extension CMUXCLI {
                 process_count INTEGER NOT NULL,
                 top_process_names TEXT NOT NULL
             )
-            """, failureMessage: "memory telemetry database could not be prepared")
+            """, failureMessage: telemetryAccessErrorMessage)
             if try !columnExists("workspace_memory_samples", column: "memory_percent") {
                 try exec(
                     "ALTER TABLE workspace_memory_samples ADD COLUMN memory_percent REAL NOT NULL DEFAULT 0",
-                    failureMessage: "memory telemetry database could not be prepared"
+                    failureMessage: telemetryAccessErrorMessage
                 )
             }
             try exec(
                 "CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_time ON workspace_memory_samples(sampled_at)",
-                failureMessage: "memory telemetry database could not be prepared"
+                failureMessage: telemetryAccessErrorMessage
             )
             try exec(
                 "CREATE INDEX IF NOT EXISTS idx_workspace_memory_samples_workspace_time ON workspace_memory_samples(workspace_id, sampled_at)",
-                failureMessage: "memory telemetry database could not be prepared"
+                failureMessage: telemetryAccessErrorMessage
             )
         }
 
@@ -169,7 +183,7 @@ extension CMUXCLI {
             """
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-                throw CLIError(message: "memory telemetry sample could not be saved")
+                throw CLIError(message: telemetrySaveErrorMessage)
             }
             defer { sqlite3_finalize(stmt) }
             let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
@@ -186,7 +200,7 @@ extension CMUXCLI {
             sqlite3_bind_int64(stmt, 11, Int64(sample.processCount))
             bindText(stmt, 12, Self.jsonArray(sample.topProcessNames), transient: transient)
             guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw CLIError(message: "memory telemetry sample could not be saved")
+                throw CLIError(message: telemetrySaveErrorMessage)
             }
         }
 
@@ -194,7 +208,7 @@ extension CMUXCLI {
             var stmt: OpaquePointer?
             let sql = "PRAGMA table_info(\(table))"
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-                throw CLIError(message: "memory telemetry database could not be prepared")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
             defer { sqlite3_finalize(stmt) }
             var stepResult = sqlite3_step(stmt)
@@ -205,7 +219,7 @@ extension CMUXCLI {
                 stepResult = sqlite3_step(stmt)
             }
             guard stepResult == SQLITE_DONE else {
-                throw CLIError(message: "memory telemetry database could not be prepared")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
             return false
         }
@@ -216,12 +230,12 @@ extension CMUXCLI {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, "DELETE FROM workspace_memory_samples WHERE sampled_at < ?", -1, &stmt, nil) == SQLITE_OK,
                   let stmt else {
-                throw CLIError(message: "memory telemetry retention cleanup failed")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
             defer { sqlite3_finalize(stmt) }
             sqlite3_bind_double(stmt, 1, cutoff)
             guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw CLIError(message: "memory telemetry retention cleanup failed")
+                throw CLIError(message: telemetryAccessErrorMessage)
             }
         }
 

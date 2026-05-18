@@ -273,7 +273,7 @@ extension CMUXCLI {
             if let value = raw as? NSNumber {
                 let number = value as CFNumber
                 if CFGetTypeID(number) == CFBooleanGetTypeID() {
-                    return (value.boolValue ? 1 : 0, true)
+                    return (0, false)
                 }
                 if CFNumberIsFloatType(number) {
                     guard let converted = Int64(exactly: value.doubleValue) else {

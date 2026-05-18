@@ -156,7 +156,7 @@ extension CMUXCLI {
                     }
                 }
 
-                if !processExited, let liveCandidate = try revalidatedSignalCandidate(
+                if !processExited, candidate.identity != nil, let liveCandidate = try revalidatedSignalCandidate(
                     matching: candidate,
                     workspaceHandle: workspaceHandle
                 ) {
@@ -167,7 +167,7 @@ extension CMUXCLI {
                     processExited = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
 
-                if !processExited, let liveCandidate = try revalidatedSignalCandidate(
+                if !processExited, candidate.identity != nil, let liveCandidate = try revalidatedSignalCandidate(
                     matching: candidate,
                     workspaceHandle: workspaceHandle
                 ) {
@@ -229,7 +229,7 @@ extension CMUXCLI {
                 return try revalidatedSignalCandidate(matching: original, workspaceHandle: workspaceHandle) != nil
             } catch {
                 if tolerateMissingRevalidation {
-                    return false
+                    return signaler.isRunning(pid: original.pid)
                 }
                 throw error
             }

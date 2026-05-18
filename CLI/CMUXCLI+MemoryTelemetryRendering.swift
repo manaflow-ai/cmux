@@ -2,7 +2,12 @@ import Foundation
 
 extension CMUXCLI {
     func renderMemorySamples(_ samples: [MemoryWorkspaceSample], idFormat: CLIIDFormat) -> String {
-        guard !samples.isEmpty else { return "No workspace memory samples" }
+        guard !samples.isEmpty else {
+            return String(
+                localized: "cli.memory.empty.samples",
+                defaultValue: "No workspace memory samples. Run `cmux memory snapshot` to collect samples, or use --workspace to narrow the view."
+            )
+        }
         var lines = ["APPROX RSS  MEM%    CPU%    PROC  WORKSPACE       TITLE  TOP PROCESSES"]
         for sample in samples {
             let handle = memoryWorkspaceHandle(
@@ -22,7 +27,12 @@ extension CMUXCLI {
     }
 
     func renderMemoryTopRows(_ rows: [[String: Any]], idFormat: CLIIDFormat) -> String {
-        guard !rows.isEmpty else { return "No memory samples in selected time window" }
+        guard !rows.isEmpty else {
+            return String(
+                localized: "cli.memory.empty.topRows",
+                defaultValue: "No memory samples in selected time window. Try widening --since, or run `cmux memory snapshot` to collect samples."
+            )
+        }
         var lines = ["PEAK RSS    AVG RSS     PEAK MEM  AVG MEM   PEAK CPU  AVG CPU   SAMPLES  LAST SAMPLE           WORKSPACE       TITLE"]
         for row in rows {
             let handle = memoryWorkspaceHandle(
@@ -75,16 +85,15 @@ extension CMUXCLI {
     }
 
     func memoryWorkspaceHandle(id: String?, ref: String?, idFormat: CLIIDFormat) -> String {
+        let normalizedId = id?.isEmpty == false ? id : nil
+        let normalizedRef = ref?.isEmpty == false ? ref : nil
         switch idFormat {
         case .refs:
-            return (ref?.isEmpty == false ? ref : nil) ?? id ?? "?"
+            return normalizedRef ?? normalizedId ?? "?"
         case .uuids:
-            return (id?.isEmpty == false ? id : nil) ?? ref ?? "?"
+            return normalizedId ?? normalizedRef ?? "?"
         case .both:
-            let joined = [ref, id].compactMap { value in
-                guard let value, !value.isEmpty else { return nil }
-                return value
-            }.joined(separator: " ")
+            let joined = [normalizedRef, normalizedId].compactMap { $0 }.joined(separator: " ")
             return joined.isEmpty ? "?" : joined
         }
     }
