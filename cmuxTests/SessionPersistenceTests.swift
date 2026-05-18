@@ -1981,7 +1981,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     func testCodexTeamsResumeCommandDropsOriginalForkTarget() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "019child-session",
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87952",
             workingDirectory: "/Users/example/repo",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codexTeams",
@@ -1990,7 +1990,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "/usr/local/bin/cmux",
                     "codex-teams",
                     "fork",
-                    "019parent-session",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
                     "--model",
                     "gpt-5.4",
                     "stale fork prompt",
@@ -2006,7 +2006,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019child-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -3646,6 +3646,33 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "restored")
         XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t restored")
+    }
+
+    @MainActor
+    func testSnapshotDropsStaleProcessDetectedSurfaceResumeBindingAfterCleanRedetection() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/stale",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
     }
 
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
