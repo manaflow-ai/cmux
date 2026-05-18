@@ -33,7 +33,14 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if let value {
-            return !["0", "false", "no", "off"].contains(value)
+            switch value {
+            case "1", "true", "yes", "on":
+                return true
+            case "0", "false", "no", "off":
+                return false
+            default:
+                break
+            }
         }
         if defaults.object(forKey: enabledKey) == nil {
             return defaultEnabled

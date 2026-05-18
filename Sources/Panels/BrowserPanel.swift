@@ -3622,8 +3622,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func beginDownloadActivity() {
         let apply = {
+            let wasDownloading = self.isDownloading
             self.activeDownloadCount += 1
             self.isDownloading = self.activeDownloadCount > 0
+            if !wasDownloading && self.isDownloading {
+                self.reevaluateHiddenWebViewDiscardScheduling(reason: "download.started")
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -5497,6 +5501,9 @@ extension BrowserPanel {
         let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         setPreferredDeveloperToolsVisible(targetVisible)
         developerToolsTransitionTargetVisible = targetVisible
+        if targetVisible {
+            reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
+        }
 
         if targetVisible {
             if !visible {
