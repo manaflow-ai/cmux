@@ -203,8 +203,14 @@ enum AgentResumeCommandBuilder {
             )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail) else { return nil }
-            return [original.executable, "resume"] + preserved + [sessionId]
+            guard let preserved = preservedCodexForkArguments(
+                args: original.tail,
+                overridingWorkingDirectory: workingDirectory
+            ) else { return nil }
+            return [original.executable, "resume"]
+                + codexWorkingDirectoryArguments(workingDirectory)
+                + preserved
+                + [sessionId]
         case .pi:
             return resumeWithOption(
                 kind: "pi",

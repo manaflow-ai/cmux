@@ -1882,8 +1882,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "--ask-for-approval",
                     "never",
                     "--search",
-                    "--cd",
-                    "/Users/example/repo",
                     "initial prompt should not replay"
                 ],
                 workingDirectory: "/Users/example/repo",
@@ -1895,7 +1893,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
     }
 
@@ -2593,6 +2591,29 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 environment: [:]
             ),
             "019dad34-d218-7943-b81a-eddac5c87951"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.codexSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.bun/bin/codex",
+                    "resume",
+                    "--last",
+                    "fix bug"
+                ],
+                environment: [:]
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.codexSessionIdForProcess(
+                arguments: [
+                    "/Users/lawrence/.bun/bin/codex",
+                    "resume",
+                    "--last",
+                    "fix bug"
+                ],
+                environment: ["CODEX_THREAD_ID": "019e26a3-2c4b-7e62-b8d3-825ec5f3c696"]
+            ),
+            "019e26a3-2c4b-7e62-b8d3-825ec5f3c696"
         )
         XCTAssertEqual(
             RestorableAgentSessionIndex.codexSessionIdForProcess(

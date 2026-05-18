@@ -969,6 +969,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 fallbackSnapshot: directOpenCode
             )
         )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [],
+                unsupportedSnapshotFingerprintsByPanelKey: [
+                    ContentView.commandPaletteForkableAgentPanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ): ContentView.commandPaletteForkSnapshotFingerprint(directOpenCode)
+                ],
+                fallbackSnapshot: directOpenCode
+            )
+        )
         XCTAssertTrue(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,

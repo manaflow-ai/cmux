@@ -1037,6 +1037,9 @@ extension RestorableAgentSessionIndex {
                 return nil
             }
             if !argument.hasPrefix("-") || argument == "-" {
+                guard codexLooksLikeSessionIdentifier(argument) else {
+                    return nil
+                }
                 return normalized(argument)
             }
             let width = codexOptionWidth(arguments, index: index)
