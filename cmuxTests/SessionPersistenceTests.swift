@@ -5750,6 +5750,100 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
 
+    func testRestorableAgentIndexKeepsCodexHookOverProcessForkParentFallback() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let childSessionId = "019e5555-5555-7555-8555-555555555555"
+        let codexHome = home.appendingPathComponent(".codex", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "\(childSessionId)": {
+              "sessionId": "\(childSessionId)",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "/tmp/repo",
+              "updatedAt": 10,
+              "launchCommand": {
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": [
+                  "/usr/local/bin/codex",
+                  "--model",
+                  "gpt-5.4"
+                ],
+                "workingDirectory": "/tmp/repo",
+                "environment": {
+                  "CODEX_HOME": "\(codexHome.path)"
+                },
+                "capturedAt": 9,
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let process = makeTopProcess(
+            pid: 10_040,
+            name: "codex",
+            path: "/usr/local/bin/codex",
+            ttyDevice: 44_040,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/usr/local/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "PWD": "/tmp/repo"
+                    ]
+                )
+            }
+        )
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(detected[panelKey]?.snapshot.sessionId, parentSessionId)
+        XCTAssertEqual(detected[panelKey]?.updatedAt, 0)
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detected
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, childSessionId)
+        XCTAssertEqual(snapshot.launchCommand?.source, "environment")
+    }
+
     func testRestorableAgentIndexUsesNewerProcessFallbackForPlainHookRecord() throws {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory

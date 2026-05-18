@@ -658,7 +658,7 @@ extension RestorableAgentSessionIndex {
                     parentSessionId: command?.sessionId
                 ).map { forkMetadataPanelKeysByKey[$0]?.count == 1 } == true
                 && parentForkSessionId.map { forkMetadataPanelKeysByParentSessionId[$0]?.count == 1 } == true
-            guard let sessionId = codexSessionId(
+            guard let sessionResolution = codexSessionResolution(
                 tail: tail,
                 environment: processArguments.environment,
                 workingDirectory: workingDirectory,
@@ -696,13 +696,13 @@ extension RestorableAgentSessionIndex {
             }
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .codex,
-                sessionId: sessionId,
+                sessionId: sessionResolution.sessionId,
                 workingDirectory: workingDirectory,
                 launchCommand: launchCommand
             )
             resolved[candidate.panelKey] = (
                 snapshot: snapshot,
-                updatedAt: capturedAt
+                updatedAt: sessionResolution.isForkParentFallback ? 0 : capturedAt
             )
             selectedCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
@@ -727,6 +727,11 @@ extension RestorableAgentSessionIndex {
         )
     }
 
+    private struct CodexSessionResolution {
+        let sessionId: String
+        let isForkParentFallback: Bool
+    }
+
     private static func codexSessionId(
         tail: [String],
         environment: [String: String],
@@ -735,11 +740,29 @@ extension RestorableAgentSessionIndex {
         latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
         allowCodexForkMetadataFallback: Bool = true
     ) -> String? {
+        codexSessionResolution(
+            tail: tail,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            fileManager: fileManager,
+            latestCodexForkSessionId: latestCodexForkSessionId,
+            allowCodexForkMetadataFallback: allowCodexForkMetadataFallback
+        )?.sessionId
+    }
+
+    private static func codexSessionResolution(
+        tail: [String],
+        environment: [String: String],
+        workingDirectory: String?,
+        fileManager: FileManager,
+        latestCodexForkSessionId: (String?, String, [String: String], FileManager) -> String?,
+        allowCodexForkMetadataFallback: Bool = true
+    ) -> CodexSessionResolution? {
         if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
-            return threadId
+            return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
         }
         if let sessionId = normalized(environment["CODEX_SESSION_ID"]) {
-            return sessionId
+            return CodexSessionResolution(sessionId: sessionId, isForkParentFallback: false)
         }
         // Codex fork processes do not always publish CODEX_THREAD_ID, so keep
         // the command session as a fallback instead of dropping the pane. When
@@ -757,9 +780,12 @@ extension RestorableAgentSessionIndex {
                environment,
                fileManager
            ) {
-            return forkSessionId
+            return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
         }
-        return command.sessionId
+        return CodexSessionResolution(
+            sessionId: command.sessionId,
+            isForkParentFallback: command.name == "fork"
+        )
     }
 
     private static func codexForkMetadataFallbackKey(
