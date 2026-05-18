@@ -697,6 +697,370 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands, ["refresh_surfaces --window window:2"])
     }
 
+    func testGlobalWindowOptionRoutesSSHWorkspaceCreateWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-ssh")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" || method == "workspace.select" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.create":
+                guard params["window_id"] as? String == "window:2",
+                      params["focus"] as? Bool == false,
+                      (params["initial_command"] as? String)?.isEmpty == false else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-create", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "window_id": "window-uuid",
+                ])
+            case "workspace.remote.configure":
+                guard params["workspace_id"] as? String == "workspace-ssh",
+                      params["destination"] as? String == "example.com" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-configure", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "remote": ["state": "configured"],
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "ssh", "example.com"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["workspace.create", "workspace.remote.configure"]
+        )
+    }
+
+    func testGlobalWindowOptionRoutesSSHFocusOptInToScopedSelect() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-sshf")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-window-focus"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.create":
+                guard params["window_id"] as? String == "window:2",
+                      params["focus"] as? Bool == false else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-create", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "window_id": "window-uuid",
+                ])
+            case "workspace.remote.configure":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "remote": ["state": "configured"],
+                ])
+            case "workspace.select":
+                guard params["workspace_id"] as? String == "workspace-ssh",
+                      params["window_id"] as? String == "window-uuid" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-select", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "window_id": "window-uuid",
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "ssh", "example.com", "--focus"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["workspace.create", "workspace.remote.configure", "workspace.select"]
+        )
+    }
+
+    func testBareSSHFocusDoesNotConsumeJSONPresentationFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ssh-focus-json")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            switch method {
+            case "workspace.create":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "window_id": "window-uuid",
+                ])
+            case "workspace.remote.configure":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "remote": ["state": "configured"],
+                ])
+            case "workspace.select":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                guard params["workspace_id"] as? String == "workspace-ssh",
+                      params["window_id"] as? String == "window-uuid" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-select", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "window_id": "window-uuid",
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["ssh", "--focus", "--json", "example.com"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertNotNil(Self.v2Payload(from: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["workspace.create", "workspace.remote.configure", "workspace.select"]
+        )
+    }
+
+    func testSSHFocusFalseConsumesBooleanValue() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ssh-focus-false")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "workspace.select" || method == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.create":
+                guard params["focus"] as? Bool == false else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-create", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "window_id": "window-uuid",
+                ])
+            case "workspace.remote.configure":
+                guard params["destination"] as? String == "example.com" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-configure", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-ssh",
+                    "workspace_ref": "workspace:4",
+                    "remote": ["state": "configured"],
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["ssh", "--focus", "false", "example.com"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["workspace.create", "workspace.remote.configure"]
+        )
+    }
+
+    func testGlobalWindowOptionRoutesVMSSHWorkspaceCreateWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-vm")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" || method == "workspace.select" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "vm.attach_info":
+                guard params["id"] as? String == "vm-123",
+                      params["require_daemon"] as? Bool == true else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-attach", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "transport": "ssh",
+                    "host": "vm.example.com",
+                    "port": 22,
+                    "username": "cmux",
+                    "credential": ["kind": "password", "value": "token"],
+                ])
+            case "workspace.create":
+                guard params["window_id"] as? String == "window:2",
+                      params["focus"] as? Bool == false else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-create", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-vm",
+                    "workspace_ref": "workspace:5",
+                    "window_id": "window-uuid",
+                ])
+            case "workspace.rename":
+                guard params["workspace_id"] as? String == "workspace-vm",
+                      params["title"] as? String == "vm:vm-123" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-rename", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-vm",
+                    "workspace_ref": "workspace:5",
+                    "title": "vm:vm-123",
+                ])
+            case "workspace.remote.configure":
+                guard params["workspace_id"] as? String == "workspace-vm",
+                      params["destination"] as? String == "cmux@vm.example.com" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-configure", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-vm",
+                    "workspace_ref": "workspace:5",
+                    "remote": ["state": "configured"],
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "vm", "ssh", "--focus", "false", "vm-123"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure"]
+        )
+    }
+
+    func testGlobalWindowOptionScopesTmuxWindowNavigation() throws {
+        let cliPath = try bundledCLIPath()
+
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-last",
+            arguments: ["--window", "window:2", "last-window"],
+            expectedMethod: "workspace.last"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+        }
+
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-next",
+            arguments: ["--window", "window:2", "next-window"],
+            expectedMethod: "workspace.next"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+        }
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")
@@ -1204,6 +1568,20 @@ final class CMUXOpenCommandTests: XCTestCase {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
+        let outputGroup = DispatchGroup()
+        var stdoutData = Data()
+        var stderrData = Data()
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            outputGroup.leave()
+        }
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            outputGroup.leave()
+        }
+
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             process.waitUntilExit()
@@ -1215,9 +1593,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
         }
+        outputGroup.wait()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return ProcessRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
     }
 

@@ -1963,6 +1963,17 @@ struct CMUXCLI {
                 index += 2
                 continue
             }
+            if arg == "--focus" {
+                remaining.append(arg)
+                if index + 1 < commandArgs.count,
+                   parseBoolString(commandArgs[index + 1]) != nil {
+                    remaining.append(commandArgs[index + 1])
+                    index += 2
+                    continue
+                }
+                index += 1
+                continue
+            }
             remaining.append(arg)
             if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
                 remaining.append(commandArgs[index + 1])
@@ -2523,7 +2534,45 @@ struct CMUXCLI {
                 let (imageOpt, rem0) = parseOption(rest, name: "--image")
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-                let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                var focus = false
+                var sawFocus = false
+                var sawNoFocus = false
+                var remaining: [String] = []
+                var vmNewIndex = 0
+                while vmNewIndex < rem1.count {
+                    let arg = rem1[vmNewIndex]
+                    switch arg {
+                    case "--focus":
+                        sawFocus = true
+                        if vmNewIndex + 1 < rem1.count,
+                           let parsed = parseBoolString(rem1[vmNewIndex + 1]) {
+                            focus = parsed
+                            vmNewIndex += 2
+                        } else {
+                            focus = true
+                            vmNewIndex += 1
+                        }
+                    case "--no-focus":
+                        sawNoFocus = true
+                        vmNewIndex += 1
+                    default:
+                        if arg.hasPrefix("--focus=") {
+                            sawFocus = true
+                            let raw = String(arg.dropFirst("--focus=".count))
+                            guard let parsed = parseBoolString(raw) else {
+                                throw CLIError(message: "vm new: --focus must be true or false")
+                            }
+                            focus = parsed
+                        } else {
+                            remaining.append(arg)
+                        }
+                        vmNewIndex += 1
+                    }
+                }
+                if sawFocus && sawNoFocus {
+                    throw CLIError(message: "vm new: --focus and --no-focus cannot be used together")
+                }
+                remaining = remaining.filter { !["--detach", "-d"].contains($0) }
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
@@ -2532,6 +2581,8 @@ struct CMUXCLI {
                           --image <image-id>
                           --provider <provider>
                           --detach, -d
+                          --focus
+                          --no-focus
 
                         Try:
                           cmux vm new
@@ -2595,26 +2646,27 @@ struct CMUXCLI {
                     workspaceName: "vm:\(shortId)",
                     client: client,
                     jsonOutput: jsonOutput,
-                    idFormat: idFormat
+                    idFormat: idFormat,
+                    windowOverride: globalWindowOverride,
+                    focus: focus
                 )
                 Self.clearVMCreateIdempotency(idempotency)
 
             case "shell", "attach":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: """
-                        Usage: cmux \(command) shell <id>
-
-                        Find an id:
-                          cmux vm ls
-                        """)
-                }
+                let parsed = try parseVMOpenShellArguments(
+                    rest,
+                    usage: "cmux \(command) shell <id> [--focus]"
+                )
+                let vmId = parsed.id
                 let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
                     id: vmId,
                     workspaceName: "vm:\(shortId)",
                     client: client,
                     jsonOutput: jsonOutput,
-                    idFormat: idFormat
+                    idFormat: idFormat,
+                    windowOverride: globalWindowOverride,
+                    focus: parsed.focus
                 )
 
             case "rm", "destroy", "delete":
@@ -2634,21 +2686,20 @@ struct CMUXCLI {
                 }
 
             case "ssh":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: """
-                        Usage: cmux \(command) ssh <id>
-
-                        Find an id:
-                          cmux vm ls
-                        """)
-                }
+                let parsed = try parseVMOpenShellArguments(
+                    rest,
+                    usage: "cmux \(command) ssh <id> [--focus]"
+                )
+                let vmId = parsed.id
                 let shortId = String(vmId.prefix(8))
                 try vmOpenShell(
                     id: vmId,
                     workspaceName: "vm:\(shortId)",
                     client: client,
                     jsonOutput: jsonOutput,
-                    idFormat: idFormat
+                    idFormat: idFormat,
+                    windowOverride: globalWindowOverride,
+                    focus: parsed.focus
                 )
 
             case "ssh-info":
@@ -2906,7 +2957,7 @@ struct CMUXCLI {
             }
 
         case "ssh":
-            try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
         case "ssh-session-end":
             try runSSHSessionEnd(commandArgs: commandArgs, client: client)
         case "vm-pty-attach":
@@ -4314,7 +4365,7 @@ struct CMUXCLI {
     }
 
     func parseBoolString(_ raw: String) -> Bool? {
-        switch raw.lowercased() {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "1", "true", "yes", "on":
             return true
         case "0", "false", "no", "off":
@@ -5127,7 +5178,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         // Use the socket path from this invocation (supports --socket overrides).
         let localSocketPath = client.socketPath
@@ -5141,7 +5193,8 @@ struct CMUXCLI {
             relayToken: relayToken,
             client: client,
             jsonOutput: jsonOutput,
-            idFormat: idFormat
+            idFormat: idFormat,
+            windowOverride: windowOverride
         )
     }
 
@@ -5155,7 +5208,8 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        vmIDForSplitAttach: String? = nil
+        vmIDForSplitAttach: String? = nil,
+        windowOverride: String? = nil
     ) throws {
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
@@ -5279,9 +5333,13 @@ struct CMUXCLI {
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
-        let workspaceCreateParams: [String: Any] = [
+        var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
+            "focus": false,
         ]
+        if let windowOverride {
+            workspaceCreateParams["window_id"] = windowOverride
+        }
 
         let workspaceCreateStartedAt = Date()
         let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
@@ -5349,9 +5407,7 @@ struct CMUXCLI {
             if let workspaceWindowId, !workspaceWindowId.isEmpty {
                 selectParams["window_id"] = workspaceWindowId
             }
-            // `cmux ssh` is an explicit "open this remote workspace now" action,
-            // so we intentionally select the newly created workspace after wiring
-            // up the remote connection — unless --no-focus is passed.
+            // Keep SSH workspace creation passive by default. Explicit --focus selects it.
             if !sshOptions.noFocus {
                 let selectStartedAt = Date()
                 _ = try client.sendV2(method: "workspace.select", params: selectParams)
@@ -5415,7 +5471,9 @@ struct CMUXCLI {
         var port: Int?
         var identityFile: String?
         var workspaceName: String?
-        var noFocus = false
+        var noFocus = true
+        var sawFocus = false
+        var sawNoFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
 
@@ -5454,8 +5512,19 @@ struct CMUXCLI {
                 }
                 workspaceName = commandArgs[index + 1]
                 index += 2
+            case "--focus":
+                sawFocus = true
+                if index + 1 < commandArgs.count,
+                   let parsed = parseBoolString(commandArgs[index + 1]) {
+                    noFocus = !parsed
+                    index += 2
+                } else {
+                    noFocus = false
+                    index += 1
+                }
             case "--no-focus":
                 noFocus = true
+                sawNoFocus = true
                 index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
@@ -5467,10 +5536,16 @@ struct CMUXCLI {
                 }
                 index += 2
             default:
-                if arg.hasPrefix("--") {
+                if arg.hasPrefix("--focus=") {
+                    sawFocus = true
+                    let raw = String(arg.dropFirst("--focus=".count))
+                    guard let parsed = parseBoolString(raw) else {
+                        throw CLIError(message: "ssh: --focus must be true or false")
+                    }
+                    noFocus = !parsed
+                } else if arg.hasPrefix("--") {
                     throw CLIError(message: "ssh: unknown flag '\(arg)'")
-                }
-                if destination == nil {
+                } else if destination == nil {
                     if arg.hasPrefix("-") {
                         throw CLIError(
                             message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
@@ -5486,6 +5561,9 @@ struct CMUXCLI {
 
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
+        }
+        if sawFocus && sawNoFocus {
+            throw CLIError(message: "ssh: --focus and --no-focus cannot be used together")
         }
         return SSHCommandOptions(
             destination: destination,
@@ -6339,7 +6417,72 @@ struct CMUXCLI {
         cliDebugLog(parts.joined(separator: " "))
     }
 
-    private func vmOpenShell(id: String, workspaceName: String?, client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat) throws {
+    private func parseVMOpenShellArguments(_ args: [String], usage: String) throws -> (id: String, focus: Bool) {
+        var id: String?
+        var focus = false
+        var sawFocus = false
+        var sawNoFocus = false
+
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            switch arg {
+            case "--focus":
+                sawFocus = true
+                if index + 1 < args.count,
+                   let parsed = parseBoolString(args[index + 1]) {
+                    focus = parsed
+                    index += 2
+                    continue
+                }
+                focus = true
+                index += 1
+            case "--no-focus":
+                sawNoFocus = true
+                index += 1
+            default:
+                if arg.hasPrefix("--focus=") {
+                    sawFocus = true
+                    let raw = String(arg.dropFirst("--focus=".count))
+                    guard let parsed = parseBoolString(raw) else {
+                        throw CLIError(message: "\(usage)\n--focus must be true or false")
+                    }
+                    focus = parsed
+                } else if arg.hasPrefix("-") {
+                    throw CLIError(message: "\(usage)\nUnknown flag: \(arg)")
+                } else {
+                    guard id == nil else {
+                        throw CLIError(message: "\(usage)\nUnexpected argument: \(arg)")
+                    }
+                    id = arg
+                }
+                index += 1
+            }
+        }
+
+        if sawFocus && sawNoFocus {
+            throw CLIError(message: "\(usage)\n--focus and --no-focus cannot be used together")
+        }
+        guard let id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: """
+                Usage: \(usage)
+
+                Find an id:
+                  cmux vm ls
+                """)
+        }
+        return (id, focus)
+    }
+
+    private func vmOpenShell(
+        id: String,
+        workspaceName: String?,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?,
+        focus: Bool
+    ) throws {
         let attachInfoStartedAt = Date()
         let response = try client.sendV2(
             method: "vm.attach_info",
@@ -6372,7 +6515,9 @@ struct CMUXCLI {
                 workspaceName: workspaceName,
                 client: client,
                 jsonOutput: jsonOutput,
-                idFormat: idFormat
+                idFormat: idFormat,
+                windowOverride: windowOverride,
+                focus: focus
             )
             return
         }
@@ -6380,7 +6525,8 @@ struct CMUXCLI {
             fromAttachInfo: response,
             workspaceName: workspaceName,
             client: client,
-            remoteRelayPort: generateRemoteRelayPort()
+            remoteRelayPort: generateRemoteRelayPort(),
+            noFocus: !focus
         )
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
@@ -6391,7 +6537,8 @@ struct CMUXCLI {
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat,
-            vmIDForSplitAttach: id
+            vmIDForSplitAttach: id,
+            windowOverride: windowOverride
         )
     }
 
@@ -6399,7 +6546,8 @@ struct CMUXCLI {
         fromAttachInfo response: [String: Any],
         workspaceName: String?,
         client: SocketClient,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        noFocus: Bool
     ) throws -> SSHCommandOptions {
         guard (response["transport"] as? String) == "ssh",
               let host = response["host"] as? String,
@@ -6483,7 +6631,7 @@ struct CMUXCLI {
             port: port,
             identityFile: nil,
             workspaceName: workspaceName,
-            noFocus: false,
+            noFocus: noFocus,
             sshOptions: sshOptionStrings,
             extraArguments: [],
             localSocketPath: client.socketPath,
@@ -6540,7 +6688,8 @@ struct CMUXCLI {
             fromAttachInfo: response,
             workspaceName: nil,
             client: client,
-            remoteRelayPort: 0
+            remoteRelayPort: 0,
+            noFocus: true
         )
         let sshArguments = buildSSHCommandArguments(options)
         guard let launchPath = sshArguments.first else {
@@ -6613,7 +6762,9 @@ struct CMUXCLI {
         workspaceName: String?,
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?,
+        focus: Bool
     ) throws {
         let startedAt = Date()
         let configURL = try writeVMPtyWebSocketConfig(endpoint)
@@ -6622,7 +6773,11 @@ struct CMUXCLI {
         let splitStartupCommand = "\(shellQuote(executablePath)) vm-pty-attach --id \(shellQuote(id))"
         var params: [String: Any] = [
             "initial_command": initialStartupCommand,
+            "focus": false,
         ]
+        if let windowOverride {
+            params["window_id"] = windowOverride
+        }
         if let workspaceName = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !workspaceName.isEmpty {
             params["title"] = workspaceName
@@ -6674,15 +6829,17 @@ struct CMUXCLI {
                !workspaceWindowId.isEmpty {
                 selectParams["window_id"] = workspaceWindowId
             }
-            let selectStartedAt = Date()
-            _ = try client.sendV2(method: "workspace.select", params: selectParams)
-            logVMTiming(
-                "workspace.select",
-                vmID: id,
-                transport: "websocket",
-                startedAt: selectStartedAt,
-                extra: "workspace=\(String(workspaceId.prefix(8)))"
-            )
+            if focus {
+                let selectStartedAt = Date()
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+                logVMTiming(
+                    "workspace.select",
+                    vmID: id,
+                    transport: "websocket",
+                    startedAt: selectStartedAt,
+                    extra: "workspace=\(String(workspaceId.prefix(8)))"
+                )
+            }
         } catch {
             do {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
@@ -9842,7 +9999,8 @@ struct CMUXCLI {
               --port <n>              SSH port
               --identity <path>       SSH identity file path
               --ssh-option <opt>      Extra SSH -o option (repeatable)
-              --no-focus              Create workspace without switching to it
+              --focus [true|false]    Switch to the new workspace after creating it
+              --no-focus              Compatibility alias for --focus false
 
             Example:
               cmux ssh dev@my-host
@@ -15504,6 +15662,9 @@ struct CMUXCLI {
                 throw CLIError(message: "new-session -A is not supported in cmux claude-teams mode")
             }
             var params: [String: Any] = ["focus": false]
+            if let windowOverride {
+                params["window_id"] = windowOverride
+            }
             if let cwd = parsed.value("-c") {
                 params["cwd"] = resolvePath(cwd)
             }
@@ -15541,6 +15702,9 @@ struct CMUXCLI {
                 throw CLIError(message: "new-window -t is not supported in cmux claude-teams mode")
             }
             var params: [String: Any] = ["focus": false]
+            if let windowOverride {
+                params["window_id"] = windowOverride
+            }
             if let cwd = parsed.value("-c") {
                 params["cwd"] = resolvePath(cwd)
             }
@@ -16463,15 +16627,27 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "last-window":
-            let payload = try client.sendV2(method: "workspace.last")
+            var params: [String: Any] = [:]
+            if let windowOverride {
+                params["window_id"] = windowOverride
+            }
+            let payload = try client.sendV2(method: "workspace.last", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "next-window":
-            let payload = try client.sendV2(method: "workspace.next")
+            var params: [String: Any] = [:]
+            if let windowOverride {
+                params["window_id"] = windowOverride
+            }
+            let payload = try client.sendV2(method: "workspace.next", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "previous-window":
-            let payload = try client.sendV2(method: "workspace.previous")
+            var params: [String: Any] = [:]
+            if let windowOverride {
+                params["window_id"] = windowOverride
+            }
+            let payload = try client.sendV2(method: "workspace.previous", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "last-pane":
@@ -16491,7 +16667,11 @@ struct CMUXCLI {
                 .joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let listPayload = try client.sendV2(method: "workspace.list")
+            var listParams: [String: Any] = [:]
+            if let windowOverride {
+                listParams["window_id"] = windowOverride
+            }
+            let listPayload = try client.sendV2(method: "workspace.list", params: listParams)
             let workspaces = listPayload["workspaces"] as? [[String: Any]] ?? []
 
             var matches: [[String: Any]] = []
@@ -16510,7 +16690,11 @@ struct CMUXCLI {
             }
 
             if shouldSelect, let first = matches.first, let wsId = first["id"] as? String {
-                _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": wsId])
+                var selectParams: [String: Any] = ["workspace_id": wsId]
+                if let windowOverride {
+                    selectParams["window_id"] = windowOverride
+                }
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
             }
 
             if jsonOutput {
@@ -24430,7 +24614,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--focus [true|false]] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
           list-panes [--workspace <id|ref>]

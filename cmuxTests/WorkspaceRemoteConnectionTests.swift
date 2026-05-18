@@ -4028,7 +4028,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testSSHCommandCreatesConfiguresAndSelectsRemoteWorkspaceViaCLI() throws {
+    func testSSHCommandCreatesConfiguresRemoteWorkspaceViaCLIDefaultPassive() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -4056,6 +4056,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
             switch method {
             case "workspace.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["focus"] as? Bool, false)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -4081,8 +4083,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         ],
                     ]
                 )
-            case "workspace.select":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             default:
                 return self.v2Response(
                     id: id,
@@ -4125,7 +4125,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["workspace.create", "workspace.rename", "workspace.remote.configure"]
         )
 
         let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
@@ -4159,10 +4159,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(sshOptions.contains("ControlPath /tmp/cmux-ssh-%C"))
         XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
 
-        // `cmux ssh` should land the user in the new SSH workspace immediately.
-        let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
-        XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(selectParams["window_id"] as? String, windowID)
+        XCTAssertFalse(
+            requests.contains { ($0["method"] as? String) == "workspace.select" },
+            "cmux ssh should not select the new workspace unless --focus is passed"
+        )
     }
 
     @MainActor
