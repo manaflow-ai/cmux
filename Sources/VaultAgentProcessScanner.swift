@@ -34,7 +34,7 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,

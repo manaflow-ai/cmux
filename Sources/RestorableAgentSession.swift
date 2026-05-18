@@ -660,9 +660,10 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+    private let snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? snapshotsByPanelId[panelId]
     }
 
     static func load(
@@ -1024,6 +1025,11 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]) {
         self.snapshotsByPanel = snapshotsByPanel
+        var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+        for (key, snapshot) in snapshotsByPanel {
+            snapshotsByPanelId[key.panelId] = snapshot
+        }
+        self.snapshotsByPanelId = snapshotsByPanelId
     }
 }
 
@@ -1033,13 +1039,22 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey
 
     private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
+    private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
 
     init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
         self.bindingsByPanel = bindingsByPanel
+        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+        for (key, binding) in bindingsByPanel {
+            let existing = bindingsByPanelId[key.panelId]
+            if existing == nil || binding.updatedAt >= (existing?.updatedAt ?? 0) {
+                bindingsByPanelId[key.panelId] = binding
+            }
+        }
+        self.bindingsByPanelId = bindingsByPanelId
     }
 
     func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
-        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
     }
 
     static func loadProcessDetectedBindingsSynchronously(
