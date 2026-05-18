@@ -5712,14 +5712,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let currentRows = max(1, Int(size.rows))
         let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
         let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
-        let targetWidth = UInt32(min(
-            Int(UInt32.max),
-            max(1, columns) * cellWidth + horizontalNonGridPixels
-        ))
-        let targetHeight = UInt32(min(
-            Int(UInt32.max),
-            max(1, rows) * cellHeight + verticalNonGridPixels
-        ))
+        let targetWidth = safePixelDimension(
+            cellCount: columns,
+            cellSize: cellWidth,
+            nonGridPixels: horizontalNonGridPixels
+        )
+        let targetHeight = safePixelDimension(
+            cellCount: rows,
+            cellSize: cellHeight,
+            nonGridPixels: verticalNonGridPixels
+        )
 
         mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
         let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
@@ -5812,15 +5814,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
         let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
         return (
-            width: UInt32(min(
-                Int(UInt32.max),
-                max(1, mobileViewportCellLimit.columns) * cellWidth + horizontalNonGridPixels
-            )),
-            height: UInt32(min(
-                Int(UInt32.max),
-                max(1, mobileViewportCellLimit.rows) * cellHeight + verticalNonGridPixels
-            ))
+            width: safePixelDimension(
+                cellCount: mobileViewportCellLimit.columns,
+                cellSize: cellWidth,
+                nonGridPixels: horizontalNonGridPixels
+            ),
+            height: safePixelDimension(
+                cellCount: mobileViewportCellLimit.rows,
+                cellSize: cellHeight,
+                nonGridPixels: verticalNonGridPixels
+            )
         )
+    }
+
+    private func safePixelDimension(cellCount: Int, cellSize: Int, nonGridPixels: Int) -> UInt32 {
+        let clampedCellSize = max(1, cellSize)
+        let clampedNonGridPixels = min(max(0, nonGridPixels), Int(UInt32.max) - 1)
+        let maxCells = max(1, (Int(UInt32.max) - clampedNonGridPixels) / clampedCellSize)
+        let clampedCellCount = min(max(1, cellCount), maxCells)
+        return UInt32(clampedCellCount * clampedCellSize + clampedNonGridPixels)
     }
 
     private func updateMobileViewportBorder(
