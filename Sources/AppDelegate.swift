@@ -759,6 +759,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
+    private static let didInstallApplicationSendActionSwizzle: Void = {
+        let targetClass: AnyClass = NSApplication.self
+        let originalSelector = #selector(NSApplication.sendAction(_:to:from:))
+        let swizzledSelector = #selector(NSApplication.cmux_sendAction(_:to:from:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
     private static let didInstallApplicationAccessibilitySwizzle: Void = {
         let targetClass: AnyClass = NSApplication.self
         let originalSelector = #selector(NSApplication.accessibilityAttributeValue(_:))
@@ -9023,6 +9033,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
+               let requestedActionButtonCount = Int(rawActionButtonCount),
+               requestedActionButtonCount > 0 {
+                guard let cmuxConfigStore = context.cmuxConfigStore else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Missing cmux config store"])
+                    return
+                }
+                let actionButtonCount = min(requestedActionButtonCount, 32)
+                let buttons = (1...actionButtonCount).map { index in
+                    let actionTitle = String(
+                        format: String(
+                            localized: "uiTest.bonsplit.action.title",
+                            defaultValue: "UITest Action %lld"
+                        ),
+                        Int64(index)
+                    )
+                    return CmuxSurfaceTabBarButton.actionReference(
+                        "cmux-ui-test-action-\(index)",
+                        title: actionTitle,
+                        icon: .symbol("circle.fill"),
+                        tooltip: actionTitle
+                    )
+                }
+                workspace.applySurfaceTabBarButtons(
+                    buttons,
+                    sourcePath: nil,
+                    globalConfigPath: cmuxConfigStore.globalConfigPath,
+                    terminalCommandSourcePaths: [:],
+                    workspaceCommands: [:]
+                )
+            }
             if startWithHiddenSidebar {
                 context.sidebarState.isVisible = false
             }
@@ -10726,6 +10767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
+        _ = didInstallApplicationSendActionSwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
@@ -10745,6 +10787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallApplicationAccessibilitySwizzle
+        _ = Self.didInstallApplicationSendActionSwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
@@ -14497,9 +14540,143 @@ private extension NSApplication {
         }
         cmux_applicationSendEvent(event)
     }
+
+    @objc func cmux_sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
+        if AppDelegate.shared?.handleDetachedInspectorWindowCloseAction(
+            action: action,
+            target: target,
+            sender: sender
+        ) == true {
+            return true
+        }
+
+        return cmux_sendAction(action, to: target, from: sender)
+    }
 }
 
 private extension AppDelegate {
+    @discardableResult
+    func handleDetachedInspectorWindowCloseAction(
+        action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
+        guard Thread.isMainThread else { return false }
+
+        return MainActor.assumeIsolated {
+            guard Self.shouldInterceptWindowCloseAction(
+                action,
+                target: target,
+                sender: sender
+            ) else { return false }
+            guard let window = Self.actionWindow(
+                target: target,
+                sender: sender,
+                allowFallback: Self.allowsWindowFallback(for: action)
+            ),
+                  BrowserPanel.isDetachedInspectorWindow(window) else { return false }
+
+            for panel in allBrowserPanelsForInspectorWindowClose() {
+                if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                    window,
+                    source: "sendAction.\(NSStringFromSelector(action))"
+                ) {
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.devtools detachedClose.action panel=\(panel.id.uuidString.prefix(5)) " +
+                        "action=\(NSStringFromSelector(action)) window=\(window.windowNumber)"
+                    )
+#endif
+                    return true
+                }
+            }
+
+            return false
+        }
+    }
+
+    private static func shouldInterceptWindowCloseAction(
+        _ action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
+        switch NSStringFromSelector(action) {
+        case "__close", "performClose:":
+            return true
+        case "close", "close:":
+            return actionWindow(target: target, sender: sender, allowFallback: false) != nil
+        default:
+            return false
+        }
+    }
+
+    private static func allowsWindowFallback(for action: Selector) -> Bool {
+        switch NSStringFromSelector(action) {
+        case "__close", "performClose:":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func actionWindow(
+        target: Any?,
+        sender: Any?,
+        allowFallback: Bool = true
+    ) -> NSWindow? {
+        if let window = target as? NSWindow {
+            return window
+        }
+        if let window = sender as? NSWindow {
+            return window
+        }
+        if let view = sender as? NSView {
+            return view.window
+        }
+        if let cell = sender as? NSCell {
+            return cell.controlView?.window
+        }
+        if target == nil, sender is NSMenuItem {
+            return NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        return allowFallback ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
+    }
+
+    private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
+        var candidateManagers: [TabManager] = []
+        var seenManagers = Set<ObjectIdentifier>()
+        var panels: [BrowserPanel] = []
+        var seenPanels = Set<ObjectIdentifier>()
+
+        func appendCandidate(_ manager: TabManager?) {
+            guard let manager else { return }
+            let identifier = ObjectIdentifier(manager)
+            guard seenManagers.insert(identifier).inserted else { return }
+            candidateManagers.append(manager)
+        }
+
+        appendCandidate(tabManager)
+        for context in mainWindowContexts.values {
+            appendCandidate(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            appendCandidate(route.tabManager)
+        }
+
+        for manager in candidateManagers {
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let browserPanel = panel as? BrowserPanel else { continue }
+                    let identifier = ObjectIdentifier(browserPanel)
+                    guard seenPanels.insert(identifier).inserted else { continue }
+                    panels.append(browserPanel)
+                }
+            }
+        }
+
+        return panels
+    }
+
     @discardableResult
     func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeTitlebarDoubleClickMouseDown(event: event)

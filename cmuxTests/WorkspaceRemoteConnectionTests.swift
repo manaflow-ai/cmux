@@ -1100,6 +1100,57 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
+    @MainActor
+    func testClosingInitialRemoteTerminalPaneKeepsSiblingRemotePaneAlive() throws {
+        let workspace = Workspace()
+        let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64020,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        var cleanupArguments: [[String]] = []
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+            cleanupArguments.append(arguments)
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let siblingTerminal = try XCTUnwrap(
+            workspace.newTerminalSplit(from: initialTerminalID, orientation: .horizontal)
+        )
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 2)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(initialTerminalID))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
+
+        XCTAssertTrue(workspace.closePanel(initialTerminalID, force: true))
+
+        XCTAssertNil(workspace.panels[initialTerminalID])
+        XCTAssertNotNil(workspace.panels[siblingTerminal.id])
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(initialTerminalID))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        wait(for: [cleanupRequested], timeout: 0.2)
+        XCTAssertTrue(cleanupArguments.isEmpty)
+    }
+
     func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() throws {
         let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
         let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
