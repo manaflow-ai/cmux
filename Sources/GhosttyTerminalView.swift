@@ -1667,7 +1667,6 @@ class GhosttyApp {
     }
 
     static let shared = GhosttyApp()
-    private nonisolated(unsafe) static weak var runtimeCallbackApp: GhosttyApp?
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
@@ -2000,13 +1999,17 @@ class GhosttyApp {
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
-        Self.runtimeCallbackApp = self
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.runtimeCallbackApp?.scheduleTick()
+            guard let userdata else { return }
+            Unmanaged<GhosttyApp>
+                .fromOpaque(userdata)
+                .takeUnretainedValue()
+                .scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.runtimeCallbackApp?.handleAction(target: target, action: action) ?? false
+            guard let app, app == GhosttyApp.shared.app else { return false }
+            return GhosttyApp.shared.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
