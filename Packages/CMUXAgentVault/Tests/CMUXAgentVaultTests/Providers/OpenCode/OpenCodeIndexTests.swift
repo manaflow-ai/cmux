@@ -62,6 +62,41 @@ struct OpenCodeIndexTests {
         #expect(result.sessions.map(\.sessionId) == ["matching-session"])
     }
 
+    @Test("Treats LIKE wildcard characters as literal needle text")
+    func treatsLikeWildcardCharactersAsLiteralNeedleText() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("opencode.db", isDirectory: false)
+        try makeOpenCodeDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO session (id, title, directory, time_updated)
+        VALUES
+          ('literal-underscore', 'session_id title', '/tmp/repo', 2000),
+          ('wildcard-underscore', 'sessionXid title', '/tmp/repo', 3000),
+          ('literal-percent', 'progress 100% done', '/tmp/repo', 4000);
+        """)
+
+        let underscoreResult = OpenCodeIndex.loadSessions(
+            needle: "session_id",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            databasePath: dbURL.path
+        )
+        let percentResult = OpenCodeIndex.loadSessions(
+            needle: "%",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            databasePath: dbURL.path
+        )
+
+        #expect(underscoreResult.errors.isEmpty)
+        #expect(underscoreResult.sessions.map(\.sessionId) == ["literal-underscore"])
+        #expect(percentResult.errors.isEmpty)
+        #expect(percentResult.sessions.map(\.sessionId) == ["literal-percent"])
+    }
+
     @Test("Rejects invalid pagination inputs")
     func rejectsInvalidPaginationInputs() throws {
         let root = try temporaryDirectory()
