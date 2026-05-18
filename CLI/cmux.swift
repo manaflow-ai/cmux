@@ -16894,7 +16894,7 @@ struct CMUXCLI {
         if let pid {
             cmd += " --pid=\(pid)"
         }
-        _ = try client.send(command: cmd)
+        _ = try sendV1Command(cmd, client: client)
     }
 
     private func claudePreToolNeedsInputSummary(_ object: [String: Any]?) -> (subtitle: String, body: String)? {
@@ -16960,6 +16960,11 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
+        } catch {
+            telemetry.captureError(stage: "claude-hook.publish-needs-input.set-status", error: error)
+        }
+
+        do {
             return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
         } catch {
             if markPreToolNeedsInput {

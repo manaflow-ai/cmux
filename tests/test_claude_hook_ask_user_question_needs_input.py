@@ -34,6 +34,8 @@ class HookSocketServer:
         self.workspace_id = workspace_id
         self.surface_id = surface_id
         self.commands: list[str] = []
+        self.fail_next_needs_input_status = threading.Event()
+        self.failed_needs_input_status_count = 0
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: Exception | None = None
@@ -100,6 +102,14 @@ class HookSocketServer:
                     conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
 
     def _response_for(self, line: str) -> str:
+        if (
+            line.startswith("set_status claude_code Needs input ")
+            and self.fail_next_needs_input_status.is_set()
+        ):
+            self.fail_next_needs_input_status.clear()
+            self.failed_needs_input_status_count += 1
+            return "ERROR: injected needs-input status failure"
+
         if not line.startswith("{"):
             return "OK"
         try:
@@ -327,6 +337,47 @@ def main() -> int:
         ]
         if len(notify_commands) != 5:
             print("FAIL: non-duplicate Notification hook should not be suppressed")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        status_failure_session_id = f"ask-status-failure-{uuid.uuid4().hex}"
+        status_failure_payload = {
+            **payload,
+            "session_id": status_failure_session_id,
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Should the notification still be delivered?",
+                        "options": [
+                            {"label": "Yes"},
+                            {"label": "No"},
+                        ],
+                    }
+                ]
+            },
+        }
+        server.fail_next_needs_input_status.set()
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            status_failure_payload,
+            env,
+        )
+
+        if server.failed_needs_input_status_count != 1:
+            print("FAIL: expected exactly one injected Needs input status failure")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        if not has_command_with(
+            server.commands,
+            f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|",
+            "Should the notification still be delivered?",
+            "[Yes]",
+            "[No]",
+        ):
+            print("FAIL: status failure should not block AskUserQuestion notification")
             print(f"commands={server.commands!r}")
             return 1
 
