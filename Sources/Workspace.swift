@@ -13255,7 +13255,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialInput: String?,
         remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
 
