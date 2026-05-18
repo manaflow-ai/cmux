@@ -235,8 +235,9 @@ for device in data.get("result", {}).get("devices", []):
         str(hardware.get("serialNumber") or ""),
         str(hardware.get("ecid") or ""),
     }
+    boot_state = str(properties.get("bootState") or "")
     available = (
-        properties.get("bootState") == "booted"
+        boot_state.lower() == "booted"
         and connection.get("tunnelState") != "unavailable"
     )
     devices.append({
