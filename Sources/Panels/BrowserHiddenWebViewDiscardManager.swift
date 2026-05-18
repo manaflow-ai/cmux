@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
     var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot { get }
     var hiddenWebViewDiscardHiddenAt: Date? { get }
@@ -15,6 +16,7 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
     )
 }
 
+@MainActor
 final class BrowserHiddenWebViewDiscardManager {
     struct BlockerSnapshot {
         let isClosing: Bool
@@ -36,7 +38,7 @@ final class BrowserHiddenWebViewDiscardManager {
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
 
     private var discardTask: Task<Void, Never>?
-    private var policyObserver: NSObjectProtocol?
+    private var policyObservationTask: Task<Void, Never>?
     private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
     private var scheduleGeneration: UInt64 = 0
 
@@ -113,22 +115,19 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func installPolicyObserver() {
         policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
-        guard policyObserver == nil else { return }
-        policyObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handlePolicyDefaultsChanged()
+        guard policyObservationTask == nil else { return }
+        policyObservationTask = Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: UserDefaults.didChangeNotification) {
+                guard let self else { return }
+                self.handlePolicyDefaultsChanged()
+            }
         }
     }
 
     func stop() {
         cancel()
-        if let policyObserver {
-            NotificationCenter.default.removeObserver(policyObserver)
-            self.policyObserver = nil
-        }
+        policyObservationTask?.cancel()
+        policyObservationTask = nil
     }
 
     func markDiscarded(reason: String, now: Date) {
