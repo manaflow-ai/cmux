@@ -660,28 +660,36 @@ extension Workspace {
 
     @discardableResult
     private func restoreClosedPanelInFallbackSplit(_ entry: ClosedPanelHistoryEntry) -> UUID? {
-        guard entry.snapshot.type == .browser,
-              let placement = entry.fallbackSplitPlacement,
+        guard let placement = entry.fallbackSplitPlacement,
               let anchorPanelId = placement.anchorPanelId,
               panels[anchorPanelId] != nil else {
             return nil
         }
 
-        guard let browserPanel = newBrowserSplit(
+        guard let placeholderPanel = newTerminalSplit(
             from: anchorPanelId,
             orientation: placement.orientation,
             insertFirst: placement.insertFirst,
-            url: nil,
-            preferredProfileID: entry.snapshot.browser?.profileID,
-            focus: false,
-            creationPolicy: .restoration
+            focus: false
         ) else {
             return nil
         }
+        guard let pane = paneId(forPanelId: placeholderPanel.id) else {
+            _ = closePanel(placeholderPanel.id, force: true)
+            return nil
+        }
 
-        applySessionPanelMetadata(entry.snapshot, toPanelId: browserPanel.id)
-        focusPanel(browserPanel.id)
-        return browserPanel.id
+        guard let panelId = createPanel(from: entry.snapshot, inPane: pane) else {
+            _ = closePanel(placeholderPanel.id, force: true)
+            return nil
+        }
+
+        _ = closePanel(placeholderPanel.id, force: true)
+        guard panels[panelId] != nil else {
+            return nil
+        }
+        focusPanel(panelId)
+        return panelId
     }
 
     nonisolated static func resolvedSnapshotTerminalScrollback(

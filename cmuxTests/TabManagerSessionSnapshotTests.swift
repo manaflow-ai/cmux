@@ -606,6 +606,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(workspace.focusedPanelId.flatMap { workspace.panels[$0] } is BrowserPanel)
     }
 
+    func testReopenClosedTerminalSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let splitTerminal = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+        workspace.setPanelCustomTitle(panelId: splitTerminal.id, title: "Restored Terminal Split")
+
+        drainMainQueue()
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+
+        workspace.markCloseHistoryEligible(panelId: splitTerminal.id)
+        XCTAssertTrue(workspace.closePanel(splitTerminal.id, force: true))
+        drainMainQueue()
+        XCTAssertNil(workspace.panels[splitTerminal.id])
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 1)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        let restoredPanelId = try XCTUnwrap(
+            workspace.panelCustomTitles.first(where: { $0.value == "Restored Terminal Split" })?.key
+        )
+        XCTAssertNotNil(workspace.paneId(forPanelId: restoredPanelId))
+    }
+
     func testReopenClosedBrowserSplitAfterWorkspaceRestoreRestoresCollapsedPane() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1119,6 +1149,32 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.workspaces.first?.customTitle, "Local")
         XCTAssertNil(snapshot.workspaces.first?.remote)
         XCTAssertNil(snapshot.selectedWorkspaceIndex)
+    }
+
+    func testClosedHistorySkipsNonRestorableRemoteWorkspaces() {
+        let manager = TabManager()
+        let localWorkspace = manager.tabs[0]
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Cloud VM")
+        let configuration = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: 54321,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        manager.closeWorkspace(remoteWorkspace)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [localWorkspace.id])
+        XCTAssertTrue(ClosedItemHistoryStore.shared.entries.isEmpty)
     }
 
     func testRestoringLocalWorkspaceSnapshotClearsStaleRemoteState() throws {

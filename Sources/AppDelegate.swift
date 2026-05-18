@@ -2969,13 +2969,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManagerFor(tabId: panelEntry.workspaceId)
                 ?? preferredTabManager
                 ?? tabManager
-            return manager?.restoreClosedPanel(panelEntry) == true
+            guard let manager, manager.restoreClosedPanel(panelEntry) else {
+                return false
+            }
+            activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
+            return true
         case .workspace(let workspaceEntry):
             let manager =
                 workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
                 ?? preferredTabManager
                 ?? tabManager
-            return manager?.restoreClosedWorkspace(workspaceEntry) == true
+            guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
+                return false
+            }
+            activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
+            return true
         case .window(let windowEntry):
             _ = createMainWindow(
                 sessionWindowSnapshot: windowEntry.snapshot,
@@ -2984,6 +2992,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return true
         }
+    }
+
+    private func activateMainWindowIfNeeded(for manager: TabManager, shouldActivate: Bool) {
+        guard shouldActivate,
+              let windowId = windowId(for: manager) else {
+            return
+        }
+        _ = focusMainWindow(windowId: windowId)
     }
 
     private func applySessionWindowSnapshot(
