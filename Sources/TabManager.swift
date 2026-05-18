@@ -6337,7 +6337,7 @@ class TabManager: ObservableObject {
             return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
         }
 
-        if ClosedItemHistoryStore.shared.popFirstRestorable(using: { entry in
+        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
             switch entry {
             case .panel(let panelEntry):
                 return restoreClosedPanel(panelEntry)

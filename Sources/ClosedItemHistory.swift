@@ -141,23 +141,17 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     @discardableResult
-    func popFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
-        var skippedRecords: [(record: ClosedItemHistoryRecord, index: Int)] = []
-        var didRestore = false
-
-        while let removed = popRecord() {
-            if restore(removed.record.entry) {
-                didRestore = true
-                break
+    func restoreFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
+        let candidates = records.reversed().map { (id: $0.id, entry: $0.entry) }
+        for candidate in candidates {
+            guard restore(candidate.entry) else { continue }
+            if let index = records.firstIndex(where: { $0.id == candidate.id }) {
+                records.remove(at: index)
+                revision &+= 1
             }
-            skippedRecords.append(removed)
+            return true
         }
-
-        for skippedRecord in skippedRecords.reversed() {
-            insert(skippedRecord.record, at: skippedRecord.index)
-        }
-
-        return didRestore
+        return false
     }
 
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {

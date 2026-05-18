@@ -2913,7 +2913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
-        if ClosedItemHistoryStore.shared.popFirstRestorable(using: { entry in
+        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
             restoreClosedItem(
                 entry,
                 preferredTabManager: preferredTabManager,
