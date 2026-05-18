@@ -2221,6 +2221,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
         private(set) var reattachRenderingStateCount = 0
+        private(set) var hiddenRenderingStateCount = 0
 
         override func displayIfNeeded() {
             displayIfNeededCount += 1
@@ -2232,9 +2233,24 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             reattachRenderingStateCount += 1
         }
 
+        @objc(viewDidUnhide)
+        func cmuxUnitTestViewDidUnhide() {
+            reattachRenderingStateCount += 1
+        }
+
         @objc(_endDeferringViewInWindowChangesSync)
         func cmuxUnitTestEndDeferringViewInWindowChangesSync() {
             reattachRenderingStateCount += 1
+        }
+
+        @objc(viewDidHide)
+        func cmuxUnitTestViewDidHide() {
+            hiddenRenderingStateCount += 1
+        }
+
+        @objc(_exitInWindow)
+        func cmuxUnitTestExitInWindow() {
+            hiddenRenderingStateCount += 1
         }
     }
 
@@ -2418,7 +2434,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        XCTAssertFalse(slot.isHidden, "Partially visible browser anchor should stay visible")
+        XCTAssertFalse(slot.isPortalHidden, "Partially visible browser anchor should stay visible")
         XCTAssertEqual(slot.frame.origin.x, 120, accuracy: 0.5)
         XCTAssertEqual(slot.frame.origin.y, 20, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.width, 200, accuracy: 0.5)
@@ -2458,7 +2474,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        XCTAssertFalse(slot.isHidden, "Ancestor clipping should keep the browser visible in the real pane")
+        XCTAssertFalse(slot.isPortalHidden, "Ancestor clipping should keep the browser visible in the real pane")
         XCTAssertEqual(slot.frame.origin.x, 60, accuracy: 0.5)
         XCTAssertEqual(slot.frame.origin.y, 40, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.width, 150, accuracy: 0.5)
@@ -2587,7 +2603,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
-        XCTAssertFalse(slot.isHidden, "Resizing the browser pane should keep the hosted browser visible")
+        XCTAssertFalse(slot.isPortalHidden, "Resizing the browser pane should keep the hosted browser visible")
         XCTAssertEqual(
             webView.frame.maxX,
             inspectorContainer.frame.minX,
@@ -2637,7 +2653,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
-        XCTAssertFalse(slot.isHidden, "Anchor resize should keep the portal-hosted browser visible")
+        XCTAssertFalse(slot.isPortalHidden, "Anchor resize should keep the portal-hosted browser visible")
         XCTAssertEqual(slot.frame.origin.x, 52, accuracy: 0.5)
         XCTAssertEqual(slot.frame.origin.y, 30, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
@@ -2715,7 +2731,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         NotificationCenter.default.post(name: NSSplitView.didResizeSubviewsNotification, object: splitView)
         advanceAnimations()
 
-        XCTAssertFalse(slot.isHidden, "App split resize should keep the browser slot visible")
+        XCTAssertFalse(slot.isPortalHidden, "App split resize should keep the browser slot visible")
         XCTAssertLessThan(
             slot.frame.width,
             initialWidth,
@@ -2782,7 +2798,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         portal.synchronizeWebViewForAnchor(anchor)
 
-        XCTAssertFalse(slot.isHidden, "Portal sync should keep the hosted browser visible")
+        XCTAssertFalse(slot.isPortalHidden, "Portal sync should keep the hosted browser visible")
         XCTAssertEqual(
             webView.frame.minY,
             inspectorHeight,
@@ -2834,7 +2850,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         XCTAssertTrue(window.firstResponder === inspectorView)
 
-        slot.isHidden = true
+        slot.setPortalHidden(true)
 
         XCTAssertFalse(
             window.firstResponder === inspectorView,
@@ -2880,7 +2896,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
-        XCTAssertTrue(hiddenPortalSlot.isHidden, "Hidden portal entry should keep its slot hidden")
+        XCTAssertTrue(hiddenPortalSlot.isPortalHidden, "Hidden portal entry should keep its slot hidden")
 
         let localInlineSlot = WindowBrowserSlotView(frame: anchor.frame)
         contentView.addSubview(localInlineSlot)
@@ -2914,7 +2930,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             inspectorView.superview === localInlineSlot,
             "Hidden portal sync should leave local DevTools companion views in the local inline host"
         )
-        XCTAssertTrue(hiddenPortalSlot.isHidden, "The retiring hidden portal slot should stay hidden during local inline hosting")
+        XCTAssertTrue(hiddenPortalSlot.isPortalHidden, "The retiring hidden portal slot should stay hidden during local inline hosting")
     }
 
     func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() {
@@ -3021,12 +3037,19 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         advanceAnimations()
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
+        let initialHiddenCount = webView.hiddenRenderingStateCount
+        XCTAssertGreaterThan(
+            initialReattachCount,
+            0,
+            "Initial portal bind should force WebKit back into the window render state"
+        )
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let hiddenDisplayCount = webView.displayIfNeededCount
         let hiddenReattachCount = webView.reattachRenderingStateCount
+        let hiddenHiddenCount = webView.hiddenRenderingStateCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
@@ -3038,15 +3061,98 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             initialReattachCount,
             "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
         )
+        XCTAssertEqual(
+            hiddenHiddenCount,
+            initialHiddenCount,
+            "Hiding a portal-hosted browser should keep WebKit's window render state attached"
+        )
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
-            hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
+            hiddenReattachCount + 3,
+            "Revealing an existing portal-hosted browser should force exactly one WebKit reattach pass"
+        )
+    }
+
+    func testPortalRevealRefreshesHostedWebViewWhenInspectorAdjustsDuringSync() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let initialInspectorWidth: CGFloat = 100
+        let preferredInspectorWidth: CGFloat = 150
+        let inspectorContainer = NSView(
+            frame: NSRect(
+                x: slot.bounds.width - initialInspectorWidth,
+                y: 0,
+                width: initialInspectorWidth,
+                height: slot.bounds.height
+            )
+        )
+        inspectorContainer.autoresizingMask = [.minXMargin, .height]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+        webView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: slot.bounds.width - initialInspectorWidth,
+            height: slot.bounds.height
+        )
+        webView.autoresizingMask = [.width, .height]
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        let hiddenDisplayCount = webView.displayIfNeededCount
+        let hiddenReattachCount = webView.reattachRenderingStateCount
+        slot.recordPreferredHostedInspectorWidth(preferredInspectorWidth, containerBounds: slot.bounds)
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertFalse(slot.isPortalHidden)
+        XCTAssertEqual(inspectorContainer.frame.width, preferredInspectorWidth, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.maxX, inspectorContainer.frame.minX, accuracy: 0.5)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            hiddenDisplayCount,
+            "Inspector divider adjustment during reveal must not skip the browser presentation refresh"
+        )
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            hiddenReattachCount + 3,
+            "Inspector-adjusted reveal should still force exactly one WebKit reattach pass"
         )
     }
 
@@ -3086,7 +3192,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertTrue(webView.superview === slot, "Visible browser entries should not detach during transient anchor removal")
         XCTAssertTrue(
-            slot.isHidden,
+            slot.isPortalHidden,
             "Transient anchor churn should hide the stale browser slot instead of rendering in the wrong pane"
         )
         XCTAssertEqual(portal.debugEntryCount(), 1)
@@ -3099,7 +3205,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         advanceAnimations()
 
         XCTAssertTrue(webView.superview === slot, "Rebinding after transient anchor removal should reuse the existing portal slot")
-        XCTAssertFalse(slot.isHidden)
+        XCTAssertFalse(slot.isPortalHidden)
         XCTAssertEqual(portal.debugEntryCount(), 1)
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
@@ -3149,7 +3255,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Off-window anchor reparent should preserve the hosted browser slot during drag churn"
         )
         XCTAssertFalse(
-            slot.isHidden,
+            slot.isPortalHidden,
             "Off-window anchor reparent should keep the visible browser portal alive until the anchor returns"
         )
         XCTAssertEqual(portal.debugEntryCount(), 1)
@@ -3159,7 +3265,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         advanceAnimations()
 
         XCTAssertTrue(webView.superview === slot, "Rebinding after off-window reparent should reuse the existing portal slot")
-        XCTAssertFalse(slot.isHidden)
+        XCTAssertFalse(slot.isPortalHidden)
         XCTAssertEqual(portal.debugEntryCount(), 1)
     }
 
@@ -3214,13 +3320,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             XCTFail("Expected browser slot")
             return
         }
-        XCTAssertFalse(slot.isHidden)
+        XCTAssertFalse(slot.isPortalHidden)
 
         BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
         advanceAnimations()
 
         XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
-        XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
+        XCTAssertTrue(slot.isPortalHidden, "Hiding should immediately hide the existing portal slot")
     }
 
     func testRegistryHideSuppressesPortalSlotWithoutDroppingRenderTree() {
@@ -3249,13 +3355,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             XCTFail("Expected browser slot")
             return
         }
-        XCTAssertFalse(slot.isHidden)
+        XCTAssertFalse(slot.isPortalHidden)
         XCTAssertEqual(slot.alphaValue, 1, accuracy: 0.001)
 
         BrowserWindowPortalRegistry.hide(webView: webView, source: "workspaceHandoff")
         advanceAnimations()
 
-        XCTAssertTrue(slot.isHidden, "The portal should still report hidden for routing and debug state")
+        XCTAssertTrue(slot.isPortalHidden, "The portal should still report hidden for routing and debug state")
         XCTAssertTrue(webView.superview === slot, "Workspace hide should preserve the hosted WKWebView attachment")
         XCTAssertEqual(
             slot.alphaValue,
@@ -3263,8 +3369,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             accuracy: 0.001,
             "Workspace hide should suppress the slot visually without relying on AppKit hidden detach semantics"
         )
-        XCTAssertNil(
-            slot.hitTest(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)),
+        let hiddenSlotHit = contentView.hitTest(NSPoint(x: slot.frame.midX, y: slot.frame.midY))
+        XCTAssertFalse(
+            hiddenSlotHit === slot || (hiddenSlotHit?.isDescendant(of: slot) ?? false),
             "A visually suppressed browser slot must not intercept events while hidden"
         )
 
@@ -3272,7 +3379,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
 
-        XCTAssertFalse(slot.isHidden)
+        XCTAssertFalse(slot.isPortalHidden)
         XCTAssertEqual(slot.alphaValue, 1, accuracy: 0.001)
         XCTAssertTrue(webView.superview === slot)
     }
@@ -3310,7 +3417,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(oldAnchor)
         advanceAnimations()
-        XCTAssertTrue(slot.isHidden, "Workspace handoff should hide the retiring browser before unmount")
+        XCTAssertTrue(slot.isPortalHidden, "Workspace handoff should hide the retiring browser before unmount")
 
         oldAnchor.removeFromSuperview()
         portal.synchronizeWebViewForAnchor(oldAnchor)
@@ -3320,7 +3427,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.superview === slot,
             "Hidden workspace browsers should stay attached while their SwiftUI anchor is temporarily unmounted"
         )
-        XCTAssertTrue(slot.isHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
+        XCTAssertTrue(slot.isPortalHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
         XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
@@ -3334,7 +3441,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.superview === slot,
             "Selecting the workspace again should reuse the existing hidden browser portal slot"
         )
-        XCTAssertFalse(slot.isHidden, "Rebinding the workspace browser should reveal the existing portal slot")
+        XCTAssertFalse(slot.isPortalHidden, "Rebinding the workspace browser should reveal the existing portal slot")
         XCTAssertEqual(portal.debugEntryCount(), 1)
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
