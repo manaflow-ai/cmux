@@ -4618,8 +4618,6 @@ struct CMUXCLI {
 
     private func validateSurfaceResumeSetCommandTokensBeforeSocket(_ args: [String]) throws {
         let splitArgs = splitAtArgumentTerminator(args)
-        guard splitArgs.argv != nil else { return }
-
         let (_, rem1) = parseOption(splitArgs.options, name: "--workspace")
         let (_, rem2) = parseOption(rem1, name: "--surface")
         let (_, rem3) = parseOption(rem2, name: "--name")
@@ -4630,11 +4628,11 @@ struct CMUXCLI {
         let (_, rem8) = parseOption(rem7, name: "--cwd")
         let (shellCommand, remaining) = parseOption(rem8, name: "--shell")
 
-        if let unexpected = remaining.first {
-            throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
-        }
-        if shellCommand != nil, let unexpected = splitArgs.argv?.first {
+        if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
+        }
+        if splitArgs.argv != nil, let unexpected = remaining.first {
+            throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
         }
     }
 
