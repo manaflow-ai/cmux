@@ -173,7 +173,11 @@ struct ExtensionBridgeRPCDispatcher {
         }
         guard let bundlePath = Self.trimmedString(params["bundle"])
             ?? Self.trimmedString(params["bundle_path"]) else {
-            return .err(code: "invalid_params", message: "Missing bundle path for extension surface", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: ExtensionBundleResolveError.missingBundlePathMessage,
+                data: nil
+            )
         }
         do {
             var preparedParams = params
@@ -181,8 +185,8 @@ struct ExtensionBridgeRPCDispatcher {
             guard ExtensionBundleTrustStore.shared.isTrusted(bundle) else {
                 return .err(
                     code: "untrusted_extension_bundle",
-                    message: "Extension bundle is not trusted",
-                    data: ["bundle": bundlePath]
+                    message: ExtensionBundleResolveError.untrustedBundleMessage,
+                    data: ["reason": "untrusted_bundle"]
                 )
             }
             preparedParams[TerminalController.v2ResolvedExtensionBundleParamKey] = bundle
@@ -190,8 +194,8 @@ struct ExtensionBridgeRPCDispatcher {
         } catch {
             return .err(
                 code: "invalid_params",
-                message: error.localizedDescription,
-                data: ["bundle": bundlePath]
+                message: ExtensionBundleResolveError.userFacingMessage(for: error),
+                data: ["reason": ExtensionBundleResolveError.bridgeReasonCode(for: error)]
             )
         }
     }

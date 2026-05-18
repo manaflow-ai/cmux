@@ -167,6 +167,18 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testExtensionBundleResolveErrorUserMessageOmitsInternalPaths() {
+        let message = ExtensionBundleResolveError.disallowedBundle("/Users/test/private-extension")
+            .userFacingMessage
+
+        XCTAssertFalse(message.contains("/Users/test/private-extension"))
+        XCTAssertFalse(message.localizedCaseInsensitiveContains("allowed extension roots"))
+        XCTAssertEqual(
+            ExtensionBundleResolveError.disallowedBundle("/Users/test/private-extension").bridgeReasonCode,
+            "disallowed_bundle"
+        )
+    }
+
     func testRightSidebarV1CommandsDriveExistingState() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

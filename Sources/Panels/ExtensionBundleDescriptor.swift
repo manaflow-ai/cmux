@@ -22,6 +22,82 @@ enum ExtensionBundleResolveError: Error, LocalizedError {
             return "Extension bundle could not be read safely: \(path)"
         }
     }
+
+    var userFacingMessage: String {
+        switch self {
+        case .missingBundle:
+            return String(
+                localized: "extensionPanel.restore.blocked.missingBundleFile",
+                defaultValue: "The extension bundle could not be found. Choose the bundle again or remove this extension pane."
+            )
+        case .missingIndex:
+            return String(
+                localized: "extensionPanel.restore.blocked.missingIndex",
+                defaultValue: "The extension bundle must contain an index.html file."
+            )
+        case .disallowedBundle:
+            return String(
+                localized: "extensionPanel.restore.blocked.disallowed",
+                defaultValue: "This extension bundle is not in an approved location. Move it to your cmux extensions folder and try again."
+            )
+        case .invalidManifest:
+            return String(
+                localized: "extensionPanel.restore.blocked.invalidManifest",
+                defaultValue: "The extension manifest is invalid. Fix manifest.json or remove it and try again."
+            )
+        case .unreadableBundle:
+            return String(
+                localized: "extensionPanel.restore.blocked.unreadable",
+                defaultValue: "cmux could not safely read this extension bundle. Check its files and permissions, then try again."
+            )
+        }
+    }
+
+    var bridgeReasonCode: String {
+        switch self {
+        case .missingBundle:
+            return "missing_bundle"
+        case .missingIndex:
+            return "missing_index"
+        case .disallowedBundle:
+            return "disallowed_bundle"
+        case .invalidManifest:
+            return "invalid_manifest"
+        case .unreadableBundle:
+            return "unreadable_bundle"
+        }
+    }
+
+    static func userFacingMessage(for error: Error) -> String {
+        guard let resolveError = error as? ExtensionBundleResolveError else {
+            return String(
+                localized: "extensionPanel.restore.blocked.unknown",
+                defaultValue: "cmux could not restore this extension bundle."
+            )
+        }
+        return resolveError.userFacingMessage
+    }
+
+    static var missingBundlePathMessage: String {
+        String(
+            localized: "extensionPanel.restore.blocked.missingBundle",
+            defaultValue: "The extension surface is missing a bundle path."
+        )
+    }
+
+    static var untrustedBundleMessage: String {
+        String(
+            localized: "extensionPanel.restore.blocked.untrusted",
+            defaultValue: "The extension bundle changed or is no longer trusted."
+        )
+    }
+
+    static func bridgeReasonCode(for error: Error) -> String {
+        guard let resolveError = error as? ExtensionBundleResolveError else {
+            return "unknown"
+        }
+        return resolveError.bridgeReasonCode
+    }
 }
 
 struct ExtensionBundleManifest: Equatable, Sendable {

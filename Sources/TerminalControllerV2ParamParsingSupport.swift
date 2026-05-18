@@ -186,7 +186,11 @@ extension TerminalController {
             ?? v2OptionalTrimmedRawString(params, "bundle_path") else {
             return (
                 nil,
-                .err(code: "invalid_params", message: "Missing bundle path for extension surface", data: nil)
+                .err(
+                    code: "invalid_params",
+                    message: ExtensionBundleResolveError.missingBundlePathMessage,
+                    data: nil
+                )
             )
         }
 
@@ -195,7 +199,11 @@ extension TerminalController {
         } catch {
             return (
                 nil,
-                .err(code: "invalid_params", message: error.localizedDescription, data: ["bundle": bundlePath])
+                .err(
+                    code: "invalid_params",
+                    message: ExtensionBundleResolveError.userFacingMessage(for: error),
+                    data: ["reason": ExtensionBundleResolveError.bridgeReasonCode(for: error)]
+                )
             )
         }
     }

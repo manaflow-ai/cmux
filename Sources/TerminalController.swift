@@ -1804,14 +1804,22 @@ class TerminalController {
         }
 
         guard let bundlePath = trimmedPath("bundle") ?? trimmedPath("bundle_path") else {
-            return .err(code: "invalid_params", message: "Missing bundle path for extension surface", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: ExtensionBundleResolveError.missingBundlePathMessage,
+                data: nil
+            )
         }
         do {
             var preparedParams = params
             preparedParams[Self.v2ResolvedExtensionBundleParamKey] = try ExtensionBundleDescriptor.resolve(path: bundlePath)
             return .ok(preparedParams)
         } catch {
-            return .err(code: "invalid_params", message: error.localizedDescription, data: ["bundle": bundlePath])
+            return .err(
+                code: "invalid_params",
+                message: ExtensionBundleResolveError.userFacingMessage(for: error),
+                data: ["reason": ExtensionBundleResolveError.bridgeReasonCode(for: error)]
+            )
         }
     }
 
@@ -16368,7 +16376,7 @@ class TerminalController {
         do {
             return .success(try ExtensionBundleDescriptor.resolve(path: rawBundlePath))
         } catch {
-            return .failure(.invalidExtensionBundle(error.localizedDescription))
+            return .failure(.invalidExtensionBundle(ExtensionBundleResolveError.userFacingMessage(for: error)))
         }
     }
 
