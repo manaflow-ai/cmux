@@ -418,12 +418,11 @@ final class FileSearchController: FileSearchControlling {
             return
         }
         guard isExecutableFile(command.executableURL.path) else {
-            switch scope {
-            case .remoteSSH, .unsupported:
+            if case .remoteSSH = scope {
                 emit(status: .unsupported, isSearching: false)
-            case .local:
+            } else {
                 emit(
-                    status: .failed(String(format: String(localized: "fileExplorer.search.executableMissing", defaultValue: "Search executable is missing: %@"), command.executableURL.path)),
+                    status: .failed(String(format: String(localized: "fileExplorer.search.executableMissing", defaultValue: "Search executable is missing: %@"), command.executableURL.lastPathComponent)),
                     isSearching: false
                 )
             }

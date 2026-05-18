@@ -721,15 +721,20 @@ final class FileExplorerStore: ObservableObject {
         }
         let path = rootPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
+            let connection = sshProvider.connection
             let fetchStatus = sshGitStatusFetcher
             DispatchQueue.global(qos: .utility).async {
-                let status = fetchStatus(path, dest, port, identity, opts)
+                let status = fetchStatus(
+                    path,
+                    connection.destination,
+                    connection.port,
+                    connection.identityFile,
+                    connection.sshOptions
+                )
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.rootPath == path else { return }
+                    guard let self,
+                          self.rootPath == path,
+                          (self.provider as? SSHFileExplorerProvider)?.connection == connection else { return }
                     self.applyGitStatus(status)
                 }
             }
@@ -764,6 +769,12 @@ final class FileExplorerStore: ObservableObject {
         _ fetcher: @escaping (String) -> [String: GitFileStatus]
     ) {
         localGitStatusFetcher = fetcher
+    }
+
+    func setSSHGitStatusFetcherForTesting(
+        _ fetcher: @escaping (String, String, Int?, String?, [String]) -> [String: GitFileStatus]
+    ) {
+        sshGitStatusFetcher = fetcher
     }
     #endif
 

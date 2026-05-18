@@ -649,6 +649,64 @@ final class FileExplorerStoreTests: XCTestCase {
         )
     }
 
+    func testRefreshGitStatusIgnoresStaleSSHProviderWithSameRoot() async throws {
+        let store = FileExplorerStore()
+        let root = "/home/dev/project"
+        let staleFetchStarted = expectation(description: "stale ssh git fetch started")
+        let activeFetchCompleted = expectation(description: "active ssh git fetch completed")
+        let staleStatus: [String: GitFileStatus] = [
+            "\(root)/stale.swift": .deleted,
+        ]
+        let activeStatus: [String: GitFileStatus] = [
+            "\(root)/current.swift": .modified,
+        ]
+
+        store.setSSHGitStatusFetcherForTesting { path, destination, _, _, _ in
+            if path == root, destination == "old@example.com" {
+                staleFetchStarted.fulfill()
+                Thread.sleep(forTimeInterval: 0.05)
+                return staleStatus
+            }
+            activeFetchCompleted.fulfill()
+            return activeStatus
+        }
+
+        let oldProvider = SSHFileExplorerProvider(
+            destination: "old@example.com",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/old",
+            sshOptions: ["ControlPath /tmp/old-%C"],
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport()
+        )
+        let currentProvider = SSHFileExplorerProvider(
+            destination: "new@example.com",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/new",
+            sshOptions: ["ControlPath /tmp/new-%C"],
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport()
+        )
+
+        store.setProviderForTesting(oldProvider, reloadIfAvailable: false)
+        store.setRootForTesting(path: root)
+        store.refreshGitStatus()
+        await fulfillment(of: [staleFetchStarted], timeout: 1.0)
+
+        store.setProviderForTesting(currentProvider, reloadIfAvailable: false)
+        store.setRootForTesting(path: root)
+        store.refreshGitStatus()
+        await fulfillment(of: [activeFetchCompleted], timeout: 1.0)
+        try await waitFor("active ssh git status applied") {
+            store.gitStatusByPath == activeStatus
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(store.gitStatusByPath, activeStatus)
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -1128,6 +1186,32 @@ final class FileSearchControllerTests: XCTestCase {
 
         XCTAssertEqual(snapshots.last?.status, .unsupported)
         XCTAssertEqual(snapshots.last?.isSearching, false)
+    }
+
+    func testLocalSearchMissingExecutableReportsCommandNameOnly() throws {
+        let rootPath = "/tmp/cmux-find"
+        guard let command = FileSearchController.searchProcessCommand(
+            query: "needle",
+            rootPath: rootPath,
+            scope: .local
+        ) else {
+            throw XCTSkip("ripgrep is not installed")
+        }
+        let controller = FileSearchController(isExecutableFile: { _ in false })
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: rootPath, scope: .local, contentRevision: 0)
+
+        XCTAssertEqual(
+            snapshots.last?.status,
+            .failed("Search executable is missing: \(command.executableURL.lastPathComponent)")
+        )
+        if case .failed(let message) = snapshots.last?.status {
+            XCTAssertFalse(message.contains(command.executableURL.deletingLastPathComponent().path))
+        } else {
+            XCTFail("Expected missing local executable failure.")
+        }
     }
 
     func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
