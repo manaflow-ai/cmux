@@ -15042,8 +15042,13 @@ extension Workspace {
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
         }
-        if clearStatus, clearNotifications, didChange, let effectivePanelId {
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
+        if clearStatus, clearNotifications, didChange {
+            if let effectivePanelId {
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
+            } else {
+                // Unscoped hook registrations have no panel ownership, so their notifications are workspace-scoped.
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+            }
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
