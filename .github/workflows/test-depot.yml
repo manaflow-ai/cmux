@@ -67,6 +67,10 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
       - name: Create virtual display
         run: |
           set -euo pipefail
@@ -84,7 +88,7 @@ jobs:
 
       - name: Clean DerivedData
         run: |
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
 
       - name: Resolve Swift packages
         run: |
@@ -94,7 +98,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -113,7 +117,7 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" test 2>&1
@@ -130,7 +134,7 @@ jobs:
           if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
             OUTPUT=$(run_unit_tests)
             EXIT_CODE=$?
@@ -164,7 +168,7 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \

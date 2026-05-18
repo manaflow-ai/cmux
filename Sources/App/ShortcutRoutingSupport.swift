@@ -1,15 +1,14 @@
 import AppKit
 import Foundation
 
-func browserOmnibarSelectionDeltaForCommandNavigation(
+func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
     chars: String
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
-    guard isCommandOrControlOnly else { return nil }
+    guard normalizedFlags == [.control] else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil
@@ -34,6 +33,10 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
     flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
+}
+
+func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
+    browserOmnibarNormalizedModifierFlags(flags) == [.control]
 }
 
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
@@ -90,6 +93,45 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
     return normalizedFlags.isEmpty
+}
+
+func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowserOmnibar: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsBrowserOmnibar else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard (123...126).contains(keyCode) else { return false }
+
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags.isEmpty
+}
+
+struct BrowserAddressBarTrackingContext {
+    let trackedPanelMatchesWebView: Bool
+    let omnibarResponderActive: Bool
+    let preferredFocusIntentIsAddressBar: Bool
+    let suppressesWebViewFocus: Bool
+    let pointerInitiatedWebFocus: Bool
+    let liveOmnibarFieldExists: Bool
+}
+
+/// Decision order:
+/// 1. Reject WebView focus from another panel.
+/// 2. Preserve if an omnibar responder is already active.
+/// 3. Require address-bar focus intent.
+/// 4. Let pointer-initiated WebView focus clear tracking.
+/// 5. Preserve if WebView focus is suppressed or a live omnibar field exists.
+func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
+    _ context: BrowserAddressBarTrackingContext
+) -> Bool {
+    guard context.trackedPanelMatchesWebView else { return false }
+    if context.omnibarResponderActive { return true }
+    guard context.preferredFocusIntentIsAddressBar else { return false }
+    guard !context.pointerInitiatedWebFocus else { return false }
+    return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
 }
 
 func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
@@ -444,6 +486,44 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
     }
 }
 
+private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
+    case copy
+    case cut
+    case selectAll
+
+    var shortcut: StoredShortcut {
+        switch self {
+        case .copy:
+            return StoredShortcut(
+                key: "c",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 8
+            )
+        case .cut:
+            return StoredShortcut(
+                key: "x",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 7
+            )
+        case .selectAll:
+            return StoredShortcut(
+                key: "a",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 0
+            )
+        }
+    }
+}
+
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
     let responderType = String(describing: type(of: responder))
@@ -470,6 +550,30 @@ private func browserFindCommandEquivalent(
     BrowserFindCommandEquivalent.allCases.first { command in
         shortcutForAction(command.action).matches(event: event)
     }
+}
+
+private func browserDocumentEditingCommandEquivalent(for event: NSEvent) -> BrowserDocumentEditingCommandEquivalent? {
+    BrowserDocumentEditingCommandEquivalent.allCases.first { command in
+        command.shortcut.matches(event: event)
+    }
+}
+
+/// For browser content, let the focused document/editor try native editing commands
+/// before cmux's menu fallback. Rich web apps often implement copy/cut/select-all
+/// in contentEditable handlers that AppKit's Edit menu path cannot reproduce.
+func shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+    _ event: NSEvent,
+    responder: NSResponder? = nil
+) -> Bool {
+    guard browserDocumentEditingCommandEquivalent(for: event) != nil else {
+        return false
+    }
+
+    if cmuxIsLikelyWebInspectorResponder(responder) {
+        return false
+    }
+
+    return true
 }
 
 /// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
