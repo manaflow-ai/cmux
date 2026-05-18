@@ -3340,7 +3340,10 @@ struct CMUXCLI {
             let (cwdOpt, rem5) = parseOption(rem4, name: "--cwd")
             let (commandOpt, rem6) = parseOption(rem5, name: "--command")
             let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
-            let (worktreeOpt, _) = parseFlag(rem7, name: "--worktree")
+            let (worktreeOpt, remFinal) = parseFlag(rem7, name: "--worktree")
+            if let unknown = remFinal.first {
+                throw CLIError(message: "new-pane: unknown argument '\(unknown)'")
+            }
             let workspaceArg = workspaceOpt ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let direction = directionOpt ?? "right"
             var params: [String: Any] = ["direction": direction]
@@ -3364,7 +3367,10 @@ struct CMUXCLI {
             let (cwdOpt, rem5) = parseOption(rem4, name: "--cwd")
             let (commandOpt, rem6) = parseOption(rem5, name: "--command")
             let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
-            let (worktreeOpt, _) = parseFlag(rem7, name: "--worktree")
+            let (worktreeOpt, remFinal) = parseFlag(rem7, name: "--worktree")
+            if let unknown = remFinal.first {
+                throw CLIError(message: "new-surface: unknown argument '\(unknown)'")
+            }
             let workspaceArg = workspaceOpt ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -11019,9 +11025,9 @@ struct CMUXCLI {
     func applyWorktreeOptions(enabled: Bool, cleanup: String?, to params: inout [String: Any]) {
         if enabled {
             params["worktree"] = true
-        }
-        if let cleanup {
-            params["worktree_cleanup"] = cleanup
+            if let cleanup {
+                params["worktree_cleanup"] = cleanup
+            }
         }
     }
 

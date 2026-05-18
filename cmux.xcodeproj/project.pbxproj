@@ -201,6 +201,7 @@
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
 		C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */; };
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
+		E4221A000000000000000002 /* TerminalControllerV2WorktreeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4221A000000000000000001 /* TerminalControllerV2WorktreeSupport.swift */; };
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
@@ -722,6 +723,7 @@
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerPaneResizeSupport.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
+		E4221A000000000000000001 /* TerminalControllerV2WorktreeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2WorktreeSupport.swift; sourceTree = "<group>"; };
 		C7A501000000000000000001 /* CmuxTopSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshot.swift; sourceTree = "<group>"; };
 		B35750000000000000000003 /* CmuxTopProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArguments.swift; sourceTree = "<group>"; };
 		C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCache.swift; sourceTree = "<group>"; };
@@ -1284,6 +1286,7 @@
 						D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
 						C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
 						C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */,
+						E4221A000000000000000001 /* TerminalControllerV2WorktreeSupport.swift */,
 						C7A505000000000000000001 /* TerminalControllerTopSupport.swift */,
 				C7A501000000000000000001 /* CmuxTopSnapshot.swift */,
 				B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
@@ -2002,6 +2005,7 @@
 					D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
 					C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */,
 					C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */,
+					E4221A000000000000000002 /* TerminalControllerV2WorktreeSupport.swift in Sources */,
 					C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
 					E42210000000000000000002 /* EphemeralWorktree.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,

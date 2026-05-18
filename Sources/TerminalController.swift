@@ -1560,6 +1560,13 @@ class TerminalController {
         "system.top",
     ]
 
+    private nonisolated static let worktreeCreatingV2Methods: Set<String> = [
+        "workspace.create",
+        "surface.split",
+        "surface.create",
+        "pane.create",
+    ]
+
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
         if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
             return .socketWorker
@@ -1596,6 +1603,34 @@ class TerminalController {
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             socketWorkerV2Response(request)
         }
+    }
+
+    private nonisolated func socketWorkerV2WorktreeResponseIfNeeded(for command: String) -> String? {
+        guard !Thread.isMainThread,
+              let request = parseV2SocketRequest(command),
+              Self.worktreeCreatingV2Methods.contains(request.method),
+              Self.socketWorkerWorktreeRequested(request.params) else {
+            return nil
+        }
+
+        return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
+            socketWorkerV2WorktreeResponse(request)
+        }
+    }
+
+    private nonisolated static func socketWorkerWorktreeRequested(_ params: [String: Any]) -> Bool {
+        guard let raw = params["worktree"] else { return false }
+        if let value = raw as? Bool { return value }
+        if let value = raw as? NSNumber { return value.boolValue }
+        if let value = raw as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -1670,6 +1705,70 @@ class TerminalController {
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
         }
+    }
+
+    private nonisolated func socketWorkerV2WorktreeResponse(_ request: V2SocketRequest) -> String {
+        let semaphore = DispatchSemaphore(value: 0)
+        let method = request.method
+        nonisolated(unsafe) let params = request.params
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: method,
+            isV2: true,
+            params: params
+        )
+        nonisolated(unsafe) var result: V2CallResult?
+        let task = Task { @MainActor in
+            switch method {
+            case "workspace.create":
+                result = await self.v2WorkspaceCreateWithAsyncWorktree(
+                    params: params,
+                    allowsFocusMutation: allowsFocusMutation
+                )
+            case "surface.split":
+                result = await self.v2SurfaceSplitWithAsyncWorktree(
+                    params: params,
+                    allowsFocusMutation: allowsFocusMutation
+                )
+            case "surface.create":
+                result = await self.v2SurfaceCreateWithAsyncWorktree(
+                    params: params,
+                    allowsFocusMutation: allowsFocusMutation
+                )
+            case "pane.create":
+                result = await self.v2PaneCreateWithAsyncWorktree(
+                    params: params,
+                    allowsFocusMutation: allowsFocusMutation
+                )
+            default:
+                result = .err(
+                    code: "method_not_found",
+                    message: String(localized: "error.socket.unknownMethod", defaultValue: "Unknown method"),
+                    data: nil
+                )
+            }
+            semaphore.signal()
+        }
+
+        if semaphore.wait(timeout: .now() + 10 * 60) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: request.id,
+                code: "timeout",
+                message: String(localized: "error.socket.worktreeRequestTimedOut", defaultValue: "worktree request timed out")
+            )
+        }
+
+        return v2Result(
+            id: request.id,
+            result ?? .err(
+                code: "internal_error",
+                message: String(
+                    localized: "error.socket.failedToCreateWorktreeSession",
+                    defaultValue: "Failed to create worktree session"
+                ),
+                data: nil
+            )
+        )
     }
 
     private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
@@ -2054,6 +2153,10 @@ class TerminalController {
         }
 
         if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+            return response
+        }
+
+        if let response = socketWorkerV2WorktreeResponseIfNeeded(for: command) {
             return response
         }
 
@@ -4331,7 +4434,7 @@ class TerminalController {
         ])
     }
 
-    private func v2EphemeralWorktreeOptions(
+    func v2EphemeralWorktreeOptions(
         params: [String: Any],
         panelType: PanelType
     ) -> (enabled: Bool, policy: EphemeralWorktreeCleanupPolicy, error: V2CallResult?) {
@@ -4435,7 +4538,7 @@ class TerminalController {
         }
     }
 
-    private func v2EphemeralWorktreePayload(_ record: EphemeralWorktreeRecord?) -> [String: Any] {
+    func v2EphemeralWorktreePayload(_ record: EphemeralWorktreeRecord?) -> [String: Any] {
         guard let record else { return [:] }
         return [
             "worktree": true,
@@ -4446,7 +4549,7 @@ class TerminalController {
         ]
     }
 
-    private func v2InvalidExplicitUUIDParamError(_ params: [String: Any], key: String) -> V2CallResult? {
+    func v2InvalidExplicitUUIDParamError(_ params: [String: Any], key: String) -> V2CallResult? {
         guard v2HasNonNullParam(params, key), v2UUID(params, key) == nil else { return nil }
         let message: String
         switch key {
@@ -4586,6 +4689,7 @@ class TerminalController {
         payload.merge(v2EphemeralWorktreePayload(worktree.record)) { _, new in new }
         return .ok(payload)
     }
+
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6454,6 +6558,7 @@ class TerminalController {
         }
         return result
     }
+
     private func v2SurfaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

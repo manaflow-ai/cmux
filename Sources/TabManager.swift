@@ -4234,7 +4234,10 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace) {
+    func closeWorkspace(
+        _ workspace: Workspace,
+        ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []
+    ) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
@@ -4242,7 +4245,9 @@ class TabManager: ObservableObject {
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
+        workspace.teardownAllPanels(
+            ephemeralWorktreeCleanupAuthorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIds
+        )
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
         workspace.owningTabManager = nil
@@ -4337,9 +4342,9 @@ class TabManager: ObservableObject {
             panelIds: plan.panelIds
         )
         if !blockPolicyPanelIds.isEmpty {
-            guard confirmEphemeralWorktreeClose() else { return }
-            plan.workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(blockPolicyPanelIds)
-        } else if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
+            guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
+        }
+        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -4349,7 +4354,11 @@ class TabManager: ObservableObject {
         }
 
         for panelId in plan.panelIds {
-            _ = plan.workspace.closePanel(panelId, force: true)
+            _ = plan.workspace.closePanel(
+                panelId,
+                force: true,
+                ephemeralWorktreeCleanupAuthorized: blockPolicyPanelIds.contains(panelId)
+            )
         }
     }
 
@@ -4650,9 +4659,9 @@ class TabManager: ObservableObject {
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(in: workspace)
         if !blockPolicyPanelIds.isEmpty {
-            guard confirmEphemeralWorktreeClose() else { return }
-            workspace.confirmedEphemeralWorktreeClosePanelIds.formUnion(blockPolicyPanelIds)
-        } else if requiresConfirmation,
+            guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
+        }
+        if requiresConfirmation,
            shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
@@ -4669,7 +4678,10 @@ class TabManager: ObservableObject {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
             }
         } else {
-            closeWorkspace(workspace)
+            closeWorkspace(
+                workspace,
+                ephemeralWorktreeCleanupAuthorizedPanelIds: Set(blockPolicyPanelIds)
+            )
         }
     }
 
@@ -4684,16 +4696,11 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func confirmEphemeralWorktreeClose() -> Bool {
+    private func confirmEphemeralWorktreeClose(affectedCount: Int) -> Bool {
+        let copy = Workspace.ephemeralWorktreeCloseConfirmationCopy(affectedCount: affectedCount)
         confirmClose(
-            title: String(
-                localized: "dialog.ephemeralWorktree.close.title",
-                defaultValue: "Close isolated worktree session?"
-            ),
-            message: String(
-                localized: "dialog.ephemeralWorktree.close.message",
-                defaultValue: "This isolated worktree is configured to confirm before cleanup. If it has uncommitted changes, cmux will snapshot them before removing the worktree."
-            ),
+            title: copy.title,
+            message: copy.message,
             acceptCmdD: false
         )
     }

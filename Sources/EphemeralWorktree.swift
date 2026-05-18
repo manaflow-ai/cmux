@@ -1,12 +1,12 @@
 import Foundation
 import os
 
-private let ephemeralWorktreeLogger = Logger(
+nonisolated private let ephemeralWorktreeLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "ephemeral-worktree"
 )
 
-enum EphemeralWorktreeCleanupPolicy: String, Codable, Sendable, Equatable {
+nonisolated enum EphemeralWorktreeCleanupPolicy: String, Codable, Sendable, Equatable {
     case snapshot
     case block
 
@@ -28,7 +28,7 @@ enum EphemeralWorktreeCleanupPolicy: String, Codable, Sendable, Equatable {
     }
 }
 
-struct EphemeralWorktreeRecord: Codable, Sendable, Equatable {
+nonisolated struct EphemeralWorktreeRecord: Codable, Sendable, Equatable {
     var sessionId: String
     var sourceRepositoryPath: String
     var worktreePath: String
@@ -37,12 +37,12 @@ struct EphemeralWorktreeRecord: Codable, Sendable, Equatable {
     var createdAt: Date
 }
 
-struct EphemeralWorktreeCleanupResult: Sendable, Equatable {
+nonisolated struct EphemeralWorktreeCleanupResult: Sendable, Equatable {
     var dirtyBeforeCleanup: Bool
     var abandonedBranchName: String?
 }
 
-enum EphemeralWorktreeLifecycleError: LocalizedError {
+nonisolated enum EphemeralWorktreeLifecycleError: LocalizedError {
     case invalidCleanupPolicy(String)
     case notGitRepository(String)
     case dirtyWorktreeRequiresConfirmation(String)
@@ -91,7 +91,7 @@ enum EphemeralWorktreeLifecycleError: LocalizedError {
     }
 }
 
-struct EphemeralWorktreeGitClient {
+nonisolated struct EphemeralWorktreeGitClient {
     struct CommandResult: Sendable {
         let exitCode: Int32
         let output: String
@@ -212,6 +212,8 @@ struct EphemeralWorktreeGitClient {
     }
 }
 
+// Sendable safety: registry persistence is synchronous and all JSON store mutations are serialized by `lock`;
+// git subprocess operations are stateless per call and any background cleanup enters through that lock-protected API.
 final class EphemeralWorktreeRegistry: @unchecked Sendable {
     static let shared = EphemeralWorktreeRegistry()
 

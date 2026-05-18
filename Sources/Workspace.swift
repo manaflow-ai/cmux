@@ -9,7 +9,7 @@ import Network
 import CoreText
 import os
 
-private let workspaceEphemeralWorktreeLogger = Logger(
+nonisolated private let workspaceEphemeralWorktreeLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "ephemeral-worktree"
 )
@@ -777,9 +777,7 @@ extension Workspace {
                 ?? snapshot.terminal?.agent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
-            let restoredEphemeralWorktree = registeredRestoredEphemeralWorktree(
-                snapshot.terminal?.ephemeralWorktree
-            )
+            let restoredEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
             let restoredWorkingDirectory = restoredEphemeralWorktree?.worktreePath ?? workingDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil
                 ? restoredWorkingDirectory
@@ -830,6 +828,11 @@ extension Workspace {
                 startupEnvironment: replayEnvironment,
                 ephemeralWorktree: restoredEphemeralWorktree
             ) else {
+                return nil
+            }
+            if restoredEphemeralWorktree != nil,
+               registeredRestoredEphemeralWorktree(restoredEphemeralWorktree) == nil {
+                _ = closePanel(terminalPanel.id, force: true)
                 return nil
             }
             let fallbackScrollback = shouldReplayScrollback
@@ -8115,7 +8118,10 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var pendingEphemeralWorktreeCloseConfirmTabIds: Set<TabID> = []
     private var pendingEphemeralWorktreeCloseConfirmPaneIds: Set<UUID> = []
-    var confirmedEphemeralWorktreeClosePanelIds: Set<UUID> = []
+    // Bonsplit close delegate callbacks do not carry caller metadata. These sets are
+    // close-transaction authorizations and are consumed by the matching didClose callback.
+    private var ephemeralWorktreeCleanupAuthorizedTabIds: Set<TabID> = []
+    private var ephemeralWorktreeCleanupAuthorizedPaneIds: Set<UUID> = []
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
     private var pendingRemoteSurfaceTTYName: String?
@@ -10392,6 +10398,10 @@ final class Workspace: Identifiable, ObservableObject {
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let surfaceWorkingDirectory = resolvedWorkingDirectoryForNewTerminalSurface(
+            inPane: paneId,
+            workingDirectory: workingDirectory
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
@@ -10410,7 +10420,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: surfaceWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -11084,7 +11094,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
-    func teardownAllPanels() {
+    func teardownAllPanels(ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -11101,7 +11111,8 @@ final class Workspace: Identifiable, ObservableObject {
                 publishSurfaceClosedEvent: true,
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
-                cleanupControllerSurfaceState: true
+                cleanupControllerSurfaceState: true,
+                ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorizedPanelIds.contains(panelId)
             )
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
@@ -11121,10 +11132,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
-    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+    func closePanel(
+        _ panelId: UUID,
+        force: Bool = false,
+        ephemeralWorktreeCleanupAuthorized: Bool = false
+    ) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             // Close the tab in bonsplit (this triggers delegate callback)
-            return requestCloseTab(tabId, force: force)
+            return requestCloseTab(
+                tabId,
+                force: force,
+                ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
+            )
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
@@ -11148,7 +11167,11 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
-        let closed = requestCloseTab(selected.id, force: force)
+        let closed = requestCloseTab(
+            selected.id,
+            force: force,
+            ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
+        )
 #if DEBUG
         cmuxDebugLog(
             "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
@@ -11159,9 +11182,22 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
-    func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
+    func requestCloseTab(
+        _ tabId: TabID,
+        force: Bool,
+        ephemeralWorktreeCleanupAuthorized: Bool = false
+    ) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
-        let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
+        if ephemeralWorktreeCleanupAuthorized {
+            ephemeralWorktreeCleanupAuthorizedTabIds.insert(tabId)
+        }
+        let closed = bonsplitController.closeTab(tabId)
+        if !closed {
+            if force { forceCloseTabIds.remove(tabId) }
+            if ephemeralWorktreeCleanupAuthorized {
+                ephemeralWorktreeCleanupAuthorizedTabIds.remove(tabId)
+            }
+        }
         return closed
     }
 
@@ -13555,6 +13591,35 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    static func ephemeralWorktreeCloseConfirmationCopy(affectedCount: Int) -> (title: String, message: String) {
+        let count = max(affectedCount, 1)
+        if count == 1 {
+            return (
+                String(
+                    localized: "dialog.ephemeralWorktree.close.title.one",
+                    defaultValue: "Close isolated worktree session?"
+                ),
+                String(
+                    localized: "dialog.ephemeralWorktree.close.message.one",
+                    defaultValue: "This isolated worktree is configured to preserve changes before cleanup. Close to preserve any uncommitted changes and remove the worktree, or cancel to keep the session open."
+                )
+            )
+        }
+
+        let titleFormat = String(
+            localized: "dialog.ephemeralWorktree.close.title.other",
+            defaultValue: "Close %lld isolated worktree sessions?"
+        )
+        let messageFormat = String(
+            localized: "dialog.ephemeralWorktree.close.message.other",
+            defaultValue: "These %lld isolated worktrees are configured to preserve changes before cleanup. Close to preserve any uncommitted changes and remove the worktrees, or cancel to keep the sessions open."
+        )
+        return (
+            String(format: titleFormat, locale: .current, Int64(count)),
+            String(format: messageFormat, locale: .current, Int64(count))
+        )
+    }
+
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
         // Session-index drag → spawn a brand new terminal at the destination instead
         // of moving an existing tab.
@@ -13641,32 +13706,28 @@ extension Workspace: BonsplitDelegate {
     }
 
     @MainActor
-    private func confirmCloseEphemeralWorktreePanel(for tabId: TabID) async -> Bool {
-        let title = String(
-            localized: "dialog.ephemeralWorktree.close.title",
-            defaultValue: "Close isolated worktree session?"
-        )
-        let message = String(
-            localized: "dialog.ephemeralWorktree.close.message",
-            defaultValue: "This isolated worktree is configured to confirm before cleanup. If it has uncommitted changes, cmux will snapshot them before removing the worktree."
-        )
+    private func confirmCloseEphemeralWorktreePanel(
+        for tabId: TabID,
+        affectedCount: Int = 1
+    ) async -> Bool {
+        let copy = Self.ephemeralWorktreeCloseConfirmationCopy(affectedCount: affectedCount)
 
         if let confirmCloseHandler = (
             owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
             ?? AppDelegate.shared?.tabManager
         )?.confirmCloseHandler {
-            return confirmCloseHandler(title, message, false)
+            return confirmCloseHandler(copy.title, copy.message, false)
         }
 
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = copy.title
+        alert.informativeText = copy.message
         alert.alertStyle = .warning
         alert.addButton(
             withTitle: String(
-                localized: "dialog.ephemeralWorktree.close.snapshot",
-                defaultValue: "Close and Snapshot"
+                localized: "dialog.ephemeralWorktree.close.preserve",
+                defaultValue: "Close and Preserve Changes"
             )
         )
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -14198,9 +14259,11 @@ extension Workspace: BonsplitDelegate {
                 let confirmed = await self.confirmCloseEphemeralWorktreePanel(for: tabId)
                 guard confirmed else { return }
 
-                self.confirmedEphemeralWorktreeClosePanelIds.insert(panelId)
-                self.forceCloseTabIds.insert(tabId)
-                self.bonsplitController.closeTab(tabId)
+                _ = self.requestCloseTab(
+                    tabId,
+                    force: true,
+                    ephemeralWorktreeCleanupAuthorized: true
+                )
             }
 
             return false
@@ -14256,6 +14319,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
+        let ephemeralWorktreeCleanupAuthorized = ephemeralWorktreeCleanupAuthorizedTabIds.remove(tabId) != nil
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
@@ -14329,7 +14393,8 @@ extension Workspace: BonsplitDelegate {
             publishSurfaceClosedEvent: !isDetaching,
             clearSurfaceNotifications: !preservesSurfaceForDetach,
             requestTransferredRemoteCleanup: false,
-            cleanupControllerSurfaceState: !isDetaching
+            cleanupControllerSurfaceState: !isDetaching,
+            ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
         )
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
@@ -14472,6 +14537,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let ephemeralWorktreeCleanupAuthorized = ephemeralWorktreeCleanupAuthorizedPaneIds.remove(paneId.id) != nil
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
@@ -14488,7 +14554,8 @@ extension Workspace: BonsplitDelegate {
                     publishSurfaceClosedEvent: true,
                     clearSurfaceNotifications: true,
                     requestTransferredRemoteCleanup: true,
-                    cleanupControllerSurfaceState: !isDetachingCloseTransaction
+                    cleanupControllerSurfaceState: !isDetachingCloseTransaction,
+                    ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
                 )
             }
 
@@ -14538,16 +14605,27 @@ extension Workspace: BonsplitDelegate {
 
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmCloseEphemeralWorktreePanel(for: tabId)
+                    let affectedCount = self.bonsplitController.tabs(inPane: paneId).reduce(0) { count, tab in
+                        guard let panelId = self.panelIdFromSurfaceId(tab.id),
+                              self.shouldConfirmEphemeralWorktreeClose(panelId: panelId) else {
+                            return count
+                        }
+                        return count + 1
+                    }
+                    let confirmed = await self.confirmCloseEphemeralWorktreePanel(
+                        for: tabId,
+                        affectedCount: max(affectedCount, 1)
+                    )
                     guard confirmed else { return }
 
+                    self.ephemeralWorktreeCleanupAuthorizedPaneIds.insert(paneId.id)
                     for tab in self.bonsplitController.tabs(inPane: paneId) {
-                        if let panelId = self.panelIdFromSurfaceId(tab.id) {
-                            self.confirmedEphemeralWorktreeClosePanelIds.insert(panelId)
-                        }
                         self.forceCloseTabIds.insert(tab.id)
                     }
-                    _ = self.bonsplitController.closePane(paneId)
+                    let closed = self.bonsplitController.closePane(paneId)
+                    if !closed {
+                        self.ephemeralWorktreeCleanupAuthorizedPaneIds.remove(paneId.id)
+                    }
                 }
                 return false
             }
