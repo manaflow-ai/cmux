@@ -710,12 +710,16 @@ extension SurfaceResumeBindingIndex {
                 isSafe: true
             )
         case "new-session", "new":
-            guard tmuxHasFlag(commandArgs, short: "A", long: "attach") else {
+            guard tmuxHasFlag(commandArgs, short: "A") else {
+                return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
+            }
+            let sessionName = tmuxOptionValue(commandArgs, short: "s", long: "session-name")
+            guard sessionName != nil else {
                 return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
             }
             return ParsedTmuxTopLevelArguments(
                 socketFlags: socketFlags,
-                sessionName: tmuxOptionValue(commandArgs, short: "s", long: "session-name"),
+                sessionName: sessionName,
                 isSafe: true
             )
         default:
@@ -761,9 +765,9 @@ extension SurfaceResumeBindingIndex {
         return 2
     }
 
-    private static func tmuxHasFlag(_ arguments: [String], short: Character, long: String) -> Bool {
+    private static func tmuxHasFlag(_ arguments: [String], short: Character, long: String? = nil) -> Bool {
         for argument in arguments {
-            if argument == "--\(long)" { return true }
+            if let long, argument == "--\(long)" { return true }
             if argument == "-\(short)" { return true }
             if tmuxShortFlagCluster(argument, contains: short) {
                 return true
@@ -781,9 +785,9 @@ extension SurfaceResumeBindingIndex {
         return false
     }
 
-    private static var tmuxValueOptionCharacters: Set<Character> {
+    private static let tmuxValueOptionCharacters: Set<Character> = {
         ["c", "e", "F", "f", "n", "s", "t", "x", "y"]
-    }
+    }()
 
     private enum TmuxClusterValueMatch {
         case inline(String)

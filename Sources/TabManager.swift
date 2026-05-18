@@ -7461,6 +7461,7 @@ extension TabManager {
         hashOptionalString(snapshot.source, into: &hasher)
         hashStringMap(snapshot.environment, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
+        hashOptionalDouble(snapshot.updatedAt, into: &hasher)
     }
 
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {

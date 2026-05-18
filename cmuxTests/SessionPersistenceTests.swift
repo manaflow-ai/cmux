@@ -4171,18 +4171,26 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'tmux' 'attach'")
     }
 
-    func testTmuxOptionValueStopsAtValueTakingClusterOption() throws {
-        let binding = try XCTUnwrap(
-            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
-                processName: "tmux",
-                processPath: nil,
-                arguments: ["tmux", "new", "-Ans"],
-                environment: [:]
-            )
+    func testTmuxOptionValueStopsAtValueTakingClusterOption() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-Ans"],
+            environment: [:]
         )
 
-        XCTAssertNil(binding.checkpointId)
-        XCTAssertEqual(binding.command, "'tmux' 'attach'")
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsUnnamedNewAttachSession() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new-session", "-A"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
     }
 
     func testTmuxProcessDetectedResumeBindingParsesNewAttachSession() throws {
