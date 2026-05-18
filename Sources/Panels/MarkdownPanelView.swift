@@ -338,6 +338,7 @@ final class MarkdownWebRendererHandle {
     }
 }
 
+@MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
 

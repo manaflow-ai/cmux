@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import WebKit
 
+@MainActor
 private final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
     weak var target: WKScriptMessageHandler?
 
@@ -451,6 +452,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let md = lastMarkdown ?? pendingMarkdown
             lastMarkdown = md
             pushMarkdown(md)
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard let currentWebView = self.webView, currentWebView === webView else { return }
+#if DEBUG
+            NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
+#endif
+            loadShell(
+                theme: lastTheme ?? pendingTheme,
+                initialMarkdown: lastMarkdown ?? pendingMarkdown
+            )
         }
 
         func webView(
