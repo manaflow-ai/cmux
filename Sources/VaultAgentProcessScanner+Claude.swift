@@ -64,7 +64,8 @@ extension RestorableAgentSessionIndex {
 
     static func processDetectedClaudeSnapshots(
         candidates: [RestorableAgentProcessDetectionCandidate],
-        capturedAt: TimeInterval
+        capturedAt: TimeInterval,
+        fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var selectedCandidateByPanelKey: [
@@ -84,7 +85,12 @@ extension RestorableAgentSessionIndex {
             let launchTail = claudeLaunchTail(observed: observed)
             guard observed.isClaudeProcess,
                   claudeProcessPIDMatchesEnvironment(process, environment: processArguments.environment),
-                  let sessionId = claudeSessionId(tail: launchTail, environment: processArguments.environment) else {
+                  let sessionId = claudeSessionId(
+                      tail: launchTail,
+                      environment: processArguments.environment,
+                      processID: process.pid,
+                      fileManager: fileManager
+                  ) else {
                 continue
             }
 
@@ -162,14 +168,39 @@ extension RestorableAgentSessionIndex {
         tail: [String],
         environment: [String: String]
     ) -> String? {
+        claudeSessionId(
+            tail: tail,
+            environment: environment,
+            processID: nil,
+            fileManager: .default
+        )
+    }
+
+    private static func claudeSessionId(
+        tail: [String],
+        environment: [String: String],
+        processID: Int?,
+        fileManager: FileManager
+    ) -> String? {
         let environmentSessionId = normalized(environment["CLAUDE_SESSION_ID"])
         let resumeSessionId = tail.hasClaudeForkSessionFlag
             ? nil
             : claudeResumeSessionIdValue(afterOption: "--resume", in: tail)
                 ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail)
+        let processSessionFileSessionId = claudeSessionIdFromProcessSessionFile(
+            processID: processID,
+            environment: environment,
+            fileManager: fileManager
+        )
+        if tail.hasClaudeForkSessionFlag {
+            return claudeSessionIdValue(afterOption: "--session-id", in: tail)
+                ?? processSessionFileSessionId
+                ?? environmentSessionId
+        }
         return claudeSessionIdValue(afterOption: "--session-id", in: tail)
             ?? resumeSessionId
             ?? environmentSessionId
+            ?? processSessionFileSessionId
     }
 
     private static func claudeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {
@@ -186,6 +217,53 @@ extension RestorableAgentSessionIndex {
             return nil
         }
         return value
+    }
+
+    private struct ClaudeProcessSessionRecord: Decodable {
+        let pid: Int?
+        let sessionId: String?
+        let cwd: String?
+    }
+
+    private static func claudeSessionIdFromProcessSessionFile(
+        processID: Int?,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        guard let processID,
+              let configDir = claudeConfigDirectory(environment: environment, fileManager: fileManager) else {
+            return nil
+        }
+        let sessionURL = URL(fileURLWithPath: configDir, isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("\(processID).json", isDirectory: false)
+        guard let data = fileManager.contents(atPath: sessionURL.path),
+              let record = try? JSONDecoder().decode(ClaudeProcessSessionRecord.self, from: data),
+              record.pid == nil || record.pid == processID,
+              let sessionId = normalized(record.sessionId),
+              UUID(uuidString: sessionId) != nil else {
+            return nil
+        }
+        if let processCWD = normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]),
+           let recordCWD = normalized(record.cwd),
+           (processCWD as NSString).standardizingPath != (recordCWD as NSString).standardizingPath {
+            return nil
+        }
+        return sessionId
+    }
+
+    private static func claudeConfigDirectory(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> String? {
+        let home = normalized(environment["HOME"]) ?? NSHomeDirectory()
+        let rawConfigDir = normalized(environment["CLAUDE_CONFIG_DIR"])
+            ?? ((home as NSString).appendingPathComponent(".claude") as String)
+        return ClaudeConfigDirectoryPath.preferredPath(
+            rawConfigDir,
+            fileManager: fileManager,
+            homeDirectory: home
+        )
     }
 
     private static func claudeExecutablePath(

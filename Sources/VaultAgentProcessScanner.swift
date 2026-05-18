@@ -99,7 +99,8 @@ extension RestorableAgentSessionIndex {
         )
         var resolved = processDetectedClaudeSnapshots(
             candidates: candidates,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            fileManager: fileManager
         )
         for (key, value) in processDetectedCodexSnapshots(
             candidates: candidates,
