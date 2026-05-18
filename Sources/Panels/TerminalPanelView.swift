@@ -17,6 +17,7 @@ struct TerminalPanelView: View {
     let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -29,6 +30,16 @@ struct TerminalPanelView: View {
                 onResume: onResumeAgentHibernation
             )
             .id("hibernated-\(panel.id.uuidString)")
+            .onAppear {
+                if isVisibleInUI {
+                    onAutoResumeAgentHibernation()
+                }
+            }
+            .onChange(of: isVisibleInUI) { _, visible in
+                if visible {
+                    onAutoResumeAgentHibernation()
+                }
+            }
         } else {
             GhosttyTerminalView(
                 terminalSurface: panel.surface,

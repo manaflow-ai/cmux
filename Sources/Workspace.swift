@@ -8886,6 +8886,19 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    @discardableResult
+    func resumeVisibleAgentHibernationPanels(panelIds: Set<UUID>) -> Bool {
+        var didResume = false
+        for panelId in panelIds {
+            guard let terminalPanel = panels[panelId] as? TerminalPanel,
+                  terminalPanel.isAgentHibernated else {
+                continue
+            }
+            didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
+        }
+        return didResume
+    }
+
     private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
         panelShellActivityStates[panelId] == .commandRunning
             ? .observedAgentCommandRunning
@@ -12941,7 +12954,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
-        var didChange = false
+        var didChange = resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }

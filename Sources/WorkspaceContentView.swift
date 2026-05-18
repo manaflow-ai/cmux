@@ -270,6 +270,10 @@ struct WorkspaceContentView: View {
                         guard workspace.panels[panel.id] != nil else { return }
                         workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
                     },
+                    onAutoResumeAgentHibernation: {
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+                    },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {

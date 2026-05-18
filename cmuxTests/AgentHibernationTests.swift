@@ -228,6 +228,31 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    func testVisibleHibernatedTerminalAutomaticallyPreparesResumeWithoutFocus() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-visible-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: snapshot,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        XCTAssertTrue(workspace.resumeVisibleAgentHibernationPanels(panelIds: [panelId]))
+
+        XCTAssertFalse(panel.isAgentHibernated)
+        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+    }
+
+    @MainActor
     func testDirectFocusOnHibernatedTerminalPreparesResumeWithoutHiddenFocus() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
