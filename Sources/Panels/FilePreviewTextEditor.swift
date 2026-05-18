@@ -146,7 +146,12 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
     // reach HighlightedEditorContainerView, so we use a local event monitor
     // anchored to the inner scroll view instead.
 
-    private var zoomEventMonitor: Any?
+    // nonisolated(unsafe) is intentional: destroy() may be called by SwiftUI on a
+    // non-main thread and needs to remove the monitor synchronously (deferring via
+    // Task means [weak self] is already nil by then, leaking the monitor permanently).
+    // NSEvent.removeMonitor is documented as thread-safe. Writes happen only on
+    // main actor via installZoomMonitor.
+    private nonisolated(unsafe) var zoomEventMonitor: Any?
     private weak var innerScrollView: NSScrollView?
 
     func installZoomMonitor(scrollView: NSScrollView) {
@@ -241,8 +246,15 @@ extension HighlightedEditorBridge: TextViewCoordinator {
     }
 
     nonisolated func destroy() {
+        // Remove the event monitor synchronously. SwiftUI releases the coordinator
+        // on the same tick that calls destroy(); a deferred Task with [weak self]
+        // would find self nil and leak the monitor (NSEvent.removeMonitor must be
+        // called explicitly — releasing the opaque token is not enough).
+        if let token = zoomEventMonitor {
+            NSEvent.removeMonitor(token)
+            zoomEventMonitor = nil
+        }
         Task { @MainActor [weak self] in
-            self?.removeZoomMonitor()
             self?.textController = nil
         }
     }
@@ -333,7 +345,10 @@ struct HighlightedSourceEditorCore: View {
     private func makeSyntaxTheme() -> EditorTheme {
         let fg = bridge.themeForeground
         let bg = bridge.drawsBackground ? bridge.themeBackground : .clear
-        let isDark = bridge.drawsBackground ? backgroundIsDark(bridge.themeBackground) : false
+        // Always derive light/dark from the actual theme background, never from the
+        // resolved clear color, otherwise transparent dark terminals would get the
+        // light syntax palette.
+        let isDark = backgroundIsDark(bridge.themeBackground)
         if isDark {
             return EditorTheme(
                 text: .init(color: fg),
