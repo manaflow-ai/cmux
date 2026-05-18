@@ -3468,6 +3468,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
+                BrowserWindowPortalRegistry.refresh(webView: webView, reason: "navigation.didFinish")
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
