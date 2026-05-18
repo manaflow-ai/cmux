@@ -54,6 +54,7 @@
     "debug.bonsplitTabBarDebug.solidBgExtra": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Solid bg extra" } }, "ja": { "stringUnit": { "state": "translated", "value": "単色背景の追加幅" } } } },
     "debug.bonsplitTabBarDebug.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ" } } } },
     "debug.menu.bonsplitTabBarDebug": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug…" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ…" } } } },
+    "uiTest.bonsplit.action.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "UITest Action %lld" } }, "ja": { "stringUnit": { "state": "translated", "value": "UIテストアクション %lld" } } } },
     "mode.compact": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Compact" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } } } },
     "mode.expanded": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Expanded" } }, "ja": { "stringUnit": { "state": "translated", "value": "拡張" } } } },
     "mode.system": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "System" } }, "ja": { "stringUnit": { "state": "translated", "value": "システム" } } } },
@@ -104438,6 +104439,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "ID 복사"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.moveTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 이동"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.moveTabToNewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Tab to New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを新規ワークスペースに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭을 새 작업 공간으로 이동"
           }
         }
       }

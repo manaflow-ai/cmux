@@ -19,7 +19,7 @@ Options:
 Examples:
   ./skills.sh
   ./skills.sh --list
-  ./skills.sh --skill cmux --skill cmux-browser
+  ./skills.sh --skill cmux --skill cmux-automate --skill cmux-browser
   curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills.sh | bash
 EOF
 }
