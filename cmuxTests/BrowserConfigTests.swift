@@ -1093,6 +1093,62 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testWindowArrowForwardingRoutesFocusedMarkedTextOmnibarFieldEditorThroughKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "ㄉㄚˋ"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+        window.testFieldEditor.reportsMarkedText = true
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: downArrowEvent),
+            "Marked-text omnibar arrows must be delivered directly to the field editor instead of falling through to original key-equivalent handling"
+        )
+        XCTAssertEqual(window.testFieldEditor.keyDownKeyCodes, [125])
+    }
+
+    @MainActor
     func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -3885,6 +3941,51 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
+            )
+        )
+    }
+
+    func testMarkedTextBypassesOmnibarShortcutRoutingUnlessCommandModified() {
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.control]
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.function]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.command]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: false,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: false,
+                flags: []
             )
         )
     }
