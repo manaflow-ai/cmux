@@ -10655,6 +10655,11 @@ struct CMUXCLI {
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
+        if command == "actions",
+           commandArgs.first?.lowercased() == "run" {
+            print(Self.actionsRunUsageText())
+            return true
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")

@@ -210,13 +210,17 @@ extension CMUXCLI {
         return lowered == "help" || lowered == "--help" || lowered == "-h"
     }
 
-    private func printActionsRunUsage() {
-        print("""
+    static func actionsRunUsageText() -> String {
+        """
             Usage: cmux actions run <action> [--ref <ref>] [--mode full|basic] [--dry-run] [--keep] [--no-cache] [--detach]
 
             Try:
               cmux actions run hexclave/stack-auth:fresh-env
-            """)
+            """
+    }
+
+    private func printActionsRunUsage() {
+        print(Self.actionsRunUsageText())
     }
 
     private func validateActionRunResponse(_ response: [String: Any]) throws {
