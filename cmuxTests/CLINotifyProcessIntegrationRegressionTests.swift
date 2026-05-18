@@ -1524,26 +1524,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSurfaceResumeSetCLIRejectsTrailingShellTokens() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("resume-set-shell-bad")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            XCTFail("Malformed --shell args should fail before socket request, saw \(method)")
-            return self.v2Response(id: id, ok: true, result: ["cleared": true])
-        }
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
 
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -1564,13 +1548,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.contains("surface resume set: unexpected argument 'attach' after --shell"))
-        wait(for: [serverHandled], timeout: 2)
-        XCTAssertFalse(
-            state.commands.contains { command in
-                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
-            },
-            "Malformed --shell args should not send a set request, saw \(state.commands)"
-        )
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
     func testSurfaceResumeSetCLIRejectsDanglingValueOptionsBeforeSocketRequest() throws {
@@ -1629,26 +1607,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSurfaceResumeClearCLIRejectsMalformedGuardsBeforeClearing() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("resume-clear-malformed")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = self.jsonObject(line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.malformedRequestResponse(raw: line)
-            }
-            XCTFail("Malformed clear args should fail before socket request, saw \(method)")
-            return self.v2Response(id: id, ok: true, result: ["cleared": true])
-        }
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
 
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
@@ -1665,14 +1627,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stderr.contains("surface resume clear: unexpected argument '--checkpoint'"))
-        wait(for: [serverHandled], timeout: 2)
-        XCTAssertFalse(
-            state.commands.contains { command in
-                self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
-            },
-            "Malformed clear args should not send a clear request, saw \(state.commands)"
-        )
+        XCTAssertTrue(result.stderr.contains("surface resume clear: --checkpoint requires a value"))
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
     func testSurfaceResumeClearCLINormalizesWindowIndex() throws {

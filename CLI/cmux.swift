@@ -2379,6 +2379,11 @@ struct CMUXCLI {
             return
         }
 
+        try validateSurfaceResumeCommandValueOptionsBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -4554,6 +4559,50 @@ struct CMUXCLI {
 
         default:
             throw CLIError(message: "Unsupported surface resume subcommand: \(subcommand)")
+        }
+    }
+
+    private func validateSurfaceResumeCommandValueOptionsBeforeSocket(
+        command: String,
+        commandArgs: [String]
+    ) throws {
+        if command == "surface" {
+            guard commandArgs.first?.lowercased() == "resume" else { return }
+            try validateSurfaceResumeCommandValueOptions(Array(commandArgs.dropFirst()))
+            return
+        }
+        if command == "surface-resume" {
+            try validateSurfaceResumeCommandValueOptions(commandArgs)
+        }
+    }
+
+    private func validateSurfaceResumeCommandValueOptions(_ commandArgs: [String]) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "show"
+        let rest = commandArgs.first == nil ? [] : Array(commandArgs.dropFirst())
+        switch subcommand {
+        case "set":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: [
+                    "--workspace", "--surface", "--name", "--kind", "--checkpoint",
+                    "--checkpoint-id", "--source", "--cwd", "--shell",
+                ],
+                context: "surface resume set"
+            )
+        case "show", "get":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: ["--workspace", "--surface"],
+                context: "surface resume \(subcommand)"
+            )
+        case "clear":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: ["--workspace", "--surface", "--checkpoint", "--checkpoint-id", "--source"],
+                context: "surface resume clear"
+            )
+        default:
+            return
         }
     }
 
