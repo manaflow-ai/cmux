@@ -35,9 +35,7 @@ final class FilePreviewQuickLookSession {
     private var item: FilePreviewQLItem?
 
     deinit {
-        MainActor.assumeIsolated {
-            close()
-        }
+        // AppKit teardown is performed explicitly by close() on the main actor.
     }
 
     func view(

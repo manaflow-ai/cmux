@@ -15,9 +15,7 @@ final class FilePreviewMediaSession {
     private var player: AVPlayer?
 
     deinit {
-        MainActor.assumeIsolated {
-            close()
-        }
+        // AppKit teardown is performed explicitly by close() on the main actor.
     }
 
     func view(

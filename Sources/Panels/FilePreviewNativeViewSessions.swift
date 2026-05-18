@@ -8,9 +8,7 @@ final class FilePreviewNativeViewSessions {
     let quickLook = FilePreviewQuickLookSession()
 
     deinit {
-        MainActor.assumeIsolated {
-            closeAll()
-        }
+        // AppKit teardown is performed explicitly by closeAll() on the main actor.
     }
 
     func closeInactive(except mode: FilePreviewMode) {

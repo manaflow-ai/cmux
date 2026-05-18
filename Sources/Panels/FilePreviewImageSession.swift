@@ -8,9 +8,7 @@ final class FilePreviewImageSession {
     )
 
     deinit {
-        MainActor.assumeIsolated {
-            close()
-        }
+        // AppKit teardown is performed explicitly by close() on the main actor.
     }
 
     func view(

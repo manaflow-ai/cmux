@@ -15,9 +15,7 @@ final class PanelOwnedNativeViewSession<View: NSView> {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            close()
-        }
+        // AppKit teardown is performed explicitly by close() on the main actor.
     }
 
     func view(configure: @MainActor (View) -> Void) -> View {
