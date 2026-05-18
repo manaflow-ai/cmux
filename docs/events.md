@@ -233,8 +233,13 @@ while IFS= read -r line; do
 
   if [[ "$frame_type" == "ack" ]]; then
     if jq -e '.resume.gap == true' >/dev/null <<<"$line"; then
-      cmux tree --all >/dev/null
-      cmux list-notifications >/dev/null
+      workspace_tree_json="$(cmux tree --all)"
+      notifications_json="$(cmux list-notifications)"
+
+      # Parse these snapshots with jq and rebuild your local caches before
+      # accepting later event frames. For example:
+      #   jq -r '.workspaces[]?.id' <<<"$workspace_tree_json"
+      #   jq -r '.notifications[]?.id' <<<"$notifications_json"
     fi
     continue
   fi
