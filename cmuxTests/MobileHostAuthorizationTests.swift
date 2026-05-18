@@ -72,6 +72,30 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testMobileHostRPCRejectsInvalidParamsShape() {
+        let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
+
+        let result = MobileHostRPCEnvelope.decodeRequest(data)
+
+        guard case let .failure(error) = result else {
+            return XCTFail("Invalid params shape should be rejected")
+        }
+        XCTAssertEqual(error.code, "invalid_request")
+        XCTAssertEqual(error.message, "params must be an object")
+    }
+
+    func testMobileHostRPCRejectsInvalidAuthShape() {
+        let data = Data(#"{"id":"bad-auth","method":"workspace.list","auth":"token"}"#.utf8)
+
+        let result = MobileHostRPCEnvelope.decodeRequest(data)
+
+        guard case let .failure(error) = result else {
+            return XCTFail("Invalid auth shape should be rejected")
+        }
+        XCTAssertEqual(error.code, "invalid_request")
+        XCTAssertEqual(error.message, "auth must be an object")
+    }
+
     func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
         let resolver = MobileRouteResolver()
 
@@ -99,6 +123,15 @@ final class MobileHostAuthorizationTests: XCTestCase {
         } else {
             XCTFail("Expected fallback Tailscale route to use a host/port endpoint")
         }
+    }
+
+    func testMobileRouteResolverImmediateSnapshotDoesNotBlockForTailscaleProbe() throws {
+        let resolver = MobileRouteResolver()
+
+        let snapshot = resolver.routes(port: 61234)
+
+        XCTAssertEqual(snapshot.routes.filter { $0.kind == .tailscale }.count, 0)
+        XCTAssertEqual(snapshot.routes.filter { $0.kind == .debugLoopback }.count, 1)
     }
 
     func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {

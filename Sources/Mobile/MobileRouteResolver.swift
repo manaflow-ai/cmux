@@ -81,7 +81,7 @@ final class MobileRouteResolver: @unchecked Sendable {
         if let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: Date()) {
             return cachedHosts
         }
-        return Self.tailscaleRouteHosts(resolveDNS: false)
+        return []
     }
 
     private func resolvedTailscaleRouteHosts(

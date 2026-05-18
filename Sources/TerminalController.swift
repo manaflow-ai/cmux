@@ -17941,7 +17941,9 @@ class TerminalController {
         case let .ok(payload):
             return .ok(payload)
         case let .err(code, message, data):
-            return .failure(MobileHostRPCError(code: code, message: message, data: data))
+            let safeMessage = code == "internal_error" ? "Mobile host operation failed" : message
+            let safeData = code == "internal_error" ? nil : data
+            return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
         }
     }
 
@@ -18299,7 +18301,9 @@ class TerminalController {
         let millisecondsUntilExpiry = max(1, Int((nextExpiry.timeIntervalSinceNow + 1) * 1000))
         timer.schedule(deadline: .now() + .milliseconds(millisecondsUntilExpiry))
         timer.setEventHandler { [weak self] in
-            self?.pruneMobileViewportReports(surfaceID: surfaceID, reason: "mobile.viewport.reportsExpired")
+            Task { @MainActor [weak self] in
+                self?.pruneMobileViewportReports(surfaceID: surfaceID, reason: "mobile.viewport.reportsExpired")
+            }
         }
         mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = timer
         timer.resume()

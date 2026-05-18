@@ -35,8 +35,10 @@ final class MobileHostService {
     private let ticketStore = MobileAttachTicketStore()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
+    private var listenerUsesEphemeralFallback = false
     private var listenerPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
+    private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
 
     private init() {}
@@ -46,9 +48,13 @@ final class MobileHostService {
             return
         }
 
+        startListener(usePreferredPort: true)
+    }
+
+    private func startListener(usePreferredPort: Bool) {
         do {
             let parameters = NWParameters.tcp
-            let nextListener = try makeListener(parameters: parameters)
+            let nextListener = try makeListener(parameters: parameters, usePreferredPort: usePreferredPort)
             nextListener.stateUpdateHandler = { state in
                 Task { @MainActor in
                     MobileHostService.shared.handleListenerState(state)
@@ -62,26 +68,31 @@ final class MobileHostService {
                 }
             }
             listener = nextListener
+            listenerUsesEphemeralFallback = !usePreferredPort
             listenerPort = nextListener.port.map { Int($0.rawValue) }
             routeResolver.refreshTailscaleRoutes()
             nextListener.start(queue: callbackQueue)
         } catch {
+            if usePreferredPort {
+                mobileHostLog.info("mobile host preferred port unavailable before listener start, falling back to an ephemeral port")
+                startListener(usePreferredPort: false)
+                return
+            }
             lastErrorDescription = String(describing: error)
             mobileHostLog.error("mobile host listener failed to start: \(String(describing: error), privacy: .public)")
         }
     }
 
-    private func makeListener(parameters: NWParameters) throws -> NWListener {
-        if let preferredPort = NWEndpoint.Port(rawValue: UInt16(Self.preferredPort)),
-           let listener = try? NWListener(using: parameters, on: preferredPort) {
-            return listener
+    private func makeListener(parameters: NWParameters, usePreferredPort: Bool) throws -> NWListener {
+        if usePreferredPort, let preferredPort = NWEndpoint.Port(rawValue: UInt16(Self.preferredPort)) {
+            return try NWListener(using: parameters, on: preferredPort)
         }
-        mobileHostLog.info("mobile host preferred port unavailable, falling back to an ephemeral port")
         return try NWListener(using: parameters, on: .any)
     }
 
     func stop() {
         listenerGeneration = UUID()
+        listenerUsesEphemeralFallback = false
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
         listener?.cancel()
@@ -91,6 +102,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
+        clearAllConnectionClientIDs()
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
@@ -167,6 +179,9 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             handleRequest: { request in
+                if let clientID = Self.clientID(from: request.params) {
+                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                }
                 if request.method == "mobile.host.status" {
                     return await MobileHostService.shared.publicHostStatusResult()
                 }
@@ -182,6 +197,35 @@ final class MobileHostService {
 
     private func removeConnection(id: UUID) {
         activeConnections.removeValue(forKey: id)
+        clearClientIDs(for: id)
+    }
+
+    private func recordClientID(_ clientID: String, for connectionID: UUID) {
+        var clientIDs = clientIDsByConnectionID[connectionID] ?? []
+        clientIDs.insert(clientID)
+        clientIDsByConnectionID[connectionID] = clientIDs
+    }
+
+    private func clearClientIDs(for connectionID: UUID) {
+        guard let clientIDs = clientIDsByConnectionID.removeValue(forKey: connectionID),
+              !clientIDs.isEmpty else {
+            return
+        }
+        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
+    }
+
+    private func clearAllConnectionClientIDs() {
+        let clientIDs = Set(clientIDsByConnectionID.values.flatMap { $0 })
+        clientIDsByConnectionID.removeAll()
+        guard !clientIDs.isEmpty else {
+            return
+        }
+        TerminalController.shared.clearMobileViewportReports(clientIDs: clientIDs)
+    }
+
+    private nonisolated static func clientID(from params: [String: Any]) -> String? {
+        let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -319,13 +363,20 @@ final class MobileHostService {
         case let .failed(error):
             lastErrorDescription = String(describing: error)
             mobileHostLog.error("mobile host listener failed: \(String(describing: error), privacy: .public)")
+            let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
             listener?.stateUpdateHandler = nil
             listener?.newConnectionHandler = nil
             listener?.cancel()
             listener = nil
+            listenerUsesEphemeralFallback = false
             listenerPort = nil
+            if shouldRetryWithEphemeralPort {
+                mobileHostLog.info("mobile host preferred port failed after start, falling back to an ephemeral port")
+                startListener(usePreferredPort: false)
+            }
         case .cancelled:
             listener = nil
+            listenerUsesEphemeralFallback = false
             listenerPort = nil
         case .setup, .waiting:
             break
