@@ -169,8 +169,6 @@ public enum SocketPathMarkerFiles {
         }
 
         switch effectiveVariant {
-        case .stable:
-            return isDebugBuild ? debugSocketPath : stableSocketPath
         case .nightly(let slug):
             if let slug {
                 return "/tmp/cmux-nightly-\(slug).sock"

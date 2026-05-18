@@ -726,41 +726,48 @@ def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
 
 
 def test_cli_ignores_non_release_stable_marker(cli_path: str) -> bool:
-    with temporary_socket_home("cmux-cli-variant-marker-") as home, \
-            tempfile.TemporaryDirectory(prefix="cmux-cli-variant-marker-app-") as apps:
-        app_support = Path(home) / "Library" / "Application Support" / "cmux"
-        app_support.mkdir(parents=True, exist_ok=True)
-        variant_socket = str(app_support / "com.cmuxterm.app.staging.review.sock")
-        write_marker(home, "last-socket-path", variant_socket)
+    variant_names = [
+        "com.cmuxterm.app.staging.review.sock",
+        "cmux-nightly.sock",
+        "cmux-nightly-review.sock",
+    ]
+    for variant_name in variant_names:
+        with temporary_socket_home("cmux-cli-variant-marker-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-variant-marker-app-") as apps:
+            app_support = Path(home) / "Library" / "Application Support" / "cmux"
+            app_support.mkdir(parents=True, exist_ok=True)
+            variant_socket = str(app_support / variant_name)
+            write_marker(home, "last-socket-path", variant_socket)
 
-        variant_server = PingServer(variant_socket, max_ping_requests=2, accept_timeout=1.0)
-        variant_server.start()
-        if not variant_server.wait_ready(2.0):
-            print("FAIL: variant socket server did not become ready")
-            return False
-        if variant_server.error is not None:
-            print(f"FAIL: variant socket server failed to start: {variant_server.error}")
-            return False
+            variant_server = PingServer(variant_socket, max_ping_requests=2, accept_timeout=1.0)
+            variant_server.start()
+            if not variant_server.wait_ready(2.0):
+                print("FAIL: variant socket server did not become ready")
+                return False
+            if variant_server.error is not None:
+                print(f"FAIL: variant socket server failed to start: {variant_server.error}")
+                return False
 
-        stable_cli = bundled_cli_for_variant(
-            cli_path,
-            apps,
-            "cmux",
-            "com.cmuxterm.app",
-        )
-        proc = run_ping(stable_cli, home)
+            stable_cli = bundled_cli_for_variant(
+                cli_path,
+                apps,
+                "cmux",
+                "com.cmuxterm.app",
+            )
+            proc = run_ping(stable_cli, home)
 
-        variant_server.join(timeout=2.0)
-        try:
-            os.remove(variant_socket)
-        except OSError:
-            pass
+            variant_server.join(timeout=2.0)
+            try:
+                os.remove(variant_socket)
+            except OSError:
+                pass
 
-        if proc.returncode == 0 and proc.stdout.strip() == "PONG":
-            print("FAIL: stable cmux ping used non-release variant marker")
-            print(f"stdout={proc.stdout!r}")
-            print(f"stderr={proc.stderr!r}")
-            return False
+            if proc.returncode == 0 and proc.stdout.strip() == "PONG":
+                print("FAIL: stable cmux ping used non-release variant marker")
+                print(f"variant={variant_name!r}")
+                print(f"stdout={proc.stdout!r}")
+                print(f"stderr={proc.stderr!r}")
+                return False
 
     print("PASS: stable CLI ignores non-release variant markers")
     return True
