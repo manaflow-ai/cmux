@@ -624,12 +624,14 @@ extension SurfaceResumeBindingIndex {
     }
 
     private static func tmuxExecutable(observed: VaultObservedAgentProcess) -> String {
-        if let first = observed.arguments.first,
-           VaultObservedAgentProcess.argumentLooksLikeTmux(first) {
+        if let first = normalized(observed.arguments.first),
+           VaultObservedAgentProcess.argumentLooksLikeTmux(first),
+           !VaultObservedAgentProcess.argumentLooksLikeTmuxProcessTitle(first) {
             return first
         }
         if let path = normalized(observed.processPath),
-           VaultObservedAgentProcess.argumentLooksLikeTmux(path) {
+           VaultObservedAgentProcess.argumentLooksLikeTmux(path),
+           !VaultObservedAgentProcess.argumentLooksLikeTmuxProcessTitle(path) {
             return path
         }
         return "tmux"
@@ -743,7 +745,7 @@ extension SurfaceResumeBindingIndex {
 
     private static func tmuxShortFlagCluster(_ argument: String, contains short: Character) -> Bool {
         guard argument.hasPrefix("-"), !argument.hasPrefix("--") else { return false }
-        let valueOptions: Set<Character> = ["c", "e", "F", "n", "s", "t", "x", "y"]
+        let valueOptions: Set<Character> = ["c", "e", "F", "f", "n", "s", "t", "x", "y"]
         for option in argument.dropFirst() {
             if option == short { return true }
             if valueOptions.contains(option) { return false }
@@ -869,6 +871,13 @@ private struct VaultObservedAgentProcess: Sendable {
         let pathComponents = (normalized as NSString).pathComponents
         let basename = pathComponents.last ?? normalized
         return basename == "tmux" || basename.hasPrefix("tmux:")
+    }
+
+    static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename.hasPrefix("tmux:")
     }
 
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {

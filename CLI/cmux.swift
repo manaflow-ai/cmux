@@ -10031,6 +10031,7 @@ struct CMUXCLI {
               --name <name>            Display name for the binding
               --kind <kind>            Binding kind, for example agent or tmux
               --checkpoint <id>        Provider checkpoint or session id
+              --checkpoint-id <id>     Same as --checkpoint and takes precedence
               --source <source>        Binding source label
 
             Examples:
@@ -19107,6 +19108,10 @@ struct CMUXCLI {
         if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
             params["cwd"] = cwd
         }
+        if let environment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment),
+           !environment.isEmpty {
+            params["environment"] = environment
+        }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
 
@@ -19124,16 +19129,32 @@ struct CMUXCLI {
         case "claudeTeams":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
             var tail = original.tail
-            if tail.first == "claude-teams" { tail.removeFirst() }
+            let removedToken = tail.first == "claude-teams"
+            if removedToken { tail.removeFirst() }
             argv = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: tail).map {
-                [original.executable, "claude-teams", "--resume", normalizedSessionId] + $0
+                agentSurfaceResumePrefixedArguments(
+                    executable: original.executable,
+                    token: "claude-teams",
+                    removedToken: removedToken,
+                    option: "--resume",
+                    sessionId: normalizedSessionId,
+                    preserved: $0
+                )
             }
         case "omo":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
             var tail = original.tail
-            if tail.first == "omo" { tail.removeFirst() }
+            let removedToken = tail.first == "omo"
+            if removedToken { tail.removeFirst() }
             argv = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail).map {
-                [original.executable, "omo", "--session", normalizedSessionId] + $0
+                agentSurfaceResumePrefixedArguments(
+                    executable: original.executable,
+                    token: "omo",
+                    removedToken: removedToken,
+                    option: "--session",
+                    sessionId: normalizedSessionId,
+                    preserved: $0
+                )
             }
         case "omx", "omc":
             argv = nil
@@ -19144,8 +19165,6 @@ struct CMUXCLI {
         guard let argv, !argv.isEmpty else { return nil }
         return agentSurfaceResumeShellCommand(
             argv: argv,
-            kind: kind,
-            environment: launchCommand?.environment,
             workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
         )
     }
@@ -19215,6 +19234,20 @@ struct CMUXCLI {
         }
     }
 
+    private func agentSurfaceResumePrefixedArguments(
+        executable: String,
+        token: String,
+        removedToken: Bool,
+        option: String,
+        sessionId: String,
+        preserved: [String]
+    ) -> [String] {
+        let executableName = (executable as NSString).lastPathComponent
+        let usesWrapper = executableName == "cmux"
+        let prefix = (usesWrapper || removedToken) ? [executable, token] : [executable]
+        return prefix + [option, sessionId] + preserved
+    }
+
     private func agentSurfaceResumeCommandParts(
         launchCommand: AgentHookLaunchCommandRecord?,
         fallbackExecutable: String
@@ -19229,16 +19262,9 @@ struct CMUXCLI {
 
     private func agentSurfaceResumeShellCommand(
         argv: [String],
-        kind: String,
-        environment: [String: String]?,
         workingDirectory: String?
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = agentSurfaceResumeEnvironmentParts(kind: kind, environment: environment)
-        if !environmentParts.isEmpty {
-            commandParts.append("env")
-            commandParts.append(contentsOf: environmentParts)
-        }
         commandParts.append(contentsOf: argv)
 
         var command = commandParts.map(cliShellQuote).joined(separator: " ")
@@ -19248,13 +19274,13 @@ struct CMUXCLI {
         return command
     }
 
-    private func agentSurfaceResumeEnvironmentParts(
+    private func agentSurfaceResumeEnvironment(
         kind: String,
         environment: [String: String]?
-    ) -> [String] {
-        guard let environment else { return [] }
+    ) -> [String: String]? {
+        guard let environment else { return nil }
         let selected = selectedAgentLaunchEnvironment(from: environment)
-        guard !selected.isEmpty else { return [] }
+        guard !selected.isEmpty else { return nil }
 
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",
@@ -19266,17 +19292,15 @@ struct CMUXCLI {
             "CLAUDE_CODE_USE_VERTEX",
             "CLAUDE_CONFIG_DIR"
         ]
-        var parts = selected.keys.sorted().compactMap { key in
-            selected[key].map { "\(key)=\($0)" }
-        }
+        var resolved = selected
         if kind == "claude" {
             let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
             if !preservedClaudeKeys.isEmpty {
-                parts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
-                parts.append("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=\(preservedClaudeKeys.joined(separator: ","))")
+                resolved["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
+                resolved["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = preservedClaudeKeys.joined(separator: ",")
             }
         }
-        return parts
+        return resolved
     }
 
     private func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {

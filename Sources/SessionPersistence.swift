@@ -228,6 +228,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var cwd: String?
     var checkpointId: String?
     var source: String?
+    var environment: [String: String]?
     var updatedAt: TimeInterval
 
     init(
@@ -237,6 +238,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         cwd: String? = nil,
         checkpointId: String? = nil,
         source: String? = nil,
+        environment: [String: String]? = nil,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         self.name = Self.normalized(name)
@@ -245,7 +247,12 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.cwd = Self.normalized(cwd)
         self.checkpointId = Self.normalized(checkpointId)
         self.source = Self.normalized(source)
+        self.environment = Self.normalizedEnvironment(environment)
         self.updatedAt = updatedAt
+    }
+
+    var isProcessDetected: Bool {
+        source == "process-detected"
     }
 
     var startupInput: String? {
@@ -260,6 +267,17 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             return nil
         }
         return rawValue
+    }
+
+    private static func normalizedEnvironment(_ environment: [String: String]?) -> [String: String]? {
+        guard let environment else { return nil }
+        let normalized = environment.reduce(into: [String: String]()) { result, item in
+            let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !value.isEmpty else { return }
+            result[key] = value
+        }
+        return normalized.isEmpty ? nil : normalized
     }
 }
 

@@ -7364,8 +7364,10 @@ extension TabManager {
                     into: &hasher
                 )
                 Self.hashSurfaceResumeBindingSnapshot(
-                    workspace.surfaceResumeBinding(panelId: panelId)
-                        ?? surfaceResumeBindingIndex.binding(workspaceId: workspace.id, panelId: panelId),
+                    workspace.effectiveSurfaceResumeBinding(
+                        panelId: panelId,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    ),
                     into: &hasher
                 )
             }
@@ -7457,6 +7459,7 @@ extension TabManager {
         hashOptionalString(snapshot.cwd, into: &hasher)
         hashOptionalString(snapshot.checkpointId, into: &hasher)
         hashOptionalString(snapshot.source, into: &hasher)
+        hashStringMap(snapshot.environment, into: &hasher)
     }
 
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
@@ -7474,6 +7477,20 @@ extension TabManager {
             hasher.combine(value)
         } else {
             hasher.combine(false)
+        }
+    }
+
+    nonisolated private static func hashStringMap(_ value: [String: String]?, into hasher: inout Hasher) {
+        guard let value, !value.isEmpty else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        let keys = value.keys.sorted()
+        hasher.combine(keys.count)
+        for key in keys {
+            hasher.combine(key)
+            hasher.combine(value[key] ?? "")
         }
     }
 
