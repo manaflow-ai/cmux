@@ -1203,6 +1203,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         defaults.set(42.5, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
 
         if !hasEnabledEnvironmentOverride {
+            XCTAssertEqual(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool, false)
             XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults))
         }
         if !hasDelayEnvironmentOverride {
