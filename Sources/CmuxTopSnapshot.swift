@@ -175,7 +175,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     func samplePayload() -> [String: Any] {
         let residentMemorySourceNames = residentMemorySources.map(\.rawValue)
-        [
+        return [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
