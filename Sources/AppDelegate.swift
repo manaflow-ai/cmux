@@ -7928,6 +7928,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             in: tab,
             preferredPanelId: preferredPanelId
         ),
+           terminalPanel.isAgentHibernated {
+            beforeSend?()
+            terminalPanel.sendText(text)
+            return
+        }
+
+        if let terminalPanel = Self.resolveTerminalPanelForTextSend(
+            in: tab,
+            preferredPanelId: preferredPanelId
+        ),
            terminalPanel.surface.surface != nil {
 #if DEBUG
             if isReactGrabPasteback {

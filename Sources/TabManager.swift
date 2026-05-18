@@ -6503,7 +6503,7 @@ class TabManager: ObservableObject {
 
         func sendText(_ panelId: UUID, _ text: String) {
             guard let tp = tab.terminalPanel(for: panelId) else { return }
-            tp.surface.sendText(text)
+            tp.sendText(text)
         }
 
         // Sample a very top strip so the probe remains valid even after vertical expand/collapse.
@@ -6890,7 +6890,7 @@ class TabManager: ObservableObject {
                 }
                 // Use an explicit shell exit command for deterministic child-exit behavior across
                 // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
-                rightPanel.surface.sendText("exit\r")
+                rightPanel.sendText("exit\r")
 
                 // Wait for the right panel to close.
                 let closed = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in

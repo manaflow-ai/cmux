@@ -246,6 +246,58 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertFalse(panel.isAgentHibernated)
     }
 
+    @MainActor
+    func testExplicitInputToHibernatedTerminalQueuesAndPreparesResume() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-explicit-input-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        panel.enterAgentHibernation(
+            agent: snapshot,
+            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            hibernatedAt: Date(timeIntervalSince1970: 10)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        let result = panel.sendInputResult("pwd\r")
+
+        XCTAssertEqual(result, .queued)
+        XCTAssertFalse(panel.isAgentHibernated)
+    }
+
+    @MainActor
+    func testExplicitNamedKeyToHibernatedTerminalQueuesAndPreparesResume() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-explicit-key-resume",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+
+        panel.enterAgentHibernation(
+            agent: snapshot,
+            resumeStartupInput: try XCTUnwrap(snapshot.resumeStartupInput()),
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            hibernatedAt: Date(timeIntervalSince1970: 10)
+        )
+        XCTAssertTrue(panel.isAgentHibernated)
+
+        let result = panel.sendNamedKeyResult("enter")
+
+        XCTAssertEqual(result, .queued)
+        XCTAssertFalse(panel.isAgentHibernated)
+    }
+
     private func launch(
         _ launcher: String,
         _ executablePath: String,

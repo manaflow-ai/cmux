@@ -5125,6 +5125,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
+        closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 

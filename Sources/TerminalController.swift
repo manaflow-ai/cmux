@@ -6877,7 +6877,7 @@ class TerminalController {
             let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
             let queued: Bool
-            switch terminalPanel.surface.sendInputResult(text) {
+            switch terminalPanel.sendInputResult(text) {
             case .sent:
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
@@ -6939,7 +6939,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            let sendResult = terminalPanel.surface.sendNamedKey(key)
+            let sendResult = terminalPanel.sendNamedKeyResult(key)
             switch sendResult {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
@@ -15424,7 +15424,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            switch terminalPanel.surface.sendInputResult(unescaped) {
+            switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendInput")
                 success = true
@@ -15479,7 +15479,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            switch terminalPanel.surface.sendInputResult(unescaped) {
+            switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendWorkspace")
                 success = true
@@ -15559,7 +15559,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            switch terminalPanel.surface.sendInputResult(unescaped) {
+            switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendSurface")
                 success = true
@@ -15594,7 +15594,7 @@ class TerminalController {
                 return
             }
 
-            switch terminalPanel.surface.sendNamedKey(keyName) {
+            switch terminalPanel.sendNamedKeyResult(keyName) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendKey")
                 success = true
@@ -15629,7 +15629,7 @@ class TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            switch terminalPanel.surface.sendNamedKey(keyName) {
+            switch terminalPanel.sendNamedKeyResult(keyName) {
             case .sent:
                 terminalPanel.surface.forceRefresh(reason: "terminalController.sendKeyToSurface")
                 success = true

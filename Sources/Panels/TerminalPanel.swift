@@ -257,19 +257,29 @@ final class TerminalPanel: Panel, ObservableObject {
     // MARK: - Terminal-specific methods
 
     func sendText(_ text: String) {
-        guard !isAgentHibernated else { return }
+        resumeForExplicitInputIfNeeded()
         surface.sendText(text)
     }
 
     func sendInput(_ text: String) {
-        guard !isAgentHibernated else { return }
-        surface.sendInput(text)
+        _ = sendInputResult(text)
+    }
+
+    @discardableResult
+    func sendInputResult(_ text: String) -> TerminalSurface.InputSendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendInputResult(text)
+    }
+
+    @discardableResult
+    func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.sendNamedKey(keyName)
     }
 
     @discardableResult
     func sendNamedKey(_ keyName: String) -> Bool {
-        guard !isAgentHibernated else { return false }
-        switch surface.sendNamedKey(keyName) {
+        switch sendNamedKeyResult(keyName) {
         case .sent, .queued:
             return true
         case .unknownKey, .inputQueueFull, .surfaceUnavailable, .processExited:
@@ -280,6 +290,11 @@ final class TerminalPanel: Panel, ObservableObject {
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
         return surface.performBindingAction(action)
+    }
+
+    private func resumeForExplicitInputIfNeeded() {
+        guard isAgentHibernated else { return }
+        _ = prepareAgentHibernationResume()
     }
 
     func hasSelection() -> Bool {
