@@ -1712,11 +1712,11 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
 
         beginWindowMoveTerminalInputSuppression(window: window)
 
-        XCTAssertFalse(shouldForwardTerminalMousePositionToGhostty(window: window))
+        XCTAssertFalse(shouldForwardTerminalMouseEventToGhostty(window: window))
 
         endWindowMoveTerminalInputSuppression(window: window)
 
-        XCTAssertTrue(shouldForwardTerminalMousePositionToGhostty(window: window))
+        XCTAssertTrue(shouldForwardTerminalMouseEventToGhostty(window: window))
     }
 
     func testWindowMoveTerminalInputSuppressionIsReferenceCounted() {
@@ -1725,13 +1725,13 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertEqual(windowMoveTerminalInputSuppressionDepth(window: window), 0)
         XCTAssertEqual(beginWindowMoveTerminalInputSuppression(window: window), 1)
         XCTAssertEqual(beginWindowMoveTerminalInputSuppression(window: window), 2)
-        XCTAssertFalse(shouldForwardTerminalMousePositionToGhostty(window: window))
+        XCTAssertFalse(shouldForwardTerminalMouseEventToGhostty(window: window))
 
         XCTAssertEqual(endWindowMoveTerminalInputSuppression(window: window), 1)
-        XCTAssertFalse(shouldForwardTerminalMousePositionToGhostty(window: window))
+        XCTAssertFalse(shouldForwardTerminalMouseEventToGhostty(window: window))
 
         XCTAssertEqual(endWindowMoveTerminalInputSuppression(window: window), 0)
-        XCTAssertTrue(shouldForwardTerminalMousePositionToGhostty(window: window))
+        XCTAssertTrue(shouldForwardTerminalMouseEventToGhostty(window: window))
     }
 }
 

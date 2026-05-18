@@ -9544,8 +9544,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
-        guard let surface = surface else { return }
         guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
+        guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
