@@ -898,7 +898,19 @@ extension RestorableAgentSessionIndex {
                     (name: argument, sessionId: $0)
                 }
             }
-            index += codexOptionWidth(arguments, index: index)
+            let width = codexOptionWidth(arguments, index: index)
+            if codexVariadicOptions.contains(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end
+                    where arguments[candidateIndex] == "resume" || arguments[candidateIndex] == "fork" {
+                        if let sessionId = codexSessionIdValue(afterCommandAt: candidateIndex, in: arguments) {
+                            return (name: arguments[candidateIndex], sessionId: sessionId)
+                        }
+                    }
+                }
+            }
+            index += width
         }
         return nil
     }
@@ -913,7 +925,18 @@ extension RestorableAgentSessionIndex {
             if !argument.hasPrefix("-") || argument == "-" {
                 return normalized(argument)
             }
-            index += codexOptionWidth(arguments, index: index)
+            let width = codexOptionWidth(arguments, index: index)
+            if codexVariadicOptions.contains(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end {
+                        if codexLooksLikeSessionIdentifier(arguments[candidateIndex]) {
+                            return normalized(arguments[candidateIndex])
+                        }
+                    }
+                }
+            }
+            index += width
         }
         return nil
     }
@@ -1031,6 +1054,8 @@ extension RestorableAgentSessionIndex {
         return Array(arguments.dropFirst())
     }
 
+    private static let codexVariadicOptions: Set<String> = ["--image", "-i"]
+
     private static func codexOptionWidth(_ arguments: [String], index: Int) -> Int {
         guard index < arguments.count else { return 1 }
         let argument = arguments[index]
@@ -1063,7 +1088,24 @@ extension RestorableAgentSessionIndex {
               index + 1 < arguments.count else {
             return 1
         }
+        if codexVariadicOptions.contains(argument) {
+            var end = index + 1
+            while end < arguments.count, !arguments[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
         return 2
+    }
+
+    private static func codexLooksLikeSessionIdentifier(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 20 else { return false }
+        if trimmed.hasPrefix("019") {
+            return true
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
     }
 
     private static func codexLaunchKindAllowsProcessFallback(_ launcher: String) -> Bool {
