@@ -1,6 +1,48 @@
 import Foundation
 import Observation
 
+private enum GoalSupervisionFileIO {
+    private static let queue = DispatchQueue(
+        label: "com.cmux.goal-supervision.file-io",
+        qos: .utility
+    )
+
+    static func loadData(from fileURL: URL) async throws -> Data? {
+        try Task.checkCancellation()
+        let data = try await perform {
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                return nil
+            }
+            return try Data(contentsOf: fileURL)
+        }
+        try Task.checkCancellation()
+        return data
+    }
+
+    static func saveData(_ data: Data, to fileURL: URL) async throws {
+        try Task.checkCancellation()
+        try await perform {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+        }
+        try Task.checkCancellation()
+    }
+
+    private static func perform<T: Sendable>(
+        _ operation: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try Task.checkCancellation()
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result(catching: operation))
+            }
+        }
+    }
+}
+
 actor GoalSupervisionPersistence {
     static let live = GoalSupervisionPersistence(fileURL: defaultFileURL())
 
@@ -10,30 +52,25 @@ actor GoalSupervisionPersistence {
         self.fileURL = fileURL
     }
 
-    func load() throws -> [GoalSupervisionRecord] {
+    func load() async throws -> [GoalSupervisionRecord] {
         try Task.checkCancellation()
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard let data = try await GoalSupervisionFileIO.loadData(from: fileURL) else {
             return []
         }
-        let data = try Data(contentsOf: fileURL)
         try Task.checkCancellation()
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode([GoalSupervisionRecord].self, from: data)
     }
 
-    func save(_ goals: [GoalSupervisionRecord]) throws {
+    func save(_ goals: [GoalSupervisionRecord]) async throws {
         try Task.checkCancellation()
-        try FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(goals)
         try Task.checkCancellation()
-        try data.write(to: fileURL, options: .atomic)
+        try await GoalSupervisionFileIO.saveData(data, to: fileURL)
     }
 
     private static func defaultFileURL() -> URL {
