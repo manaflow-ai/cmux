@@ -485,6 +485,15 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
     }
 }
 
+func cmuxIsWebInspectorClassName(_ className: String) -> Bool {
+    className.contains("WKInspector") || className.contains("WebInspector")
+}
+
+func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
+    cmuxIsWebInspectorClassName(String(describing: type(of: object))) ||
+        cmuxIsWebInspectorClassName(NSStringFromClass(type(of: object)))
+}
+
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
@@ -525,15 +534,14 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
 
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
-    let responderType = String(describing: type(of: responder))
-    if responderType.contains("WKInspector") {
+    if cmuxIsWebInspectorObject(responder) {
         return true
     }
     guard let view = responder as? NSView else { return false }
     var node: NSView? = view
     var hops = 0
     while let current = node, hops < 64 {
-        if String(describing: type(of: current)).contains("WKInspector") {
+        if cmuxIsWebInspectorObject(current) {
             return true
         }
         node = current.superview
