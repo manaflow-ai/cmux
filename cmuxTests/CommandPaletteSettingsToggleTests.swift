@@ -126,6 +126,34 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentHibernationCommandTogglesAndPostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentHibernation"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: AgentHibernationSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertTrue(AgentHibernationSettings.isEnabled(defaults: defaults))
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
     func testConfigLinkAndFileOpeningSettingsHaveCommandPaletteToggles() throws {
         XCTAssertNotNil(
             CommandPaletteSettingsToggleCommands.descriptor(

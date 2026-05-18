@@ -385,6 +385,34 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentHibernation",
+                settingsKey: "terminal.agentHibernation.enabled",
+                title: {
+                    String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation")
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.agentHibernation.enabled",
+                    "terminal",
+                    "agent",
+                    "hibernation",
+                    "hibernate",
+                    "suspend",
+                    "claude",
+                    "codex",
+                    "opencode",
+                    "idle",
+                ],
+                isOn: { defaults in AgentHibernationSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, notificationCenter in
+                    AgentHibernationSettings.setValues(
+                        enabled: newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "hideAllSidebarDetails",
                 settingsKey: "sidebar.hideAllDetails",
                 title: {
