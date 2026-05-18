@@ -1532,12 +1532,16 @@ struct ShortcutStroke: Equatable, Hashable {
             return true
         }
 
+        // Falling back to US-layout keycodes is only safe when the keyboard
+        // layout cannot produce a comparable ASCII character — otherwise a
+        // typed key (e.g. Swedish "+") could mask a different US-layout key
+        // sharing the same physical position (e.g. US "-") and fire the
+        // wrong action.
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
-                    !Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (hasEventChars && !eventCharsAreASCII)
+                    (hasEventChars && !eventCharsAreASCII)
                         || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback,
@@ -1675,6 +1679,14 @@ struct ShortcutStroke: Equatable, Hashable {
         eventKeyCode: UInt16
     ) -> String {
         let lowered = eventCharacter.lowercased()
+        // "+" and "_" are equivalent to "=" and "-" regardless of shift state.
+        // On non-US ISO layouts (e.g. Swedish) the "+" key is typed without shift,
+        // so the existing zoom-in/zoom-out bindings (key "=" / "-") must still match.
+        switch lowered {
+        case "+": return "="
+        case "_": return "-"
+        default: break
+        }
         guard applyShiftSymbolNormalization else { return lowered }
 
         switch lowered {
@@ -1687,8 +1699,6 @@ struct ShortcutStroke: Equatable, Hashable {
         case "\"": return "'"
         case "|": return "\\"
         case "~": return "`"
-        case "+": return "="
-        case "_": return "-"
         case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
         case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
         case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
