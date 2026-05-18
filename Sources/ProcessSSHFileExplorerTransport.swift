@@ -383,10 +383,18 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     private static func runSCPCommand(arguments: [String], timeout: TimeInterval) async throws -> SSHCommandResult {
         let commandProcess = CommandProcess(executable: scpExecutablePath, arguments: arguments)
-        return try await withTaskCancellationHandler {
-            try await commandProcess.run(timeout: timeout)
-        } onCancel: {
-            commandProcess.terminate()
+        do {
+            return try await withTaskCancellationHandler {
+                try await commandProcess.run(timeout: timeout)
+            } onCancel: {
+                commandProcess.terminate()
+            }
+        } catch let error as CancellationError {
+            throw error
+        } catch let error as FileExplorerError {
+            throw error
+        } catch {
+            throw FileExplorerError.downloadFailed(downloadHelperLaunchFailureDetail())
         }
     }
 
@@ -546,6 +554,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 defaultValue: "Remote command exited with status %d."
             ),
             Int(status)
+        )
+    }
+
+    private static func downloadHelperLaunchFailureDetail() -> String {
+        String(
+            localized: "fileExplorer.error.downloadHelperUnavailable",
+            defaultValue: "Unable to start the download helper."
         )
     }
 

@@ -87015,6 +87015,23 @@
         }
       }
     },
+    "fileExplorer.error.downloadHelperUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to start the download helper."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードヘルパーを開始できません。"
+          }
+        }
+      }
+    },
     "fileExplorer.error.downloadTimedOut": {
       "extractionState": "manual",
       "localizations": {
