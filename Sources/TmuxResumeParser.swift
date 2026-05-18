@@ -152,7 +152,7 @@ enum TmuxResumeParser {
         }
 
         guard index < arguments.count else {
-            return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: true)
+            return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
         }
 
         let command = arguments[index]

@@ -4245,6 +4245,24 @@ extension SessionPersistenceTests {
         XCTAssertNil(aliasBinding)
     }
 
+    func testTmuxProcessDetectedResumeBindingRejectsCommandlessClient() {
+        let executableOnlyBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux"],
+            environment: [:]
+        )
+        let processTitleBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: client",
+            processPath: nil,
+            arguments: ["tmux: client"],
+            environment: [:]
+        )
+
+        XCTAssertNil(executableOnlyBinding)
+        XCTAssertNil(processTitleBinding)
+    }
+
     func testTmuxOptionValueDoesNotReadTargetFromConfigValue() {
         let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
             processName: "tmux",
