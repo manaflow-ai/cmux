@@ -397,6 +397,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(forwardSnapshot.items.map(\.workspaceTitle), ["Second", "Third"])
     }
 
+    func testFocusHistoryMenuSnapshotReflectsRenamedWorkspaceAndPanel() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
+        firstWorkspace.setCustomTitle("Renamed Workspace")
+        firstWorkspace.setPanelCustomTitle(panelId: panelId, title: "Renamed Pane")
+
+        _ = manager.addWorkspace(select: true)
+
+        let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        let item = try XCTUnwrap(snapshot.items.first)
+
+        XCTAssertEqual(item.workspaceTitle, "Renamed Workspace")
+        XCTAssertEqual(item.panelTitle, "Renamed Pane")
+        XCTAssertEqual(FocusHistoryMenuFormatter.title(for: item), "Renamed Workspace - Renamed Pane")
+    }
+
+    func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {
+        let manager = TabManager()
+        let startedAt = Date()
+
+        _ = manager.addWorkspace(select: true)
+
+        let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        let item = try XCTUnwrap(snapshot.items.first)
+
+        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970 - 1)
+        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, Date().timeIntervalSince1970 + 1)
+    }
+
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -412,6 +442,47 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         XCTAssertEqual(workspace.panels.count, 2)
         XCTAssertNotNil(workspace.focusedPanelId.flatMap { workspace.panels[$0] })
+    }
+
+    func testReopenClosedPanelRestoresUnreadIndicator() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.setPanelCustomTitle(panelId: panelId, title: "Unread Tab")
+        workspace.restorePanelUnreadIndicator(panelId)
+
+        workspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(workspace.closePanel(panelId, force: true))
+        drainMainQueue()
+        XCTAssertNil(workspace.panels[panelId])
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredPanelId = try XCTUnwrap(
+            workspace.panelCustomTitles.first(where: { $0.value == "Unread Tab" })?.key
+        )
+
+        XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+    }
+
+    func testReopenClosedPanelRestoresManualUnreadState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.setPanelCustomTitle(panelId: panelId, title: "Manual Unread Tab")
+        workspace.markPanelUnread(panelId)
+
+        workspace.markCloseHistoryEligible(panelId: panelId)
+        XCTAssertTrue(workspace.closePanel(panelId, force: true))
+        drainMainQueue()
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        let restoredPanelId = try XCTUnwrap(
+            workspace.panelCustomTitles.first(where: { $0.value == "Manual Unread Tab" })?.key
+        )
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(restoredPanelId))
     }
 
     func testReopenClosedPanelBackReturnsToPreviousWorkspaceFocus() throws {
@@ -805,6 +876,50 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(limitedSnapshot.items.count, 10)
         XCTAssertEqual(limitedSnapshot.items.first?.title, "Panel 11")
         XCTAssertEqual(limitedSnapshot.items.last?.title, "Panel 2")
+    }
+
+    func testRecentlyClosedMenuSnapshotCarriesClosedTimestamp() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        panelSnapshot.customTitle = "Timed Panel"
+        let closedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            closedAt: closedAt,
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: panelSnapshot
+            ))
+        ))
+
+        let item = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        XCTAssertEqual(item.title, "Timed Panel")
+        XCTAssertEqual(item.closedAt, closedAt)
+    }
+
+    func testHistorySearchMatchesAcrossTitleAndKind() {
+        XCTAssertTrue(HistoryDayGrouping.matches(query: "timed tab", fields: ["Timed Panel", "Tab"]))
+        XCTAssertTrue(HistoryDayGrouping.matches(query: "workspace", fields: ["Recovered", "Workspace"]))
+        XCTAssertFalse(HistoryDayGrouping.matches(query: "browser", fields: ["Timed Panel", "Tab"]))
+    }
+
+    func testHistoryDayGroupingLabelsTodayAndYesterday() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: now))
+
+        XCTAssertEqual(
+            HistoryDayGrouping.dayTitle(for: now, now: now, calendar: calendar),
+            String(localized: "historyPane.day.today", defaultValue: "Today")
+        )
+        XCTAssertEqual(
+            HistoryDayGrouping.dayTitle(for: yesterday, now: now, calendar: calendar),
+            String(localized: "historyPane.day.yesterday", defaultValue: "Yesterday")
+        )
     }
 
     func testReopenSpecificRecentlyClosedRowRestoresOnlyThatRecord() throws {

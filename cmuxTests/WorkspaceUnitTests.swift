@@ -4735,6 +4735,45 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
     }
 
+    func testHistoryToolSurfaceOpensAsReusableBonsplitPane() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane")
+            return
+        }
+
+        guard let firstPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) else {
+            XCTFail("Expected History tool surface to be created")
+            return
+        }
+        guard let secondPanel = workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) else {
+            XCTFail("Expected existing History tool surface to be focused")
+            return
+        }
+
+        XCTAssertEqual(firstPanel.id, secondPanel.id)
+        XCTAssertEqual(firstPanel.displayTitle, String(localized: "rightSidebar.mode.history", defaultValue: "History"))
+        XCTAssertEqual(firstPanel.displayIcon, "clock.arrow.circlepath")
+        XCTAssertGreaterThanOrEqual(firstPanel.historySearchFocusToken, 1)
+        XCTAssertEqual(
+            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
+            Workspace.SurfaceKind.rightSidebarTool
+        )
+        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
+
+        let previousFocusToken = firstPanel.historySearchFocusToken
+        workspace.focusPanel(firstPanel.id)
+        XCTAssertGreaterThan(firstPanel.historySearchFocusToken, previousFocusToken)
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {

@@ -5526,6 +5526,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }?.tabManager
     }
 
+    @discardableResult
+    func openHistoryPane(
+        preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let manager = preferredTabManager
+            ?? activeTabManagerForCommands(preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)
+        guard let workspace = manager?.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+
+        workspace.clearSplitZoom()
+        return workspace.openOrFocusRightSidebarToolSurface(
+            inPane: paneId,
+            mode: .history,
+            focus: true
+        ) != nil
+    }
+
     func allMainWindowTabManagersForDebug() -> [TabManager] {
         Array(mainWindowContexts.values).compactMap { context in
             resolvedWindow(for: context) == nil ? nil : context.tabManager
@@ -6642,14 +6662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func focusHistoryContextMenuTitle(for item: FocusHistoryMenuItem) -> String {
-        let fallbackWorkspaceTitle = String(localized: "menu.history.untitledWorkspace", defaultValue: "Untitled Workspace")
-        let workspaceTitle = item.workspaceTitle.isEmpty ? fallbackWorkspaceTitle : item.workspaceTitle
-        guard let panelTitle = item.panelTitle,
-              !panelTitle.isEmpty,
-              panelTitle != workspaceTitle else {
-            return workspaceTitle
-        }
-        return "\(workspaceTitle) - \(panelTitle)"
+        FocusHistoryMenuFormatter.title(for: item)
     }
 
     @objc private func performFocusHistoryContextMenuItem(_ sender: NSMenuItem) {

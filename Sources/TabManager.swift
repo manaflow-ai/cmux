@@ -1099,7 +1099,7 @@ class TabManager: ObservableObject {
         }
     }
     // Recent focus history for back/forward navigation across workspaces and panes.
-    private var focusHistory: [FocusHistoryEntry] = []
+    private var focusHistory: [FocusHistoryRecord] = []
     private var historyIndex: Int = -1
     private var focusHistoryRecordingSuppressionDepth = 0
     private var focusHistorySuppressedSelectionSideEffectGenerations: Set<UInt64> = []
@@ -5657,7 +5657,7 @@ class TabManager: ObservableObject {
 
         if historyIndex >= 0,
            historyIndex < focusHistory.count,
-           focusHistory[historyIndex] == entry {
+           focusHistory[historyIndex].entry == entry {
             return
         }
 
@@ -5665,7 +5665,7 @@ class TabManager: ObservableObject {
         if historyIndex < focusHistory.count - 1 {
             if preservingForwardBranch {
                 let insertionIndex = max(0, historyIndex + 1)
-                if focusHistory[insertionIndex] == entry {
+                if focusHistory[insertionIndex].entry == entry {
                     let oldHistoryIndex = historyIndex
                     historyIndex = insertionIndex
                     if historyIndex != oldHistoryIndex {
@@ -5674,7 +5674,7 @@ class TabManager: ObservableObject {
                     return
                 }
 
-                focusHistory.insert(entry, at: insertionIndex)
+                focusHistory.insert(FocusHistoryRecord(entry: entry), at: insertionIndex)
                 let overflow = max(0, focusHistory.count - maxHistorySize)
                 if overflow > 0 {
                     focusHistory.removeFirst(overflow)
@@ -5688,7 +5688,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        if focusHistory.last == entry {
+        if focusHistory.last?.entry == entry {
             historyIndex = focusHistory.count - 1
             if didMutateHistory {
                 focusHistoryRevision &+= 1
@@ -5696,7 +5696,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusHistory.append(entry)
+        focusHistory.append(FocusHistoryRecord(entry: entry))
         if focusHistory.count > maxHistorySize {
             focusHistory.removeFirst(focusHistory.count - maxHistorySize)
         }
@@ -5724,9 +5724,9 @@ class TabManager: ObservableObject {
 
         if historyIndex >= 0,
            historyIndex < focusHistory.count - 1,
-           focusHistory[historyIndex].workspaceId == workspaceId {
-            if focusHistory[historyIndex] != entry {
-                focusHistory[historyIndex] = entry
+           focusHistory[historyIndex].entry.workspaceId == workspaceId {
+            if focusHistory[historyIndex].entry != entry {
+                focusHistory[historyIndex] = FocusHistoryRecord(entry: entry)
                 focusHistoryRevision &+= 1
             }
             return
@@ -5737,7 +5737,7 @@ class TabManager: ObservableObject {
 
     func invalidateFocusHistoryTarget(workspaceId: UUID, panelId: UUID?) {
         if let panelId {
-            guard focusHistory.contains(where: { $0.workspaceId == workspaceId && $0.panelId == panelId }) else {
+            guard focusHistory.contains(where: { $0.entry.workspaceId == workspaceId && $0.entry.panelId == panelId }) else {
                 return
             }
             focusHistoryRevision &+= 1
@@ -5750,9 +5750,9 @@ class TabManager: ObservableObject {
         let currentIndex = historyIndex
         let removedBeforeOrAtCurrent = focusHistory
             .prefix(max(0, min(currentIndex + 1, oldCount)))
-            .filter { $0.workspaceId == workspaceId }
+            .filter { $0.entry.workspaceId == workspaceId }
             .count
-        focusHistory.removeAll { $0.workspaceId == workspaceId }
+        focusHistory.removeAll { $0.entry.workspaceId == workspaceId }
         guard focusHistory.count != oldCount else { return }
 
         historyIndex -= removedBeforeOrAtCurrent
@@ -5843,7 +5843,8 @@ class TabManager: ObservableObject {
         }
 
         let items = historyIndices.compactMap { index -> FocusHistoryMenuItem? in
-            let entry = focusHistory[index]
+            let record = focusHistory[index]
+            let entry = record.entry
             guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry),
                   let workspace = focusHistoryWorkspace(for: resolvedEntry),
                   focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry) else {
@@ -5862,6 +5863,7 @@ class TabManager: ObservableObject {
                 workspaceTitle: workspaceTitle,
                 panelTitle: panelTitle?.isEmpty == true ? nil : panelTitle,
                 position: position,
+                focusedAt: record.focusedAt,
                 isNavigable: true
             )
         }
@@ -5924,12 +5926,12 @@ class TabManager: ObservableObject {
     func navigateToFocusHistoryMenuItem(_ item: FocusHistoryMenuItem) -> Bool {
         guard focusHistoryEntryIsNavigable(item.entry, currentEntry: currentFocusHistoryEntry) else { return false }
         var targetIndex = item.historyIndex
-        guard focusHistory.indices.contains(targetIndex), focusHistory[targetIndex] == item.entry else {
-            guard let fallbackIndex = focusHistory.lastIndex(of: item.entry) else { return false }
+        guard focusHistory.indices.contains(targetIndex), focusHistory[targetIndex].entry == item.entry else {
+            guard let fallbackIndex = focusHistory.lastIndex(where: { $0.entry == item.entry }) else { return false }
             targetIndex = fallbackIndex
             return navigateToFocusHistoryEntry(item.entry, targetIndex: targetIndex)
         }
-        return navigateToFocusHistoryEntry(focusHistory[targetIndex], targetIndex: targetIndex)
+        return navigateToFocusHistoryEntry(focusHistory[targetIndex].entry, targetIndex: targetIndex)
     }
 
     func navigateBack() {
@@ -5938,7 +5940,7 @@ class TabManager: ObservableObject {
         let currentEntry = currentFocusHistoryEntry
         var targetIndex = historyIndex - 1
         while targetIndex >= 0 {
-            let entry = focusHistory[targetIndex]
+            let entry = focusHistory[targetIndex].entry
             guard focusHistoryWorkspace(for: entry) != nil else {
                 focusHistory.remove(at: targetIndex)
                 historyIndex -= 1
@@ -5966,7 +5968,7 @@ class TabManager: ObservableObject {
         let currentEntry = currentFocusHistoryEntry
         var targetIndex = historyIndex + 1
         while targetIndex < focusHistory.count {
-            let entry = focusHistory[targetIndex]
+            let entry = focusHistory[targetIndex].entry
             guard focusHistoryWorkspace(for: entry) != nil else {
                 focusHistory.remove(at: targetIndex)
                 focusHistoryRevision &+= 1
@@ -5986,15 +5988,15 @@ class TabManager: ObservableObject {
 
     var canNavigateBack: Bool {
         let currentEntry = currentFocusHistoryEntry
-        return historyIndex > 0 && focusHistory.prefix(historyIndex).contains { entry in
-            focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry)
+        return historyIndex > 0 && focusHistory.prefix(historyIndex).contains { record in
+            focusHistoryEntryIsNavigable(record.entry, currentEntry: currentEntry)
         }
     }
 
     var canNavigateForward: Bool {
         let currentEntry = currentFocusHistoryEntry
-        return historyIndex < focusHistory.count - 1 && focusHistory.suffix(from: historyIndex + 1).contains { entry in
-            focusHistoryEntryIsNavigable(entry, currentEntry: currentEntry)
+        return historyIndex < focusHistory.count - 1 && focusHistory.suffix(from: historyIndex + 1).contains { record in
+            focusHistoryEntryIsNavigable(record.entry, currentEntry: currentEntry)
         }
     }
 

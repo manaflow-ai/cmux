@@ -15,6 +15,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case history
 
     var label: String {
         switch self {
@@ -23,6 +24,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .history: return String(localized: "rightSidebar.mode.history", defaultValue: "History")
         }
     }
 
@@ -33,22 +35,24 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .history: return "clock.arrow.circlepath"
         }
     }
 
-    var shortcutAction: KeyboardShortcutSettings.Action {
+    var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
         case .find: return .switchRightSidebarToFind
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .history: return nil
         }
     }
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .history]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -237,7 +241,7 @@ struct RightSidebarPanelView: View {
                         mode: mode,
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                        shortcutHint: mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound,
                         showsShortcutHint: showsModeShortcutHints
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -388,6 +392,8 @@ struct RightSidebarPanelView: View {
             FeedPanelView()
         case .dock:
             DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
+        case .history:
+            EmptyView()
         }
     }
 

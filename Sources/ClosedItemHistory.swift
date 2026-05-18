@@ -62,10 +62,12 @@ enum ClosedItemHistoryEntry {
 
 struct ClosedItemHistoryRecord: Identifiable {
     let id: UUID
+    let closedAt: Date
     var entry: ClosedItemHistoryEntry
 
-    init(id: UUID = UUID(), entry: ClosedItemHistoryEntry) {
+    init(id: UUID = UUID(), closedAt: Date = Date(), entry: ClosedItemHistoryEntry) {
         self.id = id
+        self.closedAt = closedAt
         self.entry = entry
     }
 }
@@ -74,6 +76,7 @@ struct ClosedItemHistoryMenuItem: Identifiable {
     let id: UUID
     let title: String
     let detail: String
+    let closedAt: Date
 
     var menuTitle: String {
         String(
@@ -191,7 +194,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                     anchorPanelId: remapAnchor($0.anchorPanelId)
                 )
             }
-            return ClosedItemHistoryRecord(id: record.id, entry: .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: newWorkspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
@@ -228,7 +231,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
                 didUpdate = true
             }
-            return ClosedItemHistoryRecord(id: record.id, entry: .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: panelEntry.workspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: paneAnchorPanelId,
@@ -255,19 +258,22 @@ final class ClosedItemHistoryStore: ObservableObject {
             return ClosedItemHistoryMenuItem(
                 id: record.id,
                 title: title(for: entry.snapshot),
-                detail: String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab")
+                detail: String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab"),
+                closedAt: record.closedAt
             )
         case .workspace(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
                 title: title(for: entry.snapshot),
-                detail: String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace")
+                detail: String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace"),
+                closedAt: record.closedAt
             )
         case .window(let entry):
             return ClosedItemHistoryMenuItem(
                 id: record.id,
                 title: String(localized: "menu.history.recentlyClosed.kind.window", defaultValue: "Window"),
-                detail: windowWorkspaceCountLabel(entry.snapshot.tabManager.workspaces.count)
+                detail: windowWorkspaceCountLabel(entry.snapshot.tabManager.workspaces.count),
+                closedAt: record.closedAt
             )
         }
     }
@@ -293,6 +299,9 @@ final class ClosedItemHistoryStore: ObservableObject {
         case .filePreview:
             return String(localized: "menu.history.recentlyClosed.panel.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
+            if let mode = snapshot.rightSidebarTool?.mode {
+                return mode.label
+            }
             return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
         }
     }
