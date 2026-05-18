@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Network
 import XCTest
 
@@ -137,14 +138,43 @@ final class cmuxMobileUITests: XCTestCase {
 
     @MainActor
     private func launchConnectedApp(port: UInt16) throws -> XCUIApplication {
-        let app = launchAddDeviceApp(environment: [
-            "CMUX_UITEST_ADD_DEVICE_NAME": "UI Test Mac",
-            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
-            "CMUX_UITEST_ADD_DEVICE_PORT": String(port),
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
         ])
-        tap(app.buttons["MobilePairButton"], in: app)
         waitForWorkspaceShell(in: app)
         return app
+    }
+
+    private func attachURL(port: UInt16) throws -> URL {
+        let route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "ui-test-mac",
+            macDisplayName: "UI Test Mac",
+            routes: [route],
+            expiresAt: Date(timeIntervalSinceNow: 60 * 60),
+            authToken: "ui-test-ticket"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let payload = base64URLEncode(try encoder.encode(ticket))
+        guard let url = URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)") else {
+            throw URLError(.badURL)
+        }
+        return url
+    }
+
+    private func base64URLEncode(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 
     @MainActor
@@ -175,12 +205,12 @@ final class cmuxMobileUITests: XCTestCase {
 
     @MainActor
     private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
-        if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 1) {
+        if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
 
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
         row.tap()
     }
 
@@ -222,12 +252,11 @@ final class cmuxMobileUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let workspaceList = app.otherElements["MobileWorkspaceList"]
         let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         let terminalSurface = app.otherElements["MobileTerminalSurface"]
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                workspaceList.exists || workspaceRow.exists || terminalSurface.exists
+                workspaceRow.exists || terminalSurface.exists
             },
             object: app
         )

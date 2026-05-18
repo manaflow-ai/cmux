@@ -17,6 +17,10 @@ enum UITestConfig {
         value(for: "CMUX_UITEST_ADD_DEVICE_PORT")
     }
 
+    static var attachURL: String? {
+        value(for: "CMUX_UITEST_ATTACH_URL")
+    }
+
     static func mockDataEnabled(from env: [String: String]) -> Bool {
         #if DEBUG
         if env["CMUX_UITEST_MOCK_DATA"] == "0" {

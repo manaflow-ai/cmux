@@ -35,6 +35,7 @@ struct CMUXMobileRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var authManager = AuthManager.shared
     @State private var pendingAttachURL: String?
+    @State private var didConsumeUITestAttachURL = false
     @State private var isShowingAddDeviceSheet = true
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
@@ -76,6 +77,7 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
+            connectUITestAttachURLIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -94,6 +96,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             guard isAuthenticated, let rawURL = pendingAttachURL else {
+                connectUITestAttachURLIfNeeded()
                 return
             }
             pendingAttachURL = nil
@@ -126,6 +129,21 @@ struct CMUXMobileRootView: View {
             await authManager.signOut()
             store.signOut()
         }
+    }
+
+    private func connectUITestAttachURLIfNeeded() {
+        #if DEBUG
+        guard UITestConfig.mockDataEnabled,
+              !didConsumeUITestAttachURL,
+              isAuthenticated,
+              let attachURL = UITestConfig.attachURL else {
+            return
+        }
+        didConsumeUITestAttachURL = true
+        Task {
+            await store.connectPairingURL(attachURL)
+        }
+        #endif
     }
 }
 
