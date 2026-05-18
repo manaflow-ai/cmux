@@ -14853,13 +14853,9 @@ private extension NSWindow {
 #endif
         let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
-        #if DEBUG
-        let hitView: NSView? = {
-            guard let contentView = self.contentView else { return nil }
-            let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-            return contentView.hitTest(contentPoint)
-        }()
-        #endif
+#if DEBUG
+        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+#endif
         defer {
             let finishedReason: WindowMoveSuppressionReason?
             if shouldFinishSuppression {
