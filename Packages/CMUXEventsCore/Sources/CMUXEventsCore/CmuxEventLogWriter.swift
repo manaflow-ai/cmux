@@ -97,13 +97,13 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         // `publish` is intentionally synchronous; the detached utility task prevents
         // file IO from inheriting the caller actor while keeping one drain active.
         let task = Task.detached(priority: .utility) { [self] in
-            await flushPendingLines()
+            flushPendingLines()
         }
         flushTask = task
         return task
     }
 
-    private func flushPendingLines() async {
+    private func flushPendingLines() {
         while true {
             let lines: [String]
             let droppedCount: Int
