@@ -18,6 +18,66 @@ import subprocess
 from pathlib import Path
 
 
+def run_startup_case(
+    *,
+    wrapper_dir: Path,
+    base: Path,
+    name: str,
+    login: bool,
+) -> tuple[bool, str]:
+    home = base / f"{name}-home"
+    orig = base / f"{name}-orig-zdotdir"
+    home.mkdir(parents=True, exist_ok=True)
+    orig.mkdir(parents=True, exist_ok=True)
+
+    out_path = base / f"{name}-startup-order.txt"
+    (orig / ".zshenv").write_text(
+        f'echo "{name}:zshenv:$ZDOTDIR" >> "{out_path}"\n',
+        encoding="utf-8",
+    )
+    (orig / ".zprofile").write_text(
+        f'echo "{name}:zprofile:$ZDOTDIR" >> "{out_path}"\n',
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    env["ZDOTDIR"] = str(wrapper_dir)
+    env["CMUX_ZSH_ZDOTDIR"] = str(orig)
+    env["CMUX_ZSH_SOURCE_LOGIN_PROFILE"] = "1"
+    env["CMUX_SHELL_INTEGRATION"] = "0"
+
+    args = ["zsh", "-d", "-i"]
+    if login:
+        args.append("-l")
+    args.extend(["-c", "true"])
+
+    result = subprocess.run(
+        args,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+    )
+    if result.returncode != 0:
+        combined = ((result.stdout or "") + (result.stderr or "")).strip()
+        return (False, f"{name}: zsh exited non-zero rc={result.returncode}\n{combined}")
+
+    if not out_path.exists():
+        return (False, f"{name}: no startup marker was written")
+
+    lines = [
+        line.strip()
+        for line in out_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    expected = [f"{name}:zshenv:{orig}", f"{name}:zprofile:{orig}"]
+    if lines != expected:
+        return (False, f"{name}: expected startup order {expected!r}, saw {lines!r}")
+
+    return (True, "")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     wrapper_dir = root / "Resources" / "shell-integration"
@@ -30,55 +90,20 @@ def main() -> int:
         shutil.rmtree(base, ignore_errors=True)
         base.mkdir(parents=True, exist_ok=True)
 
-        home = base / "home"
-        orig = base / "orig-zdotdir"
-        home.mkdir(parents=True, exist_ok=True)
-        orig.mkdir(parents=True, exist_ok=True)
-
-        out_path = base / "startup-order.txt"
-        (orig / ".zshenv").write_text(
-            f'echo "zshenv:$ZDOTDIR" >> "{out_path}"\n',
-            encoding="utf-8",
-        )
-        (orig / ".zprofile").write_text(
-            f'echo "zprofile:$ZDOTDIR" >> "{out_path}"\n',
-            encoding="utf-8",
-        )
-
-        env = dict(os.environ)
-        env["HOME"] = str(home)
-        env["ZDOTDIR"] = str(wrapper_dir)
-        env["CMUX_ZSH_ZDOTDIR"] = str(orig)
-        env["CMUX_ZSH_SOURCE_LOGIN_PROFILE"] = "1"
-        env["CMUX_SHELL_INTEGRATION"] = "0"
-
-        result = subprocess.run(
-            ["zsh", "-d", "-i", "-c", "true"],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=8,
-        )
-        if result.returncode != 0:
-            print(f"FAIL: zsh exited non-zero rc={result.returncode}")
-            combined = ((result.stdout or "") + (result.stderr or "")).strip()
-            if combined:
-                print(combined)
-            return 1
-
-        if not out_path.exists():
-            print("FAIL: no startup marker was written")
-            return 1
-
-        lines = [
-            line.strip()
-            for line in out_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+        cases = [
+            ("synthetic", False),
+            ("native-login", True),
         ]
-        expected = [f"zshenv:{orig}", f"zprofile:{orig}"]
-        if lines != expected:
-            print(f"FAIL: expected startup order {expected!r}, saw {lines!r}")
-            return 1
+        for name, login in cases:
+            passed, message = run_startup_case(
+                wrapper_dir=wrapper_dir,
+                base=base,
+                name=name,
+                login=login,
+            )
+            if not passed:
+                print(f"FAIL: {message}")
+                return 1
 
         print("PASS: synthetic login zsh path sources .zprofile after .zshenv")
         return 0
