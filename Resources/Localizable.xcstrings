@@ -106921,13 +106921,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex home \"%@\" is unavailable and was skipped."
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex home \"%@\" は利用できないためスキップしました。"
+            "value": "Codex home \"%@\" は利用できないためスキップしました。フォルダが存在し読み取り可能であることを確認するか、cmux.json のパスを更新または削除してください。"
           }
         }
       }

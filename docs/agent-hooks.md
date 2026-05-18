@@ -85,8 +85,8 @@ isolated Codex environments in the right sidebar, add them to `cmux.json`:
 {
   "codex": {
     "additionalHomes": [
-      "~/.codex-testA",
-      { "path": "~/.codex-testB", "displayName": "codex-testB" }
+      "~/.codex-work",
+      { "path": "~/.codex-personal", "displayName": "Personal Codex" }
     ]
   }
 }

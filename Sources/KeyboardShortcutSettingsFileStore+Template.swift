@@ -87,8 +87,8 @@ extension CmuxSettingsFileStore {
                 "codex": [
                     "additionalHomes": [
                         [
-                            "path": "~/.codex-testA",
-                            "displayName": "codex-testA",
+                            "path": "~/.codex-work",
+                            "displayName": "Work Codex",
                         ],
                     ],
                 ],

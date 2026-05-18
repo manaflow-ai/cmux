@@ -332,7 +332,7 @@
             "oneOf": [
               {
                 "type": "string",
-                "description": "Path to an additional CODEX_HOME directory, for example ~/.codex-testA."
+                "description": "Path to an additional CODEX_HOME directory, for example ~/.codex-work."
               },
               {
                 "type": "object",

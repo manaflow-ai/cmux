@@ -1480,10 +1480,9 @@ final class SessionIndexStore: ObservableObject {
         guard !homes.isEmpty, limit > 0 else { return [] }
 
         let target = offset + limit
-        let showSourceLabels = homes.count > 1
+        let sourceLabels = codexSourceLabels(for: homes)
         let merged = await withTaskGroup(of: [SessionEntry].self) { group in
-            for home in homes {
-                let sourceLabel = showSourceLabels || !home.isDefault ? home.label : nil
+            for (home, sourceLabel) in zip(homes, sourceLabels) {
                 group.addTask {
                     await loadCodexEntries(
                         home: home,
@@ -1503,6 +1502,28 @@ final class SessionIndexStore: ObservableObject {
             return merged
         }
         return Array(merged.sorted { $0.modified > $1.modified }.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func codexSourceLabels(for homes: [CodexSessionHome]) -> [String?] {
+        let showSourceLabels = homes.count > 1
+        let labelCounts = Dictionary(grouping: homes.map(\.label), by: { $0 }).mapValues(\.count)
+        return homes.map {
+            codexSourceLabel(
+                for: $0,
+                showSourceLabels: showSourceLabels,
+                labelCounts: labelCounts
+            )
+        }
+    }
+
+    nonisolated private static func codexSourceLabel(
+        for home: CodexSessionHome,
+        showSourceLabels: Bool,
+        labelCounts: [String: Int]
+    ) -> String? {
+        guard showSourceLabels || !home.isDefault else { return nil }
+        guard (labelCounts[home.label] ?? 0) > 1 else { return home.label }
+        return (home.path as NSString).abbreviatingWithTildeInPath
     }
 
     /// Primary path: query Codex's own `state_5.sqlite` (`threads` table) for a
@@ -1551,7 +1572,7 @@ final class SessionIndexStore: ObservableObject {
                 guard !home.isDefault else { return }
                 let format = String(
                     localized: "sessionIndex.codexHome.warning.unavailable",
-                    defaultValue: "Codex home \"%@\" is unavailable and was skipped."
+                    defaultValue: "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
                 )
                 let message = String(format: format, (home.path as NSString).abbreviatingWithTildeInPath)
                 errorBag.add(message)
@@ -1613,7 +1634,7 @@ final class SessionIndexStore: ObservableObject {
                 if !home.isDefault, exists {
                     let format = String(
                         localized: "sessionIndex.codexHome.warning.unavailable",
-                        defaultValue: "Codex home \"%@\" is unavailable and was skipped."
+                        defaultValue: "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
                     )
                     let message = String(format: format, (home.path as NSString).abbreviatingWithTildeInPath)
                     errorBag.add(message)
