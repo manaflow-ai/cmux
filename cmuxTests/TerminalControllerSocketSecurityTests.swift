@@ -49,6 +49,43 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: restrictedPath), 0o600)
     }
 
+    func testUnexpectedAcceptSourceCancelRequestsRestartAndRemovesStaleSocket() throws {
+        let tabManager = TabManager()
+        let socketPath = makeSocketPath("cancel-restart")
+        let restartExpectation = expectation(description: "listener requested restart")
+        let recorder = SocketListenerRestartRecorder(
+            socketPath: socketPath,
+            expectation: restartExpectation
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .socketListenerNeedsRestart,
+            object: TerminalController.shared,
+            queue: .main
+        ) { notification in
+            recorder.handle(notification)
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        TerminalController.shared.debugCancelActiveSocketListenerForTesting()
+        wait(for: [restartExpectation], timeout: 2)
+
+        XCTAssertNil(recorder.error)
+        XCTAssertEqual(recorder.reason, "accept_source_cancelled")
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        XCTAssertFalse(health.isRunning)
+        XCTAssertFalse(health.acceptLoopAlive)
+        XCTAssertFalse(health.socketPathExists)
+    }
+
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()
@@ -853,5 +890,29 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
         )
+    }
+}
+
+private final class SocketListenerRestartRecorder {
+    let socketPath: String
+    let expectation: XCTestExpectation
+    private(set) var reason: String?
+    private(set) var error: String?
+
+    init(socketPath: String, expectation: XCTestExpectation) {
+        self.socketPath = socketPath
+        self.expectation = expectation
+    }
+
+    func handle(_ notification: Notification) {
+        guard let path = notification.userInfo?["path"] as? String,
+              path == socketPath else {
+            return
+        }
+        reason = notification.userInfo?["reason"] as? String
+        if reason == nil {
+            error = "missing restart reason"
+        }
+        expectation.fulfill()
     }
 }

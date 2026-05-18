@@ -1063,6 +1063,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(handleSocketListenerNeedsRestart(_:)),
+            name: .socketListenerNeedsRestart,
+            object: TerminalController.shared
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(handleFeedRequestFocus(_:)),
             name: .feedRequestFocus,
             object: nil
@@ -14719,6 +14725,12 @@ private extension AppDelegate {
         }
 
         restartSocketListenerIfEnabled(source: "distributedNotification")
+    }
+
+    @objc private func handleSocketListenerNeedsRestart(_ notification: Notification) {
+        guard !isTerminatingApp else { return }
+        let reason = (notification.userInfo?["reason"] as? String) ?? "unknown"
+        restartSocketListenerIfEnabled(source: "listener.\(reason)")
     }
 }
 
