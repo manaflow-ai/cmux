@@ -19,7 +19,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    func testOmnibarSuggestionsAlignToPillAndCmdNP() {
+    func testOmnibarSuggestionsAlignToPillAndCtrlNP() {
         seedBrowserHistoryForTest(seedEntries: [
             SeedEntry(url: "https://example.com/", title: "Example Domain", visitCount: 12, typedCount: 4),
             SeedEntry(url: "https://example.org/", title: "Example Organization", visitCount: 9, typedCount: 3),
@@ -78,20 +78,20 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
 
         // Row 0 should be the autocompletable example.com history entry.
-        // Verify Cmd+N moves to row 1, Cmd+P returns to row 0, then Enter navigates.
+        // Verify Ctrl+N moves to row 1, Ctrl+P returns to row 0, then Enter navigates.
         let row1 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.1").firstMatch
         XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
 
-        app.typeKey("n", modifierFlags: [.command])
+        app.typeKey("n", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
-            "Expected Cmd+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
+            "Expected Ctrl+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
         )
 
-        app.typeKey("p", modifierFlags: [.command])
+        app.typeKey("p", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row0, timeout: 3.0),
-            "Expected Cmd+P to move selection back to row 0. row0Value=\(String(describing: row0.value))"
+            "Expected Ctrl+P to move selection back to row 0. row0Value=\(String(describing: row0.value))"
         )
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
@@ -187,7 +187,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertEqual(afterOutsideTyping, beforeOutsideTyping, "Expected typing after click-outside to not modify omnibar (blurred)")
     }
 
-    func testOmnibarSuggestionsCmdNPWhenAddressBarFocused() {
+    func testOmnibarSuggestionsCtrlNPWhenAddressBarFocused() {
         seedBrowserHistoryForTest()
 
         let app = XCUIApplication()
@@ -213,22 +213,22 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
         XCTAssertTrue(row2.waitForExistence(timeout: 6.0))
 
-        app.typeKey("n", modifierFlags: [.command])
+        app.typeKey("n", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
-            "Expected Cmd+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
+            "Expected Ctrl+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
         )
 
-        app.typeKey("n", modifierFlags: [.command])
+        app.typeKey("n", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row2, timeout: 3.0),
-            "Expected repeated Cmd+N to move selection to row 2. row2Value=\(String(describing: row2.value))"
+            "Expected repeated Ctrl+N to move selection to row 2. row2Value=\(String(describing: row2.value))"
         )
 
-        app.typeKey("p", modifierFlags: [.command])
+        app.typeKey("p", modifierFlags: [.control])
         XCTAssertTrue(
             waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
-            "Expected Cmd+P to move selection back to row 1. row1Value=\(String(describing: row1.value))"
+            "Expected Ctrl+P to move selection back to row 1. row1Value=\(String(describing: row1.value))"
         )
     }
 
@@ -403,11 +403,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         if gmailRowIndex > 0 {
             let gmailRow = rows[gmailRowIndex]
             for _ in 0..<gmailRowIndex {
-                app.typeKey("n", modifierFlags: [.command])
+                app.typeKey("n", modifierFlags: [.control])
             }
             XCTAssertTrue(
                 waitForSuggestionRowToBeSelected(gmailRow, timeout: 3.0),
-                "Expected Cmd+N to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
+                "Expected Ctrl+N to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
             )
         }
 
