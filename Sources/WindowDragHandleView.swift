@@ -236,7 +236,9 @@ private enum WindowDragHandleAssociatedObjectKeys {
     static let moveSuppressionSequence = UnsafeRawPointer(Unmanaged.passUnretained(moveSuppressionSequenceToken).toOpaque())
 }
 
-private final class WindowMoveSuppressionSequenceState {
+// Stored as an NSWindow associated object and touched only from AppKit's
+// main-thread mouse-event dispatch path.
+private final class WindowMoveSuppressionSequenceState: @unchecked Sendable {
     let reason: WindowMoveSuppressionReason
     let previousMovableState: Bool
 
@@ -362,16 +364,6 @@ func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppres
     _ = endWindowDragSuppression(window: window)
     restoreWindowDragging(window: window, previousMovableState: state.previousMovableState)
     return state.reason
-}
-
-@discardableResult
-func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
-    guard let window else { return nil }
-    let previousMovableState = window.isMovable
-    if previousMovableState {
-        window.isMovable = false
-    }
-    return previousMovableState
 }
 
 func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
