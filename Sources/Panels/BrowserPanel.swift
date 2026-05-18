@@ -6536,7 +6536,15 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                 let targetURLString = components.queryItems?.first(where: { $0.name == "url" })?.value,
                 let targetURL = URL(string: targetURLString),
-                let host = targetURL.host
+                let host = targetURL.host,
+                // Restrict target to https. SSL/cert errors can only occur on
+                // HTTPS URLs (plain HTTP has no cert), so any other scheme is
+                // illegitimate by construction. Without this check, an attacker
+                // page could craft `cmux-browser-action://bypass-ssl?url=file://...`
+                // (or javascript:, etc.) and use our handler to launder a
+                // navigation that WKWebView would otherwise block from a
+                // cross-origin page.
+                targetURL.scheme?.lowercased() == "https"
             else {
                 return
             }
