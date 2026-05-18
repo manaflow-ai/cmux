@@ -436,9 +436,7 @@ extension AgentLaunchSanitizer {
             "--agent"
         ],
         variadicOptions: [
-            "--cors",
-            "--file",
-            "-f"
+            "--cors"
         ],
         nonRestorableCommands: [
             "completion",

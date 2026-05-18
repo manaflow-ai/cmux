@@ -184,6 +184,52 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Drops OpenCode startup file when it appears before cwd")
+    func dropsOpenCodeStartupFileBeforeCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
+    @Test("Drops repeated OpenCode startup files before preserving cwd")
+    func dropsRepeatedOpenCodeStartupFilesBeforeCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "-f",
+                    "/tmp/transcript.txt",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
     @Test("Preserves generated Codex fork launch context")
     func preservesGeneratedCodexForkLaunchContext() {
         #expect(
