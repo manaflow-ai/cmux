@@ -32,22 +32,21 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
-    let performMoveToNewWorkspace: () -> (workspaceId: UUID, sidebarIndex: Int?)?
+    let performMoveToNewWorkspace: (BonsplitTabDragPayload.Transfer) -> (workspaceId: UUID, sidebarIndex: Int?)?
 
     func makeNSView(context: Context) -> SidebarBonsplitTabNewWorkspaceDropView {
         return SidebarBonsplitTabNewWorkspaceDropView()
     }
 
     func updateNSView(_ nsView: SidebarBonsplitTabNewWorkspaceDropView, context: Context) {
-        nsView.isValidTransfer = {
-            guard let transfer = BonsplitTabDragPayload.currentTransfer() else { return false }
+        nsView.isValidTransfer = { transfer in
             return AppDelegate.shared?.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id) ?? false
         }
         nsView.setDropActive = { isActive in
             dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
         }
-        nsView.performMove = {
-            guard let result = performMoveToNewWorkspace() else {
+        nsView.performMove = { transfer in
+            guard let result = performMoveToNewWorkspace(transfer) else {
                 return false
             }
 
@@ -61,9 +60,9 @@ struct SidebarBonsplitTabNewWorkspaceDropOverlay: NSViewRepresentable {
 final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
 
-    var isValidTransfer: () -> Bool = { false }
+    var isValidTransfer: (BonsplitTabDragPayload.Transfer) -> Bool = { _ in false }
     var setDropActive: (Bool) -> Void = { _ in }
-    var performMove: () -> Bool = { false }
+    var performMove: (BonsplitTabDragPayload.Transfer) -> Bool = { _ in false }
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -95,13 +94,13 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        acceptsDrag(sender)
+        acceptedTransfer(sender) != nil
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropActive(false) }
-        guard acceptsDrag(sender) else { return false }
-        return performMove()
+        guard let transfer = acceptedTransfer(sender) else { return false }
+        return performMove(transfer)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
@@ -109,7 +108,7 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
     }
 
     private func updateDrag(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard acceptsDrag(sender) else {
+        guard acceptedTransfer(sender) != nil else {
             setDropActive(false)
             return []
         }
@@ -117,13 +116,20 @@ final class SidebarBonsplitTabNewWorkspaceDropView: NSView {
         return .move
     }
 
-    private func acceptsDrag(_ sender: any NSDraggingInfo) -> Bool {
-        guard sender.draggingPasteboard.types?.contains(Self.pasteboardType) == true else { return false }
-        return isValidTransfer()
+    private func acceptedTransfer(_ sender: any NSDraggingInfo) -> BonsplitTabDragPayload.Transfer? {
+        let pasteboard = sender.draggingPasteboard
+        guard pasteboard.types?.contains(Self.pasteboardType) == true,
+              let transfer = BonsplitTabDragPayload.transfer(from: pasteboard),
+              isValidTransfer(transfer) else {
+            return nil
+        }
+        return transfer
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard BonsplitTabDragPayload.currentTransfer() != nil else { return false }
+        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
+            pasteboardTypes: NSPasteboard(name: .drag).types
+        ) else { return false }
         guard let eventType = NSApp.currentEvent?.type else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:
