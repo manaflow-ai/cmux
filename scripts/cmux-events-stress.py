@@ -416,10 +416,12 @@ class CmuxEventsStress:
 
     def consumer_loop(self, stats: ConsumerStats, ready: threading.Barrier) -> None:
         started = now_ms()
-        first_connection = True
+        connection_index = 0
         try:
             while stats.events < self.args.events:
                 with SocketClient(self.socket_path, timeout=self.args.consumer_read_timeout) as client:
+                    if connection_index > 0:
+                        stats.reconnects += 1
                     params: dict[str, Any] = {
                         "names": [EVENT_NAME],
                         "include_heartbeats": False,
@@ -428,7 +430,7 @@ class CmuxEventsStress:
                         params["after_seq"] = stats.last_seq
                     client.write_request(
                         {
-                            "id": f"consumer-{stats.consumer_id}-{stats.reconnects}",
+                            "id": f"consumer-{stats.consumer_id}-{connection_index}",
                             "method": "events.stream",
                             "params": params,
                         }
@@ -442,8 +444,7 @@ class CmuxEventsStress:
                     resume = ack.get("resume") if isinstance(ack.get("resume"), dict) else {}
                     if resume.get("gap"):
                         stats.gaps.append(resume)
-                    if first_connection:
-                        first_connection = False
+                    if connection_index == 0:
                         ready.wait(timeout=self.args.consumer_ready_timeout)
 
                     segment_events = 0
@@ -476,7 +477,7 @@ class CmuxEventsStress:
                             raise StressFailure(
                                 f"consumer {stats.consumer_id} stream error: {summarize_frame(frame)}"
                             )
-                    stats.reconnects += 1
+                    connection_index += 1
         except Exception as exc:
             stats.errors.append(str(exc))
             try:
