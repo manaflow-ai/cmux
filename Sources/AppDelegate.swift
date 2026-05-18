@@ -2818,7 +2818,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+            // Auto-resume input can be queued before tmux has spawned; preserve
+            // restored process-detected bindings until a later live scan.
+            _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
 
