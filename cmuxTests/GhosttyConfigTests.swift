@@ -480,8 +480,12 @@ final class GhosttyConfigTests: XCTestCase {
             currentColorScheme: .light
         )
 
-        XCTAssertNil(plan.runtimeColorScheme)
-        XCTAssertFalse(plan.shouldReloadConfiguration)
+        switch plan {
+        case .unchanged:
+            XCTAssertFalse(plan.shouldReloadConfiguration)
+        case .reload:
+            XCTFail("Unchanged appearance should not produce a reload plan")
+        }
     }
 
     func testAppearanceSynchronizationPlanUpdatesGhosttyRuntimeWhenReloading() {
@@ -489,7 +493,7 @@ final class GhosttyConfigTests: XCTestCase {
             (
                 previous: GhosttyConfig.ColorSchemePreference?,
                 current: GhosttyConfig.ColorSchemePreference,
-                runtime: ghostty_color_scheme_e?
+                runtime: ghostty_color_scheme_e
             )
         ] = [
             (nil, .dark, GHOSTTY_COLOR_SCHEME_DARK),
@@ -503,8 +507,14 @@ final class GhosttyConfigTests: XCTestCase {
                 currentColorScheme: testCase.current
             )
 
-            XCTAssertEqual(plan.runtimeColorScheme, testCase.runtime)
-            XCTAssertTrue(plan.shouldReloadConfiguration)
+            switch plan {
+            case .unchanged:
+                XCTFail("Changed appearance should produce a reload plan")
+            case let .reload(colorScheme, runtimeColorScheme):
+                XCTAssertEqual(colorScheme, testCase.current)
+                XCTAssertEqual(runtimeColorScheme, testCase.runtime)
+                XCTAssertTrue(plan.shouldReloadConfiguration)
+            }
         }
     }
 

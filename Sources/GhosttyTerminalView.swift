@@ -2980,9 +2980,21 @@ class GhosttyApp {
         previousColorScheme != currentColorScheme
     }
 
-    struct AppearanceSynchronizationPlan {
-        let runtimeColorScheme: ghostty_color_scheme_e?
-        let shouldReloadConfiguration: Bool
+    enum AppearanceSynchronizationPlan {
+        case unchanged
+        case reload(
+            colorScheme: GhosttyConfig.ColorSchemePreference,
+            runtimeColorScheme: ghostty_color_scheme_e
+        )
+
+        var shouldReloadConfiguration: Bool {
+            switch self {
+            case .unchanged:
+                return false
+            case .reload:
+                return true
+            }
+        }
     }
 
     static func appearanceSynchronizationPlan(
@@ -2993,15 +3005,12 @@ class GhosttyApp {
             previousColorScheme: previousColorScheme,
             currentColorScheme: currentColorScheme
         ) else {
-            return AppearanceSynchronizationPlan(
-                runtimeColorScheme: nil,
-                shouldReloadConfiguration: false
-            )
+            return .unchanged
         }
 
-        return AppearanceSynchronizationPlan(
-            runtimeColorScheme: ghosttyRuntimeColorScheme(for: currentColorScheme),
-            shouldReloadConfiguration: true
+        return .reload(
+            colorScheme: currentColorScheme,
+            runtimeColorScheme: ghosttyRuntimeColorScheme(for: currentColorScheme)
         )
     }
 
@@ -3221,19 +3230,17 @@ class GhosttyApp {
                 "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
-        guard plan.shouldReloadConfiguration else { return }
-        if let runtimeColorScheme = plan.runtimeColorScheme {
-            synchronizeGhosttyRuntimeColorScheme(
-                runtimeColorScheme,
-                colorScheme: currentColorScheme,
-                source: source
-            )
-        }
-        lastAppearanceColorScheme = currentColorScheme
+        guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
+        synchronizeGhosttyRuntimeColorScheme(
+            runtimeColorScheme,
+            colorScheme: colorScheme,
+            source: source
+        )
+        lastAppearanceColorScheme = colorScheme
         reloadConfiguration(
             source: "appearanceSync:\(source)",
             reloadSettingsFromFile: false,
-            preferredColorScheme: currentColorScheme
+            preferredColorScheme: colorScheme
         )
     }
 
