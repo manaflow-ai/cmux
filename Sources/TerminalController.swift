@@ -2542,6 +2542,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
+        case "extension.sidebar.snapshot":
+            return v2Result(id: id, self.v2ExtensionSidebarSnapshot(params: params))
         case "workspace.next":
             return v2Result(id: id, self.v2WorkspaceNext(params: params))
         case "workspace.previous":
@@ -2967,6 +2969,7 @@ class TerminalController {
             "workspace.prompt_submit",
             "workspace.rename",
             "workspace.action",
+            "extension.sidebar.snapshot",
             "workspace.next",
             "workspace.previous",
             "workspace.last",
@@ -4302,7 +4305,10 @@ class TerminalController {
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
-            "custom_color": v2OrNull(workspace.customColor)
+            "custom_color": v2OrNull(workspace.customColor),
+            "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp))
         ]
         if let index {
             payload["index"] = index
@@ -4333,6 +4339,91 @@ class TerminalController {
             "workspaces": workspaces
         ])
     }
+
+    private func v2ExtensionSidebarSnapshot(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var selectedWorkspaceId: UUID?
+        var workspaces: [[String: Any]] = []
+        v2MainSync {
+            selectedWorkspaceId = tabManager.selectedTabId
+            workspaces = tabManager.tabs.enumerated().map { index, workspace in
+                v2ExtensionSidebarWorkspacePayload(
+                    workspace: workspace,
+                    index: index,
+                    selected: workspace.id == tabManager.selectedTabId
+                )
+            }
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "sequence": max(0, CmuxEventBus.shared.latestSequence),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "selected_workspace_id": v2OrNull(selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: selectedWorkspaceId),
+            "workspaces": workspaces
+        ])
+    }
+
+    private func v2ExtensionSidebarWorkspacePayload(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        let rootPath = v2ExtensionSidebarRootPath(for: workspace)
+        return [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "root_path": v2OrNull(rootPath),
+            "project_root_path": v2OrNull(v2ExtensionSidebarProjectRootPath(for: rootPath)),
+            "branch_summary": v2OrNull(workspace.gitBranch?.branch),
+            "remote_display_target": v2OrNull(workspace.remoteDisplayTarget),
+            "remote_connection_state": workspace.remoteConnectionState.rawValue,
+            "remote": workspace.remoteStatusPayload(),
+            "current_directory": v2OrNull(workspace.currentDirectory),
+            "custom_color": v2OrNull(workspace.customColor),
+            "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_message": v2OrNull(workspace.latestConversationMessage),
+            "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)),
+            "listening_ports": workspace.listeningPorts,
+            "pull_request_urls": workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
+            "panel_directories": workspace.sidebarDirectoriesInDisplayOrder(),
+            "git_branches": workspace.sidebarGitBranchesInDisplayOrder().map { branch in
+                [
+                    "branch": branch.branch,
+                    "dirty": branch.isDirty
+                ] as [String: Any]
+            }
+        ]
+    }
+
+    private func v2ExtensionSidebarRootPath(for workspace: Workspace) -> String? {
+        let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func v2ExtensionSidebarProjectRootPath(for rootPath: String?) -> String? {
+        guard let rootPath else { return nil }
+        var url = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+        let fileManager = FileManager.default
+        while url.path != "/" {
+            if fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) {
+                return url.path
+            }
+            url.deleteLastPathComponent()
+        }
+        return rootPath
+    }
+
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4637,9 +4728,7 @@ class TerminalController {
                 message: message,
                 iMessageModeEnabled: iMessageModeEnabled
             )
-            if iMessageModeEnabled {
-                preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
-            }
+            preview = tabManager.tabs.first(where: { $0.id == workspaceId })?.latestConversationMessage
         }
 
         guard let outcome else {

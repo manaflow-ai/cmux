@@ -30,9 +30,10 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id])
         XCTAssertEqual(manager.selectedTabId, second.id)
         XCTAssertEqual(third.latestConversationMessage, "implement this now")
+        XCTAssertNotNil(third.latestSubmittedAt)
     }
 
-    func testPromptSubmitDoesNothingWhenIMessageModeDisabled() throws {
+    func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace(select: false, placementOverride: .end)
@@ -46,11 +47,12 @@ final class WorkspacePromptSubmitTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertTrue(outcome.messageRecorded)
         XCTAssertFalse(outcome.reordered)
         XCTAssertEqual(outcome.index, 2)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
-        XCTAssertNil(third.latestConversationMessage)
+        XCTAssertEqual(third.latestConversationMessage, "do not show")
+        XCTAssertNotNil(third.latestSubmittedAt)
     }
 
     func testAssistantFinalMessageRecordsMessageAndMovesWorkspaceToTopWhenIMessageModeEnabled() throws {
@@ -203,6 +205,7 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertTrue(workspace.recordSubmittedMessage("keep this preview"))
         XCTAssertFalse(workspace.recordSubmittedMessage(" \n "))
         XCTAssertEqual(workspace.latestConversationMessage, "keep this preview")
+        XCTAssertNotNil(workspace.latestSubmittedAt)
     }
 
     func testIMessageModeUsesManagedSettingsKey() throws {

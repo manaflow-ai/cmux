@@ -1669,6 +1669,7 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
+    private static weak var initializingInstance: GhosttyApp?
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -1933,6 +1934,13 @@ class GhosttyApp {
         initializeGhostty()
     }
 
+    private static func runtimeCallbackApp() -> GhosttyApp {
+        if let initializingInstance {
+            return initializingInstance
+        }
+        return shared
+    }
+
     #if DEBUG
     private static let initLogPath = "/tmp/cmux-ghostty-init.log"
 
@@ -1964,6 +1972,13 @@ class GhosttyApp {
     #endif
 
     private func initializeGhostty() {
+        Self.initializingInstance = self
+        defer {
+            if Self.initializingInstance === self {
+                Self.initializingInstance = nil
+            }
+        }
+
         // Ensure TUI apps can use colors even if NO_COLOR is set in the launcher env.
         if getenv("NO_COLOR") != nil {
             unsetenv("NO_COLOR")
@@ -2001,10 +2016,11 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            guard let userdata else { return }
+            Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue().scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            GhosttyApp.runtimeCallbackApp().handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
@@ -2153,8 +2169,9 @@ class GhosttyApp {
             self.config = fallbackConfig
         }
 
-        // Notify observers that a usable config is available (initial load).
-        synchronizeGhosttyRuntimeColorScheme(initialColorScheme, source: "initialize")
+        // The config was loaded with the launch color scheme above. Calling
+        // ghostty_app_set_color_scheme here can synchronously dispatch Ghostty
+        // reload actions while the singleton is still inside its dispatch_once.
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -3805,7 +3822,7 @@ class GhosttyApp {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    GhosttyApp.shared.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+                    self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
             }
@@ -3824,7 +3841,7 @@ class GhosttyApp {
                     scope: .app
                 )
                 DispatchQueue.main.async {
-                    GhosttyApp.shared.applyBackgroundToKeyWindow()
+                    self.applyBackgroundToKeyWindow()
                 }
                 return true
             }
@@ -4108,7 +4125,7 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                GhosttyApp.shared.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
+                self.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true

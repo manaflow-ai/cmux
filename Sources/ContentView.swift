@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxExtensionKit
 import ImageIO
 import Observation
 import SwiftUI
@@ -6476,6 +6477,22 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
+        for descriptor in CmuxExtensionSidebarSelection.descriptors {
+            let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                    title: constant(
+                        String(
+                            localized: "command.switchExtensionSidebar.title",
+                            defaultValue: "Sidebar: \(title)"
+                        )
+                    ),
+                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar")),
+                    keywords: ["sidebar", "switch", "extension", title.lowercased()]
+                )
+            )
+        }
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
         contributions.append(
@@ -7299,6 +7316,15 @@ struct ContentView: View {
         return "palette.workspaceColor.\(String(hash, radix: 16))"
     }
 
+    private func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in providerId.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return "palette.extensionSidebar.\(String(hash, radix: 16))"
+    }
+
     private func commandPaletteCmuxConfigIssueTitle(_ issue: CmuxConfigIssue) -> String {
         switch issue.kind {
         case .schemaError:
@@ -7443,6 +7469,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        for descriptor in CmuxExtensionSidebarSelection.descriptors {
+            registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
+                CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+            }
         }
         for mode in RightSidebarMode.allCases {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
@@ -9325,6 +9356,68 @@ private extension String {
     }
 }
 
+enum CmuxExtensionSidebarSelection {
+    static let defaultsKey = "cmuxExtensionSidebar.providerId"
+    static let defaultProviderId = CmuxExtensionSidebarProviderID.defaultWorkspaces
+
+    static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
+        CmuxExtensionSidebarProviderDescriptor.builtInProviders
+    }
+
+    static func descriptor(for providerId: String) -> CmuxExtensionSidebarProviderDescriptor {
+        descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
+    }
+
+    static func localizedTitle(for descriptor: CmuxExtensionSidebarProviderDescriptor) -> String {
+        localizedText(descriptor.title)
+    }
+
+    static func localizedText(_ text: CmuxExtensionLocalizedText) -> String {
+        NSLocalizedString(
+            text.key,
+            tableName: "Localizable",
+            bundle: .main,
+            value: text.defaultValue,
+            comment: ""
+        )
+    }
+
+    static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard) {
+        defaults.set(providerId, forKey: defaultsKey)
+    }
+
+    @MainActor
+    static func showMenu(anchorView: NSView, event: NSEvent?) {
+        let menu = NSMenu()
+        for descriptor in descriptors {
+            let item = NSMenuItem(
+                title: localizedTitle(for: descriptor),
+                action: #selector(CmuxExtensionSidebarMenuTarget.selectProvider(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = descriptor.id
+            item.target = CmuxExtensionSidebarMenuTarget.shared
+            item.state = UserDefaults.standard.string(forKey: defaultsKey) == descriptor.id ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
+            in: anchorView
+        )
+    }
+}
+
+@MainActor
+private final class CmuxExtensionSidebarMenuTarget: NSObject {
+    static let shared = CmuxExtensionSidebarMenuTarget()
+
+    @objc func selectProvider(_ sender: NSMenuItem) {
+        guard let providerId = sender.representedObject as? String else { return }
+        CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+}
+
 @MainActor
 private final class SidebarTabItemSettingsStore: ObservableObject {
     @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
@@ -9403,12 +9496,18 @@ struct VerticalTabsSidebar: View {
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
     @State private var pendingSelectedWorkspaceScrollId: UUID?
+    @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
+    @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
+    @State private var extensionSidebarUpdateToken: UInt64 = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
+    private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
 
     private let tabRowSpacing: CGFloat = 2
+    private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -9535,7 +9634,11 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            workspaceScrollArea(renderContext: renderContext)
+            if selectedExtensionSidebarProviderId == CmuxExtensionSidebarProviderID.defaultWorkspaces {
+                workspaceScrollArea(renderContext: renderContext)
+            } else {
+                extensionSidebarScrollArea(renderContext: renderContext)
+            }
             SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -9725,6 +9828,314 @@ struct VerticalTabsSidebar: View {
                     flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
                 }
             }
+        }
+    }
+
+    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+        TimelineView(.periodic(from: .now, by: 30)) { timeline in
+            let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
+            extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
+        }
+    }
+
+    private func extensionSidebarTimelineContent(
+        renderContext: WorkspaceListRenderContext,
+        model: CmuxExtensionSidebarRenderModel,
+        now: Date
+    ) -> some View {
+        GeometryReader { geometryProxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.sections) { section in
+                        extensionSidebarSection(section, providerId: model.providerId, now: now)
+                    }
+
+                    SidebarEmptyArea(
+                        rowSpacing: tabRowSpacing,
+                        selection: $selection,
+                        selectedTabIds: $selectedTabIds,
+                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                        dragAutoScrollController: dragAutoScrollController,
+                        draggedTabId: $draggedTabId,
+                        dropIndicator: $dropIndicator
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .padding(.top, SidebarWorkspaceListMetrics.rowVerticalPadding)
+                .padding(.bottom, SidebarWorkspaceListMetrics.rowVerticalPadding + 40)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
+                        viewportHeight: geometryProxy.size.height,
+                        insets: SidebarWorkspaceScrollInsets.workspaceList
+                    ),
+                    alignment: .topLeading
+                )
+            }
+            .background(
+                SidebarScrollViewResolver { scrollView in
+                    dragAutoScrollController.attach(scrollView: scrollView)
+                }
+                .frame(width: 0, height: 0)
+            )
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.top)
+                    .allowsHitTesting(false)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.bottom)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .top) {
+                SidebarTopScrim(height: sidebarTopScrimHeight)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottom) {
+                SidebarBottomScrim(height: sidebarBottomScrimHeight)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .top) {
+                WindowDragHandleView()
+                    .frame(height: sidebarTitlebarInteractionHeight)
+                    .background(TitlebarDoubleClickMonitorView())
+            }
+            .overlay(alignment: .topLeading) {
+                if isMinimalMode {
+                    HiddenTitlebarSidebarControlsView(
+                        notificationStore: notificationStore,
+                        onToggleSidebar: onToggleSidebar,
+                        onToggleNotifications: { anchorView in
+                            AppDelegate.shared?.toggleNotificationsPopover(
+                                animated: true,
+                                anchorView: anchorView
+                            )
+                        },
+                        onNewTab: onNewTab
+                    )
+                    .padding(
+                        .leading,
+                        MinimalModeTitlebarDebugSettings.leftControlsLeadingInset()
+                    )
+                    .padding(
+                        .top,
+                        MinimalModeTitlebarDebugSettings.leftControlsTopInset()
+                    )
+                }
+            }
+            .background(Color.clear)
+            .modifier(ClearScrollBackground())
+            .onReceive(
+                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
+                    .receive(on: RunLoop.main)
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+            .onReceive(
+                    extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
+                        .receive(on: RunLoop.main)
+                        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
+                ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+        }
+    }
+
+    private func refreshExtensionSidebarSnapshot() {
+        extensionSidebarUpdateToken &+= 1
+    }
+
+    private func extensionSidebarImmediateObservationPublisher(
+        renderContext: WorkspaceListRenderContext
+    ) -> AnyPublisher<Void, Never> {
+        let publishers = renderContext.tabs.map(\.sidebarImmediateObservationPublisher)
+        guard !publishers.isEmpty else {
+            return Empty<Void, Never>().eraseToAnyPublisher()
+        }
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }
+
+    private func extensionSidebarDebouncedObservationPublisher(
+        renderContext: WorkspaceListRenderContext
+    ) -> AnyPublisher<Void, Never> {
+        let publishers = renderContext.tabs.map(\.sidebarObservationPublisher)
+        guard !publishers.isEmpty else {
+            return Empty<Void, Never>().eraseToAnyPublisher()
+        }
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }
+
+    private func extensionSidebarRenderModel(
+        renderContext: WorkspaceListRenderContext,
+        now: Date
+    ) -> CmuxExtensionSidebarRenderModel {
+        let _ = extensionSidebarUpdateToken
+        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
+        let provider = CmuxExtensionWorkspaceTreeProvider(descriptor: descriptor)
+        return provider.render(
+            snapshot: extensionSidebarSnapshot(renderContext: renderContext),
+            context: CmuxExtensionSidebarRenderContext(now: now),
+            localize: {
+                CmuxExtensionSidebarSelection.localizedText($0)
+            }
+        )
+    }
+
+    private func extensionSidebarSnapshot(
+        renderContext: WorkspaceListRenderContext
+    ) -> CmuxExtensionSidebarSnapshot {
+        CmuxExtensionSidebarSnapshot(
+            sequence: UInt64(max(0, CmuxEventBus.shared.latestSequence)),
+            selectedWorkspaceId: tabManager.selectedTabId,
+            workspaces: renderContext.tabs.map(extensionWorkspaceSnapshot(for:))
+        )
+    }
+
+    private func extensionWorkspaceSnapshot(for workspace: Workspace) -> CmuxExtensionWorkspaceSnapshot {
+        let rootPath = extensionSidebarRootPath(for: workspace)
+        return CmuxExtensionWorkspaceSnapshot(
+            id: workspace.id,
+            title: workspace.title,
+            customDescription: workspace.customDescription,
+            isPinned: workspace.isPinned,
+            rootPath: rootPath,
+            projectRootPath: extensionSidebarProjectRootPath(for: rootPath),
+            branchSummary: workspace.gitBranch?.branch,
+            remoteDisplayTarget: workspace.remoteDisplayTarget,
+            remoteConnectionState: workspace.remoteConnectionState.rawValue,
+            unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
+            latestNotificationText: notificationStore.latestNotification(forTabId: workspace.id).flatMap {
+                let text = $0.body.isEmpty ? $0.title : $0.body
+                return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            },
+            latestSubmittedMessage: workspace.latestConversationMessage,
+            latestSubmittedAt: workspace.latestSubmittedAt,
+            listeningPorts: workspace.listeningPorts,
+            pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString }
+        )
+    }
+
+    private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
+        workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private func extensionSidebarProjectRootPath(for rootPath: String?) -> String? {
+        guard let rootPath else { return nil }
+        var url = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
+        let fileManager = FileManager.default
+        while url.path != "/" {
+            if fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) {
+                return url.path
+            }
+            url.deleteLastPathComponent()
+        }
+        return rootPath
+    }
+
+    @ViewBuilder
+    private func extensionSidebarSection(
+        _ section: CmuxExtensionSidebarRenderSection,
+        providerId: String,
+        now: Date
+    ) -> some View {
+        let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
+        let canCreateWorktree = section.treeSection.projectRootPath != nil
+            && CmuxExtensionSidebarSelection.descriptor(for: providerId).mode?.allowsProjectWorktreeActions == true
+
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 7) {
+                Button {
+                    if isCollapsed {
+                        collapsedExtensionSidebarSectionIds.remove(section.id)
+                    } else {
+                        collapsedExtensionSidebarSectionIds.insert(section.id)
+                    }
+                } label: {
+                    Image(systemName: isCollapsed ? "folder" : "folder.fill")
+                        .font(.system(size: 13, weight: .regular))
+                        .offset(y: -0.5)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"))
+
+                Text(section.treeSection.title)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 0)
+
+                if canCreateWorktree {
+                    Button {
+                        createExtensionWorktreeWorkspace(for: section.treeSection)
+                    } label: {
+                        Image(systemName: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) ? "clock" : "plus")
+                            .font(.system(size: 11, weight: .regular))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id))
+                    .safeHelp(String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"))
+                    .accessibilityIdentifier("ExtensionSidebarCreateWorktreeButton.\(section.id)")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            if !isCollapsed {
+                ForEach(section.rows) { row in
+                    CmuxExtensionSidebarWorkspaceRowView(
+                        row: row,
+                        workspace: extensionWorkspaceSnapshot(for: row.workspaceId),
+                        providerId: providerId,
+                        relativeNow: now,
+                        isSelected: row.workspaceId == tabManager.selectedTabId,
+                        onSelect: selectExtensionSidebarWorkspace,
+                        onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
+                    )
+                    .id(row.id)
+                    .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
+                }
+            }
+        }
+    }
+
+    private func extensionWorkspaceSnapshot(for workspaceId: UUID) -> CmuxExtensionWorkspaceSnapshot? {
+        tabManager.tabs.first { $0.id == workspaceId }.map(extensionWorkspaceSnapshot(for:))
+    }
+
+    private func selectExtensionSidebarWorkspace(_ workspaceId: UUID) {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        selection = .tabs
+        tabManager.selectWorkspace(workspace)
+    }
+
+    private func createExtensionWorktreeWorkspace(for section: CmuxExtensionWorkspaceTreeSection) {
+        guard let projectRootPath = section.projectRootPath,
+              !extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) else {
+            return
+        }
+
+        extensionSidebarWorktreeCreationInFlightSectionIds.insert(section.id)
+        Task {
+            do {
+                let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
+                tabManager.addWorkspace(
+                    title: result.workspaceTitle,
+                    workingDirectory: result.worktreePath,
+                    initialTerminalCommand: result.initialCommand,
+                    inheritWorkingDirectory: false,
+                    select: true,
+                    eagerLoadTerminal: false
+                )
+            } catch {
+                NSSound.beep()
+#if DEBUG
+                cmuxDebugLog("extensionSidebar.worktree.failed project=\(projectRootPath) error=\(error.localizedDescription)")
+#endif
+            }
+            extensionSidebarWorktreeCreationInFlightSectionIds.remove(section.id)
         }
     }
 
@@ -9918,6 +10329,342 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+}
+
+private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
+    let row: CmuxExtensionSidebarRenderRow
+    let workspace: CmuxExtensionWorkspaceSnapshot?
+    let providerId: String
+    let relativeNow: Date
+    let isSelected: Bool
+    let onSelect: (UUID) -> Void
+    let onOpenWindow: (CmuxExtensionWorkspaceSnapshot) -> Void
+    @State private var showsInspector = false
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row &&
+            lhs.workspace == rhs.workspace &&
+            lhs.providerId == rhs.providerId &&
+            lhs.relativeNow == rhs.relativeNow &&
+            lhs.isSelected == rhs.isSelected
+    }
+
+    private var isSuperCompact: Bool {
+        providerId == CmuxExtensionSidebarProviderID.superCompact
+    }
+
+    private var isThin: Bool {
+        providerId == CmuxExtensionSidebarProviderID.thin || providerId == CmuxExtensionSidebarProviderID.projectTree
+    }
+
+    var body: some View {
+        let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
+        let secondarySize: CGFloat = isSuperCompact ? 9 : 10
+        HStack(spacing: isSuperCompact ? 5 : 7) {
+            VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
+                Text(row.title)
+                    .font(.system(size: primarySize, weight: .regular))
+                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if !isSuperCompact, let subtitle = rendered(row.subtitle) {
+                    Text(subtitle)
+                        .font(.system(size: secondarySize, weight: .regular))
+                        .foregroundColor(.secondary)
+                        .lineLimit(providerId == CmuxExtensionSidebarProviderID.lastMessage ? 2 : 1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !isSuperCompact, let trailing = rendered(row.trailingText) {
+                Text(trailing)
+                    .font(.system(size: 10.5, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            if let workspace {
+                Button {
+                    showsInspector = true
+                } label: {
+                    Image(systemName: row.accessory?.systemImageName ?? "ellipsis.circle")
+                        .font(.system(size: isSuperCompact ? 10 : 12, weight: .regular))
+                        .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.extension.inspectWorkspace", defaultValue: "Workspace tools"))
+                .popover(isPresented: $showsInspector, arrowEdge: .trailing) {
+                    CmuxExtensionWorkspaceInspectorView(
+                        workspace: workspace,
+                        onOpenWindow: { onOpenWindow(workspace) }
+                    )
+                    .frame(width: 460, height: 340)
+                }
+            }
+        }
+        .padding(.leading, isSuperCompact ? 14 : 28)
+        .padding(.trailing, 8)
+        .padding(.vertical, isSuperCompact ? 2 : (isThin ? 5 : 7))
+        .frame(minHeight: isSuperCompact ? 22 : 32)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(0.10))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onSelect(row.workspaceId)
+        }
+    }
+
+    private func rendered(_ text: CmuxExtensionSidebarRenderText?) -> String? {
+        guard let text else { return nil }
+        switch text {
+        case .plain(let value):
+            return value
+        case .localized(let localized):
+            return CmuxExtensionSidebarSelection.localizedText(localized)
+        case .relativeDate(let date, _):
+            return CmuxExtensionRelativeTimeFormatter.string(from: date, to: relativeNow)
+        }
+    }
+}
+
+private enum CmuxExtensionRelativeTimeFormatter {
+    static func string(from date: Date, to now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        if seconds < 60 { return String(localized: "relativeTime.now", defaultValue: "now") }
+        let minutes = seconds / 60
+        if minutes < 60 { return String(localized: "relativeTime.minutes", defaultValue: "\(minutes)m") }
+        let hours = minutes / 60
+        if hours < 24 { return String(localized: "relativeTime.hours", defaultValue: "\(hours)h") }
+        let days = hours / 24
+        if days < 7 { return String(localized: "relativeTime.days", defaultValue: "\(days)d") }
+        let weeks = days / 7
+        return String(localized: "relativeTime.weeks", defaultValue: "\(weeks)w")
+    }
+}
+
+private struct CmuxExtensionWorkspaceInspectorView: View {
+    let workspace: CmuxExtensionWorkspaceSnapshot
+    let onOpenWindow: () -> Void
+    @State private var selectedTab = CmuxExtensionWorkspacePopoverTab.notes
+    @State private var notes = ""
+    @State private var address: String
+
+    init(
+        workspace: CmuxExtensionWorkspaceSnapshot,
+        onOpenWindow: @escaping () -> Void
+    ) {
+        self.workspace = workspace
+        self.onOpenWindow = onOpenWindow
+        _address = State(initialValue: workspace.pullRequestURLs.first ?? "https://github.com/")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Picker("", selection: $selectedTab) {
+                    Text(String(localized: "sidebar.extension.notesTab", defaultValue: "Notes")).tag(CmuxExtensionWorkspacePopoverTab.notes)
+                    Text(String(localized: "sidebar.extension.browserTab", defaultValue: "Browser")).tag(CmuxExtensionWorkspacePopoverTab.browser)
+                }
+                .pickerStyle(.segmented)
+
+                Button(action: onOpenWindow) {
+                    Image(systemName: "macwindow")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.extension.openWindow", defaultValue: "Open window"))
+            }
+            .padding(10)
+
+            Divider()
+
+            switch selectedTab {
+            case .notes:
+                TextEditor(text: $notes)
+                    .font(.system(size: 13))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .accessibilityIdentifier("ExtensionSidebarNotesEditor")
+            case .browser, .pullRequest:
+                VStack(spacing: 0) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField(
+                            String(localized: "sidebar.extension.browserAddress", defaultValue: "Search or enter URL"),
+                            text: $address
+                        )
+                        .textFieldStyle(.plain)
+                        .onSubmit {
+                            address = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(address)
+                        }
+                    }
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
+                    .background(Color(nsColor: .controlBackgroundColor))
+
+                    CmuxExtensionWorkspaceInspectorBrowserView(address: $address)
+                }
+            }
+        }
+    }
+}
+
+private struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
+    @Binding var address: String
+
+    static func normalizedAddress(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "https://github.com/" }
+        if trimmed.contains("://") { return trimmed }
+        if trimmed.contains(".") && !trimmed.contains(" ") { return "https://\(trimmed)" }
+        let query = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
+        return "https://www.google.com/search?q=\(query)"
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.setValue(false, forKey: "drawsBackground")
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        let normalized = Self.normalizedAddress(address)
+        guard webView.url?.absoluteString != normalized,
+              let url = URL(string: normalized) else {
+            return
+        }
+        webView.load(URLRequest(url: url))
+    }
+}
+
+@MainActor
+private final class CmuxExtensionSidebarInspectorWindowController {
+    private static var controllers: [UUID: NSWindowController] = [:]
+
+    static func show(workspace: CmuxExtensionWorkspaceSnapshot) {
+        if let controller = controllers[workspace.id] {
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let view = CmuxExtensionWorkspaceInspectorView(workspace: workspace) {
+            show(workspace: workspace)
+        }
+        let hostingController = NSHostingController(rootView: view.frame(width: 620, height: 440))
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = workspace.title
+        window.setContentSize(NSSize(width: 620, height: 440))
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        let controller = NSWindowController(window: window)
+        controllers[workspace.id] = controller
+        controller.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct CmuxExtensionWorktreeCreationResult: Sendable {
+    let worktreePath: String
+    let workspaceTitle: String
+    let initialCommand: String
+}
+
+private enum CmuxExtensionWorktreePrototype {
+    static func createWorktree(projectRootPath: String) async throws -> CmuxExtensionWorktreeCreationResult {
+        try await Task.detached(priority: .userInitiated) {
+            let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
+            try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+            try ensureGitRepository(at: projectRoot)
+
+            let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))"
+            let worktreeRoot = projectRoot
+                .appendingPathComponent(".cmux", isDirectory: true)
+                .appendingPathComponent("worktrees", isDirectory: true)
+            try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+            let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
+            try run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
+            try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
+
+            let port = 4_100 + abs(branchName.hashValue % 800)
+            let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+            return CmuxExtensionWorktreeCreationResult(
+                worktreePath: worktree.path,
+                workspaceTitle: branchName,
+                initialCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+            )
+        }.value
+    }
+
+    private static func ensureGitRepository(at projectRoot: URL) throws {
+        if (try? run("git", ["-C", projectRoot.path, "rev-parse", "--is-inside-work-tree"])) != nil {
+            return
+        }
+        try run("git", ["-C", projectRoot.path, "init"])
+        let markerDirectory = projectRoot.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: markerDirectory, withIntermediateDirectories: true)
+        let marker = markerDirectory.appendingPathComponent("worktree-seed.txt")
+        try "cmux worktree seed\n".write(to: marker, atomically: true, encoding: .utf8)
+        try run("git", ["-C", projectRoot.path, "add", marker.path])
+        try run("git", [
+            "-C", projectRoot.path,
+            "-c", "user.name=cmux",
+            "-c", "user.email=cmux@example.invalid",
+            "commit", "-m", "Initialize cmux worktree seed"
+        ])
+    }
+
+    private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
+        let sample = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
+        try FileManager.default.createDirectory(at: sample, withIntermediateDirectories: true)
+        let escapedProject = projectName
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        let html = """
+        <!doctype html>
+        <html>
+          <head><meta charset="utf-8"><title>cmux worktree</title></head>
+          <body style="font: 15px -apple-system; padding: 32px;">
+            <h1>\(escapedProject) worktree</h1>
+            <p>This page is served from a git worktree created by CmuxExtensionKit.</p>
+          </body>
+        </html>
+        """
+        try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    }
+
+    private static func run(_ executable: String, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let message = String(data: data, encoding: .utf8) ?? "command failed"
+            throw NSError(
+                domain: "CmuxExtensionWorktreePrototype",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+    }
+
+    private static func shellEscaped(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

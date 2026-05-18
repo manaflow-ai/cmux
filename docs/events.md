@@ -90,7 +90,7 @@ heartbeats.
 in memory, or newer than the current process after an app restart. In that case,
 process the replayed tail, then refresh any state you need through
 snapshot-style commands such as `list-workspaces`, `list-notifications`, `tree`,
-or focused surface queries.
+`extension.sidebar.snapshot`, or focused surface queries.
 
 ### Event
 
@@ -234,6 +234,20 @@ Workspace:
 | `workspace.reordered` | Workspace order changed. |
 | `workspace.moved` | Workspace moved to another window. |
 | `workspace.action` | Workspace action command completed. |
+| `workspace.prompt.submitted` | A prompt was submitted in a workspace. Used by extension sidebars to keep derived state fresh without polling. |
+
+`workspace.prompt.submitted` payloads include `workspace_id`, `message`,
+`message_preview`, `message_length`, and `redacted_fields`. This is local
+sensitive data, so consumers should only forward it with explicit user opt-in.
+
+Extension sidebars should bootstrap from the v2 socket method
+`extension.sidebar.snapshot`, then subscribe to `cmux events --category
+workspace --category notification --category sidebar --reconnect` and reduce
+events from the returned `sequence`. The snapshot returns `selected_workspace_id`
+and an ordered `workspaces` array containing workspace ids/refs, title,
+description, pinned state, root/project paths, branch summary, remote status,
+latest submitted prompt preview/time, listening ports, pull request URLs,
+panel directories, and git branch summaries.
 
 Surface and pane:
 
