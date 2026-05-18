@@ -1228,6 +1228,35 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["host_service"])
         XCTAssertNil(payload["workspace_count"])
     }
+
+    func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any] else {
+            XCTFail("Expected workspace-scoped attach ticket payload")
+            return
+        }
+        XCTAssertNil(ticket["terminalID"])
+    }
 }
 
 @MainActor

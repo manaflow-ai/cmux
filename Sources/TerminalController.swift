@@ -18572,7 +18572,7 @@ class TerminalController {
             surfaceId = workspace.focusedTerminalPanel?.id
                 ?? orderedPanels(in: workspace).compactMap { ($0 as? TerminalPanel)?.id }.first
         } else {
-            surfaceId = workspace.focusedPanelId
+            surfaceId = nil
         }
 
         return (tabManager, workspace, surfaceId)
