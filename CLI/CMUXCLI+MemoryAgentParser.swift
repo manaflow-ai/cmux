@@ -311,7 +311,7 @@ extension CMUXCLI {
                     return (0, false)
                 }
                 if CFNumberIsFloatType(number) {
-                    guard let converted = memoryTruncatedInt64Value(value.doubleValue) else {
+                    guard let converted = CMUXCLI.topTruncatedInt64Value(value.doubleValue) else {
                         return (0, false)
                     }
                     return (converted, true)
@@ -323,13 +323,13 @@ extension CMUXCLI {
                 return (converted, true)
             }
             if let value = raw as? Double {
-                guard let converted = memoryTruncatedInt64Value(value) else {
+                guard let converted = CMUXCLI.topTruncatedInt64Value(value) else {
                     return (0, false)
                 }
                 return (converted, true)
             }
             if let value = raw as? Float {
-                guard let converted = memoryTruncatedInt64Value(Double(value)) else {
+                guard let converted = CMUXCLI.topTruncatedInt64Value(Double(value)) else {
                     return (0, false)
                 }
                 return (converted, true)
@@ -342,16 +342,6 @@ extension CMUXCLI {
                 return (converted, true)
             }
             return (0, false)
-        }
-
-        private func memoryTruncatedInt64Value(_ value: Double) -> Int64? {
-            guard value.isFinite else { return nil }
-            let truncated = value.rounded(.towardZero)
-            guard truncated >= Double(Int64.min),
-                  truncated < Double(Int64.max) else {
-                return nil
-            }
-            return Int64(truncated)
         }
 
         private func memoryAgentKey(for raw: String) -> String? {

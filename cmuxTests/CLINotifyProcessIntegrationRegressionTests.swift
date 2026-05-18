@@ -1120,6 +1120,104 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimWithoutIdentityOrGracefulActionReportsStillRunning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-no-identity")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "35353535-3535-3535-3535-353535353535"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+
+        defer {
+            terminateProcess(sleeper)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                    "windows": [
+                        [
+                            "id": "36363636-3636-3636-3636-363636363636",
+                            "ref": "window:1",
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:11",
+                                    "title": "Memory Workspace",
+                                    "tags": [
+                                        [
+                                            "kind": "tag",
+                                            "key": "opencode",
+                                            "pid": Int(sleeper.processIdentifier),
+                                            "surface_ref": "surface:11",
+                                            "resources": ["resident_bytes": 268_435_456],
+                                        ],
+                                    ],
+                                    "panes": [],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:11",
+                "--agent",
+                "opencode",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["terminated"] as? Bool, false)
+        XCTAssertEqual(payload["killed"] as? Bool, false)
+        XCTAssertEqual(payload["still_running"] as? Bool, true)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
+    }
+
     func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim-auto")
@@ -2382,6 +2480,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
             "Expected JSON object, got: \(stdout)"
         )
+    }
+
+    private func terminateProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(2)
+        while process.isRunning, Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+            process.waitUntilExit()
+        }
     }
 
     private func temporaryMemoryTelemetryDatabaseURL(name: String) -> URL {

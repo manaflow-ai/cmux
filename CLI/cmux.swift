@@ -12467,7 +12467,7 @@ struct CMUXCLI {
         return integer
     }
 
-    private static func topTruncatedInt64Value(_ value: Double) -> Int64? {
+    static func topTruncatedInt64Value(_ value: Double) -> Int64? {
         guard value.isFinite else { return nil }
         let truncated = value.rounded(.towardZero)
         guard truncated >= Double(Int64.min),

@@ -225,6 +225,9 @@ extension CMUXCLI {
             tolerateMissingRevalidation: Bool
         ) throws -> Bool {
             guard signaler.isRunning(pid: original.pid) else { return false }
+            guard original.identity != nil else {
+                return signaler.isRunning(pid: original.pid)
+            }
             do {
                 return try revalidatedSignalCandidate(matching: original, workspaceHandle: workspaceHandle) != nil
             } catch {
