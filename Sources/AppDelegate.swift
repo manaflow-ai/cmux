@@ -3530,6 +3530,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func debugBuildSessionSnapshotForTesting(
+        includeScrollback: Bool,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> AppSessionSnapshot? {
+        buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+    }
+
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
         let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
             context.tabManager.tabs.filter { !$0.isRemoteWorkspace }

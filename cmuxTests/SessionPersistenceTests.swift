@@ -3675,6 +3675,58 @@ extension SessionPersistenceTests {
         XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
     }
 
+    @MainActor
+    func testAppDelegateSnapshotPreservesRestoredProcessDetectedSurfaceResumeBindingBeforeScan() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t restored",
+                    cwd: "/tmp/project",
+                    checkpointId: "restored",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let noScanSnapshot = try XCTUnwrap(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
+        let noScanBinding = noScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+            .first(where: { $0.id == panelId })?
+            .terminal?
+            .resumeBinding
+        XCTAssertEqual(noScanBinding?.checkpointId, "restored")
+
+        let cleanScanSnapshot = try XCTUnwrap(
+            app.debugBuildSessionSnapshotForTesting(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: .empty
+            )
+        )
+        let cleanScanBinding = cleanScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+            .first(where: { $0.id == panelId })?
+            .terminal?
+            .resumeBinding
+        XCTAssertNil(cleanScanBinding)
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
