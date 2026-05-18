@@ -777,9 +777,16 @@ extension Workspace {
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> SurfaceResumeBindingSnapshot? {
         let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-        let detectedBinding = surfaceResumeBindingIndex?.binding(workspaceId: id, panelId: panelId)
-        guard let storedBinding, let detectedBinding else {
-            return storedBinding ?? detectedBinding
+        guard let surfaceResumeBindingIndex else {
+            return storedBinding
+        }
+
+        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+        guard let storedBinding else {
+            return detectedBinding
+        }
+        guard let detectedBinding else {
+            return storedBinding.isProcessDetected ? nil : storedBinding
         }
         if storedBinding.isProcessDetected {
             return detectedBinding
