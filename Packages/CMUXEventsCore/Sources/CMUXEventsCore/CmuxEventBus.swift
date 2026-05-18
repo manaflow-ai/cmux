@@ -76,25 +76,23 @@ public final class CmuxEventSubscription: @unchecked Sendable {
     /// Blocks the calling thread until the next event arrives, the subscription closes, or `timeout` expires.
     /// Intended for dedicated event-streaming threads, not actor-isolated or cooperative Swift concurrency tasks.
     public func next(timeout: TimeInterval) -> [String: Any]? {
-        lock.lock()
-        if !queue.isEmpty {
-            let event = queue.removeFirst()
-            lock.unlock()
-            return event
-        }
-        if closed {
-            lock.unlock()
-            return nil
-        }
-        lock.unlock()
+        let deadline = DispatchTime.now() + timeout
 
-        let result = semaphore.wait(timeout: .now() + timeout)
-        guard result == .success else { return nil }
+        while true {
+            lock.lock()
+            if !queue.isEmpty {
+                let event = queue.removeFirst()
+                lock.unlock()
+                return event
+            }
+            if closed {
+                lock.unlock()
+                return nil
+            }
+            lock.unlock()
 
-        lock.lock()
-        defer { lock.unlock() }
-        guard !queue.isEmpty else { return nil }
-        return queue.removeFirst()
+            guard semaphore.wait(timeout: deadline) == .success else { return nil }
+        }
     }
 
     func close(reason: String? = nil) {
@@ -473,5 +471,9 @@ public final class CmuxEventBus: @unchecked Sendable {
         return result + suffix
     }
 
-    public static func isoTimestamp(_ date: Date) -> String { isoFormatterLock.lock(); defer { isoFormatterLock.unlock() }; return isoFormatter.string(from: date) }
+    public static func isoTimestamp(_ date: Date) -> String {
+        isoFormatterLock.lock()
+        defer { isoFormatterLock.unlock() }
+        return isoFormatter.string(from: date)
+    }
 }
