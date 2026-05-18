@@ -6522,6 +6522,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleUnread",
+                title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                keywords: ["toggle", "mark", "read", "unread", "notification"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.markOldestUnreadAndJumpNext",
                 title: constant(
                     String(
@@ -7455,6 +7464,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
+        }
+        registry.register(commandId: "palette.toggleUnread") {
+            AppDelegate.shared?.toggleFocusedNotificationUnread(
+                preferredWindow: observedWindow
+            )
         }
         registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
             AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(

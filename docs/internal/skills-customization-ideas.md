@@ -19,6 +19,7 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 - `ui.newWorkspace.contextMenu`: controls the plus-button right-click menu. `ui.newWorkspace.rightClick` is accepted as an alias, but public examples should use `contextMenu`.
 - `ui.surfaceTabBar.buttons`: replaces the visible tab bar button list. Built-ins must be included explicitly if they should remain visible.
 - `commands`: reusable shell commands and workspace layouts for worktrees, multiple checkouts, local services, browser previews, and SSH setups.
+- Config precedence: project-local actions and commands override global entries with the same ID or name. Global app preferences stay in `~/.config/cmux/cmux.json`.
 - `.cmux/dock.json` and `~/.config/cmux/dock.json`: right-sidebar Dock controls for TUIs, logs, tests, queues, dev servers, and `cmux feed tui --opentui`.
 - `cmux-settings` paths: appearance, sidebar behavior, app icon, menu-bar mode, notifications, browser routing, automation, shortcuts, and new-workspace placement.
 - cmux CLI workspace metadata: workspace names, descriptions, colors, read/unread state, progress, status pills, and logs.
@@ -49,7 +50,25 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 - Tab bar customization: button groups, per-surface button sets, icon packs, overflow behavior, and action-specific tooltips.
 - Plus-button customization: starter templates for worktrees, multi-checkout setups, SSH launchers, and paired agent layouts.
 - Command Palette customization: action categories, keywords, project-local aliases, and discoverability hints for inherited actions.
+- Config lifecycle: explicit precedence docs, import/export/reset flows, diff previews, and one-command rollback from a generated backup.
+- Team presets: shareable `.cmux/` bundles for repos, including default workspace actions, Dock controls, hooks, and browser previews.
+- Agent presets: named Codex, Claude, and custom-agent launchers with default cwd, env, prompt, target pane or tab, and layout.
+
+## Examples Library
+
+Keep the examples library focused on reusable end-user workflows:
+
+- Worktree agents: plus-button click, right-click alternatives, and paired agents.
+- Full-stack dev: frontend, tests, browser preview, and Dock controls.
+- SSH devbox: remote terminal plus local browser or notes surface.
+- Review PR: GitHub terminal, PR browser, and notes or markdown panel.
+- Docs workspace: docs dev server, browser preview, and markdown viewer.
+- CI watch: GitHub Actions, CircleCI, Feed TUI, and release monitors.
+- Quick agent buttons: Codex and Claude tab bar buttons with Command Palette entries.
+
+Use the Promotion Rule when an example starts to exceed
+`cmux-customization`.
 
 ## Promotion Rule
 
-Create a new skill when the workflow has real commands, validation, and safety rules that an agent would otherwise rediscover. Keep an idea in docs when it is just product positioning or a list of possible settings. Do not publish private debug windows, release automation, production operations, or company-specific workflows as end-user cmux skills.
+Create a new skill when the workflow has setup commands, validation, and safety rules that an agent would otherwise rediscover. Keep an idea in docs when it is just product positioning, a list of possible settings, or a compact `cmux-customization` example. Do not publish private debug windows, release automation, production operations, or company-specific workflows as end-user cmux skills.
