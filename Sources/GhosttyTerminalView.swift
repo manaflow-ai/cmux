@@ -1982,9 +1982,14 @@ class GhosttyApp {
             return
         }
 
+        let initialColorScheme = GhosttyConfig.currentColorSchemePreference()
+
         // Load default config (includes user config). If this fails hard (e.g. due to
         // invalid user config), ghostty_app_new may return nil; we fall back below.
-        let primaryRenderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(primaryConfig)
+        let primaryRenderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
+            primaryConfig,
+            preferredColorScheme: initialColorScheme
+        )
         updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
@@ -2149,7 +2154,6 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
-        let initialColorScheme = GhosttyConfig.currentColorSchemePreference()
         synchronizeGhosttyRuntimeColorScheme(initialColorScheme, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
@@ -2203,8 +2207,10 @@ class GhosttyApp {
         }
     }
 
-    private func loadCmuxDefaultAppearanceConfig(_ config: ghostty_config_t) {
-        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
+    private func loadCmuxDefaultAppearanceConfig(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
         if let url = GhosttyConfig.cmuxDefaultThemeConfigURL(preferredColorScheme: preferredColorScheme) {
             url.path.withCString { path in
                 ghostty_config_load_file(config, path)
@@ -2222,14 +2228,20 @@ class GhosttyApp {
 
     private func loadStartupPreviewProfile(
         _ profile: GhosttyStartupAppearancePreviewProfile,
-        into config: ghostty_config_t
+        into config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
         if profile == .freshInstall {
-            loadCmuxDefaultAppearanceConfig(config)
+            loadCmuxDefaultAppearanceConfig(
+                config,
+                preferredColorScheme: preferredColorScheme
+            )
             return
         }
 
-        guard let contents = profile.previewConfigContents() else { return }
+        guard let contents = profile.previewConfigContents(
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
         loadInlineGhosttyConfig(
             contents,
             into: config,
@@ -2238,7 +2250,10 @@ class GhosttyApp {
         )
     }
 
-    func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) -> Bool {
+    func loadDefaultConfigFilesWithLegacyFallback(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
+    ) -> Bool {
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2247,10 +2262,17 @@ class GhosttyApp {
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
             if Self.shouldApplyManagedDefaultAppearance() {
-                loadCmuxDefaultAppearanceConfig(config)
+                loadCmuxDefaultAppearanceConfig(
+                    config,
+                    preferredColorScheme: preferredColorScheme
+                )
             }
         } else {
-            loadStartupPreviewProfile(startupPreviewProfile, into: config)
+            loadStartupPreviewProfile(
+                startupPreviewProfile,
+                into: config,
+                preferredColorScheme: preferredColorScheme
+            )
         }
         #else
         ghostty_config_load_default_files(config)
@@ -2258,7 +2280,10 @@ class GhosttyApp {
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         if Self.shouldApplyManagedDefaultAppearance() {
-            loadCmuxDefaultAppearanceConfig(config)
+            loadCmuxDefaultAppearanceConfig(
+                config,
+                preferredColorScheme: preferredColorScheme
+            )
         }
         #endif
         loadCJKFontFallbackIfNeeded(config)
@@ -3106,7 +3131,8 @@ class GhosttyApp {
     func reloadConfiguration(
         soft: Bool = false,
         source: String = "unspecified",
-        reloadSettingsFromFile: Bool = true
+        reloadSettingsFromFile: Bool = true,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
@@ -3120,6 +3146,7 @@ class GhosttyApp {
                 AppDelegate.shared?.reloadCmuxConfigStores(source: source)
             }
         }
+        let reloadColorScheme = preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -3128,7 +3155,7 @@ class GhosttyApp {
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             ghostty_app_update_config(app, config)
-            lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+            lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(source: source)
@@ -3140,7 +3167,10 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
             return
         }
-        let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(newConfig)
+        let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
+            newConfig,
+            preferredColorScheme: reloadColorScheme
+        )
         ghostty_app_update_config(app, newConfig)
         updateDefaultBackground(
             from: newConfig,
@@ -3155,7 +3185,7 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
-        lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+        lastAppearanceColorScheme = reloadColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(source: source)
@@ -3191,7 +3221,7 @@ class GhosttyApp {
                 "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
-        guard plan.runtimeColorScheme != nil || plan.shouldReloadConfiguration else { return }
+        guard plan.shouldReloadConfiguration else { return }
         if let runtimeColorScheme = plan.runtimeColorScheme {
             synchronizeGhosttyRuntimeColorScheme(
                 runtimeColorScheme,
@@ -3200,10 +3230,10 @@ class GhosttyApp {
             )
         }
         lastAppearanceColorScheme = currentColorScheme
-        guard plan.shouldReloadConfiguration else { return }
         reloadConfiguration(
             source: "appearanceSync:\(source)",
-            reloadSettingsFromFile: false
+            reloadSettingsFromFile: false,
+            preferredColorScheme: currentColorScheme
         )
     }
 
