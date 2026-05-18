@@ -109,6 +109,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        coordinator.cancelLocalImageLoads()
         if coordinator.webView === nsView {
             coordinator.webView = nil
         }
@@ -142,6 +143,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
+        private final class LocalImageLoad {
+            var reader: Task<Data, Never>?
+            var sender: Task<Void, Never>?
+
+            func cancel() {
+                reader?.cancel()
+                sender?.cancel()
+            }
+        }
+        private var localImageLoads: [ObjectIdentifier: LocalImageLoad] = [:]
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
             pendingMarkdown = initialMarkdown
@@ -330,15 +341,33 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // MARK: WKURLSchemeHandler
 
         func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-            guard let requestURL = urlSchemeTask.request.url,
-                  let fileURL = localImageFileURL(from: requestURL),
-                  let mimeType = Self.localImageMimeType(for: fileURL.pathExtension) else {
+            guard let requestURL = urlSchemeTask.request.url else {
                 urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
                 return
             }
 
-            do {
-                let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            let taskId = ObjectIdentifier(urlSchemeTask as AnyObject)
+            let load = LocalImageLoad()
+            localImageLoads[taskId] = load
+            let fileURL = localImageFileURL(from: requestURL)
+            let mimeType = fileURL
+                .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
+            let reader = Task.detached(priority: .userInitiated) {
+                guard let fileURL,
+                      FileManager.default.isReadableFile(atPath: fileURL.path) else {
+                    return Data()
+                }
+                return (try? Data(contentsOf: fileURL)) ?? Data()
+            }
+            load.reader = reader
+            let sender = Task { [weak self, weak load] in
+                defer {
+                    if let load, self?.localImageLoads[taskId] === load {
+                        self?.localImageLoads[taskId] = nil
+                    }
+                }
+                let data = await reader.value
+                guard !Task.isCancelled else { return }
                 let response = URLResponse(
                     url: requestURL,
                     mimeType: mimeType,
@@ -346,14 +375,26 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     textEncodingName: nil
                 )
                 urlSchemeTask.didReceive(response)
-                urlSchemeTask.didReceive(data)
+                if !data.isEmpty {
+                    urlSchemeTask.didReceive(data)
+                }
                 urlSchemeTask.didFinish()
-            } catch {
-                urlSchemeTask.didFailWithError(error)
             }
+            load.sender = sender
         }
 
         func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+            let taskId = ObjectIdentifier(urlSchemeTask as AnyObject)
+            guard let load = localImageLoads.removeValue(forKey: taskId) else { return }
+            load.cancel()
+        }
+
+        func cancelLocalImageLoads() {
+            let loads = localImageLoads.values
+            localImageLoads.removeAll()
+            for load in loads {
+                load.cancel()
+            }
         }
 
         private func localImageFileURL(from requestURL: URL) -> URL? {
@@ -365,8 +406,17 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return nil
             }
 
-            let standardizedURL = fileURL.standardizedFileURL
-            guard FileManager.default.isReadableFile(atPath: standardizedURL.path),
+            let markdownDirectory = URL(fileURLWithPath: filePath)
+                .deletingLastPathComponent()
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            let markdownRoot = markdownDirectory.path.hasSuffix("/")
+                ? markdownDirectory.path
+                : markdownDirectory.path + "/"
+            let standardizedURL = fileURL
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            guard standardizedURL.path.hasPrefix(markdownRoot),
                   Self.localImageMimeType(for: standardizedURL.pathExtension) != nil else {
                 return nil
             }

@@ -344,16 +344,25 @@ html { scroll-behavior: smooth; }
     return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=]+$/i.test(raw);
   }
 
+  function isRelativeLocalImagePath(value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return false; }
+    var compact = compactForProtocolCheck(raw);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return false;
+    }
+    if (raw.charAt(0) === '/' || raw.charAt(0) === '\\') {
+      return false;
+    }
+    if (/^[A-Za-z]:[\\/]/.test(raw)) {
+      return false;
+    }
+    return true;
+  }
+
   function cmuxLocalImageURL(value) {
     var raw = String(value || '').trim();
-    if (!raw) { return null; }
-    var compact = compactForProtocolCheck(raw);
-    if (
-      compact.indexOf('data:') === 0 ||
-      compact.indexOf('http:') === 0 ||
-      compact.indexOf('https:') === 0 ||
-      compact.indexOf('cmux-local-image:') === 0
-    ) {
+    if (!isRelativeLocalImagePath(raw)) {
       return null;
     }
 
@@ -403,7 +412,9 @@ html { scroll-behavior: smooth; }
           protocol === 'mailto:' ||
           protocol === 'tel:';
       }
-      return protocol === 'http:' || protocol === 'https:' || protocol === 'file:';
+      return protocol === 'http:' ||
+        protocol === 'https:' ||
+        (protocol === 'file:' && isRelativeLocalImagePath(raw));
     } catch (e) {
       return false;
     }
