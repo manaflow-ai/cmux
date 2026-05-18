@@ -321,8 +321,8 @@ enum AgentResumeCommandBuilder {
             ) else { return nil }
             return [original.executable, "codex-teams", "fork"]
                 + codexWorkingDirectoryArguments(preserved.workingDirectory)
-                + [sessionId]
                 + preserved.arguments
+                + [sessionId]
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -353,8 +353,8 @@ enum AgentResumeCommandBuilder {
             ) else { return nil }
             return [original.executable, "fork"]
                 + codexWorkingDirectoryArguments(preserved.workingDirectory)
-                + [sessionId]
                 + preserved.arguments
+                + [sessionId]
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }

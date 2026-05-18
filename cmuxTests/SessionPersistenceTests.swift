@@ -1968,7 +1968,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/Users/example/shell' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+            "cd '/Users/example/shell' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
     }
 
@@ -2234,19 +2234,19 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             codex.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
         XCTAssertEqual(
             codexWithImage.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '019image-session' '--image' '/tmp/screenshot.png' '--model' 'gpt-5.4'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--image' '/tmp/screenshot.png' '--model' 'gpt-5.4' '019image-session'"
         )
         XCTAssertEqual(
             codexFork.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
         XCTAssertEqual(
             codexTeams.forkCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--cd' '/Users/example/repo' 'codex-teams-session' '--model' 'gpt-5.4' '--image' '/tmp/team screenshot.png' '--sandbox' 'danger-full-access'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' '--cd' '/Users/example/repo' '--model' 'gpt-5.4' '--image' '/tmp/team screenshot.png' '--sandbox' 'danger-full-access' 'codex-teams-session'"
         )
         XCTAssertEqual(
             directOpenCode.forkCommand,
@@ -3611,7 +3611,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex repo' '019e26a3-2c4b-7e62-b8d3-825ec5f3c696' '--disable' 'hooks' '--dangerously-bypass-approvals-and-sandbox'"
+            "cd '/tmp/codex repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex repo' '--disable' 'hooks' '--dangerously-bypass-approvals-and-sandbox' '019e26a3-2c4b-7e62-b8d3-825ec5f3c696'"
         )
     }
 
@@ -3679,7 +3679,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, actualSessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex direct repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex direct repo' '019e396b-6d2b-7eb0-a409-91f09c2b49b3' '--dangerously-bypass-approvals-and-sandbox'"
+            "cd '/tmp/codex direct repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex direct repo' '--dangerously-bypass-approvals-and-sandbox' '019e396b-6d2b-7eb0-a409-91f09c2b49b3'"
         )
     }
 
@@ -3747,7 +3747,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, sessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex home repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex home repo' '019e396b-6d2b-7eb0-a409-91f09c2b49b3' '--dangerously-bypass-approvals-and-sandbox'"
+            "cd '/tmp/codex home repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex home repo' '--dangerously-bypass-approvals-and-sandbox' '019e396b-6d2b-7eb0-a409-91f09c2b49b3'"
         )
     }
 
@@ -3798,7 +3798,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, "019e1eca-ee32-7001-ab30-edcae57430bb")
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
     }
 
@@ -3866,7 +3866,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, childSessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
     }
 
@@ -3967,11 +3967,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(secondSnapshot.sessionId, secondChildSessionId)
         XCTAssertEqual(
             firstSnapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e1eca-ee32-7001-ab30-edcae57430bb'"
         )
         XCTAssertEqual(
             secondSnapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e1f00-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e1f00-ee32-7001-ab30-edcae57430bb'"
         )
     }
 
@@ -4060,7 +4060,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, "019e3333-3333-7333-8333-333333333333")
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e3333-3333-7333-8333-333333333333' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e3333-3333-7333-8333-333333333333'"
         )
     }
 
@@ -4134,7 +4134,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, "019e3333-3333-7333-8333-333333333333")
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e3333-3333-7333-8333-333333333333' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e3333-3333-7333-8333-333333333333'"
         )
     }
 
@@ -4201,7 +4201,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, "019e3333-3333-7333-8333-333333333333")
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019e3333-3333-7333-8333-333333333333' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=\(codexHome.path)' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019e3333-3333-7333-8333-333333333333'"
         )
     }
 
@@ -4565,7 +4565,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, "019dad34-d218-7943-b81a-eddac5c87951")
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
     }
 
@@ -4619,7 +4619,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, parentSessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019dad34-d218-7943-b81a-eddac5c87951' '--image' '/tmp/a.png' '/tmp/b.png' '--model' 'gpt-5.4'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--image' '/tmp/a.png' '/tmp/b.png' '--model' 'gpt-5.4' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
     }
 
@@ -4675,7 +4675,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, parentSessionId)
         XCTAssertEqual(
             snapshot.forkCommand,
-            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--image' '/tmp/a.png' '/tmp/b.png' '--sandbox' 'danger-full-access'"
+            "cd '/tmp/codex fork repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/lawrence/.bun/bin/codex' 'fork' '--cd' '/tmp/codex fork repo' '--model' 'gpt-5.4' '--image' '/tmp/a.png' '/tmp/b.png' '--sandbox' 'danger-full-access' '019dad34-d218-7943-b81a-eddac5c87951'"
         )
     }
 
