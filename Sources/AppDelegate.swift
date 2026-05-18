@@ -6726,10 +6726,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        cmuxDebugLog("file.preview.externalOpen source=\(debugSource) path=\(filePath)")
+        cmuxDebugLog("file.externalOpen source=\(debugSource) path=\(filePath)")
 #endif
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
-        return true
+        return !workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        ).isEmpty
     }
 
     @discardableResult
