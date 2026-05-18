@@ -168,7 +168,13 @@ final class CodexTranscriptMonitorSession {
         }
         var data = handle.readDataToEndOfFile()
         let bytesRead = UInt64(data.count)
-        if startOffset > 0, let newline = data.firstIndex(of: 0x0A) {
+        if startOffset > 0 {
+            guard let newline = data.firstIndex(of: 0x0A) else {
+                pendingData.removeAll(keepingCapacity: false)
+                discardingOversizedLine = true
+                readOffset = startOffset + bytesRead
+                return
+            }
             data.removeSubrange(0...newline)
         }
         process(data: data)
