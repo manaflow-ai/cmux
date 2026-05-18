@@ -782,7 +782,10 @@ extension Workspace {
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
             let restorableAgent = snapshot.terminal?.agent
-            let restoredBindingInput = resumeBinding?.startupInput
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            let restoredBindingInput = resumeBinding?.source == "agent-hook" && !autoResumeAgentSessions
+                ? nil
+                : resumeBinding?.startupInput
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
@@ -798,7 +801,6 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 resumeBinding: resumeBinding
             )
-            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             let restoredAgentResumeInput = autoResumeAgentSessions
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil

@@ -109,6 +109,62 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertNil(restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
     }
 
+    @MainActor
+    func testDisabledAutoResumeDoesNotRunAgentHookResumeBinding() throws {
+        let defaults = UserDefaults.standard
+        let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "codex-binding-auto-resume-disabled-session"
+        )
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume codex-binding-auto-resume-disabled-session",
+                cwd: "/tmp/repo",
+                checkpointId: "codex-binding-auto-resume-disabled-session",
+                source: "agent-hook",
+                updatedAt: 1_777_777_777
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        defaults.set(false, forKey: key)
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        let input = restoredPanel.surface.debugInitialInputMetadata()
+
+        XCTAssertFalse(input.hasInitialInput)
+        XCTAssertEqual(input.byteCount, 0)
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.source,
+            "agent-hook"
+        )
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
+            "codex-binding-auto-resume-disabled-session"
+        )
+    }
+
     private func makeRestorableAgentIndex(
         workspaceId: UUID,
         panelId: UUID,

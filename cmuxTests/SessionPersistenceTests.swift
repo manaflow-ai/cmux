@@ -3332,6 +3332,17 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
     }
 
+    func testTmuxProcessDetectedResumeBindingRejectsSessionNameThatLooksLikeAttachFlag() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-sA"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testMarkdownFileLinkResolverRecognizesMarkdownPathLikeStrings() {
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("other-markdown.md"))
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("test/markdown.md"))

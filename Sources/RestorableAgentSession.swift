@@ -1006,7 +1006,7 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 }
 
-struct SurfaceResumeBindingIndex: Sendable {
+nonisolated struct SurfaceResumeBindingIndex: Sendable {
     static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
 
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey
@@ -1021,16 +1021,16 @@ struct SurfaceResumeBindingIndex: Sendable {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
     }
 
-    static func load() -> SurfaceResumeBindingIndex {
-        .empty
+    static func load(fileManager: FileManager = .default) -> SurfaceResumeBindingIndex {
+        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
+        return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
     }
 
     static func loadIncludingProcessDetectedBindings(
         fileManager: FileManager = .default
     ) async -> SurfaceResumeBindingIndex {
         await Task.detached(priority: .utility) {
-            let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
-            return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+            load(fileManager: fileManager)
         }.value
     }
 }

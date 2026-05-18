@@ -221,7 +221,7 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
-struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var name: String?
     var kind: String?
     var command: String

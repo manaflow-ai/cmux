@@ -4466,8 +4466,9 @@ struct CMUXCLI {
         let rest = commandArgs.first == nil ? [] : Array(commandArgs.dropFirst())
         switch subcommand {
         case "set":
-            var params = try surfaceResumeTargetParams(rest, client: client, windowOverride: windowOverride)
-            let (name, rem1) = parseOption(rest, name: "--name")
+            let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
+            var params = target.params
+            let (name, rem1) = parseOption(target.remaining, name: "--name")
             let (kind, rem2) = parseOption(rem1, name: "--kind")
             let (checkpoint, rem3) = parseOption(rem2, name: "--checkpoint")
             let (checkpointID, rem4) = parseOption(rem3, name: "--checkpoint-id")
@@ -4500,7 +4501,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "show", "get":
-            let params = try surfaceResumeTargetParams(rest, client: client, windowOverride: windowOverride)
+            let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -4513,7 +4514,7 @@ struct CMUXCLI {
             }
 
         case "clear":
-            let params = try surfaceResumeTargetParams(rest, client: client, windowOverride: windowOverride)
+            let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.clear", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
@@ -4522,13 +4523,18 @@ struct CMUXCLI {
         }
     }
 
-    private func surfaceResumeTargetParams(
+    private struct SurfaceResumeTarget {
+        var params: [String: Any]
+        var remaining: [String]
+    }
+
+    private func surfaceResumeTarget(
         _ args: [String],
         client: SocketClient,
         windowOverride: String?
-    ) throws -> [String: Any] {
+    ) throws -> SurfaceResumeTarget {
         let (workspaceOpt, rem1) = parseOption(args, name: "--workspace")
-        let (surfaceOpt, _) = parseOption(rem1, name: "--surface")
+        let (surfaceOpt, remaining) = parseOption(rem1, name: "--surface")
         let env = ProcessInfo.processInfo.environment
         let workspaceRaw = workspaceOpt ?? (windowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
         let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? env["CMUX_SURFACE_ID"] : nil)
@@ -4540,7 +4546,7 @@ struct CMUXCLI {
         if let workspaceId { params["workspace_id"] = workspaceId }
         let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId)
         if let surfaceId { params["surface_id"] = surfaceId }
-        return params
+        return SurfaceResumeTarget(params: params, remaining: remaining)
     }
 
     private func cliShellQuote(_ value: String) -> String {

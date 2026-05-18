@@ -734,9 +734,19 @@ extension SurfaceResumeBindingIndex {
         for argument in arguments {
             if argument == "--\(long)" { return true }
             if argument == "-\(short)" { return true }
-            if argument.hasPrefix("-"), !argument.hasPrefix("--"), argument.contains(short) {
+            if tmuxShortFlagCluster(argument, contains: short) {
                 return true
             }
+        }
+        return false
+    }
+
+    private static func tmuxShortFlagCluster(_ argument: String, contains short: Character) -> Bool {
+        guard argument.hasPrefix("-"), !argument.hasPrefix("--") else { return false }
+        let valueOptions: Set<Character> = ["c", "e", "F", "n", "s", "t", "x", "y"]
+        for option in argument.dropFirst() {
+            if option == short { return true }
+            if valueOptions.contains(option) { return false }
         }
         return false
     }
