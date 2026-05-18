@@ -1,8 +1,10 @@
 import Darwin
 import Foundation
+import os
 
 enum StartupBreadcrumbLog {
     private static let maxFieldLength = 240
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "StartupBreadcrumbLog")
     private static let reservedFieldKeys: Set<String> = [
         "timestamp",
         "event",
@@ -51,7 +53,7 @@ enum StartupBreadcrumbLog {
             try handle.write(contentsOf: line)
             try handle.write(contentsOf: Data([0x0A]))
         } catch {
-            NSLog("cmux startup breadcrumb failed: %@", String(describing: error))
+            logger.fault("cmux startup breadcrumb failed: \(String(describing: error), privacy: .public)")
         }
     }
 
