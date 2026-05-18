@@ -630,10 +630,10 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	var config map[string]any
 	if data, err := os.ReadFile(userJsonPath); err == nil {
 		if err := json.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userJsonPath)
+			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", filepath.Base(userJsonPath))
 		}
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read %s: check file permissions and retry", userJsonPath)
+		return fmt.Errorf("failed to read %s: check file permissions and retry", filepath.Base(userJsonPath))
 	}
 	if config == nil {
 		config = map[string]any{}
@@ -742,10 +742,10 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	// a previous --model overlay cannot persist into a later bare `cmux omo`.
 	if data, err := os.ReadFile(userOmoConfig); err == nil {
 		if err := json.Unmarshal(data, &omoConfig); err != nil {
-			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userOmoConfig)
+			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", filepath.Base(userOmoConfig))
 		}
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read %s: check file permissions and retry", userOmoConfig)
+		return fmt.Errorf("failed to read %s: check file permissions and retry", filepath.Base(userOmoConfig))
 	}
 	if omoConfig == nil {
 		omoConfig = map[string]any{}

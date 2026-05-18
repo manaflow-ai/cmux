@@ -118,6 +118,9 @@ func TestOMOEnsurePluginRejectsInvalidUserConfig(t *testing.T) {
 	if !strings.Contains(err.Error(), "failed to parse") || !strings.Contains(err.Error(), "oh-my-opencode.json") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if strings.Contains(err.Error(), home) {
+		t.Fatalf("error should not expose user config path: %v", err)
+	}
 
 	shadowOmoConfig := filepath.Join(home, ".cmuxterm", "omo-config", "oh-my-opencode.json")
 	shadowContents, err := os.ReadFile(shadowOmoConfig)

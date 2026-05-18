@@ -238,6 +238,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.contains("Failed to parse"), result.stderr)
         XCTAssertTrue(result.stderr.contains("oh-my-opencode.json"), result.stderr)
+        XCTAssertFalse(result.stderr.contains(root.path), result.stderr)
         let shadowOmoConfig = root
             .appendingPathComponent(".cmuxterm/omo-config", isDirectory: true)
             .appendingPathComponent("oh-my-opencode.json", isDirectory: false)

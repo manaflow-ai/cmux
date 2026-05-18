@@ -15014,10 +15014,10 @@ struct CMUXCLI {
             do {
                 data = try Data(contentsOf: userJsonURL)
             } catch {
-                throw CLIError(message: "Failed to read \(userJsonURL.path). Check file permissions and retry.")
+                throw CLIError(message: "Failed to read \(userJsonURL.lastPathComponent). Check file permissions and retry.")
             }
             guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
+                throw CLIError(message: "Failed to parse \(userJsonURL.lastPathComponent). Fix the JSON syntax and retry.")
             }
             config = existing
         } else {
@@ -15113,17 +15113,17 @@ struct CMUXCLI {
             do {
                 data = try Data(contentsOf: userOmoConfig)
             } catch {
-                throw CLIError(message: "Failed to read \(userOmoConfig.path). Check file permissions and retry.")
+                throw CLIError(message: "Failed to read \(userOmoConfig.lastPathComponent). Check file permissions and retry.")
             }
             do {
                 guard let existing = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    throw CLIError(message: "\(userOmoConfig.path) must contain a JSON object.")
+                    throw CLIError(message: "\(userOmoConfig.lastPathComponent) must contain a JSON object.")
                 }
                 omoConfig = existing
             } catch let error as CLIError {
                 throw error
             } catch {
-                throw CLIError(message: "Failed to parse \(userOmoConfig.path). Fix the JSON syntax and retry.")
+                throw CLIError(message: "Failed to parse \(userOmoConfig.lastPathComponent). Fix the JSON syntax and retry.")
             }
         } else {
             omoConfig = [:]
