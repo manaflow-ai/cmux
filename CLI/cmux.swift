@@ -2755,6 +2755,7 @@ struct CMUXCLI {
                     let workspaceId = try normalizeWorkspaceHandle(
                         workspaceArg,
                         client: client,
+                        windowHandle: globalWindowOverride,
                         allowCurrent: surfaceArg != nil
                     )
                     var caller: [String: Any] = [:]
@@ -2765,7 +2766,8 @@ struct CMUXCLI {
                         guard let surfaceId = try normalizeSurfaceHandle(
                             surfaceArg,
                             client: client,
-                            workspaceHandle: workspaceId
+                            workspaceHandle: workspaceId,
+                            windowHandle: globalWindowOverride
                         ) else {
                             throw CLIError(message: "Invalid surface handle")
                         }
@@ -2832,7 +2834,7 @@ struct CMUXCLI {
                 throw CLIError(message: "move-workspace-to-window requires --window")
             }
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -2840,16 +2842,16 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "window"]))
 
         case "move-surface":
-            try runMoveSurface(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runMoveSurface(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "split-off":
-            try runSplitOff(commandName: "split-off", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runSplitOff(commandName: "split-off", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "reorder-surface":
-            try runReorderSurface(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runReorderSurface(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "reorder-workspace":
-            try runReorderWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runReorderWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
@@ -2957,7 +2959,7 @@ struct CMUXCLI {
                 throw CLIError(message: "new-split: unknown flag '\(unknown)'")
             }
             var params: [String: Any] = ["direction": direction]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 surfaceRaw,
@@ -2974,7 +2976,7 @@ struct CMUXCLI {
         case "list-panes":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: globalWindowOverride)
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             let payload = try client.sendV2(method: "pane.list", params: params)
@@ -3000,7 +3002,7 @@ struct CMUXCLI {
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: globalWindowOverride)
             let paneRaw = optionValue(commandArgs, name: "--pane")
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(
                 paneRaw,
@@ -3030,10 +3032,10 @@ struct CMUXCLI {
             }
 
         case "tree":
-            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "top":
-            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: globalWindowOverride)
@@ -3041,7 +3043,7 @@ struct CMUXCLI {
                 throw CLIError(message: "focus-pane requires --pane <id|ref>")
             }
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(
                 paneRaw,
@@ -3061,7 +3063,7 @@ struct CMUXCLI {
             let url = optionValue(commandArgs, name: "--url")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             if let type { params["type"] = type }
@@ -3077,7 +3079,7 @@ struct CMUXCLI {
             let url = optionValue(commandArgs, name: "--url")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let paneId = try normalizePaneHandle(
                 paneRaw,
@@ -3098,7 +3100,7 @@ struct CMUXCLI {
             let workspaceArg = csWsFlag ?? (globalWindowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (csWsFlag == nil && globalWindowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 surfaceRaw,
@@ -3120,7 +3122,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "drag-surface-to-split":
-            try runSplitOff(commandName: "drag-surface-to-split", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            try runSplitOff(commandName: "drag-surface-to-split", commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: globalWindowOverride)
 
         case "refresh-surfaces":
             let response = try sendV1Command("refresh_surfaces", client: client)
@@ -3135,7 +3137,7 @@ struct CMUXCLI {
         case "surface-health":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: globalWindowOverride)
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             let payload = try client.sendV2(method: "surface.health", params: params)
@@ -3189,7 +3191,7 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let wsId = try {
                 if explicitWorkspaceArg != nil {
-                    return try normalizeWorkspaceHandle(workspaceArg, client: client)
+                    return try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
                 }
                 if globalWindowOverride != nil {
                     return nil
@@ -3221,7 +3223,7 @@ struct CMUXCLI {
         case "list-panels":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: globalWindowOverride)
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             applyWindowOverrideIfUntargeted(globalWindowOverride, to: &params, workspaceId: wsId)
             let payload = try client.sendV2(method: "surface.list", params: params)
@@ -3251,7 +3253,7 @@ struct CMUXCLI {
                 throw CLIError(message: "focus-panel requires --panel")
             }
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 panelRaw,
@@ -3269,7 +3271,7 @@ struct CMUXCLI {
                 throw CLIError(message: "close-workspace requires --workspace")
             }
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "workspace.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
@@ -3282,7 +3284,7 @@ struct CMUXCLI {
                 throw CLIError(message: "select-workspace requires --workspace")
             }
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "workspace.select", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
@@ -3295,7 +3297,8 @@ struct CMUXCLI {
             guard !title.isEmpty else {
                 throw CLIError(message: "\(command) requires a title")
             }
-            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride, allowCurrent: true)
+                ?? resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["title": title, "workspace_id": wsId]
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
@@ -3326,7 +3329,7 @@ struct CMUXCLI {
             let surfaceArg = sfArg ?? (wsArg == nil && globalWindowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
             var params: [String: Any] = [:]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 surfaceArg,
@@ -3365,7 +3368,7 @@ struct CMUXCLI {
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
             let text = unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 surfaceArg,
@@ -3386,7 +3389,7 @@ struct CMUXCLI {
             let keyArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             var params: [String: Any] = ["key": key]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 surfaceArg,
@@ -3410,7 +3413,7 @@ struct CMUXCLI {
             guard !rawText.isEmpty else { throw CLIError(message: "send-panel requires text") }
             let text = unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 panelArg,
@@ -3434,7 +3437,7 @@ struct CMUXCLI {
             let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
             var params: [String: Any] = ["key": key]
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(
                 panelArg,
@@ -3459,8 +3462,16 @@ struct CMUXCLI {
                 let workspaceRaw = explicitWorkspaceArg ?? (globalWindowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                 let targetWorkspace = try (explicitWorkspaceArg == nil
                     ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
-                    : resolveWorkspaceId(workspaceRaw, client: client))
-                let targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
+                    : (normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: globalWindowOverride)
+                        ?? resolveWorkspaceId(workspaceRaw, client: client)))
+                let targetSurface = try explicitSurfaceArg.map {
+                    try normalizeSurfaceHandle(
+                        $0,
+                        client: client,
+                        workspaceHandle: targetWorkspace,
+                        windowHandle: globalWindowOverride
+                    ) ?? resolveSurfaceId($0, workspaceId: targetWorkspace, client: client)
+                }
                     ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
                 let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
                 let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
@@ -3471,14 +3482,42 @@ struct CMUXCLI {
             let method: String
             if explicitSurfaceArg != nil {
                 method = "notification.create"
-                if let explicitWorkspaceArg { params["workspace_id"] = explicitWorkspaceArg }
-                else if globalWindowOverride == nil, let workspaceArg = env["CMUX_WORKSPACE_ID"], isUUID(workspaceArg) { params["workspace_id"] = workspaceArg }
-                if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
+                var explicitWorkspaceHandle: String?
+                if let explicitWorkspaceArg {
+                    explicitWorkspaceHandle = try normalizeWorkspaceHandle(
+                        explicitWorkspaceArg,
+                        client: client,
+                        windowHandle: globalWindowOverride
+                    ) ?? explicitWorkspaceArg
+                    params["workspace_id"] = explicitWorkspaceHandle
+                }
+                else if globalWindowOverride == nil, let workspaceArg = env["CMUX_WORKSPACE_ID"], isUUID(workspaceArg) {
+                    explicitWorkspaceHandle = workspaceArg
+                    params["workspace_id"] = workspaceArg
+                }
+                if let explicitSurfaceArg {
+                    params["surface_id"] = try normalizeSurfaceHandle(
+                        explicitSurfaceArg,
+                        client: client,
+                        workspaceHandle: explicitWorkspaceHandle,
+                        windowHandle: globalWindowOverride
+                    ) ?? explicitSurfaceArg
+                }
             } else {
                 method = "notification.create_for_caller"
                 params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
                 let workspaceArg = explicitWorkspaceArg ?? (globalWindowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
-                if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil { params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client) }
+                if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
+                    if isUUID(workspaceArg) {
+                        params["preferred_workspace_id"] = workspaceArg
+                    } else {
+                        params["preferred_workspace_id"] = try normalizeWorkspaceHandle(
+                            workspaceArg,
+                            client: client,
+                            windowHandle: globalWindowOverride
+                        ) ?? resolveWorkspaceId(workspaceArg, client: client)
+                    }
+                }
                 if globalWindowOverride == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
                 if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
             }
@@ -3540,10 +3579,16 @@ struct CMUXCLI {
             if let id {
                 params["id"] = id
             } else if let workspaceArg {
-                let workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
+                let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: globalWindowOverride)
+                    ?? resolveWorkspaceId(workspaceArg, client: client)
                 params["tab_id"] = workspaceId
                 if let surfaceArg {
-                    params["surface_id"] = try resolveSurfaceId(surfaceArg, workspaceId: workspaceId, client: client)
+                    params["surface_id"] = try normalizeSurfaceHandle(
+                        surfaceArg,
+                        client: client,
+                        workspaceHandle: workspaceId,
+                        windowHandle: globalWindowOverride
+                    ) ?? resolveSurfaceId(surfaceArg, workspaceId: workspaceId, client: client)
                 }
             } else if all {
                 params["all"] = true
@@ -3565,7 +3610,16 @@ struct CMUXCLI {
         case "clear-notifications":
             var socketCmd = "clear_notifications"
             if let wsFlag = optionValue(commandArgs, name: "--workspace") {
-                let wsId = try resolveWorkspaceId(wsFlag, client: client)
+                let wsId = try normalizeWorkspaceHandle(wsFlag, client: client, windowHandle: globalWindowOverride)
+                    ?? resolveWorkspaceId(wsFlag, client: client)
+                socketCmd += " --tab=\(wsId)"
+            } else if let globalWindowOverride,
+                      let wsId = try normalizeWorkspaceHandle(
+                        nil,
+                        client: client,
+                        windowHandle: globalWindowOverride,
+                        allowCurrent: true
+                      ) {
                 socketCmd += " --tab=\(wsId)"
             } else if globalWindowOverride == nil,
                       let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
@@ -4674,7 +4728,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         let workspaceRaw = optionValue(commandArgs, name: "--workspace") ?? commandArgs.first
         guard let workspaceRaw else {
@@ -4682,7 +4737,7 @@ struct CMUXCLI {
         }
 
         let windowRaw = optionValue(commandArgs, name: "--window")
-        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let windowHandle = try normalizeWindowHandle(windowRaw ?? windowOverride, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
 
         let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-workspace")
@@ -10849,7 +10904,7 @@ struct CMUXCLI {
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
     }
 
-    private func applyWindowOverrideIfUntargeted(
+    func applyWindowOverrideIfUntargeted(
         _ windowOverride: String?,
         to params: inout [String: Any],
         workspaceId: String? = nil,
@@ -10901,7 +10956,11 @@ struct CMUXCLI {
         while index < commandArgs.count {
             let arg = commandArgs[index]
             if arg == "--workspace", index + 1 < commandArgs.count {
-                let workspaceId = try resolveWorkspaceId(commandArgs[index + 1], client: client)
+                let workspaceId = try normalizeWorkspaceHandle(
+                    commandArgs[index + 1],
+                    client: client,
+                    windowHandle: windowOverride
+                ) ?? resolveWorkspaceId(commandArgs[index + 1], client: client)
                 forwardedArgs.append("--tab=\(workspaceId)")
                 resolvedExplicitWorkspace = true
                 index += 2
@@ -10909,7 +10968,11 @@ struct CMUXCLI {
             }
             if arg.hasPrefix("--workspace=") {
                 let rawWorkspace = String(arg.dropFirst("--workspace=".count))
-                let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
+                let workspaceId = try normalizeWorkspaceHandle(
+                    rawWorkspace,
+                    client: client,
+                    windowHandle: windowOverride
+                ) ?? resolveWorkspaceId(rawWorkspace, client: client)
                 forwardedArgs.append("--tab=\(workspaceId)")
                 resolvedExplicitWorkspace = true
                 index += 1
@@ -10919,10 +10982,23 @@ struct CMUXCLI {
             index += 1
         }
 
-        if !resolvedExplicitWorkspace,
-           let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
-            let workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
-            insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
+        if !resolvedExplicitWorkspace {
+            if let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
+                let workspaceId = try normalizeWorkspaceHandle(
+                    workspaceArg,
+                    client: client,
+                    windowHandle: windowOverride
+                ) ?? resolveWorkspaceId(workspaceArg, client: client)
+                insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
+            } else if windowOverride != nil,
+                      let workspaceId = try normalizeWorkspaceHandle(
+                        nil,
+                        client: client,
+                        windowHandle: windowOverride,
+                        allowCurrent: true
+                      ) {
+                insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
+            }
         }
 
         let command = ([socketCommand] + forwardedArgs)
@@ -11211,12 +11287,14 @@ struct CMUXCLI {
 
     private struct TreeCommandOptions {
         let includeAllWindows: Bool
+        let windowHandle: String?
         let workspaceHandle: String?
         let jsonOutput: Bool
     }
 
     private struct TopCommandOptions {
         let includeAllWindows: Bool
+        let windowHandle: String?
         let workspaceHandle: String?
         let jsonOutput: Bool
         let showProcesses: Bool
@@ -11237,9 +11315,10 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
-        let options = try parseTreeCommandOptions(commandArgs)
+        let options = try parseTreeCommandOptions(commandArgs, windowOverride: windowOverride)
         let payload = try buildTreePayload(options: options, client: client)
         if jsonOutput || options.jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -11249,7 +11328,7 @@ struct CMUXCLI {
         }
     }
 
-    private func parseTreeCommandOptions(_ args: [String]) throws -> TreeCommandOptions {
+    private func parseTreeCommandOptions(_ args: [String], windowOverride: String?) throws -> TreeCommandOptions {
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
         if rem0.contains("--workspace") {
             throw CLIError(message: "tree requires --workspace <id|ref|index>")
@@ -11277,16 +11356,22 @@ struct CMUXCLI {
             throw CLIError(message: "tree: unexpected argument '\(extra)'")
         }
 
-        return TreeCommandOptions(includeAllWindows: includeAll, workspaceHandle: workspaceOpt, jsonOutput: jsonOutput)
+        return TreeCommandOptions(
+            includeAllWindows: includeAll,
+            windowHandle: windowOverride,
+            workspaceHandle: workspaceOpt,
+            jsonOutput: jsonOutput
+        )
     }
 
     private func runTopCommand(
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
-        let options = try parseTopCommandOptions(commandArgs)
+        let options = try parseTopCommandOptions(commandArgs, windowOverride: windowOverride)
         let structuredOutput = jsonOutput || options.jsonOutput
         if structuredOutput, options.sortKey != nil {
             throw CLIError(message: "top: --sort is only supported for text output; use --json to sort structured data externally")
@@ -11317,7 +11402,7 @@ struct CMUXCLI {
         }
     }
 
-    private func parseTopCommandOptions(_ args: [String]) throws -> TopCommandOptions {
+    private func parseTopCommandOptions(_ args: [String], windowOverride: String?) throws -> TopCommandOptions {
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
         if rem0.contains("--workspace") {
             throw CLIError(message: "top requires --workspace <id|ref|index>")
@@ -11369,6 +11454,7 @@ struct CMUXCLI {
 
         return TopCommandOptions(
             includeAllWindows: includeAll,
+            windowHandle: windowOverride,
             workspaceHandle: workspaceOpt,
             jsonOutput: jsonOutput,
             showProcesses: showProcesses,
@@ -11416,13 +11502,16 @@ struct CMUXCLI {
             "all_windows": options.includeAllWindows,
             "include_processes": options.showProcesses
         ]
+        if let windowHandle = options.windowHandle {
+            params["window_id"] = windowHandle
+        }
         if let workspaceRaw = options.workspaceHandle {
-            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: options.windowHandle) else {
                 throw CLIError(message: "Invalid workspace handle")
             }
             params["workspace_id"] = workspaceHandle
         }
-        if let caller = treeCallerContextFromEnvironment() {
+        if options.windowHandle == nil, let caller = treeCallerContextFromEnvironment() {
             params["caller"] = caller
         }
 
@@ -11438,13 +11527,16 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> [String: Any] {
         var params: [String: Any] = ["all_windows": options.includeAllWindows]
+        if let windowHandle = options.windowHandle {
+            params["window_id"] = windowHandle
+        }
         if let workspaceRaw = options.workspaceHandle {
-            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: options.windowHandle) else {
                 throw CLIError(message: "Invalid workspace handle")
             }
             params["workspace_id"] = workspaceHandle
         }
-        if let caller = treeCallerContextFromEnvironment() {
+        if options.windowHandle == nil, let caller = treeCallerContextFromEnvironment() {
             params["caller"] = caller
         }
 
@@ -11465,6 +11557,9 @@ struct CMUXCLI {
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
+        }
+        if let windowHandle = options.windowHandle {
+            identifyParams["window_id"] = windowHandle
         }
 
         let identifyPayload = try client.sendV2(method: "system.identify", params: identifyParams)
@@ -11489,7 +11584,7 @@ struct CMUXCLI {
         let allWindows = windowsPayload["windows"] as? [[String: Any]] ?? []
 
         if let workspaceRaw = options.workspaceHandle {
-            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: options.windowHandle) else {
                 throw CLIError(message: "Invalid workspace handle")
             }
 
@@ -11515,6 +11610,8 @@ struct CMUXCLI {
         let targetWindows: [[String: Any]]
         if options.includeAllWindows {
             targetWindows = allWindows
+        } else if let windowHandle = options.windowHandle {
+            targetWindows = allWindows.filter { treeItemMatchesHandle($0, handle: windowHandle) }
         } else if let currentWindowHandle = activePath.windowHandle {
             let currentOnly = allWindows.filter { treeItemMatchesHandle($0, handle: currentWindowHandle) }
             targetWindows = currentOnly.isEmpty ? Array(allWindows.prefix(1)) : currentOnly

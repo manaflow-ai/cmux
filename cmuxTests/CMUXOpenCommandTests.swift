@@ -469,6 +469,168 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
     }
 
+    func testGlobalWindowOptionResolvesWorkspaceIndexesInsideTargetWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-ws-index")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.list":
+                guard params["window_id"] as? String == "window:2" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "missing-window", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspaces": [
+                        ["id": "workspace-uuid", "ref": "workspace:0", "index": 0]
+                    ]
+                ])
+            case "surface.split":
+                guard params["workspace_id"] as? String == "workspace:0",
+                      params["window_id"] == nil,
+                      params["direction"] as? String == "right",
+                      params["focus"] as? Bool == false else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-split", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": "workspace-uuid",
+                    "surface_id": "surface-uuid",
+                    "pane_id": "pane-uuid"
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "new-split", "--workspace", "0", "right"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["workspace.list", "surface.split"]
+        )
+    }
+
+    func testGlobalWindowOptionRoutesSurfaceIndexCommandsWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+
+        try assertGlobalWindowResolvesSurfaceIndex(
+            cliPath: cliPath,
+            name: "win-split",
+            arguments: ["--window", "window:2", "split-off", "--surface", "0", "right"],
+            expectedMethod: "surface.split_off"
+        ) { params in
+            params["surface_id"] as? String == "surface:0"
+                && params["window_id"] == nil
+                && params["direction"] as? String == "right"
+                && params["focus"] as? Bool == false
+        }
+
+        try assertGlobalWindowResolvesSurfaceIndex(
+            cliPath: cliPath,
+            name: "win-reorder",
+            arguments: ["--window", "window:2", "reorder-surface", "--surface", "0", "--index", "1"],
+            expectedMethod: "surface.reorder"
+        ) { params in
+            params["surface_id"] as? String == "surface:0"
+                && params["window_id"] == nil
+                && params["index"] as? Int == 1
+                && params["focus"] as? Bool == false
+        }
+    }
+
+    func testGlobalWindowOptionRoutesTreeTopAndLegacyStatusWithoutFocusingWindow() throws {
+        let cliPath = try bundledCLIPath()
+
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-tree",
+            arguments: ["--window", "window:2", "tree", "--json"],
+            expectedMethod: "system.tree"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+                && params["all_windows"] as? Bool == false
+                && params["caller"] == nil
+        }
+
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-top",
+            arguments: ["--window", "window:2", "top", "--json"],
+            expectedMethod: "system.top"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+                && params["all_windows"] as? Bool == false
+                && params["include_processes"] as? Bool == false
+                && params["caller"] == nil
+        }
+
+        let socketPath = makeSocketPath("win-v1")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = Self.v2Payload(from: line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                if method == "window.focus" {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+                }
+                guard method == "workspace.current",
+                      (payload["params"] as? [String: Any])?["window_id"] as? String == "window:2" else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+                }
+                return Self.v2Response(id: id, ok: true, result: ["workspace_id": "workspace-uuid"])
+            }
+            guard line == "set_status build ok --tab=workspace-uuid" else {
+                return "ERROR: unexpected \(line)"
+            }
+            return "OK"
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "set-status", "build", "ok"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(state.commands.count, 2)
+        if state.commands.count == 2 {
+            XCTAssertEqual(Self.v2Payload(from: state.commands[0])?["method"] as? String, "workspace.current")
+            XCTAssertEqual(state.commands[1], "set_status build ok --tab=workspace-uuid")
+        }
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")
@@ -862,6 +1024,73 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(
             state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
             [expectedMethod],
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertGlobalWindowResolvesSurfaceIndex(
+        cliPath: String,
+        name: String,
+        arguments: [String],
+        expectedMethod: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        paramsMatch: @escaping ([String: Any]) -> Bool
+    ) throws {
+        let socketPath = makeSocketPath(name)
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { requestLine in
+            guard let payload = Self.v2Payload(from: requestLine),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "surface.list":
+                guard params["window_id"] as? String == "window:2",
+                      params["workspace_id"] == nil else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-list", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surfaces": [
+                        ["id": "surface-uuid", "ref": "surface:0", "index": 0]
+                    ]
+                ])
+            case expectedMethod:
+                guard paramsMatch(params) else {
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-routing", "message": "\(params)"])
+                }
+                return Self.v2Response(id: id, ok: true, result: [
+                    "window_id": "window-uuid",
+                    "workspace_id": "workspace-uuid",
+                    "surface_id": "surface-uuid",
+                    "pane_id": "pane-uuid",
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+        }
+
+        let result = runCLI(cliPath: cliPath, socketPath: socketPath, arguments: arguments)
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr, file: file, line: line)
+        XCTAssertEqual(result.status, 0, result.stderr, file: file, line: line)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["surface.list", expectedMethod],
             file: file,
             line: line
         )
