@@ -327,8 +327,8 @@ public final class CmuxEventBus: @unchecked Sendable {
         eventLogWriter?.resetForTesting()
     }
 
-    func flushEventLogForTesting() {
-        eventLogWriter?.flushForTesting()
+    func flushEventLogForTesting() async {
+        await eventLogWriter?.flushForTesting()
     }
 
     func setEventLogFlushSuspendedForTesting(_ suspended: Bool) {

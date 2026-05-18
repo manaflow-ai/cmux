@@ -258,7 +258,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(event["workspace_id"] as? String, workspaceId)
     }
 
-    func testPublishAppendsDurableEventLog() throws {
+    func testPublishAppendsDurableEventLog() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-\(UUID().uuidString)", isDirectory: true)
         let logURL = directory.appendingPathComponent("events.jsonl")
@@ -266,7 +266,7 @@ final class CmuxEventBusTests: XCTestCase {
 
         bus.publish(name: "workspace.created", category: "workspace", source: "test")
         bus.publish(name: "surface.created", category: "surface", source: "test")
-        bus.flushEventLogForTesting()
+        await bus.flushEventLogForTesting()
 
         let lines = try String(contentsOf: logURL, encoding: .utf8)
             .split(separator: "\n")
@@ -278,7 +278,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(second["name"] as? String, "surface.created")
     }
 
-    func testDurableEventLogDropsOldestPendingLinesUnderBackpressure() throws {
+    func testDurableEventLogDropsOldestPendingLinesUnderBackpressure() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-backpressure-\(UUID().uuidString)", isDirectory: true)
         let logURL = directory.appendingPathComponent("events.jsonl")
@@ -289,11 +289,6 @@ final class CmuxEventBusTests: XCTestCase {
         )
 
         bus.setEventLogFlushSuspendedForTesting(true)
-        defer {
-            bus.setEventLogFlushSuspendedForTesting(false)
-            bus.flushEventLogForTesting()
-        }
-
         for index in 0..<5 {
             bus.publish(
                 name: "agent.log",
@@ -308,7 +303,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(backlog.dropped, 3)
 
         bus.setEventLogFlushSuspendedForTesting(false)
-        bus.flushEventLogForTesting()
+        await bus.flushEventLogForTesting()
 
         let lines = try String(contentsOf: logURL, encoding: .utf8)
             .split(separator: "\n")
@@ -322,7 +317,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(indexes, [3, 4])
     }
 
-    func testDurableEventLogRotatesAtByteLimit() throws {
+    func testDurableEventLogRotatesAtByteLimit() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-rotation-\(UUID().uuidString)", isDirectory: true)
         let logURL = directory.appendingPathComponent("events.jsonl")
@@ -341,7 +336,7 @@ final class CmuxEventBusTests: XCTestCase {
                 payload: ["index": index, "message": String(repeating: "x", count: 120)]
             )
         }
-        bus.flushEventLogForTesting()
+        await bus.flushEventLogForTesting()
 
         let rotatedURL = logURL.appendingPathExtension("1")
         XCTAssertTrue(FileManager.default.fileExists(atPath: logURL.path))
