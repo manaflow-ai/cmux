@@ -229,6 +229,7 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
+            workspaceSessionRootDirectory: workspaceSessionRootDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
             panels: panelSnapshots,
@@ -263,6 +264,10 @@ extension Workspace {
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
+        }
+        let normalizedSessionRootDirectory = snapshot.workspaceSessionRootDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedSessionRootDirectory.isEmpty {
+            workspaceSessionRootDirectory = normalizedSessionRootDirectory
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
@@ -7172,6 +7177,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
+    var workspaceSessionRootDirectory: String?
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
 
@@ -7782,6 +7788,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.currentDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.workspaceSessionRootDirectory = hasWorkingDirectory ? trimmedWorkingDirectory : nil
         self.surfaceTabBarDirectory = initialDirectory
 
         // Configure bonsplit with keepAllAlive to preserve terminal state

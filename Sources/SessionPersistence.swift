@@ -349,6 +349,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var hasUnreadIndicator: Bool? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
+    var workspaceSessionRootDirectory: String? = nil
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
     var panels: [SessionPanelSnapshot]
@@ -377,14 +378,14 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
-nonisolated struct WorkspaceSessionSnapshotEnvelope: Codable, Sendable {
+struct WorkspaceSessionSnapshotEnvelope: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var workingDirectory: String
     var workspace: SessionWorkspaceSnapshot
 }
 
-nonisolated enum SessionSnapshotWriteResult: Equatable, Sendable {
+enum SessionSnapshotWriteResult: Equatable, Sendable {
     case written
     case unchanged
     case failed
@@ -518,7 +519,7 @@ enum SessionPersistenceStore {
             return false
         }
         var canonicalSnapshot = snapshot
-        canonicalSnapshot.currentDirectory = canonicalDirectory
+        canonicalSnapshot.workspaceSessionRootDirectory = canonicalDirectory
         let directory = fileURL.deletingLastPathComponent()
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
@@ -559,9 +560,10 @@ enum SessionPersistenceStore {
     ) {
         for window in snapshot.windows {
             for workspace in window.tabManager.workspaces {
+                let keyDirectory = workspace.workspaceSessionRootDirectory ?? workspace.currentDirectory
                 _ = saveWorkspaceSnapshot(
                     workspace,
-                    workingDirectory: workspace.currentDirectory,
+                    workingDirectory: keyDirectory,
                     bundleIdentifier: bundleIdentifier,
                     appSupportDirectory: appSupportDirectory,
                     fileManager: fileManager

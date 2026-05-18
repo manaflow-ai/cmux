@@ -222,7 +222,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testWorkspaceSessionSaveCanonicalizesSnapshotWorkingDirectoryToKey() throws {
+    func testWorkspaceSessionSavePreservesLiveDirectoryWhileCanonicalizingKey() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
         let workspaceDirectory = FileManager.default.temporaryDirectory
@@ -258,7 +258,44 @@ final class SessionPersistenceTests: XCTestCase {
             )
         )
         XCTAssertEqual(loaded.customTitle, "Canonicalized Workspace")
-        XCTAssertEqual(loaded.currentDirectory, workspaceDirectory.path)
+        XCTAssertEqual(loaded.currentDirectory, "/tmp")
+        XCTAssertEqual(loaded.workspaceSessionRootDirectory, workspaceDirectory.path)
+    }
+
+    func testWorkspaceSessionBatchSaveUsesStableRootDirectoryKey() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        let liveDirectory = workspaceDirectory.appendingPathComponent("src", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: liveDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].currentDirectory = liveDirectory.path
+        snapshot.windows[0].tabManager.workspaces[0].workspaceSessionRootDirectory = workspaceDirectory.path
+        snapshot.windows[0].tabManager.workspaces[0].customTitle = "Stable Root Workspace"
+
+        SessionPersistenceStore.saveWorkspaceSnapshots(
+            from: snapshot,
+            bundleIdentifier: "dev.cmux.tests",
+            appSupportDirectory: appSupport
+        )
+
+        let loaded = try XCTUnwrap(
+            SessionPersistenceStore.loadWorkspaceSnapshot(
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        XCTAssertEqual(loaded.customTitle, "Stable Root Workspace")
+        XCTAssertEqual(loaded.currentDirectory, liveDirectory.path)
+        XCTAssertEqual(loaded.workspaceSessionRootDirectory, workspaceDirectory.path)
     }
 
     func testWorkspaceSessionSaveSkipsRewritingIdenticalSnapshotData() throws {
