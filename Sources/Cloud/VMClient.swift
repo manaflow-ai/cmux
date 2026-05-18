@@ -132,11 +132,13 @@ private func cloudVMDetails(from object: [String: Any]) -> [String] {
         "code",
         "duration",
         "durationMs",
+        "exitCode",
         "field",
         "idempotencyKeySet",
         "imageRequested",
         "limit",
         "operation",
+        "phase",
         "retryable",
         "status",
         "type",
@@ -221,6 +223,30 @@ struct VMExecResult {
     let exitCode: Int
     let stdout: String
     let stderr: String
+}
+
+struct CloudActionPort {
+    let name: String
+    let port: Int
+    let url: String
+}
+
+struct CloudActionCache {
+    let hit: Bool
+}
+
+struct CloudActionRunResult {
+    let action: String
+    let title: String
+    let ref: String
+    let mode: String
+    let dryRun: Bool
+    let vmId: String?
+    let cache: CloudActionCache
+    let setupRan: Bool
+    let started: Bool
+    let ports: [CloudActionPort]
+    let instructions: [String]
 }
 
 /// Short-lived SSH endpoint the backend mints on demand. Mac client dials this with the
@@ -407,6 +433,35 @@ actor VMClient {
         return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
     }
 
+    func runAction(
+        action: String,
+        ref: String?,
+        mode: String?,
+        dryRun: Bool,
+        keep: Bool,
+        noCache: Bool,
+        idempotencyKey: String?
+    ) async throws -> CloudActionRunResult {
+        var body: [String: Any] = [
+            "action": action,
+            "dryRun": dryRun,
+            "keep": keep,
+            "noCache": noCache,
+        ]
+        if let ref { body["ref"] = ref }
+        if let mode { body["mode"] = mode }
+        if let idempotencyKey { body["idempotencyKey"] = idempotencyKey }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/actions/run",
+            jsonBody: body,
+            timeoutSeconds: dryRun ? 30 : Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        return try decodeActionRunResult(obj)
+    }
+
     // MARK: - HTTP
 
     private func request(
@@ -541,6 +596,41 @@ actor VMClient {
             username: username,
             credential: credential,
             publicKeyFingerprint: obj["publicKeyFingerprint"] as? String
+        )
+    }
+
+    private func decodeActionRunResult(_ obj: [String: Any]) throws -> CloudActionRunResult {
+        guard let action = obj["action"] as? String,
+              let title = obj["title"] as? String,
+              let ref = obj["ref"] as? String,
+              let mode = obj["mode"] as? String,
+              let dryRun = obj["dryRun"] as? Bool,
+              let cacheObject = obj["cache"] as? [String: Any],
+              let cacheHit = cacheObject["hit"] as? Bool,
+              let setupRan = obj["setupRan"] as? Bool,
+              let started = obj["started"] as? Bool else {
+            throw VMClientError.malformedResponse("Cloud action response was missing required fields.")
+        }
+        let ports = try ((obj["ports"] as? [[String: Any]]) ?? []).map { rawPort in
+            guard let name = rawPort["name"] as? String,
+                  let port = rawPort["port"] as? Int,
+                  let url = rawPort["url"] as? String else {
+                throw VMClientError.malformedResponse("Cloud action response included an invalid port.")
+            }
+            return CloudActionPort(name: name, port: port, url: url)
+        }
+        return CloudActionRunResult(
+            action: action,
+            title: title,
+            ref: ref,
+            mode: mode,
+            dryRun: dryRun,
+            vmId: obj["vmId"] as? String,
+            cache: CloudActionCache(hit: cacheHit),
+            setupRan: setupRan,
+            started: started,
+            ports: ports,
+            instructions: obj["instructions"] as? [String] ?? []
         )
     }
 

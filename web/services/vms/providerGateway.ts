@@ -24,6 +24,11 @@ export type VmProviderGatewayShape = {
     command: string,
     options?: { timeoutMs?: number },
   ) => Effect.Effect<ExecResult, VmProviderOperationError>;
+  readonly snapshot?: (
+    provider: ProviderId,
+    vmId: string,
+    name?: string,
+  ) => Effect.Effect<{ readonly id: string; readonly createdAt: number; readonly name?: string }, VmProviderOperationError>;
   readonly openAttach: (
     provider: ProviderId,
     vmId: string,
@@ -65,6 +70,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  snapshot: (provider, vmId, name) =>
+    providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
   openSSH: (provider, vmId) =>

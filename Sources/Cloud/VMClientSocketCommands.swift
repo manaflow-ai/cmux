@@ -7,6 +7,33 @@ extension TerminalController {
         params: [String: Any]
     ) -> String {
         switch method {
+        case "actions.run":
+            guard let action = Self.socketWorkerString(params["action"]), !action.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "actions.run requires `action`. Try `cmux actions run hexclave/stack-auth:fresh-env`.")
+            }
+            let ref = Self.socketWorkerString(params["ref"])
+            let mode = Self.socketWorkerString(params["mode"])
+            let dryRun = Self.socketWorkerBool(params["dry_run"])
+                ?? Self.socketWorkerBool(params["dryRun"])
+                ?? false
+            let keep = Self.socketWorkerBool(params["keep"]) ?? false
+            let noCache = Self.socketWorkerBool(params["no_cache"])
+                ?? Self.socketWorkerBool(params["noCache"])
+                ?? false
+            let idempotencyKey = Self.socketWorkerString(params["idempotency_key"])
+                ?? Self.socketWorkerString(params["idempotencyKey"])
+            return v2VmCall(id: id, timeoutSeconds: dryRun ? 30 : 16 * 60) {
+                let result = try await VMClient.shared.runAction(
+                    action: action,
+                    ref: ref,
+                    mode: mode,
+                    dryRun: dryRun,
+                    keep: keep,
+                    noCache: noCache,
+                    idempotencyKey: idempotencyKey
+                )
+                return Self.socketWorkerActionRunPayload(result)
+            }
         case "vm.list":
             return v2VmCall(id: id) {
                 let items = try await VMClient.shared.list()
@@ -71,6 +98,27 @@ extension TerminalController {
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
+    }
+
+    private nonisolated static func socketWorkerActionRunPayload(_ result: CloudActionRunResult) -> [String: Any] {
+        var payload: [String: Any] = [
+            "action": result.action,
+            "title": result.title,
+            "ref": result.ref,
+            "mode": result.mode,
+            "dry_run": result.dryRun,
+            "cache": [
+                "hit": result.cache.hit,
+            ],
+            "setup_ran": result.setupRan,
+            "started": result.started,
+            "ports": result.ports.map { ["name": $0.name, "port": $0.port, "url": $0.url] as [String: Any] },
+            "instructions": result.instructions,
+        ]
+        if let vmId = result.vmId {
+            payload["vm_id"] = vmId
+        }
+        return payload
     }
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {

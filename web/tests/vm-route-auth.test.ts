@@ -1,4 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import * as Effect from "effect/Effect";
+import {
+  VmNotFoundError as WorkflowVmNotFoundError,
+  VmProviderOperationError as WorkflowVmProviderOperationError,
+} from "../services/vms/errors";
+import { VmProviderGateway } from "../services/vms/providerGateway";
+import { VmRepository } from "../services/vms/repository";
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -8,6 +15,39 @@ const createVm = mock(() => ({ workflow: "create" }));
 const listUserVms = mock(() => ({ workflow: "list" }));
 const destroyVm = mock(() => ({ workflow: "destroy" }));
 const execVm = mock(() => ({ workflow: "exec" }));
+const snapshotVm = mock((rawInput: unknown) => {
+  const input = rawInput as { readonly userId: string; readonly providerVmId: string; readonly name?: string };
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* repo.findUserVm({
+      userId: input.userId,
+      providerVmId: input.providerVmId,
+    });
+    if (!vm) {
+      return yield* Effect.fail(new WorkflowVmNotFoundError({ vmId: input.providerVmId }));
+    }
+    if (!providers.snapshot) {
+      return yield* Effect.fail(new WorkflowVmProviderOperationError({
+        provider: vm.provider,
+        operation: "snapshot",
+        cause: new Error("Cloud VM image snapshots are not available in this environment."),
+      }));
+    }
+    const snapshot = yield* providers.snapshot(vm.provider, input.providerVmId, input.name);
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.snapshot.created",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { named: !!input.name },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return snapshot;
+  });
+});
 const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
 const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
 const VM_ENV_KEYS = [
@@ -41,6 +81,7 @@ mock.module("../services/vms/workflows", () => ({
   openAttachEndpoint,
   openSshEndpoint,
   runVmWorkflow,
+  snapshotVm,
 }));
 
 const { GET, POST } = await import("../app/api/vm/route");
@@ -59,6 +100,7 @@ beforeEach(() => {
   createVm.mockClear();
   destroyVm.mockClear();
   execVm.mockClear();
+  snapshotVm.mockClear();
   listUserVms.mockClear();
   openAttachEndpoint.mockClear();
   openSshEndpoint.mockClear();

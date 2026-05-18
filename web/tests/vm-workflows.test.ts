@@ -30,6 +30,7 @@ import {
   execVm,
   openAttachEndpoint,
   openSshEndpoint,
+  snapshotVm,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -67,6 +68,73 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("snapshots only VMs owned by the user", async () => {
+    const vm = testCloudVmRow({
+      userId: "user-workflow-snapshot",
+      billingTeamId: "team-workflow-snapshot",
+      providerVmId: "provider-vm-snapshot",
+      status: "running",
+    });
+    let snapshotCalls = 0;
+    let usageEvents = 0;
+    const repo: VmRepositoryShape = {
+      listUserVms: () => Effect.succeed([]),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      beginCreate: () => Effect.fail(new Error("unused") as never),
+      activeLimitCandidates: () => Effect.succeed([]),
+      markProviderObservedStatus: () => Effect.succeed(false),
+      markCreateRunning: () => Effect.fail(new Error("unused") as never),
+      markCreateFailed: () => Effect.void,
+      findUserVm: ({ userId, providerVmId }) =>
+        Effect.succeed(userId === vm.userId && providerVmId === vm.providerVmId ? vm : null),
+      markDestroyed: () => Effect.void,
+      recordLease: () => Effect.void,
+      activeIdentityLeases: () => Effect.succeed([]),
+      markLeasesRevoked: () => Effect.void,
+      recordUsageEvent: () => {
+        usageEvents += 1;
+        return Effect.void;
+      },
+      recordUsageEvents: () => Effect.void,
+    };
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      snapshot: (_provider, vmId, name) =>
+        Effect.sync(() => {
+          snapshotCalls += 1;
+          expect(vmId).toBe("provider-vm-snapshot");
+          expect(name).toBe("cache-name");
+          return { id: "snapshot-id", name, createdAt: 1_777_000_000_000 };
+        }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+
+    const snapshot = await Effect.runPromise(
+      snapshotVm({ userId: vm.userId, providerVmId: "provider-vm-snapshot", name: "cache-name" })
+        .pipe(Effect.provide(layer)),
+    );
+    const attackerError = await Effect.runPromise(
+      snapshotVm({ userId: "attacker", providerVmId: "provider-vm-snapshot", name: "cache-name" })
+        .pipe(Effect.flip, Effect.provide(layer)),
+    );
+
+    expect(snapshot.id).toBe("snapshot-id");
+    expect(attackerError).toBeInstanceOf(VmNotFoundError);
+    expect(snapshotCalls).toBe(1);
+    expect(usageEvents).toBe(1);
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",
