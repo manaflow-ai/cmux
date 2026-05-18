@@ -10,6 +10,11 @@ extension CMUXCLI {
         var cursorFile: String?
         var names: [String] = []
         var categories: [String] = []
+        var scope: String?
+        var window: String?
+        var workspace: String?
+        var surface: String?
+        var pane: String?
         var reconnect = false
         var limit: Int?
         var printAck = true
@@ -51,6 +56,12 @@ extension CMUXCLI {
                 if !options.categories.isEmpty {
                     params["categories"] = options.categories
                 }
+                try applyEventScopeOptions(
+                    options: options,
+                    params: &params,
+                    socketPath: socketPath,
+                    explicitPassword: explicitPassword
+                )
 
                 try client.streamV2(method: "events.stream", params: params) { line in
                     guard !line.isEmpty else { return }
@@ -170,6 +181,18 @@ extension CMUXCLI {
                 options.names.append(try requireValue())
             case "--category":
                 options.categories.append(try requireValue())
+            case "--scope":
+                options.scope = try canonicalEventScope(try requireValue())
+            case "--global":
+                options.scope = "global"
+            case "--window":
+                options.window = try requireValue()
+            case "--workspace":
+                options.workspace = try requireValue()
+            case "--surface", "--tab", "--panel":
+                options.surface = try requireValue()
+            case "--pane":
+                options.pane = try requireValue()
             case "--reconnect":
                 options.reconnect = true
             case "--limit":
@@ -188,6 +211,129 @@ extension CMUXCLI {
             index += 1
         }
         return options
+    }
+
+    private func applyEventScopeOptions(
+        options: EventsCommandOptions,
+        params: inout [String: Any],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        let effectiveScope = try effectiveEventScope(options)
+        let hasSelector = options.window != nil || options.workspace != nil ||
+            options.surface != nil || options.pane != nil
+        if effectiveScope == "global", hasSelector {
+            throw CLIError(message: "--scope global cannot be combined with --window, --workspace, --surface, or --pane")
+        }
+        params["scope"] = effectiveScope
+
+        if let caller = eventCallerContextFromEnvironment() {
+            params["caller"] = caller
+        }
+
+        guard hasSelector else {
+            return
+        }
+
+        let resolver = SocketClient(path: socketPath)
+        do {
+            try resolver.connect()
+            try authenticateClientIfNeeded(
+                resolver,
+                explicitPassword: explicitPassword,
+                socketPath: socketPath
+            )
+
+            let windowHandle = try normalizeWindowHandle(options.window, client: resolver)
+            if let windowHandle {
+                params["window_id"] = windowHandle
+            }
+
+            let workspaceHandle = try normalizeWorkspaceHandle(
+                options.workspace,
+                client: resolver,
+                windowHandle: windowHandle
+            )
+            if let workspaceHandle {
+                params["workspace_id"] = workspaceHandle
+            }
+
+            let surfaceHandle = try normalizeSurfaceHandle(
+                options.surface,
+                client: resolver,
+                workspaceHandle: workspaceHandle
+            )
+            if let surfaceHandle {
+                params["surface_id"] = surfaceHandle
+            }
+
+            let paneHandle = try normalizePaneHandle(
+                options.pane,
+                client: resolver,
+                workspaceHandle: workspaceHandle
+            )
+            if let paneHandle {
+                params["pane_id"] = paneHandle
+            }
+            resolver.close()
+        } catch {
+            resolver.close()
+            throw error
+        }
+    }
+
+    private func effectiveEventScope(_ options: EventsCommandOptions) throws -> String {
+        if let scope = options.scope {
+            return scope
+        }
+        if options.pane != nil { return "pane" }
+        if options.surface != nil { return "surface" }
+        if options.workspace != nil { return "workspace" }
+        if options.window != nil { return "window" }
+        return "global"
+    }
+
+    private func canonicalEventScope(_ raw: String) throws -> String {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-") {
+        case "global", "all":
+            return "global"
+        case "window", "current-window":
+            return "window"
+        case "workspace", "tab":
+            return "workspace"
+        case "surface", "panel":
+            return "surface"
+        case "pane":
+            return "pane"
+        default:
+            throw CLIError(message: "Unknown events scope: \(raw)")
+        }
+    }
+
+    private func eventCallerContextFromEnvironment() -> [String: Any]? {
+        let environment = ProcessInfo.processInfo.environment
+        var caller: [String: Any] = [:]
+        if let workspaceId = normalizedEventEnvironmentValue(environment["CMUX_WORKSPACE_ID"]) {
+            caller["workspace_id"] = workspaceId
+        }
+        if let surfaceId = normalizedEventEnvironmentValue(environment["CMUX_SURFACE_ID"]) {
+            caller["surface_id"] = surfaceId
+            caller["tab_id"] = surfaceId
+        }
+        if let paneId = normalizedEventEnvironmentValue(environment["CMUX_PANE_ID"]) {
+            caller["pane_id"] = paneId
+        }
+        return caller.isEmpty ? nil : caller
+    }
+
+    private func normalizedEventEnvironmentValue(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private func parseEventStreamFrame(_ line: String) throws -> [String: Any] {

@@ -36,9 +36,14 @@ private enum CmuxSelectionEventState {
 }
 
 extension TabManager {
+    private var cmuxEventWindowId: UUID? {
+        AppDelegate.shared?.windowId(for: self)
+    }
+
     func publishCmuxWorkspaceCreated(_ workspace: Workspace, selected: Bool) {
         CmuxEventBus.shared.publishWorkspaceCreated(
             workspaceId: workspace.id,
+            windowId: cmuxEventWindowId,
             title: workspace.cmuxEventWorkspaceTitle,
             customTitle: workspace.customTitle,
             currentDirectory: workspace.currentDirectory,
@@ -62,6 +67,7 @@ extension TabManager {
     func publishCmuxWorkspaceClosed(_ workspace: Workspace) {
         CmuxEventBus.shared.publishWorkspaceClosed(
             workspaceId: workspace.id,
+            windowId: cmuxEventWindowId,
             title: workspace.cmuxEventWorkspaceTitle,
             customTitle: workspace.customTitle,
             currentDirectory: workspace.currentDirectory,
@@ -73,6 +79,7 @@ extension TabManager {
     func publishCmuxWorkspaceSelected(_ workspace: Workspace) {
         CmuxEventBus.shared.publishWorkspaceSelected(
             workspaceId: workspace.id,
+            windowId: cmuxEventWindowId,
             title: workspace.cmuxEventWorkspaceTitle,
             customTitle: workspace.customTitle,
             currentDirectory: workspace.currentDirectory,
@@ -87,6 +94,7 @@ extension TabManager {
               let workspace = tabs.first(where: { $0.id == selectedTabId }) else { return }
         CmuxEventBus.shared.publishWorkspaceSelected(
             workspaceId: workspace.id,
+            windowId: cmuxEventWindowId,
             title: workspace.cmuxEventWorkspaceTitle,
             customTitle: workspace.customTitle,
             currentDirectory: workspace.currentDirectory,
@@ -102,6 +110,11 @@ extension Workspace {
         customTitle ?? title
     }
 
+    private var cmuxEventWindowId: UUID? {
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: id) else { return nil }
+        return AppDelegate.shared?.windowId(for: tabManager)
+    }
+
     func publishCmuxSplitCreated(
         _ paneId: PaneID,
         sourcePaneId: PaneID?,
@@ -113,6 +126,7 @@ extension Workspace {
     ) {
         CmuxEventBus.shared.publishPaneCreated(
             workspaceId: id,
+            windowId: cmuxEventWindowId,
             paneId: paneId.id,
             sourcePaneId: sourcePaneId?.id,
             orientation: orientation.rawValue,
@@ -133,6 +147,7 @@ extension Workspace {
     ) {
         CmuxEventBus.shared.publishSurfaceCreated(
             workspaceId: id,
+            windowId: cmuxEventWindowId,
             surfaceId: surfaceId,
             paneId: paneId?.id,
             kind: kind,
@@ -144,6 +159,7 @@ extension Workspace {
     func publishCmuxSurfaceClosed(_ surfaceId: UUID, paneId: PaneID?, panel: (any Panel)?, origin: String) {
         CmuxEventBus.shared.publishSurfaceClosed(
             workspaceId: id,
+            windowId: cmuxEventWindowId,
             surfaceId: surfaceId,
             paneId: paneId?.id,
             kind: panel.map(Self.cmuxEventSurfaceKind),
@@ -155,6 +171,7 @@ extension Workspace {
     func publishCmuxPaneClosed(_ paneId: PaneID, closedPanelIds: [UUID], origin: String) {
         CmuxEventBus.shared.publishPaneClosed(
             workspaceId: id,
+            windowId: cmuxEventWindowId,
             paneId: paneId.id,
             closedSurfaceIds: closedPanelIds,
             origin: origin
@@ -171,6 +188,7 @@ extension Workspace {
             CmuxSelectionEventState.selectedSurfaceByWorkspacePane[paneKey] = surfaceId
             CmuxEventBus.shared.publishSurfaceSelected(
                 workspaceId: id,
+                windowId: cmuxEventWindowId,
                 surfaceId: surfaceId,
                 paneId: paneId.id,
                 kind: kind,
@@ -184,6 +202,7 @@ extension Workspace {
             CmuxSelectionEventState.focusedPaneByWorkspace[id] = paneId.id
             CmuxEventBus.shared.publishPaneFocused(
                 workspaceId: id,
+                windowId: cmuxEventWindowId,
                 paneId: paneId.id,
                 selectedSurfaceId: surfaceId,
                 origin: origin
@@ -194,6 +213,7 @@ extension Workspace {
             CmuxSelectionEventState.focusedSurfaceByWorkspace[id] = surfaceId
             CmuxEventBus.shared.publishSurfaceFocused(
                 workspaceId: id,
+                windowId: cmuxEventWindowId,
                 surfaceId: surfaceId,
                 paneId: paneId.id,
                 kind: kind,

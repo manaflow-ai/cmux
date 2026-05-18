@@ -6,11 +6,126 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
+struct CmuxEventScope: Equatable {
+    enum Kind: String {
+        case global
+        case window
+        case workspace
+        case surface
+        case pane
+    }
+
+    let kind: Kind
+    let windowId: String?
+    let workspaceId: String?
+    let surfaceId: String?
+    let paneId: String?
+    let windowWorkspaceIds: Set<String>
+
+    static let global = CmuxEventScope(kind: .global)
+
+    init(
+        kind: Kind,
+        windowId: String? = nil,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        paneId: String? = nil,
+        windowWorkspaceIds: Set<String> = []
+    ) {
+        self.kind = kind
+        self.windowId = Self.normalizedId(windowId)
+        self.workspaceId = Self.normalizedId(workspaceId)
+        self.surfaceId = Self.normalizedId(surfaceId)
+        self.paneId = Self.normalizedId(paneId)
+        self.windowWorkspaceIds = Set(windowWorkspaceIds.compactMap(Self.normalizedId))
+    }
+
+    func accepts(_ event: [String: Any]) -> Bool {
+        switch kind {
+        case .global:
+            return true
+        case .window:
+            guard let windowId else { return false }
+            if Self.stringValue(event["window_id"]) == windowId { return true }
+            if let workspaceId = Self.stringValue(event["workspace_id"]),
+               windowWorkspaceIds.contains(workspaceId) {
+                return true
+            }
+            return Self.payloadString(event, key: "window_id") == windowId
+        case .workspace:
+            guard let workspaceId else { return false }
+            return Self.stringValue(event["workspace_id"]) == workspaceId ||
+                Self.payloadString(event, key: "workspace_id") == workspaceId ||
+                Self.payloadString(event, key: "previous_workspace_id") == workspaceId ||
+                Self.payloadString(event, key: "source_workspace_id") == workspaceId ||
+                Self.payloadString(event, key: "destination_workspace_id") == workspaceId ||
+                Self.payloadString(event, key: "created_workspace_id") == workspaceId
+        case .surface:
+            guard let surfaceId else { return false }
+            return Self.stringValue(event["surface_id"]) == surfaceId ||
+                Self.payloadString(event, key: "surface_id") == surfaceId ||
+                Self.payloadString(event, key: "selected_surface_id") == surfaceId ||
+                Self.payloadString(event, key: "previous_surface_id") == surfaceId ||
+                Self.payloadStringArray(event, key: "closed_surface_ids").contains(surfaceId)
+        case .pane:
+            guard let paneId else { return false }
+            return Self.stringValue(event["pane_id"]) == paneId ||
+                Self.payloadString(event, key: "pane_id") == paneId ||
+                Self.payloadString(event, key: "source_pane_id") == paneId ||
+                Self.payloadString(event, key: "target_pane_id") == paneId
+        }
+    }
+
+    var ackPayload: [String: Any] {
+        var payload: [String: Any] = ["kind": kind.rawValue]
+        if let windowId { payload["window_id"] = windowId }
+        if let workspaceId { payload["workspace_id"] = workspaceId }
+        if let surfaceId { payload["surface_id"] = surfaceId }
+        if let paneId { payload["pane_id"] = paneId }
+        if kind == .window {
+            payload["workspace_ids"] = Array(windowWorkspaceIds).sorted()
+        }
+        return payload
+    }
+
+    private static func normalizedId(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String {
+            return normalizedId(string)
+        }
+        return nil
+    }
+
+    private static func payloadString(_ event: [String: Any], key: String) -> String? {
+        guard let payload = event["payload"] as? [String: Any] else { return nil }
+        return stringValue(payload[key])
+    }
+
+    private static func payloadStringArray(_ event: [String: Any], key: String) -> [String] {
+        guard let payload = event["payload"] as? [String: Any] else { return [] }
+        if let values = payload[key] as? [String] {
+            return values.compactMap(normalizedId)
+        }
+        if let values = payload[key] as? [Any] {
+            return values.compactMap { stringValue($0) }
+        }
+        return []
+    }
+}
+
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
+    let scope: CmuxEventScope
     let maxPendingEvents: Int
 
     private let lock = NSLock()
@@ -19,10 +134,17 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private var closed = false
     private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+    init(
+        id: UUID = UUID(),
+        names: Set<String>,
+        categories: Set<String>,
+        scope: CmuxEventScope,
+        maxPendingEvents: Int
+    ) {
         self.id = id
         self.names = names
         self.categories = categories
+        self.scope = scope
         self.maxPendingEvents = max(1, maxPendingEvents)
     }
 
@@ -33,7 +155,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
         }
-        return true
+        return scope.accepts(event)
     }
 
     var isClosed: Bool {
@@ -217,11 +339,13 @@ final class CmuxEventBus: @unchecked Sendable {
     func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
-        categories: Set<String>
+        categories: Set<String>,
+        scope: CmuxEventScope = .global
     ) -> CmuxEventSubscriptionSnapshot {
         let subscription = CmuxEventSubscription(
             names: names,
             categories: categories,
+            scope: scope,
             maxPendingEvents: maxPendingEventsPerSubscription
         )
 
@@ -270,7 +394,8 @@ final class CmuxEventBus: @unchecked Sendable {
             "resume": resume,
             "filters": [
                 "names": Array(names).sorted(),
-                "categories": Array(categories).sorted()
+                "categories": Array(categories).sorted(),
+                "scope": scope.ackPayload
             ]
         ]
 

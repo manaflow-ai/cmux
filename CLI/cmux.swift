@@ -9029,6 +9029,12 @@ struct CMUXCLI {
               --cursor-file <path>   Read the starting sequence from a file and update it after each event
               --name <event>         Filter by event name, repeatable
               --category <name>      Filter by category, repeatable
+              --scope <scope>        Scope events: global, window, workspace, surface, or pane (default: global)
+              --window <id|ref|idx>  Scope to a window
+              --workspace <id|ref|idx>
+                                      Scope to a workspace
+              --surface <id|ref|idx> Scope to a surface
+              --pane <id|ref|idx>    Scope to a pane
               --reconnect            Reconnect forever and resume from the last received sequence
               --limit <n>            Exit after printing n event frames
               --no-ack               Do not print the subscription ack frame
@@ -9036,6 +9042,8 @@ struct CMUXCLI {
 
             Examples:
               cmux events --category notification
+              cmux events --scope window
+              cmux events --workspace workspace:1
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
             """
@@ -24095,7 +24103,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           ping
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--scope <scope>] [--window <id|ref|index>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)

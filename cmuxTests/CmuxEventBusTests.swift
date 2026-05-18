@@ -76,6 +76,136 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testSubscriptionFiltersReplayAndLiveEventsByWindowScope() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        bus.publish(
+            name: "workspace.created",
+            category: "workspace",
+            source: "test",
+            workspaceId: "workspace-a",
+            windowId: "window-a"
+        )
+        bus.publish(
+            name: "workspace.created",
+            category: "workspace",
+            source: "test",
+            workspaceId: "workspace-b",
+            windowId: "window-b"
+        )
+
+        let snapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .window, windowId: "window-a")
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        XCTAssertEqual(snapshot.replay.compactMap { $0["workspace_id"] as? String }, ["workspace-a"])
+        let filters = try XCTUnwrap(snapshot.ack["filters"] as? [String: Any])
+        let scope = try XCTUnwrap(filters["scope"] as? [String: Any])
+        XCTAssertEqual(scope["kind"] as? String, "window")
+        XCTAssertEqual(scope["window_id"] as? String, "window-a")
+
+        bus.publish(
+            name: "surface.created",
+            category: "surface",
+            source: "test",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            windowId: "window-a"
+        )
+        bus.publish(
+            name: "surface.created",
+            category: "surface",
+            source: "test",
+            workspaceId: "workspace-b",
+            surfaceId: "surface-b",
+            windowId: "window-b"
+        )
+
+        let event = snapshot.subscription.next(timeout: 0.2)
+        XCTAssertEqual(event?["surface_id"] as? String, "surface-a")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
+    func testWindowScopeCanFallbackToKnownWorkspaceIds() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        bus.publish(
+            name: "notification.created",
+            category: "notification",
+            source: "test",
+            workspaceId: "workspace-a"
+        )
+        bus.publish(
+            name: "notification.created",
+            category: "notification",
+            source: "test",
+            workspaceId: "workspace-b"
+        )
+
+        let snapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: "window-a",
+                windowWorkspaceIds: ["workspace-a"]
+            )
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        XCTAssertEqual(snapshot.replay.compactMap { $0["workspace_id"] as? String }, ["workspace-a"])
+    }
+
+    func testSubscriptionFiltersByWorkspaceSurfaceAndPaneScopes() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        bus.publish(
+            name: "pane.focused",
+            category: "pane",
+            source: "test",
+            workspaceId: "workspace-a",
+            surfaceId: "surface-a",
+            paneId: "pane-a"
+        )
+        bus.publish(
+            name: "pane.focused",
+            category: "pane",
+            source: "test",
+            workspaceId: "workspace-b",
+            surfaceId: "surface-b",
+            paneId: "pane-b"
+        )
+
+        let workspaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .workspace, workspaceId: "workspace-a")
+        )
+        defer { bus.unsubscribe(workspaceSnapshot.subscription) }
+        XCTAssertEqual(workspaceSnapshot.replay.compactMap { $0["workspace_id"] as? String }, ["workspace-a"])
+
+        let surfaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: "surface-a")
+        )
+        defer { bus.unsubscribe(surfaceSnapshot.subscription) }
+        XCTAssertEqual(surfaceSnapshot.replay.compactMap { $0["surface_id"] as? String }, ["surface-a"])
+
+        let paneSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .pane, paneId: "pane-a")
+        )
+        defer { bus.unsubscribe(paneSnapshot.subscription) }
+        XCTAssertEqual(paneSnapshot.replay.compactMap { $0["pane_id"] as? String }, ["pane-a"])
+    }
+
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
         let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])

@@ -341,6 +341,11 @@ Events command:
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
+| `--scope <scope>` | Scope events to `global`, `window`, `workspace`, `surface`, or `pane`. Defaults to `global`. |
+| `--window <id\|ref\|index>` | Scope to a window. Implies `--scope window` unless `--scope` is set. |
+| `--workspace <id\|ref\|index>` | Scope to a workspace. Implies `--scope workspace` unless `--scope` is set. |
+| `--surface <id\|ref\|index>` | Scope to a surface. Implies `--scope surface` unless `--scope` is set. |
+| `--pane <id\|ref\|index>` | Scope to a pane. Implies `--scope pane` unless `--scope` is set. |
 | `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
 | `--limit <n>` | Exit after printing `n` event frames. |
 | `--no-ack` | Suppress the initial ack frame in stdout. |
@@ -348,7 +353,8 @@ Events command:
 
 `events.stream` is a v2 socket method advertised by `capabilities`. The first
 response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
-`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
+`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`, and the active
+name/category/scope filters live under `ack.filters`. Event frames
 carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
 should persist `seq` after processing each event and reconnect with that value.
 See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
