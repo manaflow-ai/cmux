@@ -3,67 +3,15 @@ import Darwin
 import Foundation
 
 extension TerminalController {
-    nonisolated func isEventsStreamRequest(_ line: String) -> Bool {
-        guard line.hasPrefix("{"),
-              let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let method = object["method"] as? String else {
-            return false
-        }
-        return method == "events.stream"
-    }
-
     nonisolated func handleEventsStreamRequest(
-        _ line: String,
+        _ request: V2SocketRequest,
         socket: Int32,
         writeInitialResponse: Bool = true
     ) {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            if writeInitialResponse {
-                if CMUXSocketProtocol.malformedRequestUsesJSONRPC(line) {
-                    let response = CMUXSocketProtocol.malformedRequestError(
-                        command: line,
-                        code: "invalid_request",
-                        message: "events.stream requires a JSON object"
-                    )
-                    _ = Self.writeAllToSocket(Data((response + "\n").utf8), to: socket)
-                } else {
-                    _ = writeEventsStreamLine([
-                        "type": "error",
-                        "ok": false,
-                        "error": ["code": "invalid_request", "message": "events.stream requires a JSON object"]
-                    ], socket: socket)
-                }
-            }
-            return
-        }
-
-        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(object)
-        let requestId: Any? = object["id"]
-        let params: [String: Any]
-        do {
-            params = try CMUXSocketProtocol.paramsObject(in: object)
-        } catch {
-            if writeInitialResponse {
-                if usesJSONRPC {
-                    let response = v2Error(
-                        id: requestId,
-                        jsonRPC: true,
-                        code: "invalid_params",
-                        message: "params must be a JSON object"
-                    )
-                    _ = Self.writeAllToSocket(Data((response + "\n").utf8), to: socket)
-                } else {
-                    _ = writeEventsStreamLine([
-                        "type": "error",
-                        "ok": false,
-                        "error": ["code": "invalid_params", "message": "params must be a JSON object"]
-                    ], socket: socket)
-                }
-            }
-            return
-        }
+        let usesJSONRPC = request.usesJSONRPC
+        let requestId = CMUXSocketProtocol.validJSONRPCIDOrNull(request.id)
+        let params = request.params
+        let shouldWriteInitialResponse = writeInitialResponse && CMUXSocketProtocol.shouldWriteResponse(for: request)
         let afterSequence = CmuxEventBus.int64(params["after_seq"] ?? params["after"])
         let names = Self.stringSet(params["names"] ?? params["name"])
         let categories = Self.stringSet(params["categories"] ?? params["category"])
@@ -76,7 +24,7 @@ extension TerminalController {
         )
         defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
 
-        if writeInitialResponse {
+        if shouldWriteInitialResponse {
             guard writeEventsStreamLine(snapshot.ack, socket: socket, jsonRPC: usesJSONRPC, responseId: requestId) else { return }
         }
         for event in snapshot.replay {

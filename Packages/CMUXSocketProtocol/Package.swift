@@ -16,5 +16,9 @@ let package = Package(
         .target(
             name: "CMUXSocketProtocol"
         ),
+        .testTarget(
+            name: "CMUXSocketProtocolTests",
+            dependencies: ["CMUXSocketProtocol"]
+        ),
     ]
 )

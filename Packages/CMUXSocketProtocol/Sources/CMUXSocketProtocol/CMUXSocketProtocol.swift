@@ -44,6 +44,9 @@ nonisolated public enum V2CallResult {
 }
 
 nonisolated public enum CMUXSocketProtocol {
+    public static let invalidDispatchMessage =
+        "Request cannot be performed on the main thread; retry the operation asynchronously or use the async API."
+
     public static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
         (dict["jsonrpc"] as? String) == "2.0"
     }
@@ -88,6 +91,10 @@ nonisolated public enum CMUXSocketProtocol {
         !isJSONRPCNotification(command)
     }
 
+    public static func shouldWriteResponse(for request: V2SocketRequest) -> Bool {
+        !(request.usesJSONRPC && !request.hasIdMember)
+    }
+
     public static func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedCommand.hasPrefix("{"),
@@ -115,8 +122,9 @@ nonisolated public enum CMUXSocketProtocol {
         if usesJSONRPC && hasIdMember && !isValidJSONRPCID(dict["id"]) {
             throw V2SocketRequestParseError.malformedID
         }
+        let id = usesJSONRPC ? validJSONRPCID(dict["id"]) : dict["id"]
         return V2SocketRequest(
-            id: dict["id"],
+            id: id,
             method: method,
             params: params,
             usesJSONRPC: usesJSONRPC,
@@ -134,15 +142,32 @@ nonisolated public enum CMUXSocketProtocol {
         return params
     }
 
-    private static func isValidJSONRPCID(_ id: Any?) -> Bool {
-        guard let id else { return true }
+    public static func validJSONRPCID(_ id: Any?) -> Any? {
+        guard let id else { return nil }
         if id is NSNull || id is String {
-            return true
+            return id
         }
         if let number = id as? NSNumber {
-            return CFGetTypeID(number) != CFBooleanGetTypeID()
+            return CFGetTypeID(number) != CFBooleanGetTypeID() ? number : nil
         }
-        return false
+        return nil
+    }
+
+    public static func validJSONRPCIDOrNull(_ id: Any?) -> Any {
+        validJSONRPCID(id) ?? NSNull()
+    }
+
+    public static func isValidJSONRPCID(_ id: Any?) -> Bool {
+        guard id != nil else { return true }
+        return validJSONRPCID(id) != nil
+    }
+
+    public static func unknownMethodMessage(_ method: String) -> String {
+        "Unknown method: \(method). Call system.capabilities to list supported methods."
+    }
+
+    public static func unknownVMMethodMessage(_ method: String) -> String {
+        "Unknown VM method: \(method). Call system.capabilities to list supported methods, then use a vm.* method from that list."
     }
 
     public static let socketWorkerV2Methods: Set<String> = [
@@ -298,7 +323,7 @@ nonisolated public enum CMUXSocketProtocol {
                 id: id,
                 jsonRPC: jsonRPC,
                 code: "invalid_dispatch",
-                message: "Async socket-worker calls must not block the main thread"
+                message: invalidDispatchMessage
             )
         }
 
@@ -345,7 +370,7 @@ nonisolated public enum CMUXSocketProtocol {
         if object["type"] as? String == "ack" {
             return [
                 "jsonrpc": "2.0",
-                "id": orNull(responseId),
+                "id": validJSONRPCIDOrNull(responseId),
                 "result": object
             ]
         }

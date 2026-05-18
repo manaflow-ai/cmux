@@ -72,7 +72,12 @@ extension TerminalController {
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
         default:
-            return v2Error(id: id, jsonRPC: jsonRPC, code: "method_not_found", message: "Unknown method")
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "method_not_found",
+                message: CMUXSocketProtocol.unknownVMMethodMessage(method)
+            )
         }
     }
 

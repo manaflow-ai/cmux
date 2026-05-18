@@ -214,6 +214,84 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(result["type"] as? String, "ack", "Unexpected events.stream ack: \(result)")
     }
 
+    func testJSONRPCNotificationInvalidParamsDoesNotWriteSocketResponse() async throws {
+        let socketPath = makeSocketPath("jsonrpc-notification-invalid-params")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let followUpResponse = try await runJSONRPCInvalidParamsNotificationSocketSequence(
+            method: "system.ping",
+            to: socketPath
+        )
+
+        XCTAssertEqual(followUpResponse["jsonrpc"] as? String, "2.0", "Unexpected follow-up response: \(followUpResponse)")
+        XCTAssertEqual(followUpResponse["id"] as? String, "after-invalid-notification", "Unexpected follow-up response: \(followUpResponse)")
+        XCTAssertNotNil(followUpResponse["result"], "Unexpected follow-up response: \(followUpResponse)")
+    }
+
+    func testJSONRPCEventStreamNotificationInvalidParamsDoesNotWriteSocketResponse() async throws {
+        let socketPath = makeSocketPath("jsonrpc-events-invalid-params")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let followUpResponse = try await runJSONRPCInvalidParamsNotificationSocketSequence(
+            method: "events.stream",
+            to: socketPath
+        )
+
+        XCTAssertEqual(followUpResponse["jsonrpc"] as? String, "2.0", "Unexpected follow-up response: \(followUpResponse)")
+        XCTAssertEqual(followUpResponse["id"] as? String, "after-invalid-notification", "Unexpected follow-up response: \(followUpResponse)")
+        XCTAssertNotNil(followUpResponse["result"], "Unexpected follow-up response: \(followUpResponse)")
+    }
+
+    func testPasswordModeReturnsProtocolErrorBeforeAuthRequired() throws {
+        let socketPath = makeSocketPath("jsonrpc-auth-parse-order")
+        let tabManager = TabManager()
+        let password = "jsonrpc-secret-\(UUID().uuidString)"
+        let originalPassword = getenv(SocketControlSettings.socketPasswordEnvKey).map { String(cString: $0) }
+
+        setenv(SocketControlSettings.socketPasswordEnvKey, password, 1)
+        defer {
+            if let originalPassword {
+                setenv(SocketControlSettings.socketPasswordEnvKey, originalPassword, 1)
+            } else {
+                unsetenv(SocketControlSettings.socketPasswordEnvKey)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .password
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try sendRawSocketLine(
+            #"{"jsonrpc":"2.0","id":"bad-params-before-auth","method":"system.ping","params":[]}"#,
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected invalid params response: \(response)")
+        XCTAssertEqual(response["id"] as? String, "bad-params-before-auth")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Expected JSON-RPC invalid params error")
+        XCTAssertEqual(error["code"] as? Int, -32602)
+        XCTAssertNotEqual(error["message"] as? String, "Authentication required. Send auth <password> first.")
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
+        XCTAssertEqual(data["cmux_code"] as? String, "invalid_params")
+    }
+
     func testMalformedJSONRPCRequestUsesJSONRPCParseErrorEnvelope() throws {
         let socketPath = makeSocketPath("jsonrpc-parse")
         let tabManager = TabManager()
@@ -561,6 +639,50 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         try writeJSONLine(explicitNullID, to: explicitNullIDFD)
 
         return try readJSONObjectLine(from: explicitNullIDFD)
+    }
+
+    private func runJSONRPCInvalidParamsNotificationSocketSequence(
+        method: String,
+        to socketPath: String
+    ) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let response = try self.runJSONRPCInvalidParamsNotificationSocketSequenceSync(
+                        method: method,
+                        to: socketPath
+                    )
+                    continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated func runJSONRPCInvalidParamsNotificationSocketSequenceSync(
+        method: String,
+        to socketPath: String
+    ) throws -> [String: Any] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        let invalidNotification: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": [Any]()
+        ]
+        try writeJSONLine(invalidNotification, to: fd)
+        XCTAssertNil(try readLineIfAvailable(from: fd, timeoutMilliseconds: 250))
+
+        let followUp: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": "after-invalid-notification",
+            "method": "system.ping",
+            "params": [String: Any]()
+        ]
+        try writeJSONLine(followUp, to: fd)
+        return try readJSONObjectLine(from: fd)
     }
 
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {

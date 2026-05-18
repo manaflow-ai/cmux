@@ -119,7 +119,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNil(envelope["ok"])
         let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
         XCTAssertEqual(error["code"] as? Int, -32601)
-        XCTAssertEqual(error["message"] as? String, "Unknown method")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "Unknown method: system.nope. Call system.capabilities to list supported methods."
+        )
         let data = try XCTUnwrap(error["data"] as? [String: Any], raw)
         XCTAssertEqual(data["cmux_code"] as? String, "method_not_found")
     }
@@ -138,6 +141,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(envelope["id"] as? String, "wrong-dispatch")
         let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
         XCTAssertEqual(error["code"] as? Int, -32603)
+        XCTAssertEqual(
+            error["message"] as? String,
+            "Request cannot be performed on the main thread; retry the operation asynchronously or use the async API."
+        )
         let data = try XCTUnwrap(error["data"] as? [String: Any], raw)
         XCTAssertEqual(data["cmux_code"] as? String, "invalid_dispatch")
     }

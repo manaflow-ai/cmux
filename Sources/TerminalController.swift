@@ -1454,8 +1454,19 @@ class TerminalController {
         return Self.writeAllToSocket(Data(payload.utf8), to: socket)
     }
 
-    private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
+    private nonisolated func passwordAuthRequiredResponse(
+        for command: String,
+        parsedV2Request: V2SocketRequest?
+    ) -> String {
         let message = "Authentication required. Send auth <password> first."
+        if let parsedV2Request {
+            return v2Error(
+                id: parsedV2Request.id,
+                jsonRPC: parsedV2Request.usesJSONRPC,
+                code: "auth_required",
+                message: message
+            )
+        }
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
@@ -1491,24 +1502,18 @@ class TerminalController {
         return "OK: Authenticated"
     }
 
-    private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-        let id = dict["id"]
-        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "auth.login" else {
+    private nonisolated func passwordLoginV2ResponseIfNeeded(
+        for request: V2SocketRequest?,
+        authenticated: inout Bool
+    ) -> String? {
+        guard let request, request.method == "auth.login" else {
             return nil
         }
 
-        guard let params = dict["params"] as? [String: Any],
-              let provided = params["password"] as? String else {
+        guard let provided = request.params["password"] as? String else {
             return v2Error(
-                id: id,
-                jsonRPC: usesJSONRPC,
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
                 code: "invalid_params",
                 message: "auth.login requires params.password"
             )
@@ -1516,32 +1521,36 @@ class TerminalController {
 
         guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
-                id: id,
-                jsonRPC: usesJSONRPC,
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
                 code: "auth_unconfigured",
                 message: "Password mode is enabled but no socket password is configured in Settings."
             )
         }
 
         guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return v2Error(id: id, jsonRPC: usesJSONRPC, code: "auth_failed", message: "Invalid password")
+            return v2Error(id: request.id, jsonRPC: request.usesJSONRPC, code: "auth_failed", message: "Invalid password")
         }
         authenticated = true
-        return v2Ok(id: id, jsonRPC: usesJSONRPC, result: ["authenticated": true])
+        return v2Ok(id: request.id, jsonRPC: request.usesJSONRPC, result: ["authenticated": true])
     }
 
-    private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func authResponseIfNeeded(
+        for command: String,
+        parsedV2Request: V2SocketRequest?,
+        authenticated: inout Bool
+    ) -> String? {
         guard accessMode.requiresPasswordAuth else {
             return nil
         }
-        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
+        if let v2Response = passwordLoginV2ResponseIfNeeded(for: parsedV2Request, authenticated: &authenticated) {
             return v2Response
         }
         if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
             return v1Response
         }
         if !authenticated {
-            return passwordAuthRequiredResponse(for: command)
+            return passwordAuthRequiredResponse(for: command, parsedV2Request: parsedV2Request)
         }
         return nil
     }
@@ -1714,7 +1723,12 @@ class TerminalController {
                 params: request.params
             )
         default:
-            return v2Error(id: request.id, jsonRPC: request.usesJSONRPC, code: "method_not_found", message: "Unknown method")
+            return v2Error(
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
+                code: "method_not_found",
+                message: CMUXSocketProtocol.unknownMethodMessage(request.method)
+            )
         }
     }
 
@@ -2053,9 +2067,14 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if isEventsStreamRequest(trimmed) {
-                    let shouldWriteResponse = CMUXSocketProtocol.shouldWriteResponse(for: trimmed)
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                let parsedV2 = parseV2SocketCommandForDispatch(trimmed)
+                if case .request(let request) = parsedV2, request.method == "events.stream" {
+                    let shouldWriteResponse = CMUXSocketProtocol.shouldWriteResponse(for: request)
+                    if let response = authResponseIfNeeded(
+                        for: trimmed,
+                        parsedV2Request: request,
+                        authenticated: &authenticated
+                    ) {
                         if shouldWriteResponse {
                             guard writeSocketResponse(response, to: socket) else {
                                 return
@@ -2064,14 +2083,14 @@ class TerminalController {
                         continue
                     }
                     handleEventsStreamRequest(
-                        trimmed,
+                        request,
                         socket: socket,
                         writeInitialResponse: shouldWriteResponse
                     )
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
+                let result = processSocketLine(trimmed, authenticated: authenticated, parsedV2: parsedV2)
                 authenticated = result.authenticated
                 // Domain events describe executed socket command side effects, not response delivery.
                 publishSocketEvents(command: trimmed, response: result.response)
@@ -2087,11 +2106,32 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        authenticated: Bool
+        authenticated: Bool,
+        parsedV2: V2SocketCommandDispatchParse? = nil
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
-        let shouldWriteResponse = CMUXSocketProtocol.shouldWriteResponse(for: command)
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+        let parsedDispatch = parsedV2 ?? parseV2SocketCommandForDispatch(command)
+        let parsedV2Request: V2SocketRequest?
+        switch parsedDispatch {
+        case .response(let response):
+            return SocketLineProcessingResult(
+                response: response,
+                authenticated: nextAuthenticated,
+                shouldWriteResponse: CMUXSocketProtocol.shouldWriteResponse(for: command)
+            )
+        case .request(let request):
+            parsedV2Request = request
+        case nil:
+            parsedV2Request = nil
+        }
+
+        let shouldWriteResponse = parsedV2Request.map { CMUXSocketProtocol.shouldWriteResponse(for: $0) }
+            ?? CMUXSocketProtocol.shouldWriteResponse(for: command)
+        if let response = authResponseIfNeeded(
+            for: command,
+            parsedV2Request: parsedV2Request,
+            authenticated: &nextAuthenticated
+        ) {
             return SocketLineProcessingResult(
                 response: response,
                 authenticated: nextAuthenticated,
@@ -2099,7 +2139,7 @@ class TerminalController {
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let response = processCommandUsingSocketExecutionPolicy(command, parsedV2Request: parsedV2Request)
         return SocketLineProcessingResult(
             response: response,
             authenticated: nextAuthenticated,
@@ -2107,25 +2147,23 @@ class TerminalController {
         )
     }
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
-        if let parsedRequest = parseV2SocketCommandForDispatch(command) {
-            switch parsedRequest {
-            case .response(let response):
-                return response
-            case .request(let request):
-                if Thread.isMainThread,
-                   CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
-                    return v2Error(
-                        id: request.id,
-                        jsonRPC: request.usesJSONRPC,
-                        code: "invalid_dispatch",
-                        message: "\(request.method) must run off the main thread"
-                    )
-                }
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        parsedV2Request: V2SocketRequest? = nil
+    ) -> String {
+        if let request = parsedV2Request ?? parsedV2RequestForDispatch(command) {
+            if Thread.isMainThread,
+               CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
+                return v2Error(
+                    id: request.id,
+                    jsonRPC: request.usesJSONRPC,
+                    code: "invalid_dispatch",
+                    message: CMUXSocketProtocol.invalidDispatchMessage
+                )
+            }
 
-                if let response = socketWorkerV2ResponseIfNeeded(for: request) {
-                    return response
-                }
+            if let response = socketWorkerV2ResponseIfNeeded(for: request) {
+                return response
             }
         }
 
@@ -2137,6 +2175,18 @@ class TerminalController {
 
         return v2MainSync {
             self.processCommand(command)
+        }
+    }
+
+    private nonisolated func parsedV2RequestForDispatch(_ command: String) -> V2SocketRequest? {
+        guard let parsedRequest = parseV2SocketCommandForDispatch(command) else {
+            return nil
+        }
+        switch parsedRequest {
+        case .request(let request):
+            return request
+        case .response:
+            return nil
         }
     }
 
@@ -2572,7 +2622,7 @@ class TerminalController {
                 id: id,
                 jsonRPC: usesJSONRPC,
                 code: "invalid_dispatch",
-                message: "\(method) must run on the socket worker"
+                message: CMUXSocketProtocol.invalidDispatchMessage
             )
         }
 
@@ -3025,7 +3075,12 @@ class TerminalController {
 #endif
 
             default:
-                return v2Error(id: id, jsonRPC: usesJSONRPC, code: "method_not_found", message: "Unknown method")
+                return v2Error(
+                    id: id,
+                    jsonRPC: usesJSONRPC,
+                    code: "method_not_found",
+                    message: CMUXSocketProtocol.unknownMethodMessage(method)
+                )
             }
         }
     }

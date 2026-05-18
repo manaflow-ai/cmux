@@ -51,7 +51,7 @@ cmux domain error code in `error.data.cmux_code`.
   "id": "bad-method",
   "error": {
     "code": -32601,
-    "message": "Unknown method",
+    "message": "Unknown method: system.nope. Call system.capabilities to list supported methods.",
     "data": { "cmux_code": "method_not_found" }
   }
 }
