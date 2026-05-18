@@ -44,6 +44,10 @@ final class TerminalDesktopNotificationBridgeTests: XCTestCase {
         assertSuppressed(title: "Claude Code", body: "needs your attention")
     }
 
+    func testActiveClaudeHookSuppressesSplitGenericClaudeAttentionNotificationWithShortTitle() {
+        assertSuppressed(title: "Claude", body: "needs your attention")
+    }
+
     func testActiveClaudeHookSuppressesSplitGenericClaudeInputNotification() {
         assertSuppressed(title: "Claude", body: "needs your input")
     }
