@@ -602,7 +602,12 @@
       "nodejs": "Node.js",
       "tmuxPassthrough": "Passthrough tmux",
       "tmuxDesc": "Si vous utilisez tmux dans cmux, activez le passthrough :",
-      "metaTitle": "Notifications"
+      "metaTitle": "Notifications",
+      "hooksTitle": "Hooks de notification",
+      "hooksIntro": "<config>cmux.json</config> peut définir des hooks de notification qui reçoivent chaque politique de notification en JSON sur stdin. Chaque hook renvoie du JSON sur stdout. Les hooks sont désactivés par défaut ; cmux ne les exécute que lorsque <hooksMode>notifications.hooks</hooksMode> contient au moins un hook activé. cmux applique le texte et les effets renvoyés, ce qui permet aux hooks de filtrer les bannières, conserver ou ignorer l’historique de la barre latérale, jouer des sons ou arrêter les hooks suivants.",
+      "hooksJsonTitle": "cmux.json",
+      "hooksIOTitle": "Entrée et sortie du hook",
+      "hooksDetails": "Les hooks sont hérités du fichier global <globalConfig>~/.config/cmux/cmux.json</globalConfig> et des fichiers de projet <projectConfig>.cmux/cmux.json</projectConfig>, des dossiers parents jusqu’à l’espace de travail courant. Les hooks de projet utilisent la même demande de confiance que les autres commandes de projet <config>cmux.json</config> avant de s’exécuter. Les bannières d’approbation Feed passent aussi par ces hooks ; désactiver <desktop>desktop</desktop> supprime la bannière native tout en gardant l’élément Feed disponible dans cmux. Définissez <hooksMode>notifications.hooksMode</hooksMode> sur <replace>replace</replace> dans un projet pour ignorer les hooks hérités. Si un hook échoue, expire ou renvoie un JSON invalide, cmux utilise le comportement de notification par défaut et affiche une alerte d’échec du hook."
     },
     "browserAutomation": {
       "title": "Automatisation du navigateur",
