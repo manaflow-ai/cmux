@@ -35,6 +35,13 @@ import UIKit
     #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
 }
 
+@Test func signInCodeInputPolicyNormalizesPastedCodesBeforeVerifying() {
+    #expect(SignInCodeInputPolicy.action(for: "12345") == .none)
+    #expect(SignInCodeInputPolicy.action(for: "123456") == .verify)
+    #expect(SignInCodeInputPolicy.action(for: "123456\n") == .assign("123456"))
+    #expect(SignInCodeInputPolicy.action(for: "1234567") == .assign("123456"))
+}
+
 @Test func authDisplaySafeErrorPreservesUserFacingStackErrors() throws {
     let userFacingCodes = [
         "SCHEMA_ERROR",
@@ -1908,6 +1915,29 @@ import UIKit
     #expect(cells.count == 5)
     #expect(cells.first?.text == "|")
     #expect(cells.last?.text == " ")
+}
+
+@Test func terminalCellLayoutPolicyKeepsWideGlyphsAtTwoColumns() {
+    let row = MobileTerminalGhosttyRow(cells: [
+        MobileTerminalGhosttyCell(text: "a"),
+        MobileTerminalGhosttyCell(text: "界", width: .wide),
+        MobileTerminalGhosttyCell(width: .spacerTail),
+        MobileTerminalGhosttyCell(text: "b"),
+    ])
+
+    let cells = TerminalRowCellProjection.cells(
+        from: row,
+        preservingCursorColumn: nil,
+        minimumColumnCount: 4
+    )
+    let renderedColumns = cells.reduce(0) { partial, cell in
+        partial + TerminalCellLayoutPolicy.columnSpan(for: cell.width)
+    }
+
+    #expect(cells.map(\.width) == [.narrow, .wide, .spacerTail, .narrow])
+    #expect(renderedColumns == 4)
+    #expect(TerminalCellLayoutPolicy.columnSpan(for: .wide) == 2)
+    #expect(TerminalCellLayoutPolicy.columnSpan(for: .spacerTail) == 0)
 }
 
 private struct MissingTestStackAccessToken: Error {}

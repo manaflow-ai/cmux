@@ -390,11 +390,15 @@ struct SignInView: View {
                         .font(.system(size: 32, weight: .semibold, design: .monospaced))
                         .focused($isCodeFocused)
                         .onChange(of: code) { _, newValue in
-                            code = String(newValue.prefix(6))
-                            if code.count == 6 {
+                            switch SignInCodeInputPolicy.action(for: newValue) {
+                            case let .assign(normalizedCode):
+                                code = normalizedCode
+                            case .verify:
                                 Task {
                                     await verifyCode()
                                 }
+                            case .none:
+                                break
                             }
                         }
                         .accessibilityIdentifier("signin.code")
@@ -619,6 +623,32 @@ struct SignInView: View {
         }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         #endif
+    }
+}
+
+enum SignInCodeInputChangeAction: Equatable {
+    case assign(String)
+    case verify
+    case none
+}
+
+enum SignInCodeInputPolicy {
+    static let maximumCodeLength = 6
+
+    static func action(for value: String) -> SignInCodeInputChangeAction {
+        let normalized = normalizedCode(value)
+        guard normalized == value else {
+            return .assign(normalized)
+        }
+        return shouldVerifyAfterChange(normalized) ? .verify : .none
+    }
+
+    static func normalizedCode(_ value: String) -> String {
+        String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maximumCodeLength))
+    }
+
+    static func shouldVerifyAfterChange(_ normalizedCode: String) -> Bool {
+        normalizedCode.count == maximumCodeLength
     }
 }
 
@@ -4315,6 +4345,19 @@ struct TerminalRowCellProjection {
     }
 }
 
+enum TerminalCellLayoutPolicy {
+    static func columnSpan(for width: MobileTerminalGhosttyCellWidth) -> Int {
+        switch width {
+        case .narrow:
+            return 1
+        case .wide:
+            return 2
+        case .spacerHead, .spacerTail:
+            return 0
+        }
+    }
+}
+
 private struct TerminalCellView: View {
     let cell: MobileTerminalGhosttyCell
     let cursorStyle: MobileTerminalGhosttyCursor.Style?
@@ -4361,11 +4404,15 @@ private struct TerminalCellView: View {
         }
     }
 
+    private var cellWidth: CGFloat {
+        metrics.cellWidth * CGFloat(TerminalCellLayoutPolicy.columnSpan(for: cell.width))
+    }
+
     var body: some View {
         Text(text)
             .font(.system(size: metrics.fontSize, weight: cell.style.bold ? .bold : .regular, design: .monospaced))
             .foregroundStyle(displayedForeground)
-            .frame(width: metrics.cellWidth, height: metrics.rowHeight, alignment: .center)
+            .frame(width: cellWidth, height: metrics.rowHeight, alignment: .center)
             .background(displayedBackground)
             .underline(cell.style.underline != .none, color: foreground)
             .overlay(alignment: .leading) {
