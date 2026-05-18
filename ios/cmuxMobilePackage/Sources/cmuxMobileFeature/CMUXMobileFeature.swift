@@ -104,6 +104,11 @@ struct CMUXMobileRootView: View {
                 await store.connectPairingURL(rawURL)
             }
         }
+        .onChange(of: store.connectionState) { _, connectionState in
+            if connectionState == .connected {
+                isShowingAddDeviceSheet = false
+            }
+        }
     }
 
     private var isAuthenticated: Bool {

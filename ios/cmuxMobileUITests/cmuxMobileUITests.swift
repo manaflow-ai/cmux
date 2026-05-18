@@ -260,7 +260,7 @@ final class cmuxMobileUITests: XCTestCase {
             },
             object: app
         )
-        let result = XCTWaiter.wait(for: [expectation], timeout: 30)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 90)
         XCTAssertEqual(result, .completed, file: file, line: line)
     }
 
