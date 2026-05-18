@@ -105,8 +105,6 @@ final class BackgroundWorkspacePrimeCoordinator {
     private var readinessWaitersByWorkspaceId: [UUID: [RegisteredWaiter]] = [:]
     private var readinessCancellables: Set<AnyCancellable> = []
     private var readinessObservers: [NSObjectProtocol] = []
-    private var lastPendingBackgroundWorkspaceLoadIds: Set<UUID> = []
-    private var lastTabIds: Set<UUID> = []
 
     deinit {
         readinessCancellables.forEach { $0.cancel() }
@@ -267,8 +265,6 @@ final class BackgroundWorkspacePrimeCoordinator {
         readinessObservers.removeAll(keepingCapacity: false)
         readinessWaitersByWorkspaceId.removeAll(keepingCapacity: false)
         observedTabManager = tabManager
-        lastPendingBackgroundWorkspaceLoadIds = tabManager.pendingBackgroundWorkspaceLoadIds
-        lastTabIds = Set(tabManager.tabs.map(\.id))
 
         let readyObserver = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
@@ -331,17 +327,15 @@ final class BackgroundWorkspacePrimeCoordinator {
     }
 
     private func handlePendingWorkspaceIdsChange(_ pendingIds: Set<UUID>, tabManager: TabManager) {
-        let removedIds = lastPendingBackgroundWorkspaceLoadIds.subtracting(pendingIds)
-        lastPendingBackgroundWorkspaceLoadIds = pendingIds
-        for workspaceId in removedIds {
+        let readyWorkspaceIds = readinessWaitersByWorkspaceId.keys.filter { !pendingIds.contains($0) }
+        for workspaceId in readyWorkspaceIds {
             evaluateRegisteredWaiters(for: workspaceId, tabManager: tabManager)
         }
     }
 
     private func handleTabIdsChange(_ tabIds: Set<UUID>, tabManager: TabManager) {
-        let removedIds = lastTabIds.subtracting(tabIds)
-        lastTabIds = tabIds
-        for workspaceId in removedIds {
+        let removedWorkspaceIds = readinessWaitersByWorkspaceId.keys.filter { !tabIds.contains($0) }
+        for workspaceId in removedWorkspaceIds {
             evaluateRegisteredWaiters(for: workspaceId, tabManager: tabManager)
         }
     }

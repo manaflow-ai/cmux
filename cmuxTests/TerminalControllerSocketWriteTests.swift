@@ -88,7 +88,7 @@ final class CodexTranscriptMonitorSessionTests: XCTestCase {
         let turnId = "turn-target"
         try writeTranscript(
             [
-                eventLine(type: "task_started", payload: ["turn_id": turnId]),
+                Self.eventLine(type: "task_started", payload: ["turn_id": turnId]),
                 [
                     "type": "response_item",
                     "payload": [
@@ -97,8 +97,8 @@ final class CodexTranscriptMonitorSessionTests: XCTestCase {
                         "content": [["text": "done"]]
                     ]
                 ],
-                eventLine(type: "task_started", payload: [:]),
-                eventLine(type: "task_complete", payload: ["turn_id": turnId])
+                Self.eventLine(type: "task_started", payload: [:]),
+                Self.eventLine(type: "task_complete", payload: ["turn_id": turnId])
             ],
             to: transcriptURL
         )
