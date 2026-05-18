@@ -1618,6 +1618,33 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testSurfaceResumeSetCLIRejectsPreTerminatorCommandTokens() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", "11111111-1111-1111-1111-111111111111",
+                "--surface", "22222222-2222-2222-2222-222222222222",
+                "myapp",
+                "--",
+                "--flag",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("surface resume set: unexpected argument 'myapp' before --"))
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
     func testSurfaceResumeSetCLIRejectsDanglingValueOptionsBeforeSocketRequest() throws {
         let cliPath = try bundledCLIPath()
         let workspaceId = "11111111-1111-1111-1111-111111111111"

@@ -3652,7 +3652,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
         let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-        guard isCurrentProcessDetectedSessionSaveGeneration(generation) else {
+        guard !isTerminatingApp,
+              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
 #if DEBUG
             cmuxDebugLog(
                 "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"

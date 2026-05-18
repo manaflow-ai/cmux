@@ -1919,14 +1919,14 @@ struct CMUXCLI {
         "--attr", "--before-workspace", "--body", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
-        "--function", "--id", "--image", "--index", "--key", "--layout",
-        "--lines", "--load-state", "--max-depth", "--name", "--os",
+        "--function", "--id", "--image", "--index", "--key", "--kind",
+        "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
         "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
-        "--source", "--subtitle", "--surface", "--tab", "--target-pane",
+        "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
-        "--workspace",
+        "--workspace", "--checkpoint", "--checkpoint-id",
     ]
 
     private func parsePresentationOptions(
@@ -4504,6 +4504,9 @@ struct CMUXCLI {
                 }
                 commandText = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
+                if splitRemaining.argv != nil, let unexpected = rem7.first {
+                    throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
+                }
                 let argv = splitRemaining.argv ?? rem7
                 guard !argv.isEmpty else {
                     throw CLIError(message: "surface resume set requires --shell <command> or -- <argv...>")
