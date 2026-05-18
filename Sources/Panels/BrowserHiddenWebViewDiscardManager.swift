@@ -174,10 +174,6 @@ final class BrowserHiddenWebViewDiscardManager {
         lastRestoreReason = nil
     }
 
-    deinit {
-        stop()
-    }
-
     private func handlePolicyDefaultsChanged() {
         let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved()
         guard policyState != nextPolicyState else { return }
