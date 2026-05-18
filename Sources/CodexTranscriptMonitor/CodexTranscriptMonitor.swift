@@ -160,6 +160,7 @@ final class CodexTranscriptMonitorSession {
         defer { try? handle.close() }
         let endOffset = (try? handle.seekToEnd()) ?? 0
         let startOffset = endOffset > Policy.maxTailBytes ? endOffset - Policy.maxTailBytes : 0
+        let startsAtLineBoundary = initialTailStartsAtLineBoundary(handle: handle, startOffset: startOffset)
         do {
             try handle.seek(toOffset: startOffset)
         } catch {
@@ -168,7 +169,7 @@ final class CodexTranscriptMonitorSession {
         }
         var data = handle.readDataToEndOfFile()
         let bytesRead = UInt64(data.count)
-        if startOffset > 0 {
+        if startOffset > 0, !startsAtLineBoundary {
             guard let newline = data.firstIndex(of: 0x0A) else {
                 pendingData.removeAll(keepingCapacity: false)
                 discardingOversizedLine = true
@@ -179,6 +180,16 @@ final class CodexTranscriptMonitorSession {
         }
         process(data: data)
         readOffset = startOffset + bytesRead
+    }
+
+    private func initialTailStartsAtLineBoundary(handle: FileHandle, startOffset: UInt64) -> Bool {
+        guard startOffset > 0 else { return true }
+        do {
+            try handle.seek(toOffset: startOffset - 1)
+        } catch {
+            return false
+        }
+        return handle.readData(ofLength: 1).first == 0x0A
     }
 
     private func readIncremental(path: String) {
