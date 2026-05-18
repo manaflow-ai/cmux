@@ -9031,11 +9031,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 let actionButtonCount = min(requestedActionButtonCount, 32)
                 let buttons = (1...actionButtonCount).map { index in
+                    let actionTitle = String(
+                        format: String(
+                            localized: "uiTest.bonsplit.action.title",
+                            defaultValue: "UITest Action %lld"
+                        ),
+                        Int64(index)
+                    )
                     CmuxSurfaceTabBarButton.actionReference(
                         "cmux-ui-test-action-\(index)",
-                        title: "UITest Action \(index)",
+                        title: actionTitle,
                         icon: .symbol("circle.fill"),
-                        tooltip: "UITest Action \(index)"
+                        tooltip: actionTitle
                     )
                 }
                 workspace.applySurfaceTabBarButtons(
