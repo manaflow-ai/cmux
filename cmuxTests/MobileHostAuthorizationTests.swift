@@ -427,6 +427,40 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(service.debugListenerPortForTesting(), 61234)
     }
 
+    func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
+        let connectionID = UUID()
+        let recorder = MobileHostConnectionCloseRecorder()
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: NWEndpoint.Port(rawValue: 9)!,
+            using: .tcp
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            connection: connection,
+            firstFrameTimeoutNanoseconds: 1_000_000,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await recorder.record(id)
+            }
+        )
+
+        await session.debugStartFirstFrameTimeoutForTesting()
+
+        for _ in 0..<100 {
+            let recordedIDs = await recorder.recordedIDs()
+            if !recordedIDs.isEmpty {
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let finalRecordedIDs = await recorder.recordedIDs()
+        XCTAssertEqual(finalRecordedIDs, [connectionID])
+    }
+
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",
@@ -442,5 +476,17 @@ final class MobileHostAuthorizationTests: XCTestCase {
             expiresAt: Date().addingTimeInterval(3600),
             authToken: "ticket-secret"
         )
+    }
+}
+
+private actor MobileHostConnectionCloseRecorder {
+    private var ids: [UUID] = []
+
+    func record(_ id: UUID) {
+        ids.append(id)
+    }
+
+    func recordedIDs() -> [UUID] {
+        ids
     }
 }

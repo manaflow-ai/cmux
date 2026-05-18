@@ -74,6 +74,51 @@ import UIKit
     }
 }
 
+@Test func rpcRequestTimeoutCancelsOperationWhenCallerIsCancelled() async throws {
+    let started = AsyncFlag()
+    let cancelled = AsyncFlag()
+    let task = Task {
+        try await MobileCoreRPCClient.debugWithRequestTimeout(
+            timeoutNanoseconds: 60 * 1_000_000_000
+        ) {
+            await started.set()
+            do {
+                try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                return "completed"
+            } catch {
+                await cancelled.set()
+                throw error
+            }
+        }
+    }
+
+    for _ in 0..<100 {
+        if await started.isSet() {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(await started.isSet())
+
+    task.cancel()
+
+    do {
+        _ = try await task.value
+        Issue.record("Expected cancelled RPC timeout wrapper to throw")
+    } catch is CancellationError {
+    } catch {
+        Issue.record("Expected CancellationError, got \(error)")
+    }
+
+    for _ in 0..<100 {
+        if await cancelled.isSet() {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(await cancelled.isSet())
+}
+
 @Test func manualRouteAuthPolicyOnlyAllowsStackAuthForLoopbackAndMagicDNS() throws {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
@@ -2179,6 +2224,18 @@ private struct RecordedRPCRequest: Sendable {
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
+}
+
+private actor AsyncFlag {
+    private var value = false
+
+    func set() {
+        value = true
+    }
+
+    func isSet() -> Bool {
+        value
+    }
 }
 
 private actor ScriptedTransport: CmxByteTransport {

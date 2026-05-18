@@ -1642,7 +1642,7 @@ private enum CmxAttachTicketInput {
     }
 }
 
-private final class MobileCoreRPCClient: @unchecked Sendable {
+final class MobileCoreRPCClient: @unchecked Sendable {
     private let runtime: CMUXMobileRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
@@ -1814,85 +1814,42 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
         timeoutNanoseconds: UInt64,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        let timerQueue = DispatchQueue(label: "dev.cmux.mobile.rpc-timeout.\(UUID().uuidString)")
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
-        let operationTask = Task {
-            try await operation()
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let state = MobileRequestTimeoutState(
-                continuation: continuation,
-                operationTask: operationTask,
-                timer: timer
-            )
-            timer.setEventHandler {
-                state.timeout()
+        try Task.checkCancellation()
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
             }
-            timer.schedule(deadline: .now() + .nanoseconds(Int(min(timeoutNanoseconds, UInt64(Int.max)))))
-            timer.resume()
-
-            Task {
-                do {
-                    state.complete(.success(try await operationTask.value))
-                } catch {
-                    state.complete(.failure(error))
+            group.addTask {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                throw MobileShellConnectionError.requestTimedOut
+            }
+            do {
+                guard let result = try await group.next() else {
+                    throw CancellationError()
                 }
+                group.cancelAll()
+                return result
+            } catch {
+                group.cancelAll()
+                throw error
             }
         }
     }
 }
 
-private final class MobileRequestTimeoutState<T: Sendable>: @unchecked Sendable {
-    // DispatchSourceTimer and Task completion race on different executors; this
-    // lock protects the single-resume continuation state.
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<T, Error>?
-    private var operationTask: Task<T, Error>?
-    private var timer: DispatchSourceTimer?
-
-    init(
-        continuation: CheckedContinuation<T, Error>,
-        operationTask: Task<T, Error>,
-        timer: DispatchSourceTimer
-    ) {
-        self.continuation = continuation
-        self.operationTask = operationTask
-        self.timer = timer
-    }
-
-    func complete(_ result: Result<T, Error>) {
-        let continuation = takeContinuation(cancelOperation: false)
-        switch result {
-        case let .success(value):
-            continuation?.resume(returning: value)
-        case let .failure(error):
-            continuation?.resume(throwing: error)
-        }
-    }
-
-    func timeout() {
-        takeContinuation(cancelOperation: true)?
-            .resume(throwing: MobileShellConnectionError.requestTimedOut)
-    }
-
-    private func takeContinuation(cancelOperation: Bool) -> CheckedContinuation<T, Error>? {
-        lock.lock()
-        let continuation = self.continuation
-        let operationTask = self.operationTask
-        let timer = self.timer
-        self.continuation = nil
-        self.operationTask = nil
-        self.timer = nil
-        lock.unlock()
-
-        timer?.cancel()
-        if cancelOperation {
-            operationTask?.cancel()
-        }
-        return continuation
+#if DEBUG
+extension MobileCoreRPCClient {
+    static func debugWithRequestTimeout<T: Sendable>(
+        timeoutNanoseconds: UInt64,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withRequestTimeout(
+            timeoutNanoseconds: timeoutNanoseconds,
+            operation: operation
+        )
     }
 }
+#endif
 
 private extension CmxAttachEndpoint {
     var logDescription: String {

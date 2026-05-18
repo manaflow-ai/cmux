@@ -535,22 +535,27 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
     }
 }
 
-private actor MobileHostConnection {
+actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
+    private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
 
     private let id: UUID
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
+    private let firstFrameTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
+    private var firstFrameTimeoutTask: Task<Void, Never>?
+    private var didDecodeFirstFrame = false
     private var isClosed = false
 
     init(
         id: UUID,
         connection: NWConnection,
+        firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -559,6 +564,7 @@ private actor MobileHostConnection {
         self.id = id
         self.connection = connection
         self.callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+        self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
@@ -571,6 +577,7 @@ private actor MobileHostConnection {
             Task { await self.handleState(state, connectionID: id) }
         }
         connection.start(queue: callbackQueue)
+        startFirstFrameTimeout()
         receiveNext()
     }
 
@@ -579,6 +586,8 @@ private actor MobileHostConnection {
             return
         }
         isClosed = true
+        firstFrameTimeoutTask?.cancel()
+        firstFrameTimeoutTask = nil
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -630,6 +639,11 @@ private actor MobileHostConnection {
             receiveBuffer.append(data)
             do {
                 let frames = try MobileSyncFrameCodec.decodeFrames(from: &receiveBuffer)
+                if !frames.isEmpty {
+                    didDecodeFirstFrame = true
+                    firstFrameTimeoutTask?.cancel()
+                    firstFrameTimeoutTask = nil
+                }
                 for frame in frames {
                     await respond(to: frame)
                 }
@@ -651,6 +665,27 @@ private actor MobileHostConnection {
         } else {
             receiveNext()
         }
+    }
+
+    private func startFirstFrameTimeout() {
+        guard firstFrameTimeoutNanoseconds > 0 else {
+            return
+        }
+        firstFrameTimeoutTask?.cancel()
+        let timeoutNanoseconds = firstFrameTimeoutNanoseconds
+        firstFrameTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                await self?.closeIfWaitingForFirstFrame()
+            } catch {}
+        }
+    }
+
+    private func closeIfWaitingForFirstFrame() {
+        guard !didDecodeFirstFrame else {
+            return
+        }
+        close(reason: "first frame timed out")
     }
 
     private func respond(to frame: Data) async {
@@ -717,3 +752,11 @@ private actor MobileHostConnection {
         }
     }
 }
+
+#if DEBUG
+extension MobileHostConnection {
+    func debugStartFirstFrameTimeoutForTesting() {
+        startFirstFrameTimeout()
+    }
+}
+#endif
