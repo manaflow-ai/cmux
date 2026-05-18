@@ -446,14 +446,6 @@ final class CmuxSettingsFileStore {
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
-        snapshot.assignWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: sourcePath)
-        if snapshot.managedCustomSettings.socketPassword != nil {
-            snapshot.managedCustomSettingSources[Self.socketPasswordWriteBackIdentifier] =
-                ManagedCustomSettingSource(
-                    sourcePath: sourcePath,
-                    jsonPath: "automation.socketPassword"
-                )
-        }
 
         return snapshot
     }
