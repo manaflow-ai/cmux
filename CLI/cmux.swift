@@ -5303,9 +5303,8 @@ struct CMUXCLI {
             localCLIPath: resolvedExecutableURL()?.path,
             foregroundAuthToken: deferredRemoteReconnectToken
         )
-        let sshSessionConnectedCommandScript = sshSessionConnectedLocalCommandScript(
-            remoteRelayPort: sshOptions.remoteRelayPort,
-            localCLIPath: resolvedExecutableURL()?.path
+        let sshSessionConnectedCommandScript = buildSSHSessionConnectedShellCommand(
+            remoteRelayPort: sshOptions.remoteRelayPort
         )
         let sshConnectionTimingCommandScript = sshConnectionTimingLocalCommandScript(
             target: sshOptions.displayDestination,
@@ -6413,6 +6412,13 @@ struct CMUXCLI {
         )
     }
 
+    private func buildSSHSessionConnectedShellCommand(remoteRelayPort: Int) -> String {
+        buildSSHSessionLifecycleShellCommand(
+            subcommand: "ssh-session-connected",
+            remoteRelayPort: remoteRelayPort
+        )
+    }
+
     private func buildSSHSessionLifecycleShellCommand(
         subcommand: String,
         remoteRelayPort: Int,
@@ -6420,17 +6426,14 @@ struct CMUXCLI {
     ) -> String {
         let suffix = extraArguments.isEmpty ? "" : " " + extraArguments.joined(separator: " ")
         return [
-            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
-            "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
-            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" \(subcommand) --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\"\(suffix) >/dev/null 2>&1 || true;",
-            "elif command -v cmux >/dev/null 2>&1",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux \(subcommand) --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\"\(suffix) >/dev/null 2>&1 || true;",
-            "fi",
+            "cmux_lifecycle_cli=\"\";",
+            "cmux_lifecycle_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
+            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]; then cmux_lifecycle_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
+            "if [ -z \"$cmux_lifecycle_cli\" ]; then cmux_lifecycle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
+            "if [ -n \"$cmux_lifecycle_cli\" ] && [ -x \"$cmux_lifecycle_cli\" ] && [ -n \"$cmux_lifecycle_socket\" ] && [ -n \"${CMUX_WORKSPACE_ID:-}\" ] && [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "\"$cmux_lifecycle_cli\" --socket \"$cmux_lifecycle_socket\" \(subcommand) --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\"\(suffix) >/dev/null 2>&1 || true;",
+            "fi;",
+            "unset cmux_lifecycle_socket cmux_lifecycle_cli;",
         ].joined(separator: " ")
     }
 
@@ -7478,20 +7481,6 @@ struct CMUXCLI {
             "fi;",
             "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",
-        ].joined(separator: " ")
-    }
-
-    private func sshSessionConnectedLocalCommandScript(remoteRelayPort: Int, localCLIPath: String?) -> String {
-        let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return [
-            preferredCLIPath.map { "cmux_connected_cli=\(shellQuote($0));" } ?? "cmux_connected_cli=\"\";",
-            "cmux_connected_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
-            "if [ -z \"$cmux_connected_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_connected_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
-            "if [ ! -x \"$cmux_connected_cli\" ]; then cmux_connected_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
-            "if [ -n \"${CMUX_WORKSPACE_ID:-}\" ] && [ -n \"${CMUX_SURFACE_ID:-}\" ] && [ -n \"$cmux_connected_socket\" ] && [ -n \"$cmux_connected_cli\" ] && [ -x \"$cmux_connected_cli\" ]; then",
-            "\"$cmux_connected_cli\" --socket \"$cmux_connected_socket\" ssh-session-connected --relay-port \(remoteRelayPort) --workspace \"$CMUX_WORKSPACE_ID\" --surface \"$CMUX_SURFACE_ID\" >/dev/null 2>&1 || true;",
-            "fi;",
-            "unset cmux_connected_socket cmux_connected_cli;",
         ].joined(separator: " ")
     }
 
