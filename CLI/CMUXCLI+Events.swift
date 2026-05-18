@@ -128,7 +128,8 @@ extension CMUXCLI {
                 Print cmux event stream diagnostics as JSON.
 
                 Options:
-                  --reset-counters      Reset cumulative event diagnostics counters after reading them
+                  --reset-counters      Reset slow_subscription_close_count and
+                                        durable_log.dropped_disk_only_line_count after reading them
                 """)
                 return
             default:

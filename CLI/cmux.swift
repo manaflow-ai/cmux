@@ -9037,7 +9037,8 @@ struct CMUXCLI {
               --no-heartbeat         Do not print heartbeat frames
 
             Status options:
-              --reset-counters       Reset cumulative event diagnostics counters after reading them
+              --reset-counters       Reset slow_subscription_close_count and
+                                     durable_log.dropped_disk_only_line_count after reading them
 
             Examples:
               cmux events --category notification
