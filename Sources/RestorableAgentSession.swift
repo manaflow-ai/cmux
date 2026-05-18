@@ -33,6 +33,53 @@ enum AgentResumeCommandBuilder {
             return nil
         }
 
+        return shellCommand(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: customRegistration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
+    }
+
+    static func forkShellCommand(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true
+    ) -> String? {
+        let customRegistration = registrationOverride
+        guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let argv = forkArguments(
+                  kind: kind,
+                  sessionId: sessionId,
+                  launchCommand: launchCommand
+              ),
+              !argv.isEmpty else {
+            return nil
+        }
+
+        return shellCommand(
+            argv: argv,
+            kind: kind,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: customRegistration,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+        )
+    }
+
+    private static func shellCommand(
+        argv: [String],
+        kind: RestorableAgentKind,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?,
+        includeWorkingDirectoryPrefix: Bool
+    ) -> String {
         var commandParts: [String] = []
         let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
         if !environmentParts.isEmpty {
@@ -49,6 +96,20 @@ enum AgentResumeCommandBuilder {
             shellCommand = "cd \(ShellArgumentQuoting.singleQuoted(cwd)) && \(shellCommand)"
         }
         return shellCommand
+    }
+
+    static func openCodeVersionProbe(
+        launchCommand: AgentLaunchCommandSnapshot?
+    ) -> (executable: String, arguments: [String])? {
+        switch launchCommand?.launcher {
+        case "omo":
+            return nil
+        case "omx", "omc":
+            return nil
+        default:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
+            return (original.executable, ["--version"])
+        }
     }
 
     private static func launchEnvironmentParts(
@@ -216,6 +277,69 @@ enum AgentResumeCommandBuilder {
         }
     }
 
+    private static func forkArguments(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?
+    ) -> [String]? {
+        switch launchCommand?.launcher {
+        case "claudeTeams":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "claude-teams" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
+            return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
+        case "codexTeams":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "codex-teams" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
+            return [original.executable, "codex-teams", "fork", sessionId] + preserved
+        case "omo":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "omo" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
+            return [original.executable, "omo", "--session", sessionId, "--fork"] + preserved
+        case "omx", "omc":
+            return nil
+        default:
+            break
+        }
+
+        switch kind {
+        case .claude:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
+            return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
+        case .codex:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
+            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
+            return [original.executable, "fork", sessionId] + preserved
+        case .opencode:
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
+            return [original.executable, "--session", sessionId, "--fork"] + preserved
+        default:
+            return nil
+        }
+    }
+
     private static func customResumeArguments(
         registration: CmuxVaultAgentRegistration,
         sessionId: String,
@@ -376,16 +500,52 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         )
     }
 
+    var forkCommand: String? {
+        AgentResumeCommandBuilder.forkShellCommand(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            registrationOverride: registration
+        )
+    }
+
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> String? {
-        guard let command = resumeCommand else { return nil }
+        startupInput(
+            command: resumeCommand,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        )
+    }
 
+    func forkStartupInput(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true
+    ) -> String? {
+        startupInput(
+            command: forkCommand,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript
+        )
+    }
+
+    private func startupInput(
+        command: String?,
+        fileManager: FileManager,
+        temporaryDirectory: URL,
+        allowLauncherScript: Bool = true
+    ) -> String? {
+        guard let command else { return nil }
         let inlineInput = command + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
+        guard allowLauncherScript else { return nil }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
             command: command,
             kind: kind,
@@ -522,7 +682,7 @@ struct RestorableAgentSessionIndex: Sendable {
         }.value
     }
 
-    private static func load(
+    static func load(
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
@@ -587,7 +747,8 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
-            if let existing = resolved[key], existing.updatedAt > detected.updatedAt {
+            if let existing = resolved[key],
+               existing.updatedAt > detected.updatedAt {
                 continue
             }
             resolved[key] = detected
