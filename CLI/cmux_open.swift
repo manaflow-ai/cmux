@@ -210,7 +210,7 @@ extension CMUXCLI {
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
           --focus <true|false>         Focus opened targets (default: false)
-          --no-focus                   Do not focus opened file previews
+          --no-focus                   Do not focus opened targets
 
         Examples:
           cmux open report.pdf

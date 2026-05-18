@@ -278,6 +278,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar set find --focus true",
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar set vault --no-focus",
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
             ),
@@ -309,6 +313,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ("right_sidebar set", "Usage: right_sidebar set"),
             ("right_sidebar set unknown", "Unknown right sidebar mode"),
             ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
+            ("right_sidebar set find --focus maybe", "--focus must be true or false"),
+            ("right_sidebar set find --focus --no-focus", "--focus and --no-focus cannot be used together"),
             ("right_sidebar --bad", "Unknown right sidebar option"),
             ("right_sidebar show --tab not-a-uuid", "Invalid right sidebar --tab id"),
             ("right_sidebar show --window", "--window requires an id"),

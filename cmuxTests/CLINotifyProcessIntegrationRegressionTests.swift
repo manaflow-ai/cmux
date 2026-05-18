@@ -401,6 +401,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testRightSidebarInvalidFocusFlagsValidateBeforeTargetResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [(arguments: [String], expectedError: String)] = [
+            (["right-sidebar", "set", "find", "--focus", "maybe"], "--focus must be true or false"),
+            (["right-sidebar", "set", "find", "--focus", "--no-focus"], "--focus and --no-focus cannot be used together"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: testCase.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 1, result.stderr)
+            XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+            XCTAssertTrue(result.stderr.contains(testCase.expectedError), result.stderr)
+            XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+        }
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")

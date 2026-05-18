@@ -43,18 +43,31 @@ extension RightSidebarRemoteRequest {
         var positional: [String] = []
         var target = RightSidebarRemoteTarget()
         var focusOverride: Bool?
+        var sawFocus = false
+        var sawNoFocus = false
         var index = 0
 
         while index < tokens.count {
             let token = tokens[index]
             if token == "--no-focus" {
+                guard !sawFocus else {
+                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusConflict", defaultValue: "ERROR: --focus and --no-focus cannot be used together")))
+                }
+                sawNoFocus = true
                 focusOverride = false
                 index += 1
                 continue
             }
             if token == "--focus" {
+                guard !sawNoFocus else {
+                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusConflict", defaultValue: "ERROR: --focus and --no-focus cannot be used together")))
+                }
+                sawFocus = true
                 if index + 1 < tokens.count,
-                   let parsed = parseFocusValue(tokens[index + 1]) {
+                   !tokens[index + 1].hasPrefix("--") {
+                    guard let parsed = parseFocusValue(tokens[index + 1]) else {
+                        return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusValue", defaultValue: "ERROR: --focus must be true or false")))
+                    }
                     focusOverride = parsed
                     index += 2
                 } else {
@@ -64,6 +77,10 @@ extension RightSidebarRemoteRequest {
                 continue
             }
             if token.hasPrefix("--focus=") {
+                guard !sawNoFocus else {
+                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusConflict", defaultValue: "ERROR: --focus and --no-focus cannot be used together")))
+                }
+                sawFocus = true
                 let value = String(token.dropFirst("--focus=".count))
                 guard let parsed = parseFocusValue(value) else {
                     return .failure(.init(message: String(localized: "rightSidebar.remote.error.focusValue", defaultValue: "ERROR: --focus must be true or false")))

@@ -2379,6 +2379,10 @@ struct CMUXCLI {
             return
         }
 
+        if command == "right-sidebar" {
+            _ = try rightSidebarSocketArguments(from: parseRightSidebarCLIArguments(commandArgs))
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -10842,11 +10846,20 @@ struct CMUXCLI {
                 window = args[index + 1]
                 index += 2
             case "--no-focus":
+                guard focus == nil else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.focusConflict", defaultValue: "right-sidebar: --focus and --no-focus cannot be used together"))
+                }
                 noFocus = true
                 index += 1
             case "--focus":
+                guard !noFocus else {
+                    throw CLIError(message: String(localized: "cli.rightSidebar.error.focusConflict", defaultValue: "right-sidebar: --focus and --no-focus cannot be used together"))
+                }
                 if index + 1 < args.count,
-                   let parsed = parseBoolString(args[index + 1]) {
+                   !args[index + 1].hasPrefix("--") {
+                    guard let parsed = parseBoolString(args[index + 1]) else {
+                        throw CLIError(message: String(localized: "cli.rightSidebar.error.focusValue", defaultValue: "right-sidebar: --focus must be true or false"))
+                    }
                     focus = parsed
                     index += 2
                 } else {
@@ -10861,9 +10874,12 @@ struct CMUXCLI {
                     window = String(arg.dropFirst("--window=".count))
                     index += 1
                 } else if arg.hasPrefix("--focus=") {
+                    guard !noFocus else {
+                        throw CLIError(message: String(localized: "cli.rightSidebar.error.focusConflict", defaultValue: "right-sidebar: --focus and --no-focus cannot be used together"))
+                    }
                     let raw = String(arg.dropFirst("--focus=".count))
                     guard let parsed = parseBoolString(raw) else {
-                        throw CLIError(message: String(localized: "cli.rightSidebar.error.focusValue", defaultValue: "right-sidebar: --focus must be true|false"))
+                        throw CLIError(message: String(localized: "cli.rightSidebar.error.focusValue", defaultValue: "right-sidebar: --focus must be true or false"))
                     }
                     focus = parsed
                     index += 1
