@@ -90,6 +90,20 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         )
     }
 
+    func testTerminalDirectoryOpenLauncherFallsBackToWorkspaceDirectoryWhenFocusedDirectoryIsStale() throws {
+        let workspaceDirectory = settingsDirectoryURL.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+
+        let resolvedURL = TerminalDirectoryOpenLauncher.firstValidDirectoryURL(
+            in: [
+                settingsDirectoryURL.appendingPathComponent("missing", isDirectory: true).path,
+                workspaceDirectory.path,
+            ]
+        )
+
+        XCTAssertEqual(resolvedURL?.standardizedFileURL, workspaceDirectory.standardizedFileURL)
+    }
+
     func testFieldEditorMoveCommandHonorsClearedCommandPalettePreviousShortcut() {
         guard let controlPEvent = makeKeyDownEvent(
             key: "\u{10}",

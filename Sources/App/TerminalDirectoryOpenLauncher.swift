@@ -6,15 +6,21 @@ enum TerminalDirectoryOpenLauncher {
     static func currentDirectoryURL(in tabManager: TabManager?) -> URL? {
         guard let workspace = tabManager?.selectedWorkspace else { return nil }
         let focusedPanelDirectory = workspace.focusedPanelId.flatMap { workspace.panelDirectories[$0] }
-        let rawDirectory = focusedPanelDirectory ?? workspace.currentDirectory
-        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
+        return firstValidDirectoryURL(in: [focusedPanelDirectory, workspace.currentDirectory])
+    }
+
+    static func firstValidDirectoryURL(in rawDirectories: [String?]) -> URL? {
+        for rawDirectory in rawDirectories {
+            let trimmed = rawDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                continue
+            }
+            return URL(fileURLWithPath: trimmed, isDirectory: true)
         }
-        return URL(fileURLWithPath: trimmed, isDirectory: true)
+        return nil
     }
 
     static func openCurrentDirectory(
