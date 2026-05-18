@@ -4698,7 +4698,10 @@ struct CMUXCLI {
         let usesImplicitSurface = surfaceOpt == nil
             && windowOverride == nil
             && env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        let workspaceRaw = workspaceOpt ?? (usesImplicitSurface ? nil : (windowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil))
+        let shouldUseEnvWorkspace = surfaceOpt == nil
+            && !usesImplicitSurface
+            && windowOverride == nil
+        let workspaceRaw = workspaceOpt ?? (shouldUseEnvWorkspace ? env["CMUX_WORKSPACE_ID"] : nil)
         let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? env["CMUX_SURFACE_ID"] : nil)
         var params: [String: Any] = [:]
         let windowHandle = try normalizeWindowHandle(windowOverride, client: client)
