@@ -25,6 +25,29 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+private struct SocketConnectionFailure: Error, CustomStringConvertible {
+    let path: String
+    let errnoCode: Int32
+
+    var description: String {
+        "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoCode))), errno \(errnoCode))"
+    }
+}
+
+private enum CLISocketListenerRestartRequest {
+    static let notificationName = Notification.Name("com.cmuxterm.socket.restartListener")
+    static let socketPathUserInfoKey = "socketPath"
+
+    static func post(socketPath: String) throws {
+        DistributedNotificationCenter.default().postNotificationName(
+            notificationName,
+            object: nil,
+            userInfo: [socketPathUserInfoKey: socketPath],
+            deliverImmediately: true
+        )
+    }
+}
+
 private enum CLISocketEnvironment {
     static func socketPath(in environment: [String: String]) throws -> String? {
         let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
@@ -987,9 +1010,40 @@ final class SocketClient {
         lastOperationTelemetry = operation
     }
 
-    func connect() throws {
+    func connect(
+        allowListenerRestartRecovery: Bool = false,
+        listenerRestartTimeout: TimeInterval = 2.0,
+        requestListenerRestart: ((String) throws -> Void)? = nil
+    ) throws {
         if socketFD >= 0 { return }
-        try connectOnce()
+        do {
+            try connectOnce()
+        } catch {
+            guard allowListenerRestartRecovery,
+                  Self.shouldRequestListenerRestart(after: error) else {
+                throw error
+            }
+
+            try (requestListenerRestart ?? CLISocketListenerRestartRequest.post)(path)
+            let recoveredClient = try Self.waitForConnectableSocket(
+                path: path,
+                timeout: listenerRestartTimeout
+            )
+            adoptConnection(from: recoveredClient)
+        }
+    }
+
+    static func shouldRequestListenerRestart(after error: Error) -> Bool {
+        guard let failure = error as? SocketConnectionFailure else { return false }
+        return failure.errnoCode == ECONNREFUSED
+    }
+
+    private func adoptConnection(from other: SocketClient) {
+        close()
+        socketFD = other.socketFD
+        lastConfiguredReceiveTimeout = other.lastConfiguredReceiveTimeout
+        other.socketFD = -1
+        other.lastConfiguredReceiveTimeout = nil
     }
 
     func close() {
@@ -1150,9 +1204,7 @@ final class SocketClient {
         let connectErrno = errno
         Darwin.close(socketFD)
         socketFD = -1
-        throw CLIError(
-            message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
-        )
+        throw SocketConnectionFailure(path: path, errnoCode: connectErrno)
     }
 
     private static func parseRelayEndpoint(_ raw: String) -> RelayEndpoint? {
@@ -2397,7 +2449,7 @@ struct CMUXCLI {
             ]
         )
         do {
-            try client.connect()
+            try client.connect(allowListenerRestartRecovery: true)
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
@@ -4010,7 +4062,7 @@ struct CMUXCLI {
         launchIfNeeded: Bool
     ) throws -> SocketClient {
         let client = SocketClient(path: socketPath)
-        if launchIfNeeded && (try? client.connect()) == nil {
+        if launchIfNeeded && (try? client.connect(allowListenerRestartRecovery: true)) == nil {
             client.close()
             try launchApp()
             let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
@@ -4022,7 +4074,7 @@ struct CMUXCLI {
             return launchedClient
         }
 
-        try client.connect()
+        try client.connect(allowListenerRestartRecovery: true)
         try authenticateClientIfNeeded(
             client,
             explicitPassword: explicitPassword,
@@ -12932,7 +12984,7 @@ struct CMUXCLI {
         let client = SocketClient(path: socketPath)
 
         do {
-            try client.connect()
+            try client.connect(allowListenerRestartRecovery: true)
             try authenticateClientIfNeeded(
                 client,
                 explicitPassword: explicitPassword,
@@ -21935,7 +21987,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         let client = SocketClient(path: socketPath)
-        try client.connect()
+        try client.connect(allowListenerRestartRecovery: true)
         try authenticateClientIfNeeded(client, explicitPassword: socketPassword, socketPath: socketPath)
 
         var rawMode = TerminalRawMode()

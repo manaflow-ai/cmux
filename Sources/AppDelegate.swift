@@ -133,6 +133,11 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
+private enum CmuxSocketControlNotifications {
+    static let restartListener = Notification.Name("com.cmuxterm.socket.restartListener")
+    static let socketPathUserInfoKey = "socketPath"
+}
+
 func isCommandPaletteFocusStealingTerminalOrBrowserResponder(_ responder: NSResponder) -> Bool {
     if responder is GhosttyNSView || responder is WKWebView {
         return true
@@ -1040,6 +1045,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
             name: CmuxThemeNotifications.reloadConfig,
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleSocketListenerRestartNotification(_:)),
+            name: CmuxSocketControlNotifications.restartListener,
             object: nil,
             suspensionBehavior: .deliverImmediately
         )
@@ -14695,6 +14707,18 @@ private extension AppDelegate {
         DispatchQueue.main.async {
             GhosttyApp.shared.reloadConfiguration(source: "distributed.cmux.themes")
         }
+    }
+
+    @objc private func handleSocketListenerRestartNotification(_ notification: Notification) {
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let activePath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        if let requestedPath = notification.userInfo?[CmuxSocketControlNotifications.socketPathUserInfoKey] as? String,
+           !requestedPath.isEmpty,
+           requestedPath != activePath {
+            return
+        }
+
+        restartSocketListenerIfEnabled(source: "distributedNotification")
     }
 }
 
