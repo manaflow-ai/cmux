@@ -4072,6 +4072,80 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testProcessDetectionSkipsRemappedCMUXScopedCodexForForkMetadata() throws {
+        let staleWorkspaceId = UUID()
+        let stalePanelId = UUID()
+        let focusedWorkspaceId = UUID()
+        let focusedPanelId = UUID()
+        let ttyDevice: Int64 = 44_135
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-remapped-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let childSessionId = "019e6666-6666-7666-8666-666666666666"
+        let workingDirectory = "/tmp/codex fork repo"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: childSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 300),
+            modifiedAt: Date(timeIntervalSince1970: 300)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let process = makeTopProcess(
+            pid: 10_135,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: staleWorkspaceId,
+            panelId: stalePanelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            fallbackScope: RestorableAgentProcessDetectionScope(
+                workspaceId: focusedWorkspaceId,
+                panelId: focusedPanelId,
+                ttyDevice: ttyDevice
+            ),
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [process],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                guard pid == process.pid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "/Users/lawrence/.bun/bin/codex",
+                        "fork",
+                        parentSessionId,
+                        "--model",
+                        "gpt-5.4"
+                    ],
+                    environment: [
+                        "CODEX_HOME": codexHome.path,
+                        "CODEX_THREAD_ID": parentSessionId,
+                        "PWD": workingDirectory
+                    ]
+                )
+            }
+        )
+
+        XCTAssertNil(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: staleWorkspaceId, panelId: stalePanelId)]?.snapshot
+        )
+        let focusedSnapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: focusedWorkspaceId, panelId: focusedPanelId)]?.snapshot
+        )
+        XCTAssertEqual(focusedSnapshot.kind, .codex)
+        XCTAssertEqual(focusedSnapshot.sessionId, childSessionId)
+    }
+
     func testProcessDetectionResolvesCodexForkChildFromSessionMetadataWhenThreadEnvironmentMissing() throws {
         let workspaceId = UUID()
         let panelId = UUID()
