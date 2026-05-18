@@ -6647,6 +6647,17 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             workspaceId: workspaceId,
             panelId: panelId
         )
+        try writeClaudeProcessSession(
+            configDir: claudeConfigDir,
+            pid: process.pid,
+            sessionId: parentSessionId,
+            cwd: workingDirectory
+        )
+        try writeClaudeTranscript(
+            configDir: claudeConfigDir,
+            sessionId: parentSessionId,
+            cwd: workingDirectory
+        )
         let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: CmuxVaultAgentRegistry(registrations: []),
             fileManager: fileManager,

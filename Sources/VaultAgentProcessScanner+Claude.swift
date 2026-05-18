@@ -200,8 +200,11 @@ extension RestorableAgentSessionIndex {
             let nonParentEnvironmentSessionId = environmentSessionId == resumeSessionId
                 ? nil
                 : environmentSessionId
+            let nonParentProcessSessionFileSessionId = processSessionFileSessionId == resumeSessionId
+                ? nil
+                : processSessionFileSessionId
             return claudeSessionIdValue(afterOption: "--session-id", in: tail)
-                ?? processSessionFileSessionId
+                ?? nonParentProcessSessionFileSessionId
                 ?? nonParentEnvironmentSessionId
                 ?? resumeSessionId
         }
@@ -223,16 +226,33 @@ extension RestorableAgentSessionIndex {
                   ?? claudeResumeSessionIdValue(afterOption: "-r", in: tail),
               sessionId == resumeSessionId,
               claudeSessionIdValue(afterOption: "--session-id", in: tail) == nil,
-              claudeSessionIdFromProcessSessionFile(
+              claudeProcessSessionFileHasNoForkChild(
+                  resumeSessionId: resumeSessionId,
                   processID: processID,
                   environment: environment,
                   fileManager: fileManager
-              ) == nil else {
+              ) else {
             return false
         }
 
         let environmentSessionId = normalized(environment["CLAUDE_SESSION_ID"])
         return environmentSessionId == nil || environmentSessionId == resumeSessionId
+    }
+
+    private static func claudeProcessSessionFileHasNoForkChild(
+        resumeSessionId: String,
+        processID: Int?,
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> Bool {
+        guard let processSessionFileSessionId = claudeSessionIdFromProcessSessionFile(
+            processID: processID,
+            environment: environment,
+            fileManager: fileManager
+        ) else {
+            return true
+        }
+        return processSessionFileSessionId == resumeSessionId
     }
 
     private static func claudeSessionIdValue(afterOption option: String, in arguments: [String]) -> String? {
