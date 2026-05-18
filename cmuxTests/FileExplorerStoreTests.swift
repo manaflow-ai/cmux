@@ -1113,6 +1113,23 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertTrue(remoteCommand.contains("'/home/dev/My Project'"))
     }
 
+    func testRemoteSearchMissingSSHReportsUnavailable() {
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: []
+        )
+        let controller = FileSearchController(isExecutableFile: { _ in false })
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+
+        controller.search(query: "needle", rootPath: "/home/dev/project", scope: .remoteSSH(connection), contentRevision: 0)
+
+        XCTAssertEqual(snapshots.last?.status, .unsupported)
+        XCTAssertEqual(snapshots.last?.isSearching, false)
+    }
+
     func testContentRevisionChangeDoesNotRestartActiveFindSearch() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()

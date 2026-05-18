@@ -372,6 +372,11 @@ final class FileSearchController: FileSearchControlling {
     private var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     private var searchTask: Task<Void, Never>?
+    private let isExecutableFile: (String) -> Bool
+
+    init(isExecutableFile: @escaping (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) {
+        self.isExecutableFile = isExecutableFile
+    }
 
     func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -412,11 +417,16 @@ final class FileSearchController: FileSearchControlling {
             }
             return
         }
-        guard FileManager.default.isExecutableFile(atPath: command.executableURL.path) else {
-            emit(
-                status: .failed(String(format: String(localized: "fileExplorer.search.executableMissing", defaultValue: "Search executable is missing: %@"), command.executableURL.path)),
-                isSearching: false
-            )
+        guard isExecutableFile(command.executableURL.path) else {
+            switch scope {
+            case .remoteSSH, .unsupported:
+                emit(status: .unsupported, isSearching: false)
+            case .local:
+                emit(
+                    status: .failed(String(format: String(localized: "fileExplorer.search.executableMissing", defaultValue: "Search executable is missing: %@"), command.executableURL.path)),
+                    isSearching: false
+                )
+            }
             return
         }
 
