@@ -9572,6 +9572,7 @@ final class Workspace: Identifiable, ObservableObject {
         settleRemoteConnectionStateAfterLastTerminalSessionEnded()
     }
 
+    @MainActor
     private func settleRemoteConnectionStateAfterLastTerminalSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         guard remoteConnectionState != .error,
@@ -9769,6 +9770,7 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteConnectionStateUpdate(.connected, detail: nil, target: target)
     }
 
+    @MainActor
     private func remoteTerminalLifecycleMatches(surfaceId: UUID, relayPort: Int?) -> Bool {
         guard let relayPort,
               relayPort > 0,
