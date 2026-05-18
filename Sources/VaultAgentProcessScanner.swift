@@ -541,7 +541,7 @@ extension SurfaceResumeBindingIndex {
     ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
         _ = fileManager
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
 
         for process in processSnapshot.cmuxScopedProcesses() {
