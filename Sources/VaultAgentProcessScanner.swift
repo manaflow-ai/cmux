@@ -599,12 +599,12 @@ extension RestorableAgentSessionIndex {
         var forkMetadataPanelKeysByParentSessionId: [String: Set<PanelKey>] = [:]
         let fallbackRemappedPIDs = Set(candidates.filter { $0.source == .fallbackScope }.map(\.process.pid))
 
-        for candidate in candidates {
+        func shouldSkipRemappedCMUXScopedCandidate(_ candidate: RestorableAgentProcessDetectionCandidate) -> Bool {
+            candidate.source == .cmuxScoped && fallbackRemappedPIDs.contains(candidate.process.pid)
+        }
+
+        for candidate in candidates where !shouldSkipRemappedCMUXScopedCandidate(candidate) {
             let process = candidate.process
-            if candidate.source == .cmuxScoped,
-               fallbackRemappedPIDs.contains(process.pid) {
-                continue
-            }
             let processArguments = candidate.arguments
             guard process.canBeActiveAgentProcess else { continue }
             let observed = VaultObservedAgentProcess(
@@ -634,7 +634,7 @@ extension RestorableAgentSessionIndex {
             forkMetadataPanelKeysByKey[key, default: []].insert(candidate.panelKey)
         }
 
-        for candidate in candidates {
+        for candidate in candidates where !shouldSkipRemappedCMUXScopedCandidate(candidate) {
             let process = candidate.process
             let processArguments = candidate.arguments
             guard process.canBeActiveAgentProcess else { continue }
