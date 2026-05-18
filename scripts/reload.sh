@@ -496,6 +496,7 @@ XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 python3 -c '
 import fcntl
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -503,6 +504,23 @@ import time
 lock_path = sys.argv[1]
 command = sys.argv[2:]
 wait_start = None
+child = None
+terminating_signal = None
+
+def forward_signal(signum, _frame):
+    global terminating_signal
+    terminating_signal = signum
+    proc = child
+    if proc is None:
+        raise SystemExit(128 + signum)
+    if proc.poll() is None:
+        try:
+            proc.send_signal(signum)
+        except OSError:
+            pass
+
+for signum in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT, signal.SIGTERM):
+    signal.signal(signum, forward_signal)
 
 try:
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -550,28 +568,35 @@ if wait_start is not None:
 
 build_start = time.monotonic()
 try:
-    completed = subprocess.run(command, pass_fds=(fd,))
+    child = subprocess.Popen(command, pass_fds=(fd,))
+    returncode = child.wait()
 except KeyboardInterrupt:
     raise SystemExit(130)
 except OSError as exc:
     raise SystemExit(f"error: run xcodebuild: {exc}")
+finally:
+    child = None
 
 elapsed = int(time.monotonic() - build_start)
-if completed.returncode == 0:
+if returncode == 0 and terminating_signal is not None:
+    msg = f"==> xcodebuild build interrupted by signal {terminating_signal} after {elapsed}s\n"
+elif returncode == 0:
     msg = f"==> xcodebuild build completed in {elapsed}s\n"
-elif completed.returncode < 0:
-    signal_number = abs(completed.returncode)
+elif returncode < 0:
+    signal_number = abs(returncode)
     msg = f"==> xcodebuild build terminated by signal {signal_number} after {elapsed}s\n"
 else:
-    msg = f"==> xcodebuild build failed with exit code {completed.returncode} after {elapsed}s\n"
+    msg = f"==> xcodebuild build failed with exit code {returncode} after {elapsed}s\n"
 try:
     os.write(1, msg.encode())
 except OSError:
     pass
 
-if completed.returncode < 0:
-    raise SystemExit(128 + abs(completed.returncode))
-raise SystemExit(completed.returncode)
+if terminating_signal is not None and returncode == 0:
+    raise SystemExit(128 + terminating_signal)
+if returncode < 0:
+    raise SystemExit(128 + abs(returncode))
+raise SystemExit(returncode)
 ' "$XCODEBUILD_LOCK" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
 XCODEBUILD_QUEUE_BUILD_ELAPSED=$(( $(date +%s) - XCODEBUILD_QUEUE_BUILD_START_TIME ))
 echo "==> xcodebuild queue+build phase completed in ${XCODEBUILD_QUEUE_BUILD_ELAPSED}s"
