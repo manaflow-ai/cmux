@@ -14830,7 +14830,9 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
-        guard let suppressionReason = windowMoveSuppressionReasonForEvent(window: self, event: event) else {
+        let suppressionReason = windowMoveSuppressionReasonForEvent(window: self, event: event)
+        let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
+        guard suppressionReason != nil || hasActiveSuppressionSequence else {
 #if DEBUG
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
@@ -14851,11 +14853,13 @@ private extension NSWindow {
 #endif
         let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
+        #if DEBUG
         let hitView: NSView? = {
             guard let contentView = self.contentView else { return nil }
             let contentPoint = contentView.convert(event.locationInWindow, from: nil)
             return contentView.hitTest(contentPoint)
         }()
+        #endif
         defer {
             let finishedReason: WindowMoveSuppressionReason?
             if shouldFinishSuppression {
@@ -14864,10 +14868,11 @@ private extension NSWindow {
                 finishedReason = nil
             }
             #if DEBUG
+            let reasonDescription = finishedReason?.rawValue ?? suppressionReason?.rawValue ?? "activeSequence"
             if shouldFinishSuppression {
-                cmuxDebugLog("window.sendEvent.\(finishedReason?.rawValue ?? suppressionReason.rawValue) finish nowMovable=\(isMovable)")
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) finish nowMovable=\(isMovable)")
             } else {
-                cmuxDebugLog("window.sendEvent.\(suppressionReason.rawValue) keepSuppressed nowMovable=\(isMovable)")
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) keepSuppressed nowMovable=\(isMovable)")
             }
             #endif
         }
@@ -14875,7 +14880,8 @@ private extension NSWindow {
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
         let depth = windowDragSuppressionDepth(window: self)
-        cmuxDebugLog("window.sendEvent.\(suppressionReason.rawValue) suppress=1 hit=\(hitDesc) movable=\(isMovable) depth=\(depth)")
+        let reasonDescription = suppressionReason?.rawValue ?? "activeSequence"
+        cmuxDebugLog("window.sendEvent.\(reasonDescription) suppress=1 hit=\(hitDesc) movable=\(isMovable) depth=\(depth)")
         #endif
 
         cmux_sendEvent(event)
