@@ -1428,6 +1428,24 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testDetectsForegroundSSHSessionWithWhitespaceControlPathContainingEquals() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-o", "ControlPath /tmp/cmux-ssh=with-equals-%C",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.controlPath, "/tmp/cmux-ssh=with-equals-%C")
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",

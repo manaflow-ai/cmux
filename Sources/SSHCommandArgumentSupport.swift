@@ -40,12 +40,10 @@ enum SSHCommandArgumentSupport {
         let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        if let equalIndex = trimmed.firstIndex(of: "=") {
-            let value = trimmed[trimmed.index(after: equalIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-
-        let parts = trimmed.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+        let parts = trimmed.split(
+            maxSplits: 1,
+            whereSeparator: { $0 == "=" || $0.isWhitespace }
+        )
         guard parts.count == 2 else { return nil }
         let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
