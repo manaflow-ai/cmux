@@ -23,6 +23,7 @@ final class AuthManagerSignInErrorTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
+        manager.markBrowserSignInLoadingForTesting()
         do {
             try await manager.handleCallbackURL(URL(string: "cmux://auth-callback?stack_refresh=refresh-token")!)
             XCTFail("Expected invalid callback to throw")
@@ -44,6 +45,32 @@ final class AuthManagerSignInErrorTests: XCTestCase {
             manager.lastSignInError?.localizedMessage,
             AuthSignInError.message("diagnostic detail").localizedMessage
         )
+    }
+
+    func testStaleInvalidCallbackDoesNotStoreVisibleSignInError() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.StaleInvalidCallback.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AuthManager(
+            tokenStore: TestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        do {
+            try await manager.handleCallbackURL(URL(string: "cmux://auth-callback?stack_refresh=refresh-token")!)
+            XCTFail("Expected invalid callback to throw")
+        } catch AuthManagerError.invalidCallback {
+            // Expected path.
+        } catch {
+            XCTFail("Expected invalidCallback, got \(error)")
+        }
+
+        XCTAssertNil(manager.lastSignInError)
     }
 
     func testApplySignInResultDoesNotRestoreAuthAfterConcurrentSignOut() async throws {

@@ -202,6 +202,8 @@ final class AuthManager: ObservableObject {
         case signOut
     }
 
+    private struct AuthMutationSupersededError: Error, Sendable {}
+
     #if DEBUG
     func markBrowserSignInLoadingForTesting() {
         _ = startBrowserSignInAttempt()
@@ -457,7 +459,9 @@ final class AuthManager: ObservableObject {
     func handleCallbackURL(_ url: URL) async throws {
         guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
             let error = AuthManagerError.invalidCallback
-            lastSignInError = .authManager(error)
+            if hasActiveBrowserSignInAttempt {
+                lastSignInError = .authManager(error)
+            }
             throw error
         }
         let mutationGeneration = beginAuthMutation(.signIn)
@@ -644,7 +648,7 @@ final class AuthManager: ObservableObject {
                 accessToken: accessToken,
                 refreshToken: refreshToken
             ) else {
-                throw CancellationError()
+                throw AuthMutationSupersededError()
             }
             lastKnownAccessToken = accessToken
 
@@ -689,7 +693,7 @@ final class AuthManager: ObservableObject {
                 accessToken: accessToken,
                 refreshToken: refreshToken
             ) else {
-                throw CancellationError()
+                throw AuthMutationSupersededError()
             }
             currentUser = user
             settingsStore.saveCachedUser(user)
@@ -954,6 +958,10 @@ final class AuthManager: ObservableObject {
     private func isCurrentBrowserSignInAttempt(_ attemptID: UInt64) -> Bool {
         activeBrowserSignInAttemptID == attemptID
             && signOutCancelledBrowserSignInAttemptID != attemptID
+    }
+
+    private var hasActiveBrowserSignInAttempt: Bool {
+        activeBrowserSignInAttemptID != nil
     }
 
     private func finishBrowserSignInAttempt(_ attemptID: UInt64) {
