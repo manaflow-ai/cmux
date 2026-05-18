@@ -766,6 +766,13 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
             label: "issue4287-initial-window",
             browserSnapshotPath: browserSnapshotPath
         )
+        assertBrowserWindowKeepsLoadedPage(
+            window: window,
+            label: "issue4287-initial-window-stability",
+            samples: 12,
+            interval: 0.18,
+            browserSnapshotPath: browserSnapshotPath
+        )
     }
 
     func testLoadedBrowserSplitStaysVisibleAfterWorkspaceSwitchBack() {
@@ -1007,6 +1014,27 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
             }
             XCTFail(
                 "Loaded browser DOM/WebKit snapshot exists, but the actual cmux window crop is not showing the page. label=\(label) stats=\(stats) crop=\(issue4287BrowserWindowCrop) windowShot=\(path) webkitShot=\(browserSnapshotPath ?? "<none>") baseline=\(baselinePath ?? "<none>")",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertBrowserWindowKeepsLoadedPage(
+        window: XCUIElement,
+        label: String,
+        samples: Int,
+        interval: TimeInterval,
+        browserSnapshotPath: String?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        for sample in 1...samples {
+            RunLoop.current.run(until: Date().addingTimeInterval(interval))
+            assertBrowserWindowShowsLoadedPage(
+                window: window,
+                label: "\(label)-\(String(format: "%02d", sample))",
+                browserSnapshotPath: browserSnapshotPath,
                 file: file,
                 line: line
             )
