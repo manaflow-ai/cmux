@@ -224,7 +224,7 @@ public final class WorkstreamStore {
         "child_source", "childSource", "subagent_source", "subagentSource",
         "subagent_type", "subagentType", "agent_type", "agentType",
         "model", "subagent_model", "subagentModel",
-        "task_description", "taskDescription", "description", "title", "name",
+        "task_description", "taskDescription", "prompt", "message", "description", "title", "name",
     ]
 
     private static func sanitizedExtraFieldsJSON(_ rawJSON: String?) -> String? {
