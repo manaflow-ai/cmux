@@ -324,6 +324,43 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
+    func testTerminalScopedAttachTicketRejectsTerminalCreate() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-create",
+            method: "terminal.create",
+            params: [
+                "workspace_id": "workspace",
+                "terminal_id": "terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertEqual(error?.code, "forbidden")
+    }
+
+    func testWorkspaceScopedAttachTicketAcceptsTerminalCreate() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "terminal-create",
+            method: "terminal.create",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
     func testTerminalScopedAttachTicketRejectsConflictingTerminalAliases() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal-a")
         let request = MobileHostRPCRequest(

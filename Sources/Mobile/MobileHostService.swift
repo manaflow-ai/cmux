@@ -270,8 +270,14 @@ final class MobileHostService {
                     return scopedTicketError
                 }
             }
-        case "mobile.terminal.create", "terminal.create",
-             "mobile.terminal.snapshot", "terminal.snapshot",
+        case "mobile.terminal.create", "terminal.create":
+            guard workspaceID == ticket.workspaceID else {
+                return scopedTicketError
+            }
+            guard ticket.terminalID == nil else {
+                return scopedTicketError
+            }
+        case "mobile.terminal.snapshot", "terminal.snapshot",
              "mobile.terminal.input", "terminal.input":
             guard workspaceID == ticket.workspaceID else {
                 return scopedTicketError
