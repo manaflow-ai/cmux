@@ -60,7 +60,8 @@ enum AgentResumeCommandBuilder {
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
-                  launchCommand: launchCommand
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory
               ),
               !argv.isEmpty else {
             return nil
@@ -284,7 +285,8 @@ enum AgentResumeCommandBuilder {
     private static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -307,8 +309,14 @@ enum AgentResumeCommandBuilder {
             if args.first == "codex-teams" {
                 args.removeFirst()
             }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork", sessionId] + preserved
+            guard let preserved = preservedCodexForkArguments(
+                args: args,
+                overridingWorkingDirectory: workingDirectory
+            ) else { return nil }
+            return [original.executable, "codex-teams", "fork"]
+                + codexWorkingDirectoryArguments(workingDirectory)
+                + [sessionId]
+                + preserved
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -333,8 +341,14 @@ enum AgentResumeCommandBuilder {
             return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork", sessionId] + preserved
+            guard let preserved = preservedCodexForkArguments(
+                args: original.tail,
+                overridingWorkingDirectory: workingDirectory
+            ) else { return nil }
+            return [original.executable, "fork"]
+                + codexWorkingDirectoryArguments(workingDirectory)
+                + [sessionId]
+                + preserved
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
@@ -342,6 +356,41 @@ enum AgentResumeCommandBuilder {
         default:
             return nil
         }
+    }
+
+    private static func codexWorkingDirectoryArguments(_ workingDirectory: String?) -> [String] {
+        guard let workingDirectory = normalized(workingDirectory) else { return [] }
+        return ["--cd", workingDirectory]
+    }
+
+    private static func preservedCodexForkArguments(
+        args: [String],
+        overridingWorkingDirectory: String?
+    ) -> [String]? {
+        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else {
+            return nil
+        }
+        guard normalized(overridingWorkingDirectory) != nil else { return preserved }
+        return removingCodexWorkingDirectoryArguments(preserved)
+    }
+
+    private static func removingCodexWorkingDirectoryArguments(_ arguments: [String]) -> [String] {
+        var result: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--cd" || argument == "-C" {
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--cd=") || argument.hasPrefix("-C=") {
+                index += 1
+                continue
+            }
+            result.append(argument)
+            index += 1
+        }
+        return result
     }
 
     private static func customResumeArguments(
