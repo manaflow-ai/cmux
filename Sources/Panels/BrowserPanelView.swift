@@ -1986,8 +1986,11 @@ struct BrowserPanelView: View {
         omnibarHasMarkedText = hasMarkedText
         if didBeginComposition {
             hideSuggestions()
-        } else if didEndComposition, addressBarFocused {
-            refreshSuggestions()
+        } else if didEndComposition {
+            // `controlTextDidChange` publishes selection state before updating
+            // the bound buffer, so refresh suggestions from the committed buffer
+            // change that immediately follows instead of from pre-commit text.
+            refreshInlineCompletion()
         } else {
             refreshInlineCompletion()
         }
@@ -2220,7 +2223,8 @@ struct BrowserPanelView: View {
             if Task.isCancelled { return }
 
             await MainActor.run {
-                guard addressBarFocused else { return }
+                guard !Task.isCancelled else { return }
+                guard addressBarFocused, !omnibarHasMarkedText else { return }
                 let current = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard current == query else { return }
                 latestRemoteSuggestionQuery = query
