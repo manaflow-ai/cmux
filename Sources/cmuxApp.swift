@@ -5018,6 +5018,10 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
+    @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
+    @AppStorage(BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+    private var browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -5301,6 +5305,38 @@ struct SettingsView: View {
             return String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
         }
         return String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
+    }
+
+    private var browserHiddenWebViewDiscardDelayBinding: Binding<Double> {
+        Binding(
+            get: { BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(browserHiddenWebViewDiscardDelay) },
+            set: { browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay($0) }
+        )
+    }
+
+    private var browserHiddenWebViewDiscardSubtitle: String {
+        if browserHiddenWebViewDiscardEnabled {
+            return String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release page memory after the delay below, then restore when shown again.")
+        }
+        return String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep page memory until closed.")
+    }
+
+    private var browserHiddenWebViewDiscardDelaySubtitle: String {
+        String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped.")
+    }
+
+    private var browserHiddenWebViewDiscardDelayLabel: String {
+        let seconds = Int(BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(browserHiddenWebViewDiscardDelay).rounded())
+        if seconds < 60 {
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "%llds")
+            return String.localizedStringWithFormat(format, Int64(seconds))
+        }
+        if seconds % 60 == 0 {
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutes", defaultValue: "%lldm")
+            return String.localizedStringWithFormat(format, Int64(seconds / 60))
+        }
+        let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "%lldm %llds")
+        return String.localizedStringWithFormat(format, Int64(seconds / 60), Int64(seconds % 60))
     }
 
     @ViewBuilder
@@ -6648,6 +6684,50 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("browser.discardHiddenWebViews"),
+                            String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
+                            subtitle: browserHiddenWebViewDiscardSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "hidden-webview-discard")
+                        ) {
+                            Toggle("", isOn: $browserHiddenWebViewDiscardEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
+                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"))
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("browser.hiddenWebViewDiscardDelaySeconds"),
+                            String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
+                            subtitle: browserHiddenWebViewDiscardDelaySubtitle,
+                            controlWidth: pickerColumnWidth,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "hidden-webview-discard-delay")
+                        ) {
+                            HStack(spacing: 8) {
+                                Text(browserHiddenWebViewDiscardDelayLabel)
+                                    .font(.system(.body, design: .monospaced))
+                                    .monospacedDigit()
+                                    .frame(width: 56, alignment: .trailing)
+
+                                Stepper(
+                                    "",
+                                    value: browserHiddenWebViewDiscardDelayBinding,
+                                    in: BrowserHiddenWebViewDiscardPolicy.minimumHiddenDelay...BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
+                                    step: 30
+                                )
+                                .labelsHidden()
+                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"))
+                                .accessibilityValue(browserHiddenWebViewDiscardDelayLabel)
+                            }
+                            .disabled(!browserHiddenWebViewDiscardEnabled)
+                            .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
                             String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
                             subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
@@ -7323,6 +7403,8 @@ struct SettingsView: View {
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         BrowserAvailabilitySettings.setDisabled(BrowserAvailabilitySettings.defaultDisabled)
         browserDisabled = BrowserAvailabilitySettings.defaultDisabled
+        browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
+        browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
