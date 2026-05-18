@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Automate"
+  short_description: "Suggest and build cmux CLI-backed workflow automation."
+  default_prompt: "Use $cmux-automate to audit this workspace, suggest high-value cmux CLI automations, and wire the best one into project-local cmux config."
