@@ -218,6 +218,10 @@ public enum AgentLaunchSanitizer {
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
             while end < args.count, !args[end].hasPrefix("-") {
+                if let resumeSubcommand = policy.resumeSubcommand,
+                   args[end] == resumeSubcommand {
+                    break
+                }
                 end += 1
             }
             return max(1, end - index)
