@@ -1922,7 +1922,7 @@ final class SocketClient {
         method: String,
         params: [String: Any] = [:],
         onLine: (String) throws -> Void
-    ) throws {
+    ) throws -> Never {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let request: [String: Any] = [
             "id": UUID().uuidString,

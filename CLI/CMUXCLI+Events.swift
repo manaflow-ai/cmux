@@ -314,10 +314,6 @@ extension CMUXCLI {
                 waitBeforeReconnectingEventStream(seconds: backoff.nextDelay())
                 continue
             }
-            client.close()
-            if sawFrame {
-                backoff.reset()
-            }
         }
     }
 
