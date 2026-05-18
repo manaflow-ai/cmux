@@ -122,6 +122,39 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNotNil(response["result"], "Unexpected v2 response: \(response)")
     }
 
+    func testJSONRPCNotificationPublishesDomainEventWithoutSocketResponse() async throws {
+        let socketPath = makeSocketPath("jsonrpc-notification-event")
+        let tabManager = TabManager()
+
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        try await sendJSONRPCNotification(
+            method: "app.focus_override.set",
+            params: ["state": "clear"],
+            to: socketPath
+        )
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "app.focus_override.changed")
+        XCTAssertEqual(event["category"] as? String, "app")
+        XCTAssertEqual(event["source"] as? String, "socket.v2")
+
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(payload["method"] as? String, "app.focus_override.set")
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        XCTAssertEqual(params["state"] as? String, "clear")
+        let result = try XCTUnwrap(payload["result"] as? [String: Any])
+        XCTAssertTrue(result["override"] is NSNull)
+    }
+
     func testJSONRPCNotificationsDoNotWritePasswordAuthResponses() async throws {
         let socketPath = makeSocketPath("jsonrpc-auth-notification")
         let tabManager = TabManager()
@@ -283,6 +316,33 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["cmux_code"] as? String, "invalid_request")
     }
 
+    func testJSONRPCRequestRejectsWhitespacePaddedVersion() throws {
+        let socketPath = makeSocketPath("jsonrpc-version")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try sendRawSocketLine(
+            #"{"jsonrpc":"2.0 ","id":"bad-version","method":"system.ping","params":{}}"#,
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["jsonrpc"] as? String, "2.0", "Unexpected invalid version response: \(response)")
+        XCTAssertNil(response["ok"], "JSON-RPC invalid version responses should not include legacy ok: \(response)")
+        XCTAssertTrue(response["id"] is NSNull, "JSON-RPC invalid version responses should use id:null: \(response)")
+
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Expected JSON-RPC invalid request error")
+        XCTAssertEqual(error["code"] as? Int, -32600)
+        XCTAssertEqual(error["message"] as? String, "jsonrpc must be \"2.0\"")
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
+        XCTAssertEqual(data["cmux_code"] as? String, "invalid_request")
+    }
+
     private func runJSONRPCNotificationSocketSequence(
         to socketPath: String
     ) async throws -> (explicitNullIDResponse: [String: Any], followUpResponse: [String: Any]) {
@@ -350,6 +410,40 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
 
         return (explicitNullIDResponse, response)
+    }
+
+    private func sendJSONRPCNotification(
+        method: String,
+        params: [String: Any],
+        to socketPath: String
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try self.sendJSONRPCNotificationSync(method: method, params: params, to: socketPath)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private nonisolated func sendJSONRPCNotificationSync(
+        method: String,
+        params: [String: Any],
+        to socketPath: String
+    ) throws {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        let notification: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params
+        ]
+        try writeJSONLine(notification, to: fd)
+        XCTAssertNil(try readLineIfAvailable(from: fd, timeoutMilliseconds: 250))
     }
 
     private func runJSONRPCAuthNotificationSocketSequence(

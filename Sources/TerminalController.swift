@@ -2073,10 +2073,10 @@ class TerminalController {
 
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
+                // Domain events describe executed socket command side effects, not response delivery.
+                publishSocketEvents(command: trimmed, response: result.response)
                 if result.shouldWriteResponse {
                     let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                    // Domain events describe executed socket command side effects, not response delivery.
-                    publishSocketEvents(command: trimmed, response: result.response)
                     guard didWriteResponse else {
                         return
                     }

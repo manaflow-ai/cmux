@@ -45,8 +45,7 @@ nonisolated public enum V2CallResult {
 
 nonisolated public enum CMUXSocketProtocol {
     public static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
-        (dict["jsonrpc"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) == "2.0"
+        (dict["jsonrpc"] as? String) == "2.0"
     }
 
     public static func malformedRequestUsesJSONRPC(_ command: String) -> Bool {
