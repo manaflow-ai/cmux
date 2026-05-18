@@ -98,12 +98,17 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     ) {
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
-        self.processesByPID = Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
+        var processMap: [Int: CmuxTopProcessInfo] = [:]
+        processMap.reserveCapacity(processes.count)
+        for process in processes {
+            processMap[process.pid] = process
+        }
+        self.processesByPID = processMap
 
         var children: [Int: [Int]] = [:]
         var ttyMap: [Int64: [Int]] = [:]
         var cmuxSurfaceMap: [UUID: [Int]] = [:]
-        for process in processes {
+        for process in processMap.values {
             if process.parentPID > 0 {
                 children[process.parentPID, default: []].append(process.pid)
             }
@@ -481,20 +486,20 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             if result == 0 {
                 let count = min(processes.count, length / stride)
                 let sampledProcesses = Array(processes.prefix(count))
-                let scopeKeyByPID = Dictionary(
-                    uniqueKeysWithValues: sampledProcesses.map { process in
-                        (Int(process.kp_proc.p_pid), scopeCacheKey(from: process))
-                    }
-                )
+                var scopeKeyByPID: [Int: CmuxTopProcessScopeCacheKey] = [:]
+                scopeKeyByPID.reserveCapacity(sampledProcesses.count)
+                for process in sampledProcesses {
+                    scopeKeyByPID[Int(process.kp_proc.p_pid)] = scopeCacheKey(from: process)
+                }
                 let activeScopeKeys = Set(scopeKeyByPID.values)
-                let parentScopeKeyPairs: [(CmuxTopProcessScopeCacheKey, CmuxTopProcessScopeCacheKey)] =
-                    sampledProcesses.compactMap { process -> (CmuxTopProcessScopeCacheKey, CmuxTopProcessScopeCacheKey)? in
-                        let key = scopeCacheKey(from: process)
-                        let parentPID = Int(process.kp_eproc.e_ppid)
-                        guard let parentKey = scopeKeyByPID[parentPID] else { return nil }
-                        return (key, parentKey)
-                    }
-                let parentScopeKeys = Dictionary(uniqueKeysWithValues: parentScopeKeyPairs)
+                var parentScopeKeys: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheKey] = [:]
+                parentScopeKeys.reserveCapacity(sampledProcesses.count)
+                for process in sampledProcesses {
+                    let key = scopeCacheKey(from: process)
+                    let parentPID = Int(process.kp_eproc.e_ppid)
+                    guard let parentKey = scopeKeyByPID[parentPID] else { continue }
+                    parentScopeKeys[key] = parentKey
+                }
                 let sampledAtNanoseconds = cpuSampleClockNanoseconds()
                 var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
                 var processRecords: [(info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)] = []
