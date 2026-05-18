@@ -614,6 +614,13 @@ extension Workspace {
         guard Thread.isMainThread, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
             return false
         }
+        return MainActor.assumeIsolated {
+            shouldRunPromptedSurfaceResumeOnMain(binding)
+        }
+    }
+
+    @MainActor
+    private static func shouldRunPromptedSurfaceResumeOnMain(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(
