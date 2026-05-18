@@ -12619,6 +12619,25 @@ private extension View {
             self
         }
     }
+
+    @ViewBuilder
+    func sidebarBonsplitWorkspaceDropTarget(
+        enabled: Bool,
+        tabId: UUID,
+        actions: VerticalTabsSidebar.SidebarWorkspaceActionBundle,
+        selectedTabIds: Binding<Set<UUID>>,
+        lastSidebarSelectionIndex: Binding<Int?>
+    ) -> some View {
+        if enabled {
+            onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: actions.makeBonsplitTabDropDelegate(
+                tabId,
+                selectedTabIds,
+                lastSidebarSelectionIndex
+            ))
+        } else {
+            self
+        }
+    }
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
@@ -13381,11 +13400,13 @@ private struct TabItemView: View, Equatable {
             dragAutoScrollController,
             $dropIndicator
         ))
-        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: actions.makeBonsplitTabDropDelegate(
-            tab.id,
-            $selectedTabIds,
-            $lastSidebarSelectionIndex
-        ))
+        .sidebarBonsplitWorkspaceDropTarget(
+            enabled: !isHiddenWorkspace,
+            tabId: tab.id,
+            actions: actions,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+        )
         .onTapGesture {
             updateSelection()
         }

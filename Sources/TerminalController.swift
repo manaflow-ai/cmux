@@ -4688,7 +4688,7 @@ class TerminalController {
 
             _ = tabManager.setWorkspaceHidden(workspace, hidden: hidden)
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
+            let index = workspace.isHidden ? nil : tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspaceId }
             result = .ok([
                 "workspace_id": workspaceId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
