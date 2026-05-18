@@ -84,10 +84,10 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         case priority
     }
 
-    public var id: String
-    public var kind: CmxAttachTransportKind
-    public var endpoint: CmxAttachEndpoint
-    public var priority: Int
+    public let id: String
+    public let kind: CmxAttachTransportKind
+    public let endpoint: CmxAttachEndpoint
+    public let priority: Int
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -171,14 +171,14 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         case authToken = "auth_token"
     }
 
-    public var version: Int
-    public var workspaceID: String
-    public var terminalID: String?
-    public var macDeviceID: String
-    public var macDisplayName: String?
-    public var routes: [CmxAttachRoute]
-    public var expiresAt: Date
-    public var authToken: String?
+    public let version: Int
+    public let workspaceID: String
+    public let terminalID: String?
+    public let macDeviceID: String
+    public let macDisplayName: String?
+    public let routes: [CmxAttachRoute]
+    public let expiresAt: Date
+    public let authToken: String?
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

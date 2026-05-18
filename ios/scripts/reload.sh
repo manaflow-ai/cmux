@@ -27,6 +27,16 @@ sanitize_tag() {
   echo "$cleaned"
 }
 
+require_option_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "Missing value for $option" >&2
+    usage >&2
+    exit 2
+  fi
+}
+
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 DEVICE_ID="${IOS_DEVICE_ID:-}"
@@ -41,10 +51,12 @@ ALLOW_DEVICE_REGISTRATION=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
+      require_option_value "$1" "${2:-}"
       TAG="${2:-}"
       shift 2
       ;;
     --simulator)
+      require_option_value "$1" "${2:-}"
       SIMULATOR_NAME="${2:-}"
       shift 2
       ;;
@@ -58,16 +70,19 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --device-id)
+      require_option_value "$1" "${2:-}"
       DEVICE_ID="${2:-}"
       RELOAD_DEVICE=1
       shift 2
       ;;
     --device-name)
+      require_option_value "$1" "${2:-}"
       DEVICE_NAME="${2:-}"
       RELOAD_DEVICE=1
       shift 2
       ;;
     --team)
+      require_option_value "$1" "${2:-}"
       DEVELOPMENT_TEAM="${2:-}"
       shift 2
       ;;

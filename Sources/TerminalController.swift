@@ -15373,20 +15373,7 @@ class TerminalController {
         bitmap.size = bounds.size
 
         contentView.displayIfNeeded()
-        if let layer = contentView.layer,
-           let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) {
-            let scale = max(window.backingScaleFactor, 1)
-            let pixelHeight = bounds.height * scale
-
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = graphicsContext
-            graphicsContext.cgContext.translateBy(x: 0, y: pixelHeight)
-            graphicsContext.cgContext.scaleBy(x: scale, y: -scale)
-            layer.render(in: graphicsContext.cgContext)
-            NSGraphicsContext.restoreGraphicsState()
-        } else {
-            contentView.cacheDisplay(in: bounds, to: bitmap)
-        }
+        contentView.cacheDisplay(in: bounds, to: bitmap)
 
         return bitmap.representation(using: .png, properties: [:])
     }
@@ -17991,10 +17978,16 @@ class TerminalController {
                 ttl: ttl
             )
             return .ok(payload)
-        } catch {
+        } catch MobileAttachTicketStoreError.noRoutes {
             return .err(
                 code: "unavailable",
                 message: "Mobile host routes are not available yet",
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "internal_error",
+                message: "Failed to create mobile attach ticket",
                 data: nil
             )
         }

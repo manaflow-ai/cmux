@@ -11,8 +11,8 @@
     "mobile.addDevice.help" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a Tailscale MagicDNS name. For IP, LAN, or local pairing, scan a QR code or open a link from that Mac." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale MagicDNS 名を入力してください。IP、LAN、ローカルでペアリングするには、その Mac の QR コードをスキャンするかリンクを開いてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter your computer's device name. For IP, LAN, or local pairing, scan a QR code or open a link from that computer." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータのデバイス名を入力してください。IP、LAN、ローカルでペアリングするには、そのコンピュータの QR コードをスキャンするかリンクを開いてください。" } }
       }
     },
     "mobile.addDevice.hostLabel" : {
@@ -179,57 +179,57 @@
     "mobile.pairing.subtitle" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan the QR from `cmux ios`, or enter a debug pairing code in Simulator." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "`cmux ios` の QR をスキャンするか、Simulator でデバッグ用ペアリングコードを入力します。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan the QR shown on your computer, or enter a pairing code." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータに表示された QR コードをスキャンするか、ペアリングコードを入力してください。" } }
       }
     },
     "mobile.pairing.title" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pair with Mac" } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac とペアリング" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pair with computer" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータとペアリング" } }
       }
     },
     "mobile.pairing.runtimeUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not connect to the Mac runtime." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac ランタイムに接続できませんでした。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not connect to your computer." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータに接続できませんでした。" } }
       }
     },
     "mobile.pairing.authorizationFailed" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in to cmux on your Mac with the same account, or pair with a QR/link from that Mac." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の cmux に同じアカウントでサインインするか、その Mac の QR/リンクでペアリングしてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in on your computer with the same account, or pair with a QR/link from that computer." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータで同じアカウントにサインインするか、そのコンピュータの QR/リンクでペアリングしてください。" } }
       }
     },
     "mobile.pairing.stackAuthTokenUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in to cmux on your Mac with the same account, then try again." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac の cmux に同じアカウントでサインインしてから、もう一度お試しください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sign in on your computer with the same account, then try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータで同じアカウントにサインインしてから、もう一度お試しください。" } }
       }
     },
     "mobile.pairing.requestTimedOut" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "The Mac did not respond. Check the host and port, then try again." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Mac が応答しませんでした。ホストとポートを確認して、もう一度お試しください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The computer did not respond. Check the host and port, then try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。" } }
       }
     },
     "mobile.pairing.secureRouteRequired" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale MagicDNS 名を入力するか、その Mac の QR/リンクでペアリングしてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a device name, or pair with a QR/link from that computer." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "デバイス名を入力するか、そのコンピュータの QR/リンクでペアリングしてください。" } }
       }
     },
     "mobile.pairing.unsupportedRoute" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "This pairing code uses an unsupported route." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このペアリングコードは未対応のルートを使用しています。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This pairing code is not supported." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このペアリングコードには対応していません。" } }
       }
     },
     "mobile.terminal.surfaceNotReady" : {

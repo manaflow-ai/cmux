@@ -385,7 +385,7 @@ import UIKit
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
     let requests = try await responses.sentRequests()
     #expect(requests.isEmpty)
 }
@@ -405,7 +405,7 @@ import UIKit
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
     let requests = try await responses.sentRequests()
     #expect(requests.isEmpty)
 }
@@ -424,7 +424,7 @@ import UIKit
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
 }
 
 @MainActor
@@ -447,7 +447,7 @@ import UIKit
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "The Mac did not respond. Check the host and port, then try again.")
+    #expect(store.connectionError == "The computer did not respond. Check the host and port, then try again.")
 }
 
 @MainActor
@@ -503,7 +503,7 @@ import UIKit
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -556,7 +556,7 @@ import UIKit
     await store.connectPairingURL(try attachURL(for: unsupportedTicket).absoluteString)
 
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "This pairing code uses an unsupported route.")
+    #expect(store.connectionError == "This pairing code is not supported.")
 
     store.terminalInputText = "echo should-not-hit-old-host"
     await store.submitTerminalInput()
@@ -751,7 +751,7 @@ import UIKit
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
     let requests = try await responses.sentRequests()
     #expect(requests.isEmpty)
 }
@@ -771,7 +771,7 @@ import UIKit
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
     let requests = try await responses.sentRequests()
     #expect(requests.isEmpty)
 }
@@ -1461,7 +1461,7 @@ import UIKit
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    #expect(store.connectionError == "Could not connect to the Mac runtime.")
+    #expect(store.connectionError == "Could not connect to your computer.")
     #expect(store.selectedWorkspace?.terminals.first?.lines.contains("invalid") != true)
 }
 

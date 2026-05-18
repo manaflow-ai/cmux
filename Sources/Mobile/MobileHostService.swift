@@ -178,10 +178,12 @@ final class MobileHostService {
             authorizeRequest: { request in
                 await MobileHostService.shared.authorizationError(for: request)
             },
-            handleRequest: { request in
+            onAuthorizedRequest: { request in
                 if let clientID = Self.clientID(from: request.params) {
                     await MobileHostService.shared.recordClientID(clientID, for: id)
                 }
+            },
+            handleRequest: { request in
                 if request.method == "mobile.host.status" {
                     return await MobileHostService.shared.publicHostStatusResult()
                 }
@@ -500,6 +502,7 @@ private actor MobileHostConnection {
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
@@ -509,6 +512,7 @@ private actor MobileHostConnection {
         id: UUID,
         connection: NWConnection,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
@@ -516,6 +520,7 @@ private actor MobileHostConnection {
         self.connection = connection
         self.callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
         self.authorizeRequest = authorizeRequest
+        self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
         self.onClose = onClose
     }
@@ -572,7 +577,7 @@ private actor MobileHostConnection {
 
         if let data, !data.isEmpty {
             guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
-                await sendResponse(
+                _ = await sendResponse(
                     MobileHostRPCEnvelope.error(
                         id: nil,
                         code: "frame_decode_error",
@@ -589,7 +594,7 @@ private actor MobileHostConnection {
                     await respond(to: frame)
                 }
             } catch {
-                await sendResponse(
+                _ = await sendResponse(
                     MobileHostRPCEnvelope.error(
                         id: nil,
                         code: "frame_decode_error",
@@ -612,40 +617,49 @@ private actor MobileHostConnection {
         switch MobileHostRPCEnvelope.decodeRequest(frame) {
         case let .success(request):
             if let error = await authorizeRequest(request) {
-                await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
+                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: error))
                 return
             }
+            await onAuthorizedRequest(request)
             let result = await handleRequest(request)
-            await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
+            _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: result))
         case let .failure(error):
-            await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
+            _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
             close(reason: "invalid rpc envelope")
         }
     }
 
-    private func sendResponse(_ response: Data) async {
+    private func sendResponse(_ response: Data) async -> Bool {
         guard !isClosed else {
-            return
+            return false
         }
         let frame: Data
         do {
             frame = try MobileSyncFrameCodec.encodeFrame(response)
         } catch {
             close(reason: "response frame encode failed")
-            return
+            return false
         }
 
-        connection.send(
-            content: frame,
-            contentContext: .defaultMessage,
-            isComplete: false,
-            completion: .contentProcessed { [weak self] error in
-                guard let self else { return }
-                if let error {
-                    Task { await self.close(reason: String(describing: error)) }
+        return await withCheckedContinuation { continuation in
+            connection.send(
+                content: frame,
+                contentContext: .defaultMessage,
+                isComplete: false,
+                completion: .contentProcessed { [weak self] error in
+                    guard let self else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    if let error {
+                        Task { await self.close(reason: String(describing: error)) }
+                        continuation.resume(returning: false)
+                    } else {
+                        continuation.resume(returning: true)
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     private func handleState(_ state: NWConnection.State, connectionID: UUID) {

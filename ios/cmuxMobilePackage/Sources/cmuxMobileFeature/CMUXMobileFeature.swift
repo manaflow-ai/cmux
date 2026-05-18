@@ -838,7 +838,7 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale MagicDNS name. For IP, LAN, or local pairing, scan a QR code or open a link from that Mac."))
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter your computer's device name. For IP, LAN, or local pairing, scan a QR code or open a link from that computer."))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG

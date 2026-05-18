@@ -35,13 +35,15 @@ final class MobileRouteResolver: @unchecked Sendable {
     func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
         var resolved: [CmxAttachRoute] = []
 
-        if let debugRoute = try? CmxAttachRoute(
-            id: CmxAttachTransportKind.debugLoopback.rawValue,
-            kind: .debugLoopback,
-            endpoint: .hostPort(host: "127.0.0.1", port: port),
-            priority: 0
-        ) {
-            resolved.append(debugRoute)
+        if Self.includesDebugLoopbackRoute {
+            if let debugRoute = try? CmxAttachRoute(
+                id: CmxAttachTransportKind.debugLoopback.rawValue,
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: port),
+                priority: 0
+            ) {
+                resolved.append(debugRoute)
+            }
         }
 
         for (index, tailscaleHost) in tailscaleHosts.enumerated() {
@@ -82,6 +84,14 @@ final class MobileRouteResolver: @unchecked Sendable {
             return cachedHosts
         }
         return []
+    }
+
+    private static var includesDebugLoopbackRoute: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
     }
 
     private func resolvedTailscaleRouteHosts(

@@ -778,7 +778,7 @@ public final class CMUXMobileShellStore {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
-            connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code uses an unsupported route.")
+            connectionError = L10n.string("mobile.pairing.unsupportedRoute", defaultValue: "This pairing code is not supported.")
             connectionState = .disconnected
             clearRemoteConnectionContext()
             return
@@ -1350,17 +1350,17 @@ public final class CMUXMobileShellStore {
 
     private static func localizedConnectionError(for error: Error) -> String {
         guard let connectionError = error as? MobileShellConnectionError else {
-            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
         }
         switch connectionError {
         case .requestTimedOut:
-            return L10n.string("mobile.pairing.requestTimedOut", defaultValue: "The Mac did not respond. Check the host and port, then try again.")
+            return L10n.string("mobile.pairing.requestTimedOut", defaultValue: "The computer did not respond. Check the host and port, then try again.")
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Enter a Tailscale MagicDNS name, or pair with a QR/link from that Mac.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Enter a device name, or pair with a QR/link from that computer.")
         case .authorizationFailed:
-            return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in to cmux on your Mac with the same account, or pair with a QR/link from that Mac.")
+            return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in on your computer with the same account, or pair with a QR/link from that computer.")
         case .invalidResponse, .connectionClosed, .rpcError:
-            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to the Mac runtime.")
+            return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
         }
     }
 
@@ -1639,7 +1639,7 @@ private final class MobileCoreRPCClient: @unchecked Sendable {
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(
                         "mobile.pairing.stackAuthTokenUnavailable",
-                        defaultValue: "Sign in to cmux on your Mac with the same account, then try again."
+                        defaultValue: "Sign in on your computer with the same account, then try again."
                     )
                 )
             }

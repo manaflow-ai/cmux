@@ -21,7 +21,7 @@ enum AuthError: Error, LocalizedError {
         case .authFailure:
             return L10n.string("auth.error.wrong_password", defaultValue: "Incorrect email or password.")
         case .cancelled:
-            return ""
+            return nil
         }
     }
 }
