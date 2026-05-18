@@ -8892,6 +8892,11 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
+private enum SidebarWorkspaceRowVisualStyle: Equatable {
+    case standard
+    case extensionTree
+}
+
 private struct SidebarTabItemSettingsSnapshot: Equatable {
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
@@ -9499,7 +9504,11 @@ struct VerticalTabsSidebar: View {
                     VStack(spacing: tabRowSpacing) {
                         ForEach(section.workspaceIds, id: \.self) { workspaceId in
                             if let tab = renderContext.tabById[workspaceId] {
-                                workspaceRow(tab, renderContext: renderContext)
+                                workspaceRow(
+                                    tab,
+                                    renderContext: renderContext,
+                                    visualStyle: .extensionTree
+                                )
                                     .padding(.leading, 12)
                             }
                         }
@@ -9569,7 +9578,8 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceRow(
         _ tab: Workspace,
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        visualStyle: SidebarWorkspaceRowVisualStyle = .standard
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -9651,6 +9661,7 @@ struct VerticalTabsSidebar: View {
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
             settings: renderContext.tabItemSettings,
+            visualStyle: visualStyle,
             livePresentation: livePresentation,
             frozenPresentation: $frozenTabItemPresentation
         )
@@ -9767,13 +9778,14 @@ private struct CmuxExtensionTreeSectionHeader: View {
             Button(action: onToggle) {
                 HStack(spacing: 6) {
                     Image(systemName: sectionToggleSystemImageName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary.opacity(0.82))
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundColor(.secondary.opacity(0.74))
                         .frame(width: 14, height: 14)
                         .offset(y: section.systemImageName == "folder" ? -1 : 0)
 
                     Text(section.title)
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: 11.5, weight: .regular))
+                        .foregroundColor(.secondary.opacity(0.74))
                         .lineLimit(1)
                         .truncationMode(.middle)
 
@@ -9786,8 +9798,8 @@ private struct CmuxExtensionTreeSectionHeader: View {
             if let onCreateWorktree {
                 Button(action: onCreateWorktree) {
                     Image(systemName: isCreatingWorktree ? "hourglass" : "plus")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(isCreatingWorktree ? 0.55 : 0.78))
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundColor(.secondary.opacity(isCreatingWorktree ? 0.48 : 0.7))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
@@ -12853,7 +12865,8 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
-        lhs.settings == rhs.settings
+        lhs.settings == rhs.settings &&
+        lhs.visualStyle == rhs.visualStyle
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -12886,6 +12899,7 @@ private struct TabItemView: View, Equatable {
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let settings: SidebarTabItemSettingsSnapshot
+    let visualStyle: SidebarWorkspaceRowVisualStyle
     let livePresentation: SidebarTabItemPresentationSnapshot
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
@@ -12955,8 +12969,40 @@ private struct TabItemView: View, Equatable {
         settings.openPortLinksInCmuxBrowser
     }
 
+    private var usesExtensionTreeVisualStyle: Bool {
+        visualStyle == .extensionTree
+    }
+
+    private var rowContentSpacing: CGFloat {
+        usesExtensionTreeVisualStyle ? 3 : 4
+    }
+
+    private var rowHeaderSpacing: CGFloat {
+        usesExtensionTreeVisualStyle ? 7 : 8
+    }
+
+    private var rowHorizontalPadding: CGFloat {
+        usesExtensionTreeVisualStyle ? 9 : 10
+    }
+
+    private var rowVerticalPadding: CGFloat {
+        usesExtensionTreeVisualStyle ? 6 : 8
+    }
+
+    private var rowOuterHorizontalPadding: CGFloat {
+        usesExtensionTreeVisualStyle ? 5 : 6
+    }
+
+    private var rowCornerRadius: CGFloat {
+        usesExtensionTreeVisualStyle ? 8 : 6
+    }
+
+    private var titleFontSize: CGFloat {
+        usesExtensionTreeVisualStyle ? 13 : 12.5
+    }
+
     private var titleFontWeight: Font.Weight {
-        .semibold
+        usesExtensionTreeVisualStyle ? .regular : .semibold
     }
 
     private var showsLeadingRail: Bool {
@@ -12964,6 +13010,9 @@ private struct TabItemView: View, Equatable {
     }
 
     private var activeBorderLineWidth: CGFloat {
+        if usesExtensionTreeVisualStyle {
+            return 0
+        }
         switch activeTabIndicatorStyle {
         case .leftRail:
             return 0
@@ -12973,6 +13022,9 @@ private struct TabItemView: View, Equatable {
     }
 
     private var activeBorderColor: Color {
+        if usesExtensionTreeVisualStyle {
+            return .clear
+        }
         guard isActive else { return .clear }
         switch activeTabIndicatorStyle {
         case .leftRail:
@@ -12983,17 +13035,26 @@ private struct TabItemView: View, Equatable {
     }
 
     private var usesInvertedActiveForeground: Bool {
-        isActive
+        if usesExtensionTreeVisualStyle {
+            return false
+        }
+        return isActive
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
+        if usesExtensionTreeVisualStyle {
+            return Color.primary.opacity(isActive ? 0.88 : 0.78)
+        }
+        return usesInvertedActiveForeground
             ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0))
             : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground
+        if usesExtensionTreeVisualStyle {
+            return Color.secondary.opacity(opacity * (isActive ? 0.92 : 0.84))
+        }
+        return usesInvertedActiveForeground
             ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
             : .secondary
     }
@@ -13014,7 +13075,10 @@ private struct TabItemView: View, Equatable {
     }
 
     private var shortcutHintEmphasis: Double {
-        usesInvertedActiveForeground ? 1.0 : 0.9
+        if usesExtensionTreeVisualStyle {
+            return isActive ? 0.72 : 0.62
+        }
+        return usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
     private var showCloseButton: Bool {
@@ -13147,8 +13211,8 @@ private struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? submittedMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
 
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: rowContentSpacing) {
+            HStack(spacing: rowHeaderSpacing) {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
@@ -13168,7 +13232,7 @@ private struct TabItemView: View, Equatable {
                 }
 
                 Text(workspaceSnapshot.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: titleFontSize, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -13389,13 +13453,13 @@ private struct TabItemView: View, Equatable {
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, rowHorizontalPadding)
+        .padding(.vertical, rowVerticalPadding)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: rowCornerRadius)
                 .fill(backgroundColor)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: rowCornerRadius)
                         .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
                 }
                 .overlay(alignment: .leading) {
@@ -13409,7 +13473,7 @@ private struct TabItemView: View, Equatable {
                     }
                 }
         )
-        .padding(.horizontal, 6)
+        .padding(.horizontal, rowOuterHorizontalPadding)
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -13873,6 +13937,15 @@ private struct TabItemView: View, Equatable {
     }
 
     private var backgroundColor: Color {
+        if usesExtensionTreeVisualStyle {
+            if isActive {
+                return Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.08)
+            }
+            if isMultiSelected {
+                return Color.primary.opacity(colorScheme == .dark ? 0.07 : 0.045)
+            }
+            return .clear
+        }
         let style = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             isActive: isActive,
@@ -13890,6 +13963,9 @@ private struct TabItemView: View, Equatable {
     }
 
     private var explicitRailColor: Color? {
+        if usesExtensionTreeVisualStyle {
+            return nil
+        }
         guard let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             customColorHex: workspaceSnapshot.customColorHex,
