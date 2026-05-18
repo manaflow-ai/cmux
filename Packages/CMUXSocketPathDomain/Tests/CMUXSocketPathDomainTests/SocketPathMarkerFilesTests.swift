@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CMUXSocketPathDomain
 
@@ -73,3 +74,26 @@ import Testing
         appSupportDirectory: appSupport
     ) == "/support/cmux/com.cmuxterm.app.dev.issue-3542.sock")
 }
+
+@Test func socketPathFallsBackWhenDirectoryExhaustsSocketBudget() {
+    let longDirectory = URL(
+        fileURLWithPath: "/\(String(repeating: "very-long-directory/", count: 8))cmux",
+        isDirectory: true
+    )
+    let path = SocketPathMarkerFiles.socketPath(
+        fileName: "com.cmuxterm.app.dev.\(String(repeating: "feature-", count: 12))caf\u{00e9}.sock",
+        directory: longDirectory
+    )
+
+    #expect(path.hasPrefix("/tmp/"))
+    #expect(path.hasSuffix(".sock"))
+    #expect(path.utf8.count <= testUnixSocketPathMaxLength)
+}
+
+private let testUnixSocketPathMaxLength: Int = {
+    #if os(Linux)
+    return 107
+    #else
+    return 103
+    #endif
+}()

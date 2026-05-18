@@ -303,10 +303,6 @@ struct SocketControlSettings {
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = SocketPathMarkerFiles.releaseSocketFileName
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
-    private static let unixSocketPathMaxLength: Int = {
-        var addr = sockaddr_un()
-        return MemoryLayout.size(ofValue: addr.sun_path) - 1
-    }()
 
     static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
@@ -480,42 +476,9 @@ struct SocketControlSettings {
     }
 
     private static func socketPath(fileName: String) -> String {
-        guard let directoryURL = stableSocketDirectoryURL() else {
-            return "/tmp/\(shortenedSocketFileName(fileName, directoryPath: "/tmp"))"
-        }
-        let candidate = directoryURL.appendingPathComponent(fileName, isDirectory: false).path
-        guard candidate.utf8.count > unixSocketPathMaxLength else {
-            return candidate
-        }
-        return directoryURL
-            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: directoryURL.path), isDirectory: false)
-            .path
-    }
-
-    private static func shortenedSocketFileName(_ fileName: String, directoryPath: String) -> String {
-        let separatorLength = 1
-        let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
-        let suffix = ".sock"
-        let hashSuffixLength = 9
-        guard fileName.utf8.count > budget, budget >= suffix.utf8.count + hashSuffixLength + 1 else {
-            return fileName
-        }
-
-        let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
-        let hashSuffix = "-\(fnv1a32Hex(fileName))"
-        let stemBudget = budget - hashSuffix.utf8.count - suffix.utf8.count
-        let shortenedStem = String(stem.prefix(stemBudget)).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
-        let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
-        return "\(safeStem)\(hashSuffix)\(suffix)"
-    }
-
-    private static func fnv1a32Hex(_ value: String) -> String {
-        var hash: UInt32 = 2_166_136_261
-        for byte in value.utf8 {
-            hash ^= UInt32(byte)
-            hash = hash &* 16_777_619
-        }
-        return String(format: "%08x", hash)
+        let directoryURL = stableSocketDirectoryURL()
+            ?? URL(fileURLWithPath: "/tmp", isDirectory: true)
+        return SocketPathMarkerFiles.socketPath(fileName: fileName, directory: directoryURL)
     }
 
     static func resolvedStableDefaultSocketPath(

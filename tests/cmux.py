@@ -195,8 +195,11 @@ def _is_non_release_variant_socket_name(name: str) -> bool:
     return (
         name == "cmux-staging.sock"
         or name.startswith("cmux-staging-")
+        or name == "cmux-nightly.sock"
+        or name.startswith("cmux-nightly-")
         or name == "cmux-debug.sock"
         or name.startswith("cmux-debug-")
+        or (name.startswith("cmux-") and name != "cmux.sock")
         or name == "com.cmuxterm.app.dev.sock"
         or name.startswith("com.cmuxterm.app.dev.")
         or name == "com.cmuxterm.app.nightly.sock"
@@ -209,18 +212,20 @@ def _is_non_release_variant_socket_name(name: str) -> bool:
 def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
     # Best-effort check to avoid getting stuck on stale socket files.
     for _ in range(max(1, retries)):
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            s.settimeout(timeout)
-            s.connect(path)
-            return True
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(path)
+                s.sendall(b"ping\n")
+                data = b""
+                while b"\n" not in data and len(data) < 1024:
+                    chunk = s.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+                return data.splitlines()[0].strip() == b"PONG" if data else False
         except OSError:
             time.sleep(0.05)
-        finally:
-            try:
-                s.close()
-            except Exception:
-                pass
     return False
 
 

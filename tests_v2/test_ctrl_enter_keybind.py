@@ -37,6 +37,10 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
     base = Path(socket_path).name
     if base == "com.cmuxterm.app.sock":
         return "cmux"
+    if base == "com.cmuxterm.app.nightly.sock":
+        return "cmux NIGHTLY"
+    if base == "com.cmuxterm.app.staging.sock":
+        return "cmux STAGING"
     if base.startswith("com.cmuxterm.app.dev.") and base.endswith(".sock"):
         tag = base[len("com.cmuxterm.app.dev.") : -len(".sock")].strip()
         return f"cmux DEV {tag}" if tag else "cmux DEV"

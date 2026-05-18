@@ -77,23 +77,54 @@ def _read_last_socket_path() -> Optional[str]:
 def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
     # Best-effort check to avoid getting stuck on stale socket files.
     for _ in range(max(1, retries)):
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            s.settimeout(timeout)
-            s.connect(path)
-            return True
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(path)
+                payload = json.dumps(
+                    {"id": 1, "method": "system.ping", "params": {}},
+                    separators=(",", ":"),
+                ).encode("utf-8") + b"\n"
+                s.sendall(payload)
+                data = b""
+                while b"\n" not in data and len(data) < 4096:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                line = data.splitlines()[0] if data else b""
+                response = json.loads(line.decode("utf-8"))
+                if not isinstance(response, dict):
+                    return False
+                result = response.get("result")
+                if response.get("id") != 1 or response.get("ok") is not True:
+                    return False
+                if isinstance(result, dict):
+                    return result.get("pong") is True
+                return bool(result)
         except OSError:
             time.sleep(0.05)
-        finally:
-            try:
-                s.close()
-            except Exception:
-                pass
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            time.sleep(0.05)
     return False
 
 
 def _default_socket_path() -> str:
     tag = os.environ.get("CMUX_TAG")
+    override = os.environ.get("CMUX_SOCKET_PATH")
+    if override:
+        stable_defaults = {
+            _STABLE_SOCKET_PATH,
+            _LEGACY_APP_SUPPORT_SOCKET_PATH,
+            _LEGACY_STABLE_SOCKET_PATH,
+        }
+        is_stale_stable_default = bool(tag) and override in stable_defaults
+        if not is_stale_stable_default:
+            if os.path.exists(override) and _can_connect(override):
+                return override
+            if not os.path.exists(override):
+                return override
+
     if tag:
         slug = _sanitize_tag_slug(tag)
         tagged_candidates = [
@@ -108,18 +139,6 @@ def _default_socket_path() -> str:
             if os.path.exists(path):
                 return path
         return tagged_candidates[0]
-
-    override = os.environ.get("CMUX_SOCKET_PATH")
-    if override:
-        if os.path.exists(override) and _can_connect(override):
-            return override
-        # Treat stable defaults as implicit so old env values still migrate cleanly.
-        if not os.path.exists(override) and override not in {
-            _STABLE_SOCKET_PATH,
-            _LEGACY_APP_SUPPORT_SOCKET_PATH,
-            _LEGACY_STABLE_SOCKET_PATH,
-        }:
-            return override
 
     last_socket = _read_last_socket_path()
     if last_socket:

@@ -730,6 +730,7 @@ def test_cli_ignores_non_release_stable_marker(cli_path: str) -> bool:
         "com.cmuxterm.app.staging.review.sock",
         "cmux-nightly.sock",
         "cmux-nightly-review.sock",
+        "cmux-legacy-dev-marker.sock",
     ]
     for variant_name in variant_names:
         with temporary_socket_home("cmux-cli-variant-marker-") as home, \

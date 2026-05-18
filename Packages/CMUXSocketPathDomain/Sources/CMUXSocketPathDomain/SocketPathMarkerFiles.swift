@@ -206,8 +206,23 @@ public enum SocketPathMarkerFiles {
         guard candidate.utf8.count > unixSocketPathMaxLength else {
             return candidate
         }
-        return directory
+        let shortened = directory
             .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: directory.path), isDirectory: false)
+            .path
+        if shortened.utf8.count <= unixSocketPathMaxLength {
+            return shortened
+        }
+
+        let tmpDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        let tmpShortened = tmpDirectory
+            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: tmpDirectory.path), isDirectory: false)
+            .path
+        if tmpShortened.utf8.count <= unixSocketPathMaxLength {
+            return tmpShortened
+        }
+
+        return tmpDirectory
+            .appendingPathComponent("\(fnv1a32Hex(fileName)).sock", isDirectory: false)
             .path
     }
 
@@ -236,17 +251,45 @@ public enum SocketPathMarkerFiles {
         let separatorLength = 1
         let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
         let suffix = ".sock"
-        let hashSuffixLength = 9
-        guard fileName.utf8.count > budget, budget >= suffix.utf8.count + hashSuffixLength + 1 else {
+        guard fileName.utf8.count > budget else {
             return fileName
         }
 
         let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
         let hashSuffix = "-\(fnv1a32Hex(fileName))"
+        guard budget >= suffix.utf8.count + 1 else {
+            return "\(fnv1a32Hex(fileName))\(suffix)"
+        }
+
         let stemBudget = budget - hashSuffix.utf8.count - suffix.utf8.count
-        let shortenedStem = String(stem.prefix(stemBudget)).trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+        guard stemBudget >= 1 else {
+            let hashBudget = max(1, budget - suffix.utf8.count)
+            return "\(String(fnv1a32Hex(fileName).prefix(hashBudget)))\(suffix)"
+        }
+
+        let shortenedStem = utf8Prefix(stem, maxBytes: stemBudget)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
         let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
-        return "\(safeStem)\(hashSuffix)\(suffix)"
+        let shortened = "\(safeStem)\(hashSuffix)\(suffix)"
+        if shortened.utf8.count <= budget {
+            return shortened
+        }
+
+        let hashBudget = max(1, budget - suffix.utf8.count)
+        return "\(String(fnv1a32Hex(fileName).prefix(hashBudget)))\(suffix)"
+    }
+
+    private static func utf8Prefix(_ value: String, maxBytes: Int) -> String {
+        guard maxBytes > 0 else { return "" }
+        var result = ""
+        var usedBytes = 0
+        for character in value {
+            let width = String(character).utf8.count
+            guard usedBytes + width <= maxBytes else { break }
+            result.append(character)
+            usedBytes += width
+        }
+        return result
     }
 
     private static func fnv1a32Hex(_ value: String) -> String {

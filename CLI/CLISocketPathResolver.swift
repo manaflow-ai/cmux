@@ -249,6 +249,9 @@ enum CLISocketPathResolver {
         if name == "cmux-debug.sock" || name.hasPrefix("cmux-debug-") {
             return true
         }
+        if name.hasPrefix("cmux-"), name != "cmux.sock" {
+            return true
+        }
         if name == "com.cmuxterm.app.dev.sock" || name.hasPrefix("com.cmuxterm.app.dev.") {
             return true
         }
