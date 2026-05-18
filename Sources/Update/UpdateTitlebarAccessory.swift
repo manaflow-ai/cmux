@@ -1692,8 +1692,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
-    private var fittingSizeNeedsRefresh = true
-    private var cachedFittingSize: NSSize?
+    private var intrinsicSizeNeedsRefresh = true
+    private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
     private let viewModel = TitlebarControlsViewModel()
@@ -1757,7 +1757,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         }
 
         applyWorkspaceTitlebarVisibility()
-        scheduleSizeUpdate(invalidateFittingSize: true)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
     required init?(coder: NSCoder) {
@@ -1772,7 +1772,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        scheduleSizeUpdate(invalidateFittingSize: true)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
     override func viewDidLayout() {
@@ -1785,12 +1785,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         lastObservedViewSize = currentViewSize
-        scheduleSizeUpdate(invalidateFittingSize: true)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
-    private func scheduleSizeUpdate(invalidateFittingSize: Bool = false) {
-        if invalidateFittingSize {
-            fittingSizeNeedsRefresh = true
+    private func scheduleSizeUpdate(invalidateIntrinsicSize: Bool = false) {
+        if invalidateIntrinsicSize {
+            intrinsicSizeNeedsRefresh = true
         }
         guard !pendingSizeUpdate else { return }
         pendingSizeUpdate = true
@@ -1806,11 +1806,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
-        if fittingSizeNeedsRefresh {
+        if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
-            fittingSizeNeedsRefresh = false
+            intrinsicSizeNeedsRefresh = false
         }
-        cachedFittingSize = contentSize
+        cachedContentSize = contentSize
 
         guard contentSize.width > 0, contentSize.height > 0 else { return }
         let closeButton = view.window?.standardWindowButton(.closeButton)
@@ -1865,16 +1865,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     /// Restore the accessory size after it was zeroed in minimal mode.
-    /// Seeds the hosting view with a non-zero frame so fittingSize returns
-    /// valid values even after the view was collapsed.
+    /// Seeds the hosting view with a non-zero frame before deterministic sizing
+    /// runs again after the view was collapsed.
     private func restoreSizeAfterMinimalMode() {
         guard showsWorkspaceTitlebar else { return }
-        let seed = cachedFittingSize ?? NSSize(width: 200, height: 28)
+        let seed = cachedContentSize ?? NSSize(width: 200, height: 28)
         if hostingView.frame.size == .zero || containerView.frame.size == .zero {
             containerView.frame.size = seed
             hostingView.frame.size = seed
         }
-        scheduleSizeUpdate(invalidateFittingSize: true)
+        scheduleSizeUpdate(invalidateIntrinsicSize: true)
     }
 
     func toggleNotificationsPopover(animated: Bool = true, externalAnchor: NSView? = nil) {
