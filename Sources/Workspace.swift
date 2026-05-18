@@ -4744,16 +4744,16 @@ final class WorkspaceRemoteSessionController {
     private func sshCommonArguments(batchMode: Bool) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
-                return backgroundSSHOptions(configuration.sshOptions)
+                return SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
             }
-            return normalizedSSHOptions(configuration.sshOptions)
+            return SSHCommandArgumentSupport.normalizedOptions(configuration.sshOptions)
         }()
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
         ]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         if batchMode {
@@ -4771,46 +4771,6 @@ final class WorkspaceRemoteSessionController {
             args += ["-o", option]
         }
         return args
-    }
-
-    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let token = sshOptionKey(option)
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }
-    }
-
-    private func backgroundSSHOptions(_ options: [String]) -> [String] {
-        let batchSSHControlOptionKeys: Set<String> = [
-            "controlmaster",
-            "controlpersist",
-        ]
-        return normalizedSSHOptions(options).filter { option in
-            guard let key = sshOptionKey(option) else { return false }
-            return !batchSSHControlOptionKeys.contains(key)
-        }
-    }
-
-    private func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
     }
 
     private func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> CommandResult {
@@ -5427,9 +5387,9 @@ final class WorkspaceRemoteSessionController {
             ])
         }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        let scpSSHOptions = SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
         var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
             scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         scpArgs += ["-o", "ControlMaster=no"]
@@ -5472,7 +5432,7 @@ final class WorkspaceRemoteSessionController {
     ) throws -> [String] {
         guard !fileURLs.isEmpty else { return [] }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        let scpSSHOptions = SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
         var uploadedRemotePaths: [String] = []
         do {
             for localURL in fileURLs {
@@ -5485,7 +5445,7 @@ final class WorkspaceRemoteSessionController {
                 let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
                 uploadedRemotePaths.append(remotePath)
                 var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
-                if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+                if !SSHCommandArgumentSupport.hasOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
                     scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
                 }
                 if let port = configuration.port {

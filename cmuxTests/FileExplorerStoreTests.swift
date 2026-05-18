@@ -367,6 +367,42 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertFalse(args.contains("StrictHostKeyChecking=accept-new"))
     }
 
+    func testRemoteDownloadLaunchFailureUsesSanitizedError() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-download-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let missingExecutable = directory.appendingPathComponent("missing-scp").path
+        ProcessSSHFileExplorerTransport.scpExecutablePathOverrideForTesting = missingExecutable
+        defer {
+            ProcessSSHFileExplorerTransport.scpExecutablePathOverrideForTesting = nil
+        }
+
+        do {
+            _ = try await ProcessSSHFileExplorerTransport.shared.download(
+                remotePath: "/home/dev/report.txt",
+                isDirectory: false,
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                toLocalDirectory: directory.path
+            )
+            XCTFail("Expected missing scp executable to fail")
+        } catch FileExplorerError.downloadFailed(let detail) {
+            XCTAssertEqual(detail, "Unable to start the download helper.")
+            XCTAssertFalse(detail.contains(missingExecutable))
+            XCTAssertFalse(detail.contains("/usr/bin/scp"))
+        } catch {
+            XCTFail("Expected sanitized downloadFailed, got \(error)")
+        }
+    }
+
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/home/dev"] = .success([

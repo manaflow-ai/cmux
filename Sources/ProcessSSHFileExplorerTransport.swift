@@ -382,7 +382,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func runSCPCommand(arguments: [String], timeout: TimeInterval) async throws -> SSHCommandResult {
-        let commandProcess = CommandProcess(executable: "/usr/bin/scp", arguments: arguments)
+        let commandProcess = CommandProcess(executable: scpExecutablePath, arguments: arguments)
         return try await withTaskCancellationHandler {
             try await commandProcess.run(timeout: timeout)
         } onCancel: {
@@ -515,8 +515,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
            !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["-i", identityFile]
         }
-        let effectiveSSHOptions = backgroundSSHOptions(connection.sshOptions)
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+        let effectiveSSHOptions = SSHCommandArgumentSupport.backgroundOptions(connection.sshOptions)
+        if !SSHCommandArgumentSupport.hasOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         for option in effectiveSSHOptions {
@@ -524,10 +524,19 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         args += [
-            "\(scpRemoteDestination(connection.destination)):\(ShellArgumentQuoting.singleQuoted(remotePath))",
+            "\(SSHCommandArgumentSupport.scpRemoteDestination(connection.destination)):\(ShellArgumentQuoting.singleQuoted(remotePath))",
             localDestinationPath,
         ]
         return args
+    }
+
+    private static var scpExecutablePath: String {
+#if DEBUG
+        if let scpExecutablePathOverrideForTesting {
+            return scpExecutablePathOverrideForTesting
+        }
+#endif
+        return "/usr/bin/scp"
     }
 
     private static func remoteCommandFailureDetail(status: Int32) -> String {
@@ -540,75 +549,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         )
     }
 
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { optionKey($0) == loweredKey }
-    }
-
-    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
-        let batchSSHControlOptionKeys: Set<String> = [
-            "controlmaster",
-            "controlpersist",
-        ]
-        return normalizedSSHOptions(options).filter { option in
-            guard let key = optionKey(option) else { return false }
-            return !batchSSHControlOptionKeys.contains(key)
-        }
-    }
-
-    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }
-    }
-
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
-    private static func scpRemoteDestination(_ destination: String) -> String {
-        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDestination.isEmpty else { return destination }
-
-        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-        let userPart: String?
-        let hostPart: String
-        if parts.count == 2 {
-            userPart = String(parts[0])
-            hostPart = String(parts[1])
-        } else {
-            userPart = nil
-            hostPart = trimmedDestination
-        }
-
-        guard shouldBracketIPv6Literal(hostPart) else {
-            return trimmedDestination
-        }
-
-        let bracketedHost = "[\(hostPart)]"
-        if let userPart {
-            return "\(userPart)@\(bracketedHost)"
-        }
-        return bracketedHost
-    }
-
-    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedHost.isEmpty &&
-            trimmedHost.contains(":") &&
-            !trimmedHost.hasPrefix("[") &&
-            !trimmedHost.hasSuffix("]")
-    }
-
 #if DEBUG
+    nonisolated(unsafe) static var scpExecutablePathOverrideForTesting: String?
+
     static func downloadTargetPathForTesting(remotePath: String, localDirectory: String) throws -> String {
         try downloadTarget(remotePath: remotePath, localDirectory: localDirectory).path
     }

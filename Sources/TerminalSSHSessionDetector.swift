@@ -157,17 +157,17 @@ struct DetectedSSHSession: Equatable {
         }
         if let controlPath,
            !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
+           !SSHCommandArgumentSupport.hasOptionKey(sshOptions, key: "ControlPath") {
             args += ["-o", "ControlPath=\(controlPath)"]
         }
-        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         for option in sshOptions {
             args += ["-o", option]
         }
 
-        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
+        args += [localPath, "\(SSHCommandArgumentSupport.scpRemoteDestination(destination)):\(remotePath)"]
         return args
     }
 
@@ -206,10 +206,10 @@ struct DetectedSSHSession: Equatable {
         }
         if let controlPath,
            !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
+           !SSHCommandArgumentSupport.hasOptionKey(sshOptions, key: "ControlPath") {
             args += ["-o", "ControlPath=\(controlPath)"]
         }
-        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         for option in sshOptions {
@@ -329,55 +329,6 @@ struct DetectedSSHSession: Equatable {
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first(where: { !$0.isEmpty })
-    }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { optionKey($0) == loweredKey }
-    }
-
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
-    private static func scpRemoteDestination(_ destination: String) -> String {
-        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDestination.isEmpty else { return destination }
-
-        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-        let userPart: String?
-        let hostPart: String
-        if parts.count == 2 {
-            userPart = String(parts[0])
-            hostPart = String(parts[1])
-        } else {
-            userPart = nil
-            hostPart = trimmedDestination
-        }
-
-        guard shouldBracketIPv6Literal(hostPart) else {
-            return trimmedDestination
-        }
-
-        let bracketedHost = "[\(hostPart)]"
-        if let userPart {
-            return "\(userPart)@\(bracketedHost)"
-        }
-        return bracketedHost
-    }
-
-    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedHost.isEmpty &&
-            trimmedHost.contains(":") &&
-            !trimmedHost.hasPrefix("[") &&
-            !trimmedHost.hasSuffix("]")
     }
 
 #if DEBUG
@@ -723,8 +674,8 @@ enum TerminalSSHSessionDetector {
     ) -> Bool {
         let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        let key = sshOptionKey(trimmed)
-        let value = sshOptionValue(trimmed)
+        let key = SSHCommandArgumentSupport.optionKey(trimmed)
+        let value = SSHCommandArgumentSupport.optionValue(trimmed)
 
         switch key {
         case "port":
@@ -776,28 +727,4 @@ enum TerminalSSHSessionDetector {
         return "\(loginName)@\(trimmedDestination)"
     }
 
-    private static func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
-    private static func sshOptionValue(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if let equalIndex = trimmed.firstIndex(of: "=") {
-            let value = trimmed[trimmed.index(after: equalIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-
-        let parts = trimmed.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-        guard parts.count == 2 else { return nil }
-        let value = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
 }

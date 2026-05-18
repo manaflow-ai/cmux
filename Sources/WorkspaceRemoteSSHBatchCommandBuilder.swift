@@ -1,11 +1,6 @@
 import Foundation
 
 enum WorkspaceRemoteSSHBatchCommandBuilder {
-    private static let batchSSHControlOptionKeys: Set<String> = [
-        "controlmaster",
-        "controlpersist",
-    ]
-
     static func daemonTransportArguments(
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String
@@ -37,7 +32,7 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         controlCommand: String,
         forwardSpec: String
     ) -> [String]? {
-        guard let controlPath = sshOptionValue(named: "ControlPath", in: configuration.sshOptions)?
+        guard let controlPath = SSHCommandArgumentSupport.optionValue(named: "ControlPath", in: configuration.sshOptions)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !controlPath.isEmpty,
               controlPath.lowercased() != "none" else {
@@ -50,13 +45,13 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
     }
 
     private static func batchArguments(configuration: WorkspaceRemoteConfiguration) -> [String] {
-        let effectiveSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        let effectiveSSHOptions = SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
         ]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         args += ["-o", "BatchMode=yes"]
@@ -74,59 +69,4 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         }
         return args
     }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            if sshOptionKey(option) == loweredKey {
-                return true
-            }
-        }
-        return false
-    }
-
-    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }
-    }
-
-    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
-        normalizedSSHOptions(options).filter { option in
-            guard let key = sshOptionKey(option) else { return false }
-            return !batchSSHControlOptionKeys.contains(key)
-        }
-    }
-
-    private static func sshOptionValue(named key: String, in options: [String]) -> String? {
-        let loweredKey = key.lowercased()
-        for option in normalizedSSHOptions(options) {
-            let parts = option.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            guard parts.count == 2, parts[0].lowercased() == loweredKey else {
-                continue
-            }
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private static func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
 }

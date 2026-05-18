@@ -171,6 +171,7 @@
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
 		D36370010000000000000001 /* ShellArgumentQuoting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36370010000000000000002 /* ShellArgumentQuoting.swift */; };
 		D36370010000000000000003 /* LocalDirectoryPathNormalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36370010000000000000004 /* LocalDirectoryPathNormalization.swift */; };
+		D36370020000000000000001 /* SSHCommandArgumentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36370020000000000000002 /* SSHCommandArgumentSupport.swift */; };
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
@@ -679,6 +680,7 @@
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
 		D36370010000000000000002 /* ShellArgumentQuoting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellArgumentQuoting.swift; sourceTree = "<group>"; };
 		D36370010000000000000004 /* LocalDirectoryPathNormalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalDirectoryPathNormalization.swift; sourceTree = "<group>"; };
+		D36370020000000000000002 /* SSHCommandArgumentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHCommandArgumentSupport.swift; sourceTree = "<group>"; };
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
@@ -1232,6 +1234,7 @@
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
 				D36370010000000000000002 /* ShellArgumentQuoting.swift */,
 				D36370010000000000000004 /* LocalDirectoryPathNormalization.swift */,
+				D36370020000000000000002 /* SSHCommandArgumentSupport.swift */,
 					A50012F4 /* KeyboardLayout.swift */,
 					A5001013 /* TabManager.swift */,
 					C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */,
@@ -1948,6 +1951,7 @@
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 				D36370010000000000000001 /* ShellArgumentQuoting.swift in Sources */,
 				D36370010000000000000003 /* LocalDirectoryPathNormalization.swift in Sources */,
+				D36370020000000000000001 /* SSHCommandArgumentSupport.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
 					A5001003 /* TabManager.swift in Sources */,
 					C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */,
