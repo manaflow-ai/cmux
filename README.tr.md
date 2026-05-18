@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 Gelişmiş kullanıcılar ve entegrasyonlar mevcut terminal surface'ine özel bir resume komutu bağlayabilir. Bu, tmux oturumları veya özel agent CLI'ları gibi kendi kalıcı durumuna sahip araçlar için kullanışlıdır:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

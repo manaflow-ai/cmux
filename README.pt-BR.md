@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 Usuários avançados e integrações podem associar um comando personalizado de retomada à surface de terminal atual. Isso é útil para ferramentas com estado durável próprio, como sessões tmux ou CLIs de agentes customizados:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

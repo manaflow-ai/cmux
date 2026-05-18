@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 進階使用者和整合可以把自訂還原命令綁定到目前終端機 surface。這適合 tmux 工作階段或自訂 agent CLI 這類有持久狀態的工具：
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 上級ユーザーや連携機能は、現在のターミナルサーフェスにカスタム復元コマンドを紐づけられます。tmuxセッションやカスタムエージェントCLIのように、独自の永続状態を持つツールに使います：
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

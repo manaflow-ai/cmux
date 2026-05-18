@@ -3402,6 +3402,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "fresh")
         XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t fresh")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "fresh"
+        )
     }
 
     @MainActor
@@ -3427,6 +3431,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "moved")
         XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t moved")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "moved"
+        )
     }
 
     @MainActor
@@ -3688,6 +3696,33 @@ extension SessionPersistenceTests {
         )
 
         XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertNil(workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding)
+    }
+
+    @MainActor
+    func testSnapshotCachesNewProcessDetectedSurfaceResumeBindingForLaterNoScanSave() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t cached",
+                cwd: "/tmp/project",
+                checkpointId: "cached",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+
+        let scannedSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let laterSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(scannedSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "cached")
+        XCTAssertEqual(laterSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "cached")
     }
 
     @MainActor

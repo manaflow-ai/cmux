@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 Опытные пользователи и интеграции могут привязать пользовательскую команду возобновления к текущей terminal surface. Это полезно для инструментов с собственным долговременным состоянием, например tmux-сессий или пользовательских agent CLI:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

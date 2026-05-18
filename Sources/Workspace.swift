@@ -798,12 +798,24 @@ extension Workspace {
 
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
         guard let storedBinding else {
+            if let detectedBinding, detectedBinding.isProcessDetected {
+                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+            }
             return detectedBinding
         }
         guard let detectedBinding else {
-            return storedBinding.isProcessDetected ? nil : storedBinding
+            if storedBinding.isProcessDetected {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                return nil
+            }
+            return storedBinding
         }
         if storedBinding.isProcessDetected {
+            if detectedBinding.isProcessDetected {
+                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+            } else {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            }
             return detectedBinding
         }
         return storedBinding

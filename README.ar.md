@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 يمكن للمستخدمين المتقدمين والتكاملات ربط أمر استئناف مخصص بسطح الطرفية الحالي. هذا مفيد للأدوات التي تملك حالة دائمة خاصة بها، مثل جلسات tmux أو واجهات agent CLI مخصصة:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

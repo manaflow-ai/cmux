@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 Fortgeschrittene Nutzer und Integrationen können einen eigenen Wiederaufnahmebefehl an die aktuelle Terminal-Surface binden. Das ist nützlich für Werkzeuge mit eigenem dauerhaftem Zustand, etwa tmux-Sitzungen oder eigene Agent-CLIs:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

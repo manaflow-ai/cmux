@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 Avancerede brugere og integrationer kan knytte en brugerdefineret genoptagelseskommando til den aktuelle terminal-surface. Det er nyttigt for værktøjer med egen varig tilstand, som tmux-sessioner eller brugerdefinerede agent-CLI'er:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```

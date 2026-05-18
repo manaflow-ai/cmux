@@ -47,7 +47,7 @@ cmux hooks setup --agent opencode`}</CodeBlock>
 
       <h2>{t("surfaceBindingsTitle")}</h2>
       <p>{t("surfaceBindingsDesc")}</p>
-      <CodeBlock lang="bash">{`cmux surface resume set --kind tmux --shell "tmux attach -t work"
+      <CodeBlock lang="bash">{`cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work`}</CodeBlock>
       <p>{t("surfaceBindingsNote")}</p>

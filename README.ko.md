@@ -257,7 +257,7 @@ cmux hooks setup --agent opencode
 고급 사용자와 통합은 현재 터미널 surface에 사용자 지정 resume 명령을 연결할 수 있습니다. tmux 세션이나 사용자 지정 agent CLI처럼 자체 영구 상태가 있는 도구에 유용합니다:
 
 ```bash
-cmux surface resume set --kind tmux --shell "tmux attach -t work"
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
 cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
