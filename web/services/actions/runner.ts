@@ -7,6 +7,7 @@ import {
   type VmBillingTeamResolutionError,
 } from "../vms/entitlements";
 import type { ExecResult } from "../vms/drivers";
+import { isVmCreateDisabledError, isVmImageConfigError } from "../vms/errors";
 import { resolveVmImage } from "../vms/images/resolver";
 import { createVm, destroyVm, execVm, runVmWorkflow, snapshotVm, type VmEntry } from "../vms/workflows";
 import { findFreestyleActionSnapshotByName, type FreestyleActionSnapshot } from "./freestyleSnapshots";
@@ -133,7 +134,12 @@ export async function runAction(input: {
     };
   }
 
-  const baseImage = resolveActionBaseImage(dependencies);
+  let baseImage: ReturnType<typeof resolveActionBaseImage>;
+  try {
+    baseImage = resolveActionBaseImage(dependencies);
+  } catch (err) {
+    throw actionBaseImageError(err);
+  }
   const cacheName = recipe.cacheName({ ref, mode, baseImage: baseImage.image });
   const setupScript = recipe.setupScript({ ref, mode });
   const startScript = recipe.startScript({ ref, mode });
@@ -253,6 +259,34 @@ export async function runAction(input: {
 function resolveActionBaseImage(dependencies: ActionRunnerDependencies) {
   dependencies.assertVmCreateEnabled("freestyle");
   return dependencies.resolveVmImage("freestyle", undefined);
+}
+
+function actionBaseImageError(err: unknown): ActionRunError {
+  if (isVmCreateDisabledError(err)) {
+    return new ActionRunError(
+      "actions_vm_create_disabled",
+      503,
+      "Cloud Actions are disabled for this environment.",
+      "Ask an admin to enable Cloud Actions, then retry.",
+      { phase: "baseImage" },
+    );
+  }
+  if (isVmImageConfigError(err)) {
+    return new ActionRunError(
+      "actions_image_unavailable",
+      503,
+      "The Cloud Actions VM image is unavailable in this environment.",
+      "Ask an admin to publish the Cloud VM image for this environment, then retry.",
+      { phase: "baseImage" },
+    );
+  }
+  return new ActionRunError(
+    "actions_image_unavailable",
+    500,
+    "Cloud Actions could not resolve a VM image.",
+    "Retry in a moment. If this keeps happening, contact support.",
+    { phase: "baseImage" },
+  );
 }
 
 async function runCheckedExec(input: {

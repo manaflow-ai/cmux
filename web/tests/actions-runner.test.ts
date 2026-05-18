@@ -2,14 +2,18 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { FreestyleActionSnapshotLookupError } from "../services/actions/freestyleSnapshots";
 
-let vmCreateEnabledError: Error | null = null;
+let vmCreateEnabledError: unknown | null = null;
 const assertVmCreateEnabled = mock(() => {
   if (vmCreateEnabledError) throw vmCreateEnabledError;
 });
-const resolveVmImage = mock(() => ({
-  image: "base-image",
-  imageVersion: "base-version",
-}));
+let resolveVmImageError: unknown | null = null;
+const resolveVmImage = mock(() => {
+  if (resolveVmImageError) throw resolveVmImageError;
+  return {
+    image: "base-image",
+    imageVersion: "base-version",
+  };
+});
 let resolveVmEntitlementsError: Error | null = null;
 const resolveVmEntitlements = mock(() => {
   if (resolveVmEntitlementsError) throw resolveVmEntitlementsError;
@@ -71,10 +75,12 @@ const runVmWorkflow = mock(async (workflow: unknown) => {
 });
 
 const { isActionRunError, runAction } = await import("../services/actions/runner");
+const { VmCreateDisabledError, VmImageConfigError } = await import("../services/vms/errors");
 
 beforeEach(() => {
   assertVmCreateEnabled.mockClear();
   vmCreateEnabledError = null;
+  resolveVmImageError = null;
   resolveVmImage.mockClear();
   resolveVmEntitlementsError = null;
   resolveVmEntitlements.mockClear();
@@ -261,6 +267,90 @@ describe("cloud action runner", () => {
     expect(result.dryRun).toBe(true);
     expect(assertVmCreateEnabled).not.toHaveBeenCalled();
     expect(resolveVmImage).not.toHaveBeenCalled();
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
+  test("converts disabled VM creation into a safe action error", async () => {
+    vmCreateEnabledError = new VmCreateDisabledError({
+      provider: "freestyle",
+      reason: "CMUX_VM_CREATE_ENABLED=false",
+    });
+
+    try {
+      await runAction({
+        request: {
+          action: "hexclave/stack-auth:fresh-env",
+          ref: "dev",
+        },
+        user: testUser(),
+        dependencies: {
+          assertVmCreateEnabled,
+          resolveVmImage,
+          resolveVmEntitlements,
+          findFreestyleActionSnapshotByName,
+          createVm,
+          destroyVm,
+          execVm,
+          runVmWorkflow,
+          snapshotVm,
+        },
+      });
+      throw new Error("expected action run to fail");
+    } catch (err) {
+      expect(isActionRunError(err)).toBe(true);
+      if (!isActionRunError(err)) throw err;
+      expect(err.code).toBe("actions_vm_create_disabled");
+      expect(err.status).toBe(503);
+      expect(err.message).toBe("Cloud Actions are disabled for this environment.");
+      expect(err.message).not.toContain("CMUX_VM_CREATE_ENABLED");
+      expect(err.message).not.toContain("freestyle");
+      expect(JSON.stringify(err.details)).not.toContain("CMUX_VM_CREATE_ENABLED");
+      expect(JSON.stringify(err.details)).not.toContain("freestyle");
+    }
+
+    expect(resolveVmImage).not.toHaveBeenCalled();
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
+  test("converts action image config failures into a safe action error", async () => {
+    resolveVmImageError = new VmImageConfigError({
+      provider: "freestyle",
+      envVar: "CMUX_VM_FREESTYLE_IMAGE",
+      reason: "missing image secret",
+    });
+
+    try {
+      await runAction({
+        request: {
+          action: "hexclave/stack-auth:fresh-env",
+          ref: "dev",
+        },
+        user: testUser(),
+        dependencies: {
+          assertVmCreateEnabled,
+          resolveVmImage,
+          resolveVmEntitlements,
+          findFreestyleActionSnapshotByName,
+          createVm,
+          destroyVm,
+          execVm,
+          runVmWorkflow,
+          snapshotVm,
+        },
+      });
+      throw new Error("expected action run to fail");
+    } catch (err) {
+      expect(isActionRunError(err)).toBe(true);
+      if (!isActionRunError(err)) throw err;
+      expect(err.code).toBe("actions_image_unavailable");
+      expect(err.status).toBe(503);
+      expect(err.message).toBe("The Cloud Actions VM image is unavailable in this environment.");
+      expect(err.message).not.toContain("CMUX_VM_FREESTYLE_IMAGE");
+      expect(err.message).not.toContain("freestyle");
+      expect(JSON.stringify(err.details)).not.toContain("CMUX_VM_FREESTYLE_IMAGE");
+      expect(JSON.stringify(err.details)).not.toContain("freestyle");
+    }
+
     expect(createVm).not.toHaveBeenCalled();
   });
 
