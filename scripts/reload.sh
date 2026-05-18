@@ -371,6 +371,7 @@ CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 # summary plus the App/CLI paths. On failure we dump the log.
 RELOAD_LOG="/tmp/cmux-reload-${TAG_SLUG}.log"
 RELOAD_START_TIME="$(date +%s)"
+RELOAD_BODY_COMPLETE=0
 : > "$RELOAD_LOG"
 
 # Save the original stdout/stderr so the EXIT trap can write the user-facing
@@ -383,6 +384,10 @@ reload_finalize() {
   trap - EXIT
   exec 1>&3 2>&4
   local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
+  if [[ "$rc" -eq 0 && "${RELOAD_BODY_COMPLETE:-0}" -ne 1 ]]; then
+    rc=1
+    echo "error: reload terminated before completion" >>"$RELOAD_LOG"
+  fi
   if [[ "$rc" -ne 0 ]]; then
     if [[ -s "$RELOAD_LOG" ]]; then
       cat "$RELOAD_LOG" >&2
@@ -833,3 +838,4 @@ fi
 if [[ -n "${TAG_SLUG:-}" ]]; then
   print_tag_cleanup_reminder "$TAG_SLUG"
 fi
+RELOAD_BODY_COMPLETE=1
