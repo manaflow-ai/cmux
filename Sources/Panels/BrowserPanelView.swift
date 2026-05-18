@@ -389,8 +389,8 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
-    let usesProvidedPaneContext: Bool = false
-    let embeddedCloseAction: (() -> Void)? = nil
+    let usesProvidedPaneContext: Bool
+    let embeddedCloseAction: (() -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
@@ -441,6 +441,26 @@ struct BrowserPanelView: View {
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
+
+    init(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        isFocused: Bool,
+        isVisibleInUI: Bool,
+        portalPriority: Int,
+        onRequestPanelFocus: @escaping () -> Void,
+        usesProvidedPaneContext: Bool = false,
+        embeddedCloseAction: (() -> Void)? = nil
+    ) {
+        self.panel = panel
+        self.paneId = paneId
+        self.isFocused = isFocused
+        self.isVisibleInUI = isVisibleInUI
+        self.portalPriority = portalPriority
+        self.onRequestPanelFocus = onRequestPanelFocus
+        self.usesProvidedPaneContext = usesProvidedPaneContext
+        self.embeddedCloseAction = embeddedCloseAction
+    }
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
