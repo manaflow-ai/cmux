@@ -79,20 +79,23 @@ struct cmuxApp: App {
         let bundledGhosttyURL = Bundle.main.resourceURL?.appendingPathComponent("ghostty")
         var resolvedResourcesDir: String?
 
-        if getenv("GHOSTTY_RESOURCES_DIR") == nil {
-            if let bundledGhosttyURL,
-               fileManager.fileExists(atPath: bundledGhosttyURL.path),
-               fileManager.fileExists(atPath: bundledGhosttyURL.appendingPathComponent("themes").path) {
-                resolvedResourcesDir = bundledGhosttyURL.path
-            } else if fileManager.fileExists(atPath: ghosttyAppResources) {
-                resolvedResourcesDir = ghosttyAppResources
-            } else if let bundledGhosttyURL, fileManager.fileExists(atPath: bundledGhosttyURL.path) {
-                resolvedResourcesDir = bundledGhosttyURL.path
-            }
+        // Always resolve from the current bundle — never trust an inherited value.
+        // When the debug app is launched from inside a running production instance,
+        // the production GHOSTTY_RESOURCES_DIR is inherited and points to a bundle
+        // that has no shell-integration/, silently breaking bash OSC 7 / Cmd+D split
+        // directory inheritance. Each app instance must own its own resources path.
+        if let bundledGhosttyURL,
+           fileManager.fileExists(atPath: bundledGhosttyURL.path),
+           fileManager.fileExists(atPath: bundledGhosttyURL.appendingPathComponent("themes").path) {
+            resolvedResourcesDir = bundledGhosttyURL.path
+        } else if fileManager.fileExists(atPath: ghosttyAppResources) {
+            resolvedResourcesDir = ghosttyAppResources
+        } else if let bundledGhosttyURL, fileManager.fileExists(atPath: bundledGhosttyURL.path) {
+            resolvedResourcesDir = bundledGhosttyURL.path
+        }
 
-            if let resolvedResourcesDir {
-                setenv("GHOSTTY_RESOURCES_DIR", resolvedResourcesDir, 1)
-            }
+        if let resolvedResourcesDir {
+            setenv("GHOSTTY_RESOURCES_DIR", resolvedResourcesDir, 1)
         }
 
         if getenv("TERM") == nil {
