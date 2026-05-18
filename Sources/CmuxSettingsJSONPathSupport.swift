@@ -121,6 +121,8 @@ extension CmuxSettingsFileStore {
 
 extension CmuxSettingsJSONPersistence {
     private static let settingsUIWriteBackUnsupportedJSONPaths: Set<String> = [
+        "app.minimalMode",
+        "app.keepWorkspaceOpenWhenClosingLastSurface",
         "workspaceColors.colors",
         "workspaceColors.paletteOverrides",
         "workspaceColors.customColors",
