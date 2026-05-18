@@ -187,15 +187,13 @@ extension CmuxSettingsFileStore {
         _ shortcut: StoredShortcut,
         usesNumberedDigits: Bool
     ) -> Any {
-        let defaultShortcut = usesNumberedDigits ? (shortcut.secondStroke ?? shortcut.firstStroke) : nil
-        let rendered = shortcut.firstStroke.configString(preserveDigit: !usesNumberedDigits)
         if let secondStroke = shortcut.secondStroke {
-            return [rendered, secondStroke.configString(preserveDigit: true)]
+            return [
+                shortcut.firstStroke.configString(preserveDigit: !usesNumberedDigits),
+                secondStroke.configString(preserveDigit: true),
+            ]
         }
-        if let defaultShortcut {
-            return defaultShortcut.configString(preserveDigit: true)
-        }
-        return rendered
+        return shortcut.firstStroke.configString()
     }
 
     private static func prettyJSONString(_ value: Any) -> String {

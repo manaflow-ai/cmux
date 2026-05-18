@@ -124,9 +124,7 @@ extension CMUXCLI {
                 guard definition.context.overlaps(proposedAction.context) else {
                     continue
                 }
-                guard let configured = try resolvedShortcutForConflictScan(for: definition, root: root) else {
-                    continue
-                }
+                let configured = try resolvedShortcutForConflictScan(for: definition, root: root)
                 guard configured.conflicts(with: proposed, lhsNumbered: definition.usesNumberedDigitMatching, rhsNumbered: proposedAction.usesNumberedDigitMatching) else {
                     continue
                 }
@@ -138,7 +136,7 @@ extension CMUXCLI {
         private func resolvedShortcutForConflictScan(
             for definition: CmuxSettingsRegistry.ShortcutActionDefinition,
             root: [String: Any]
-        ) throws -> CLIShortcut? {
+        ) throws -> CLIShortcut {
             if let raw = value(forPath: "shortcuts.bindings.\(definition.action)", in: root) {
                 do {
                     return try CLIShortcut.parseJSONValue(raw, action: definition)
