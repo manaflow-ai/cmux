@@ -77,7 +77,7 @@ function selectReusableSnapshot(
 
 function isReusableSnapshot(snapshot: FreestyleSnapshotRecord): boolean {
   const state = (snapshot.state ?? snapshot.status ?? "").trim().toLowerCase();
-  if (!state) return true;
+  if (!state) return !snapshot.failureReason;
   return ["ready", "completed", "complete", "succeeded", "success", "active"].includes(state);
 }
 
@@ -89,14 +89,15 @@ function freestyleSnapshotListURL(): string {
   return url.toString();
 }
 
-function fetchWithTimeout(timeoutMs: number): typeof fetch {
+export function fetchWithTimeout(timeoutMs: number): typeof fetch {
   return async (input, init) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
     try {
       return await fetch(input, {
         ...(init ?? {}),
-        signal: controller.signal,
+        signal,
       });
     } finally {
       clearTimeout(timeout);

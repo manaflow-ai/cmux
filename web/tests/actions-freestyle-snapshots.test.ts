@@ -23,6 +23,12 @@ describe("Freestyle action snapshot lookup", () => {
             createdAt: "2026-05-18T12:00:00.000Z",
           },
           {
+            snapshotId: "snapshot-failed",
+            name: "cmux-actions-cache",
+            failureReason: "provider failure should stay hidden",
+            createdAt: "2026-05-18T11:30:00.000Z",
+          },
+          {
             snapshotId: "snapshot-ready",
             name: "cmux-actions-cache",
             state: "ready",
@@ -56,5 +62,20 @@ describe("Freestyle action snapshot lookup", () => {
     if (result._tag !== "Left") throw new Error("expected lookup to fail");
     expect(result.left).toBeInstanceOf(FreestyleActionSnapshotLookupError);
     expect(String(result.left)).not.toContain("upstream provider details");
+  });
+
+  test("fetch timeout preserves an incoming abort signal", async () => {
+    const { fetchWithTimeout } = await import("../services/actions/freestyleSnapshots");
+    const caller = new AbortController();
+    caller.abort("caller canceled");
+    let observedAborted: boolean | null = null;
+    globalThis.fetch = mock(async (_input, init) => {
+      observedAborted = ((init as RequestInit | undefined)?.signal as AbortSignal | undefined)?.aborted ?? null;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await fetchWithTimeout(60_000)("https://example.test/snapshots", { signal: caller.signal });
+
+    expect(observedAborted).toBe(true);
   });
 });

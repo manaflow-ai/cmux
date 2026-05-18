@@ -613,10 +613,10 @@ actor VMClient {
         }
         let ports = try ((obj["ports"] as? [[String: Any]]) ?? []).map { rawPort in
             guard let name = rawPort["name"] as? String,
-                  let port = rawPort["port"] as? Int,
                   let url = rawPort["url"] as? String else {
                 throw VMClientError.malformedResponse("Cloud action response included an invalid port.")
             }
+            let port = try decodePort(rawPort["port"], context: "Cloud action response")
             return CloudActionPort(name: name, port: port, url: url)
         }
         return CloudActionRunResult(
@@ -644,7 +644,7 @@ actor VMClient {
         return encoded
     }
 
-    private func decodePort(_ raw: Any?) throws -> Int {
+    private func decodePort(_ raw: Any?, context: String = "Cloud VM SSH response") throws -> Int {
         let port: Int?
         if let int = raw as? Int {
             port = int
@@ -654,7 +654,7 @@ actor VMClient {
             port = nil
         }
         guard let port, (1...65_535).contains(port) else {
-            throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
+            throw VMClientError.malformedResponse("\(context) included an invalid port.")
         }
         return port
     }

@@ -127,11 +127,19 @@ describe("cloud action runner", () => {
       userId: "user-actions-runner",
       providerVmId: "vm-actions-runner-fail",
     });
+    expect(runVmWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "destroy",
+      input: {
+        userId: "user-actions-runner",
+        providerVmId: "vm-actions-runner-fail",
+      },
+    }));
   });
 
   test("converts cache lookup failures into safe action errors", async () => {
     failCacheLookup = true;
-
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
     try {
       await runAction({
         request: {
@@ -170,6 +178,9 @@ describe("cloud action runner", () => {
       expect(err.message).not.toContain("vendor");
       expect(err.action).toContain("--no-cache");
       expect(err.details).toEqual({ phase: "cache_lookup" });
+      expect(console.error).toHaveBeenCalled();
+    } finally {
+      console.error = originalError;
     }
 
     expect(createVm).not.toHaveBeenCalled();

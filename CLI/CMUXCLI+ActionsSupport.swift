@@ -168,6 +168,7 @@ extension CMUXCLI {
             params: params,
             responseTimeout: dryRun ? 30 : Self.vmCreateResponseTimeoutSeconds
         )
+        try validateActionRunResponse(response)
         defer { Self.clearVMCreateIdempotency(idempotency) }
 
         if jsonOutput {
@@ -186,6 +187,31 @@ extension CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
+    }
+
+    private func validateActionRunResponse(_ response: [String: Any]) throws {
+        guard let rawPorts = response["ports"] else { return }
+        guard let ports = rawPorts as? [[String: Any]] else {
+            throw CLIError(message: "Cloud action response included invalid port data.")
+        }
+        for port in ports {
+            guard port["name"] is String,
+                  port["url"] is String,
+                  let portNumber = Self.actionRunPortNumber(port["port"]),
+                  (1...65_535).contains(portNumber) else {
+                throw CLIError(message: "Cloud action response included an invalid port.")
+            }
+        }
+    }
+
+    private static func actionRunPortNumber(_ raw: Any?) -> Int? {
+        if let int = raw as? Int {
+            return int
+        }
+        if let double = raw as? Double {
+            return Int(exactly: double)
+        }
+        return nil
     }
 
     private func sanitizedActionRunResponse(_ response: [String: Any]) -> [String: Any] {

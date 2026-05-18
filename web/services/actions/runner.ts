@@ -279,7 +279,8 @@ async function findCachedSnapshot(input: {
 }): Promise<FreestyleActionSnapshot | null> {
   try {
     return await Effect.runPromise(input.dependencies.findFreestyleActionSnapshotByName(input.cacheName));
-  } catch {
+  } catch (err) {
+    console.error("Cloud action cache lookup failed", { action: input.action, error: err });
     throw new ActionRunError(
       "actions_cache_unavailable",
       503,

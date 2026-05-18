@@ -295,4 +295,67 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ["actions.run"]
         )
     }
+
+    func testActionsRunRejectsInvalidPortResponses() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("actions-run-invalid-port")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "actions.run" else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "action": "hexclave/stack-auth:fresh-env",
+                    "title": "Fresh Stack Auth environment",
+                    "ref": "dev",
+                    "mode": "basic",
+                    "dry_run": true,
+                    "cache": [
+                        "hit": false,
+                    ],
+                    "setup_ran": false,
+                    "started": false,
+                    "ports": [
+                        ["name": "Bad", "port": 70_000, "url": "http://localhost:70000"],
+                    ],
+                    "instructions": [],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["actions", "run", "hexclave/stack-auth:fresh-env", "--dry-run"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("invalid port"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["actions.run"]
+        )
+    }
 }
