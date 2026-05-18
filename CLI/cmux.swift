@@ -9538,7 +9538,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
               --color <name|#RRGGBB>       Color for set-color (name or #RRGGBB hex)
-              --icon <json>                CmuxButtonIcon JSON for set-icon
+              --icon <json>                Icon JSON for set-icon
               --description <text>         Description for set-description
 
             Named colors:
@@ -9624,7 +9624,7 @@ struct CMUXCLI {
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
               --command <text>     Send text+Enter to the new workspace after creation
-              --icon <json>        Set a CmuxButtonIcon JSON value for the new workspace
+              --icon <json>        Set an icon JSON value for the new workspace
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    When provided, --command is ignored (layout surfaces define their own commands).
@@ -9986,7 +9986,7 @@ struct CMUXCLI {
 
             Flags:
               --workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)
-              --icon <json>                Also set a CmuxButtonIcon JSON value
+              --icon <json>                Also set an icon JSON value
 
             Example:
               cmux rename-workspace "backend logs"
@@ -10700,14 +10700,14 @@ struct CMUXCLI {
     private func parseIconJSONOption(_ raw: String, context: String) throws -> [String: Any] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else {
-            throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object")
+            throw CLIError(message: iconJSONErrorMessage(context: context))
         }
 
         let icon: CmuxButtonIcon
         do {
             icon = try JSONDecoder().decode(CmuxButtonIcon.self, from: data)
         } catch {
-            throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object: \(error.localizedDescription)")
+            throw CLIError(message: iconJSONErrorMessage(context: context))
         }
 
         let socketIcon: CmuxButtonIcon
@@ -10722,9 +10722,17 @@ struct CMUXCLI {
               let object = try? JSONSerialization.jsonObject(with: encoded, options: []),
               let iconObject = object as? [String: Any],
               JSONSerialization.isValidJSONObject(iconObject) else {
-            throw CLIError(message: "\(context) must be a valid CmuxButtonIcon JSON object")
+            throw CLIError(message: iconJSONErrorMessage(context: context))
         }
         return iconObject
+    }
+
+    private func iconJSONErrorMessage(context: String) -> String {
+        let format = String(
+            localized: "cli.error.icon.invalidJSON",
+            defaultValue: "%@ must be a valid icon JSON object, for example {\"type\":\"symbol\",\"name\":\"folder.fill\"}"
+        )
+        return String(format: format, context)
     }
 
     private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {

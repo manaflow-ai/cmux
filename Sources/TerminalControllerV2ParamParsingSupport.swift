@@ -55,18 +55,19 @@ extension TerminalController {
 
     func v2CmuxButtonIcon(_ params: [String: Any], _ key: String = "icon") -> (icon: CmuxButtonIcon?, error: V2CallResult?) {
         guard let raw = params[key], !(raw is NSNull) else { return (nil, nil) }
+        let invalidIconMessage = v2CmuxButtonIconErrorMessage(for: key)
 
         let data: Data
         if let rawString = raw as? String {
             let trimmed = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, let stringData = trimmed.data(using: .utf8) else {
-                return (nil, .err(code: "invalid_params", message: "\(key) must be a CmuxButtonIcon JSON object", data: nil))
+                return (nil, .err(code: "invalid_params", message: invalidIconMessage, data: nil))
             }
             data = stringData
         } else {
             guard JSONSerialization.isValidJSONObject(raw),
                   let objectData = try? JSONSerialization.data(withJSONObject: raw) else {
-                return (nil, .err(code: "invalid_params", message: "\(key) must be a CmuxButtonIcon JSON object", data: nil))
+                return (nil, .err(code: "invalid_params", message: invalidIconMessage, data: nil))
             }
             data = objectData
         }
@@ -74,8 +75,16 @@ extension TerminalController {
         do {
             return (try JSONDecoder().decode(CmuxButtonIcon.self, from: data), nil)
         } catch {
-            return (nil, .err(code: "invalid_params", message: "Invalid \(key): \(error.localizedDescription)", data: nil))
+            return (nil, .err(code: "invalid_params", message: invalidIconMessage, data: nil))
         }
+    }
+
+    private func v2CmuxButtonIconErrorMessage(for key: String) -> String {
+        let format = String(
+            localized: "socket.icon.invalidJSON",
+            defaultValue: "%@ must be a valid icon JSON object, for example {\"type\":\"symbol\",\"name\":\"folder.fill\"}"
+        )
+        return String(format: format, key)
     }
 
     func v2CmuxButtonIconPayload(_ icon: CmuxButtonIcon?) -> Any {
