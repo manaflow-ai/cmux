@@ -157,11 +157,7 @@ public enum SocketPathMarkerFiles {
             effectiveVariant = resolvedVariant
         }
 
-        if case .stable = effectiveVariant {
-            return stableSocketPath
-        }
-
-        if let appSupportDirectory {
+        if let appSupportDirectory, effectiveVariant != .stable {
             return socketPath(
                 fileName: socketFileName(for: effectiveVariant),
                 directory: appSupportDirectory
@@ -169,6 +165,8 @@ public enum SocketPathMarkerFiles {
         }
 
         switch effectiveVariant {
+        case .stable:
+            return stableSocketPath
         case .nightly(let slug):
             if let slug {
                 return "/tmp/cmux-nightly-\(slug).sock"
