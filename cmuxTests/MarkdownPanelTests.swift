@@ -252,6 +252,46 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(discardedPointerDownCount, 0)
     }
 
+    func testMarkdownRendererResetsRecoveryBudgetAfterSuccessfulReload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+
+        coordinator.webView(webView, didFinish: nil)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererRestartsShellWhenContentChangesAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Replacement\n", theme: theme)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())

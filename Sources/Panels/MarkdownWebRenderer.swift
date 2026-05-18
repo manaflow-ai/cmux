@@ -167,8 +167,19 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
+        private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
+
+#if DEBUG
+        var isShellLoadingForTesting: Bool {
+            isShellLoading
+        }
+
+        var webContentProcessRecoveryAttemptsForTesting: Int {
+            webContentProcessRecoveryAttempts
+        }
+#endif
 
         func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
             self.panelId = panelId
@@ -186,6 +197,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             self.webView = nil
             isLoaded = false
+            isShellLoading = false
             webContentProcessRecoveryAttempts = 0
             requestedLibs.removeAll()
         }
@@ -196,6 +208,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             lastTheme = theme
             requestedLibs.removeAll()
             isLoaded = false
+            isShellLoading = true
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
@@ -232,6 +245,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 lastMarkdown = markdown
                 if isLoaded {
                     pushMarkdown(markdown)
+                } else if !isShellLoading {
+                    loadShell(theme: theme, initialMarkdown: markdown)
                 }
             }
         }
@@ -468,6 +483,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.webView.didFinish")
 #endif
+            isShellLoading = false
+            webContentProcessRecoveryAttempts = 0
             isLoaded = true
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
@@ -481,6 +498,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
 #endif
+            isShellLoading = false
             guard webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts else {
                 isLoaded = false
                 requestedLibs.removeAll()
