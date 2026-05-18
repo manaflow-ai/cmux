@@ -35,6 +35,7 @@ public enum SessionIndexCore {
         maxBytes: Int,
         body: ([String: Any]) -> Bool
     ) {
+        guard maxBytes > 0 else { return }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
 
@@ -42,7 +43,8 @@ public enum SessionIndexCore {
         var totalRead = 0
         let chunkSize = 64 * 1024
         while totalRead < maxBytes {
-            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+            let readSize = min(chunkSize, maxBytes - totalRead)
+            let chunk = (try? handle.read(upToCount: readSize)) ?? Data()
             if chunk.isEmpty { break }
             totalRead += chunk.count
             leftover.append(chunk)

@@ -19,6 +19,21 @@ final class SessionIndexCoreTests: XCTestCase {
         XCTAssertEqual(ids, ["first", "second"])
     }
 
+    func testForEachJSONLineDoesNotParseBeyondMaxBytes() throws {
+        let firstLine = #"{"id":"first","title":"One"}"# + "\n"
+        let secondLine = #"{"id":"second","title":"Two"}"# + "\n"
+        let fixture = try makeTempFile(contents: firstLine + secondLine)
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        var ids: [String] = []
+        SessionIndexCore.forEachJSONLine(url: fixture.file, maxBytes: firstLine.utf8.count) { object in
+            ids.append(object["id"] as? String ?? "")
+            return false
+        }
+
+        XCTAssertEqual(ids, ["first"])
+    }
+
     func testReadFileHeadAndTailRespectByteCapsAndLineBoundary() throws {
         let fixture = try makeTempFile(contents: """
         line-1
