@@ -717,7 +717,7 @@ func parseBrowserArgs(args []string) (browserParsedArgs, error) {
 			parsedValue = args[i+1]
 			i++
 		} else {
-			parsedValue = true
+			return browserParsedArgs{}, fmt.Errorf("flag --%s requires a value", key)
 		}
 		switch key {
 		case "out":
