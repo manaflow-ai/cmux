@@ -1555,6 +1555,24 @@ func TestCLIBrowserRejectsConflictingSurfaceAliases(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserRejectsLeadingAndCommandSurfaceFlags(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "--surface", "surface:1", "get", "title", "--surface", "surface:2",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser duplicate leading and command surface flags should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "conflicting browser options leading --surface and --surface both set surface_id") {
+		t.Fatalf("expected duplicate surface flag error, got %q", output)
+	}
+}
+
 func TestCLIBrowserErrorsClearUsesListMethodWithClearParam(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
