@@ -101,7 +101,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     static let shared = ClosedItemHistoryStore(capacity: 50)
 
     @Published private(set) var revision: UInt64 = 0
-    private var records: [ClosedItemHistoryRecord] = []
+    @Published private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int
 
     init(capacity: Int) {
@@ -129,11 +129,35 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func pop() -> ClosedItemHistoryEntry? {
-        let record = records.popLast()
-        if record != nil {
-            revision &+= 1
+        popRecord()?.record.entry
+    }
+
+    func popRecord() -> (record: ClosedItemHistoryRecord, index: Int)? {
+        guard let record = records.popLast() else {
+            return nil
         }
-        return record?.entry
+        revision &+= 1
+        return (record, records.count)
+    }
+
+    @discardableResult
+    func popFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
+        var skippedRecords: [(record: ClosedItemHistoryRecord, index: Int)] = []
+        var didRestore = false
+
+        while let removed = popRecord() {
+            if restore(removed.record.entry) {
+                didRestore = true
+                break
+            }
+            skippedRecords.append(removed)
+        }
+
+        for skippedRecord in skippedRecords.reversed() {
+            insert(skippedRecord.record, at: skippedRecord.index)
+        }
+
+        return didRestore
     }
 
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {

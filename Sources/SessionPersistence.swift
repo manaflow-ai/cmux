@@ -358,6 +358,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var remote: SessionRemoteWorkspaceSnapshot?
 }
 
+extension SessionWorkspaceSnapshot {
+    var hasRestorablePanels: Bool {
+        !panels.isEmpty
+    }
+}
+
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]

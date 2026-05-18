@@ -983,6 +983,75 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Unreachable Tab"])
     }
 
+    func testReopenSkipsInvalidRecentRecordButKeepsItInHistory() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let restorablePanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        workspace.setPanelCustomTitle(panelId: restorablePanelId, title: "Restorable Tab")
+        workspace.markCloseHistoryEligible(panelId: restorablePanelId)
+        XCTAssertTrue(workspace.closePanel(restorablePanelId, force: true))
+        drainMainQueue()
+
+        var invalidSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        invalidSnapshot.customTitle = "Invalid Newest Tab"
+        ClosedItemHistoryStore.shared.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: UUID(),
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: invalidSnapshot
+        )))
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(workspace.panelCustomTitles.values.contains("Restorable Tab"))
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Invalid Newest Tab"])
+    }
+
+    func testFailedClosedWorkspaceRestoreRemovesCreatedWorkspaceAndKeepsHistoryRecord() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        var panelSnapshot = try XCTUnwrap(snapshot.panels.first)
+        panelSnapshot.type = .markdown
+        panelSnapshot.title = "Broken Markdown"
+        panelSnapshot.customTitle = "Broken Workspace Tab"
+        panelSnapshot.terminal = nil
+        panelSnapshot.browser = nil
+        panelSnapshot.markdown = nil
+        panelSnapshot.filePreview = nil
+        panelSnapshot.rightSidebarTool = nil
+        snapshot.customTitle = "Broken Workspace"
+        snapshot.panels = [panelSnapshot]
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [panelSnapshot.id],
+            selectedPanelId: panelSnapshot.id
+        ))
+
+        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: UUID(),
+            windowId: nil,
+            workspaceIndex: 1,
+            snapshot: snapshot
+        )))
+
+        XCTAssertFalse(manager.reopenMostRecentlyClosedItem())
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Broken Workspace"])
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(

@@ -6336,20 +6336,17 @@ class TabManager: ObservableObject {
             return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
         }
 
-        while let entry = ClosedItemHistoryStore.shared.pop() {
+        if ClosedItemHistoryStore.shared.popFirstRestorable(using: { entry in
             switch entry {
             case .panel(let panelEntry):
-                if restoreClosedPanel(panelEntry) {
-                    return true
-                }
+                return restoreClosedPanel(panelEntry)
             case .workspace(let workspaceEntry):
-                if restoreClosedWorkspace(workspaceEntry) {
-                    return true
-                }
-            case .window(let windowEntry):
-                ClosedItemHistoryStore.shared.push(.window(windowEntry))
+                return restoreClosedWorkspace(workspaceEntry)
+            case .window:
                 return false
             }
+        }) {
+            return true
         }
 
         return false
@@ -6415,6 +6412,10 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
+        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
+            closeWorkspace(workspace, recordHistory: false)
+            return false
+        }
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,

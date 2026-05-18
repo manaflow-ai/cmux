@@ -2913,14 +2913,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
-        while let entry = ClosedItemHistoryStore.shared.pop() {
-            if restoreClosedItem(
+        if ClosedItemHistoryStore.shared.popFirstRestorable(using: { entry in
+            restoreClosedItem(
                 entry,
                 preferredTabManager: preferredTabManager,
                 shouldActivate: shouldActivate
-            ) {
-                return true
-            }
+            )
+        }) {
+            return true
         }
 
         if preferredTabManager?.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() == true {
