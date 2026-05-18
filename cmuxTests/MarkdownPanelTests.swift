@@ -252,7 +252,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(discardedPointerDownCount, 0)
     }
 
-    func testMarkdownRendererResetsRecoveryBudgetAfterSuccessfulReload() {
+    func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
@@ -267,7 +267,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         coordinator.webView(webView, didFinish: nil)
 
-        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
@@ -290,6 +290,30 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
         XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererCapsRecoveryWhenPayloadCrashesAfterShellFinish() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+
+        for expectedAttempt in 1...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+            XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, expectedAttempt)
+            XCTAssertTrue(coordinator.isShellLoadingForTesting)
+
+            coordinator.webView(webView, didFinish: nil)
+            XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, expectedAttempt)
+        }
+
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {

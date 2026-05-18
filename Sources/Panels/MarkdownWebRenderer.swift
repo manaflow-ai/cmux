@@ -484,10 +484,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.webView.didFinish")
 #endif
             isShellLoading = false
-            webContentProcessRecoveryAttempts = 0
             isLoaded = true
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
+            // Keep the recovery budget scoped to the current markdown payload:
+            // a payload can crash after shell load during the render push.
+            // Content changes reset the budget in `update(markdown:theme:)`.
             let md = lastMarkdown ?? pendingMarkdown
             lastMarkdown = md
             pushMarkdown(md)
