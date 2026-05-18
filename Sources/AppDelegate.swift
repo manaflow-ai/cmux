@@ -1011,6 +1011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let isRunningUnderAppHostedXCTest = SessionRestorePolicy.isRunningUnderAppHostedXCTest(environment: env)
+        let isRunningUnderUITest = env.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
@@ -1167,7 +1168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
-        if !isRunningUnderAppHostedXCTest || hasMainTerminalWindow() {
+        if !isRunningUnderAppHostedXCTest || isRunningUnderUITest || hasMainTerminalWindow() {
             scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         }
 #if DEBUG
@@ -1213,7 +1214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
-                if !isRunningUnderAppHostedXCTest, !hasMainTerminalWindow() {
+                if (!isRunningUnderAppHostedXCTest || isRunningUnderUITest), !hasMainTerminalWindow() {
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()

@@ -3521,6 +3521,9 @@ struct CMUXCLI {
             } else {
                 method = "notification.create_for_caller"
                 params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
+                if let globalWindowOverride {
+                    params["window_id"] = globalWindowOverride
+                }
                 let workspaceArg = explicitWorkspaceArg ?? (globalWindowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
                 if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil {
                     if isUUID(workspaceArg) {

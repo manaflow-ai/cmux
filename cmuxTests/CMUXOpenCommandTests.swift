@@ -652,6 +652,17 @@ final class CMUXOpenCommandTests: XCTestCase {
             params["window_id"] as? String == "window:2"
         }
 
+        try assertGlobalWindowRoutesSingleCommand(
+            cliPath: cliPath,
+            name: "win-notify",
+            arguments: ["--window", "window:2", "notify", "--title", "Window", "--body", "Scoped"],
+            expectedMethod: "notification.create_for_caller"
+        ) { params in
+            params["window_id"] as? String == "window:2"
+                && params["title"] as? String == "Window"
+                && params["body"] as? String == "Scoped"
+        }
+
         let socketPath = makeSocketPath("win-refresh")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()

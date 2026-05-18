@@ -9,7 +9,12 @@ private struct TerminalCallerNotificationTarget {
 @MainActor
 extension TerminalController {
     func v2NotificationCreateForCaller(params: [String: Any]) -> V2CallResult {
-        guard let fallbackTabManager = activeTabManagerForCallerNotification() else {
+        let windowScopedTabManager = v2ResolveTabManager(params: params)
+        if v2HasNonNullParam(params, "window_id"), windowScopedTabManager == nil {
+            return .err(code: "not_found", message: "Window not found", data: nil)
+        }
+
+        guard let fallbackTabManager = windowScopedTabManager ?? activeTabManagerForCallerNotification() else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
