@@ -3,6 +3,7 @@
 //! This crate intentionally has no GTK dependency. UI, terminal widgets, and
 //! platform integrations live in the `cmux-gtk` crate.
 
+pub mod storage;
 pub mod terminal;
 
 /// Application metadata shared by Linux crates.
