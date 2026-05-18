@@ -964,6 +964,41 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testTabBarEmptyChromeOverlayNeverCapturesRegisteredBonsplitPaneTabWhenFrameCacheIsEmpty() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragZone = TabBarDragZoneView.DragNSView(frame: NSRect(x: 0, y: 72, width: 320, height: 30))
+        dragZone.hitRegion = .trailingEmptyChrome(tabFrames: [], reservedTrailingWidth: 48)
+        dragZone.hitTestEventTypeOverride = .leftMouseDown
+        contentView.addSubview(dragZone)
+
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 10, y: 72, width: 90, height: 30))
+        tabRegion.tabFrames = [tabRegion.bounds]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        XCTAssertNil(
+            dragZone.hitTest(NSPoint(x: 40, y: 15)),
+            "The empty-chrome overlay must not turn a pane-tab mouse-down into an app-window drag while tab frames are still populating"
+        )
+        XCTAssertIdentical(
+            dragZone.hitTest(NSPoint(x: 140, y: 15)),
+            dragZone,
+            "Empty tab-strip chrome after the registered tab should still be available for app-window dragging"
+        )
+    }
+
     func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
         let point = NSPoint(x: 180, y: 18)
         let window = NSWindow(
