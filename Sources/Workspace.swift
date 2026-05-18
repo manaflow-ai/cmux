@@ -11704,7 +11704,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
         }
-        if let resumeBinding = detached.resumeBinding {
+        if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)

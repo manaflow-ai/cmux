@@ -163,6 +163,17 @@ enum AgentResumeCommandBuilder {
             }
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId] + preserved
+        case "codexTeams":
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: "cmux"
+            )
+            var args = original.tail
+            if args.first == "codex-teams" {
+                args.removeFirst()
+            }
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: args) else { return nil }
+            return [original.executable, "codex-teams", "resume", sessionId] + preserved
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,

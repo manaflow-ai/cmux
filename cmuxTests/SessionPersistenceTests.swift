@@ -1946,6 +1946,38 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsResumeCommandUsesWrapperSubcommand() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--image",
+                    "/tmp/team screenshot.png",
+                    "--sandbox",
+                    "danger-full-access",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--image' '/tmp/team screenshot.png' '--sandbox' 'danger-full-access'"
+        )
+    }
+
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,

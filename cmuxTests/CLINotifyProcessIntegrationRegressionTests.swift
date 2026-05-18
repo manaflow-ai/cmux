@@ -971,6 +971,134 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsPromptPublishesCodexTeamsResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-team-resume")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-teams-resume-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+        let sessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let ttyName = "ttys-test-codex-teams-resume"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "codexTeams",
+                        "executablePath": "/usr/local/bin/cmux",
+                        "arguments": [
+                            "/usr/local/bin/cmux",
+                            "codex-teams",
+                            "--model",
+                            "gpt-5.4",
+                            "initial prompt should not replay"
+                        ],
+                        "workingDirectory": root.path,
+                        "environment": ["CODEX_HOME": root.appendingPathComponent("codex-home", isDirectory: true).path],
+                        "capturedAt": now,
+                        "source": "test",
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+                    ? self.malformedRequestResponse(raw: line)
+                    : "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == workspaceId {
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                }
+                return self.v2Response(id: id, ok: false, error: ["code": "not_found", "message": "workspace not found"])
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "workspace.current":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codexTeams"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/cmux"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            "/usr/local/bin/cmux",
+            "codex-teams",
+            "--model",
+            "gpt-5.4",
+            "initial prompt should not replay"
+        ])
+        environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeBindingRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(
+            request["command"] as? String,
+            "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4'"
+        )
+    }
+
     private struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String

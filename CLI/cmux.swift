@@ -19156,6 +19156,13 @@ struct CMUXCLI {
                     preserved: $0
                 )
             }
+        case "codexTeams":
+            let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
+            var tail = original.tail
+            if tail.first == "codex-teams" { tail.removeFirst() }
+            argv = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: tail).map {
+                [original.executable, "codex-teams", "resume", normalizedSessionId] + $0
+            }
         case "omx", "omc":
             argv = nil
         default:
