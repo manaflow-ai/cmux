@@ -1,3 +1,4 @@
+mod notifications;
 mod terminal;
 
 use adw::prelude::*;
