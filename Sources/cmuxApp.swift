@@ -635,8 +635,7 @@ struct cmuxApp: App {
     private var historyCommands: some Commands {
         CommandMenu(String(localized: "menu.history.title", defaultValue: "History")) {
             let historyTabManager = activeTabManager
-            let recentlyFocusedBackSnapshot = historyTabManager.focusHistoryMenuSnapshot(direction: .back, maxItemCount: 10)
-            let recentlyFocusedForwardSnapshot = historyTabManager.focusHistoryMenuSnapshot(direction: .forward, maxItemCount: 10)
+            let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
             let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
 
             splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
@@ -649,28 +648,12 @@ struct cmuxApp: App {
             }
             .disabled(!canNavigateFocusHistoryForward)
 
-            Menu(String(localized: "menu.history.recentlyFocused", defaultValue: "Recently Focused")) {
-                Menu(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")) {
-                    focusHistoryDirectionMenuContent(
-                        manager: historyTabManager,
-                        direction: .back,
-                        snapshot: recentlyFocusedBackSnapshot,
-                        emptyTitle: String(localized: "menu.history.noFocusBackHistory", defaultValue: "No Back History"),
-                        showFullTitle: String(localized: "menu.history.showFullFocusBackHistory", defaultValue: "Show Full Back History")
-                    )
-                }
-                Menu(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")) {
-                    focusHistoryDirectionMenuContent(
-                        manager: historyTabManager,
-                        direction: .forward,
-                        snapshot: recentlyFocusedForwardSnapshot,
-                        emptyTitle: String(localized: "menu.history.noFocusForwardHistory", defaultValue: "No Forward History"),
-                        showFullTitle: String(localized: "menu.history.showFullFocusForwardHistory", defaultValue: "Show Full Forward History")
-                    )
-                }
-                Divider()
-                openFullHistoryButton(manager: historyTabManager)
-            }
+            Divider()
+
+            recentlyFocusedMenuSection(
+                manager: historyTabManager,
+                snapshot: recentlyFocusedSnapshot
+            )
 
             Divider()
 
@@ -680,33 +663,10 @@ struct cmuxApp: App {
                 }
             }
 
-            Menu(String(localized: "menu.history.recentlyClosed", defaultValue: "Recently Closed")) {
-                if recentlyClosedSnapshot.items.isEmpty {
-                    Button(String(localized: "menu.history.recentlyClosed.empty", defaultValue: "No Recently Closed Items")) {}
-                        .disabled(true)
-                } else {
-                    ForEach(recentlyClosedSnapshot.items) { item in
-                        Button(item.menuTitle) {
-                            if AppDelegate.shared?.reopenClosedHistoryItem(
-                                id: item.id,
-                                preferredTabManager: historyTabManager
-                            ) != true {
-                                NSSound.beep()
-                            }
-                        }
-                    }
-
-                    if recentlyClosedSnapshot.isLimited {
-                        Divider()
-                        Menu(String(localized: "menu.history.recentlyClosed.showFull", defaultValue: "Show Full Recently Closed")) {
-                            recentlyClosedFullMenuContent(manager: historyTabManager)
-                        }
-                    }
-                }
-
-                Divider()
-                openFullHistoryButton(manager: historyTabManager)
-            }
+            recentlyClosedMenuSection(
+                manager: historyTabManager,
+                snapshot: recentlyClosedSnapshot
+            )
 
             openFullHistoryButton(manager: historyTabManager)
 
@@ -721,19 +681,22 @@ struct cmuxApp: App {
     }
 
     @ViewBuilder
-    private func focusHistoryDirectionMenuContent(
+    private func recentlyFocusedMenuSection(
         manager: TabManager,
-        direction: FocusHistoryMenuDirection,
-        snapshot: FocusHistoryMenuSnapshot,
-        emptyTitle: String,
-        showFullTitle: String
+        snapshot: FocusHistoryMenuSnapshot
     ) -> some View {
+        Button(historyMenuSectionTitle(
+            title: String(localized: "menu.history.recentlyFocused", defaultValue: "Recently Focused"),
+            subtitle: String(localized: "menu.history.recentlyFocused.subtitle", defaultValue: "Most recent focus targets")
+        )) {}
+            .disabled(true)
+
         if snapshot.items.isEmpty {
-            Button(emptyTitle) {}
+            Button(String(localized: "menu.history.noFocusHistory", defaultValue: "No Focus History")) {}
                 .disabled(true)
         } else {
             ForEach(snapshot.items, id: \.historyIndex) { item in
-                Button(FocusHistoryMenuFormatter.title(for: item)) {
+                Button(FocusHistoryMenuFormatter.menuTitle(for: item)) {
                     if !manager.navigateToFocusHistoryMenuItem(item) {
                         NSSound.beep()
                     }
@@ -742,30 +705,30 @@ struct cmuxApp: App {
             }
 
             if snapshot.isLimited {
-                Divider()
-                Menu(showFullTitle) {
-                    let fullSnapshot = manager.focusHistoryMenuSnapshot(direction: direction)
-                    ForEach(fullSnapshot.items, id: \.historyIndex) { item in
-                        Button(FocusHistoryMenuFormatter.title(for: item)) {
-                            if !manager.navigateToFocusHistoryMenuItem(item) {
-                                NSSound.beep()
-                            }
-                        }
-                        .disabled(!item.isNavigable)
-                    }
-                }
+                openFullHistoryButton(
+                    title: String(localized: "menu.history.showFullFocusHistory", defaultValue: "Show Full History"),
+                    manager: manager
+                )
             }
         }
     }
 
     @ViewBuilder
-    private func recentlyClosedFullMenuContent(manager: TabManager) -> some View {
-        let fullSnapshot = closedItemHistoryStore.menuSnapshot()
-        if fullSnapshot.items.isEmpty {
+    private func recentlyClosedMenuSection(
+        manager: TabManager,
+        snapshot: ClosedItemHistoryMenuSnapshot
+    ) -> some View {
+        Button(historyMenuSectionTitle(
+            title: String(localized: "menu.history.recentlyClosed", defaultValue: "Recently Closed"),
+            subtitle: String(localized: "menu.history.recentlyClosed.subtitle", defaultValue: "Tabs, workspaces, and windows")
+        )) {}
+            .disabled(true)
+
+        if snapshot.items.isEmpty {
             Button(String(localized: "menu.history.recentlyClosed.empty", defaultValue: "No Recently Closed Items")) {}
                 .disabled(true)
         } else {
-            ForEach(fullSnapshot.items) { item in
+            ForEach(snapshot.items) { item in
                 Button(item.menuTitle) {
                     if AppDelegate.shared?.reopenClosedHistoryItem(
                         id: item.id,
@@ -775,11 +738,35 @@ struct cmuxApp: App {
                     }
                 }
             }
+
+            if snapshot.isLimited {
+                openFullHistoryButton(
+                    title: String(localized: "menu.history.recentlyClosed.showFull", defaultValue: "Show Full Recently Closed"),
+                    manager: manager
+                )
+            }
         }
     }
 
-    private func openFullHistoryButton(manager: TabManager) -> some View {
-        Button(String(localized: "menu.history.openFullHistory", defaultValue: "Open Full History…")) {
+    private func historyMenuSectionTitle(title: String, subtitle: String) -> String {
+        HistoryMenuLineFormatter.titleWithSubtitle(title: title, subtitle: subtitle)
+    }
+
+    private func recentlyFocusedMenuSnapshot(manager: TabManager) -> FocusHistoryMenuSnapshot {
+        let back = manager.focusHistoryMenuSnapshot(direction: .back)
+        let forward = manager.focusHistoryMenuSnapshot(direction: .forward)
+        return FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+            back: back,
+            forward: forward,
+            maxItemCount: 10
+        )
+    }
+
+    private func openFullHistoryButton(
+        title: String = String(localized: "menu.history.openFullHistory", defaultValue: "Open Full History…"),
+        manager: TabManager
+    ) -> some View {
+        Button(title) {
             if AppDelegate.shared?.openHistoryPane(preferredTabManager: manager) != true {
                 NSSound.beep()
             }

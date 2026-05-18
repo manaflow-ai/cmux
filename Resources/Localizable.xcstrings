@@ -44048,6 +44048,40 @@
         }
       }
     },
+    "menu.history.recentlyFocused.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most recent focus targets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近フォーカスした移動先"
+          }
+        }
+      }
+    },
+    "menu.history.menuItemSubtitleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$@"
+          }
+        }
+      }
+    },
     "menu.history.showFullFocusBackHistory": {
       "extractionState": "manual",
       "localizations": {
@@ -44112,6 +44146,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近閉じた項目"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs, workspaces, and windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ、ワークスペース、ウィンドウ"
           }
         }
       }

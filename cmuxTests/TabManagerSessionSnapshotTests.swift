@@ -414,6 +414,40 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(FocusHistoryMenuFormatter.title(for: item), "Renamed Workspace - Renamed Pane")
     }
 
+    func testRecentlyFocusedMenuSnapshotCombinesDirectionsByFocusedTime() throws {
+        let workspaceId = UUID()
+        let older = FocusHistoryMenuItem(
+            historyIndex: 0,
+            entry: FocusHistoryEntry(workspaceId: workspaceId, panelId: nil),
+            workspaceTitle: "Older Workspace",
+            panelTitle: nil,
+            position: .older,
+            focusedAt: Date(timeIntervalSince1970: 10),
+            isNavigable: true
+        )
+        let newer = FocusHistoryMenuItem(
+            historyIndex: 1,
+            entry: FocusHistoryEntry(workspaceId: workspaceId, panelId: nil),
+            workspaceTitle: "Newer Workspace",
+            panelTitle: "Panel",
+            position: .newer,
+            focusedAt: Date(timeIntervalSince1970: 20),
+            isNavigable: true
+        )
+
+        let snapshot = FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+            back: FocusHistoryMenuSnapshot(items: [older], totalItemCount: 1, isLimited: false),
+            forward: FocusHistoryMenuSnapshot(items: [newer], totalItemCount: 1, isLimited: false),
+            maxItemCount: 1
+        )
+
+        XCTAssertTrue(snapshot.isLimited)
+        XCTAssertEqual(snapshot.totalItemCount, 2)
+        XCTAssertEqual(snapshot.items.map(\.workspaceTitle), ["Newer Workspace"])
+        XCTAssertTrue(FocusHistoryMenuFormatter.menuTitle(for: newer).contains("\n"))
+        XCTAssertTrue(FocusHistoryMenuFormatter.subtitle(for: newer).contains(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
+    }
+
     func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {
         let manager = TabManager()
         let startedAt = Date()
@@ -876,11 +910,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(snapshot.isLimited)
         XCTAssertEqual(snapshot.items.map(\.title), ["Window", "Workspace Row", "Panel Row"])
         XCTAssertEqual(snapshot.items.map(\.detail), ["2 workspaces", "Workspace", "Tab"])
-        XCTAssertEqual(snapshot.items.map(\.menuTitle), [
-            "Window (2 workspaces)",
-            "Workspace Row (Workspace)",
-            "Panel Row (Tab)"
-        ])
+        XCTAssertTrue(snapshot.items.allSatisfy { $0.menuTitle.contains("\n") })
+        XCTAssertTrue(snapshot.items.allSatisfy { $0.menuSubtitle.contains("Closed") })
     }
 
     func testRecentlyClosedMenuSnapshotLimitsPreviewButKeepsFullCount() throws {
@@ -928,6 +959,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let item = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
         XCTAssertEqual(item.title, "Timed Panel")
         XCTAssertEqual(item.closedAt, closedAt)
+        XCTAssertTrue(item.menuTitle.contains("\n"))
+        XCTAssertTrue(item.menuSubtitle.contains(String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab")))
     }
 
     func testHistorySearchMatchesAcrossTitleAndKind() {

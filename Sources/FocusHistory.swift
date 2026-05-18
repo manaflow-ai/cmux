@@ -41,6 +41,36 @@ struct FocusHistoryMenuSnapshot: Equatable {
     let isLimited: Bool
 }
 
+enum FocusHistoryMenuSnapshotBuilder {
+    static func recentlyFocused(
+        back: FocusHistoryMenuSnapshot,
+        forward: FocusHistoryMenuSnapshot,
+        maxItemCount: Int? = nil
+    ) -> FocusHistoryMenuSnapshot {
+        let items = (back.items + forward.items)
+            .sorted { lhs, rhs in
+                if lhs.focusedAt == rhs.focusedAt {
+                    return lhs.historyIndex > rhs.historyIndex
+                }
+                return lhs.focusedAt > rhs.focusedAt
+            }
+
+        if let maxItemCount, maxItemCount >= 0, items.count > maxItemCount {
+            return FocusHistoryMenuSnapshot(
+                items: Array(items.prefix(maxItemCount)),
+                totalItemCount: items.count,
+                isLimited: true
+            )
+        }
+
+        return FocusHistoryMenuSnapshot(
+            items: items,
+            totalItemCount: items.count,
+            isLimited: false
+        )
+    }
+}
+
 enum FocusHistoryMenuFormatter {
     static func title(for item: FocusHistoryMenuItem) -> String {
         let fallbackWorkspaceTitle = String(localized: "menu.history.untitledWorkspace", defaultValue: "Untitled Workspace")
@@ -51,5 +81,42 @@ enum FocusHistoryMenuFormatter {
             return workspaceTitle
         }
         return "\(workspaceTitle) - \(panelTitle)"
+    }
+
+    static func subtitle(for item: FocusHistoryMenuItem) -> String {
+        let direction: String
+        switch item.position {
+        case .older:
+            direction = String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
+        case .newer:
+            direction = String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
+        }
+
+        let focused = String(
+            format: String(localized: "historyPane.focusedAtFormat", defaultValue: "Focused %@"),
+            item.focusedAt.formatted(date: .omitted, time: .shortened)
+        )
+        return String(
+            format: String(localized: "menu.history.menuItemSubtitleFormat", defaultValue: "%1$@, %2$@"),
+            direction,
+            focused
+        )
+    }
+
+    static func menuTitle(for item: FocusHistoryMenuItem) -> String {
+        HistoryMenuLineFormatter.titleWithSubtitle(
+            title: title(for: item),
+            subtitle: subtitle(for: item)
+        )
+    }
+}
+
+enum HistoryMenuLineFormatter {
+    static func titleWithSubtitle(title: String, subtitle: String) -> String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSubtitle = subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSubtitle.isEmpty else { return trimmedTitle }
+        guard !trimmedTitle.isEmpty else { return trimmedSubtitle }
+        return "\(trimmedTitle)\n\(trimmedSubtitle)"
     }
 }
