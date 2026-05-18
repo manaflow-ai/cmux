@@ -12636,7 +12636,10 @@ private struct TabItemView: View, Equatable {
                             .font(.system(size: UIScaleSettings.scaled(9, by: uiScaleFactor), weight: .semibold))
                             .foregroundColor(.white)
                     }
-                    .frame(width: 16, height: 16)
+                    .frame(
+                        width: UIScaleSettings.scaled(16, by: uiScaleFactor),
+                        height: UIScaleSettings.scaled(16, by: uiScaleFactor)
+                    )
                 }
 
                 if workspaceSnapshot.isPinned {
