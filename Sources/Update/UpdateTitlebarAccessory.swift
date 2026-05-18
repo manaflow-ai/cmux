@@ -116,7 +116,7 @@ struct TitlebarControlsStyleConfig {
 }
 
 enum TitlebarControlsVisualMetrics {
-    static let verticalLift: CGFloat = 2
+    static let verticalLift: CGFloat = 0
 
     static func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
         yOffset + verticalLift
