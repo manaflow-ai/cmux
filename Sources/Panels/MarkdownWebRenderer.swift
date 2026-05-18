@@ -159,6 +159,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
+        private var webContentProcessRecoveryAttempts = 0
+        private let maxWebContentProcessRecoveryAttempts = 2
 
         func close() {
             guard let webView else { return }
@@ -169,6 +171,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.onPointerDown = nil
             self.webView = nil
             isLoaded = false
+            webContentProcessRecoveryAttempts = 0
             requestedLibs.removeAll()
         }
 
@@ -210,6 +213,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             if contentChanged {
+                webContentProcessRecoveryAttempts = 0
                 lastMarkdown = markdown
                 if isLoaded {
                     pushMarkdown(markdown)
@@ -462,6 +466,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
 #endif
+            guard webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts else {
+                isLoaded = false
+                requestedLibs.removeAll()
+                return
+            }
+            webContentProcessRecoveryAttempts += 1
             loadShell(
                 theme: lastTheme ?? pendingTheme,
                 initialMarkdown: lastMarkdown ?? pendingMarkdown
