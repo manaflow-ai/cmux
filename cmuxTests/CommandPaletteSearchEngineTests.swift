@@ -851,11 +851,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedPanelId: panelId,
                 expectedIsRemoteContext: false,
                 expectedTTYName: "ttys001",
+                expectedTTYWasReportedInCurrentSession: true,
                 currentWorkspaceId: workspaceId,
                 currentPanelId: panelId,
                 currentPanelIsTerminal: true,
                 currentIsRemoteContext: false,
-                currentTTYName: "ttys001"
+                currentTTYName: "ttys001",
+                currentTTYWasReportedInCurrentSession: true
             )
         )
         XCTAssertFalse(
@@ -864,11 +866,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedPanelId: panelId,
                 expectedIsRemoteContext: false,
                 expectedTTYName: "ttys001",
+                expectedTTYWasReportedInCurrentSession: true,
                 currentWorkspaceId: workspaceId,
                 currentPanelId: UUID(),
                 currentPanelIsTerminal: true,
                 currentIsRemoteContext: false,
-                currentTTYName: "ttys001"
+                currentTTYName: "ttys001",
+                currentTTYWasReportedInCurrentSession: true
             )
         )
         XCTAssertFalse(
@@ -877,11 +881,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedPanelId: panelId,
                 expectedIsRemoteContext: false,
                 expectedTTYName: "ttys001",
+                expectedTTYWasReportedInCurrentSession: true,
                 currentWorkspaceId: UUID(),
                 currentPanelId: panelId,
                 currentPanelIsTerminal: true,
                 currentIsRemoteContext: false,
-                currentTTYName: "ttys001"
+                currentTTYName: "ttys001",
+                currentTTYWasReportedInCurrentSession: true
             )
         )
         XCTAssertFalse(
@@ -890,11 +896,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedPanelId: panelId,
                 expectedIsRemoteContext: false,
                 expectedTTYName: "ttys001",
+                expectedTTYWasReportedInCurrentSession: true,
                 currentWorkspaceId: workspaceId,
                 currentPanelId: panelId,
                 currentPanelIsTerminal: false,
                 currentIsRemoteContext: false,
-                currentTTYName: "ttys001"
+                currentTTYName: "ttys001",
+                currentTTYWasReportedInCurrentSession: true
             )
         )
         XCTAssertFalse(
@@ -903,11 +911,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedPanelId: panelId,
                 expectedIsRemoteContext: false,
                 expectedTTYName: "ttys001",
+                expectedTTYWasReportedInCurrentSession: true,
                 currentWorkspaceId: workspaceId,
                 currentPanelId: panelId,
                 currentPanelIsTerminal: true,
                 currentIsRemoteContext: true,
-                currentTTYName: "ttys001"
+                currentTTYName: "ttys001",
+                currentTTYWasReportedInCurrentSession: true
             )
         )
         XCTAssertFalse(
@@ -916,11 +926,43 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedPanelId: panelId,
                 expectedIsRemoteContext: false,
                 expectedTTYName: "ttys001",
+                expectedTTYWasReportedInCurrentSession: true,
                 currentWorkspaceId: workspaceId,
                 currentPanelId: panelId,
                 currentPanelIsTerminal: true,
                 currentIsRemoteContext: false,
-                currentTTYName: "ttys002"
+                currentTTYName: "ttys002",
+                currentTTYWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                expectedTTYName: nil,
+                expectedTTYWasReportedInCurrentSession: false,
+                currentWorkspaceId: workspaceId,
+                currentPanelId: panelId,
+                currentPanelIsTerminal: true,
+                currentIsRemoteContext: false,
+                currentTTYName: "ttys003",
+                currentTTYWasReportedInCurrentSession: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeContextStillMatches(
+                expectedWorkspaceId: workspaceId,
+                expectedPanelId: panelId,
+                expectedIsRemoteContext: false,
+                expectedTTYName: nil,
+                expectedTTYWasReportedInCurrentSession: false,
+                currentWorkspaceId: workspaceId,
+                currentPanelId: panelId,
+                currentPanelIsTerminal: true,
+                currentIsRemoteContext: false,
+                currentTTYName: "ttys003",
+                currentTTYWasReportedInCurrentSession: false
             )
         )
     }
@@ -1011,6 +1053,22 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 currentTTYWasReportedInCurrentSession: false,
                 expectedTTYName: "ttys001",
                 currentTTYName: "ttys001"
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkPostProbeTTYStillMatches(
+                expectedTTYWasReportedInCurrentSession: false,
+                currentTTYWasReportedInCurrentSession: true,
+                expectedTTYName: nil,
+                currentTTYName: "ttys003"
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkPostProbeTTYStillMatches(
+                expectedTTYWasReportedInCurrentSession: false,
+                currentTTYWasReportedInCurrentSession: false,
+                expectedTTYName: nil,
+                currentTTYName: "ttys003"
             )
         )
     }

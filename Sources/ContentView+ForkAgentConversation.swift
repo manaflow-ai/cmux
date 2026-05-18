@@ -114,23 +114,25 @@ extension ContentView {
                 NSSound.beep()
                 return
             }
-            guard let postProbeContext = focusedPanelContext,
-                  Self.commandPaletteForkPostProbeTTYStillMatches(
-                    expectedTTYWasReportedInCurrentSession: effectiveTTYWasReportedInCurrentSession,
-                    currentTTYWasReportedInCurrentSession: postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId),
-                    expectedTTYName: effectiveTTYName,
-                    currentTTYName: postProbeContext.workspace.surfaceTTYNames[panelId]
-                  ),
-                  Self.commandPaletteForkPostProbeContextStillMatches(
+            guard let postProbeContext = focusedPanelContext else {
+                clearCommandPaletteForkableAgentCache(for: panelKey)
+                NSSound.beep()
+                return
+            }
+            let postProbeTTYName = postProbeContext.workspace.surfaceTTYNames[panelId]
+            let postProbeTTYWasReportedInCurrentSession = postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
+            guard Self.commandPaletteForkPostProbeContextStillMatches(
                     expectedWorkspaceId: workspaceId,
                     expectedPanelId: panelId,
                     expectedIsRemoteContext: isRemoteContext,
                     expectedTTYName: effectiveTTYName,
+                    expectedTTYWasReportedInCurrentSession: effectiveTTYWasReportedInCurrentSession,
                     currentWorkspaceId: postProbeContext.workspace.id,
                     currentPanelId: postProbeContext.panelId,
                     currentPanelIsTerminal: postProbeContext.panel.panelType == .terminal,
                     currentIsRemoteContext: postProbeContext.workspace.isRemoteTerminalSurface(panelId),
-                    currentTTYName: postProbeContext.workspace.surfaceTTYNames[panelId]
+                    currentTTYName: postProbeTTYName,
+                    currentTTYWasReportedInCurrentSession: postProbeTTYWasReportedInCurrentSession
                   ) else {
                 clearCommandPaletteForkableAgentCache(for: panelKey)
                 NSSound.beep()
@@ -225,17 +227,24 @@ extension ContentView {
         expectedPanelId: UUID,
         expectedIsRemoteContext: Bool,
         expectedTTYName: String?,
+        expectedTTYWasReportedInCurrentSession: Bool,
         currentWorkspaceId: UUID,
         currentPanelId: UUID,
         currentPanelIsTerminal: Bool,
         currentIsRemoteContext: Bool,
-        currentTTYName: String?
+        currentTTYName: String?,
+        currentTTYWasReportedInCurrentSession: Bool
     ) -> Bool {
         currentWorkspaceId == expectedWorkspaceId
             && currentPanelId == expectedPanelId
             && currentPanelIsTerminal
             && currentIsRemoteContext == expectedIsRemoteContext
-            && commandPaletteNormalizedTTYName(currentTTYName) == commandPaletteNormalizedTTYName(expectedTTYName)
+            && commandPaletteForkPostProbeTTYStillMatches(
+                expectedTTYWasReportedInCurrentSession: expectedTTYWasReportedInCurrentSession,
+                currentTTYWasReportedInCurrentSession: currentTTYWasReportedInCurrentSession,
+                expectedTTYName: expectedTTYName,
+                currentTTYName: currentTTYName
+            )
     }
 
     static func commandPaletteForkPostProbeTTYStillMatches(
@@ -244,12 +253,19 @@ extension ContentView {
         expectedTTYName: String?,
         currentTTYName: String?
     ) -> Bool {
+        let expectedTTYName = commandPaletteNormalizedTTYName(expectedTTYName)
+        let currentTTYName = commandPaletteNormalizedTTYName(currentTTYName)
         if expectedTTYWasReportedInCurrentSession == currentTTYWasReportedInCurrentSession {
-            return true
+            return expectedTTYName == currentTTYName
         }
-        return !expectedTTYWasReportedInCurrentSession &&
-            currentTTYWasReportedInCurrentSession &&
-            commandPaletteNormalizedTTYName(currentTTYName) == commandPaletteNormalizedTTYName(expectedTTYName)
+        guard !expectedTTYWasReportedInCurrentSession,
+              currentTTYWasReportedInCurrentSession else {
+            return false
+        }
+        guard let expectedTTYName else {
+            return currentTTYName != nil
+        }
+        return currentTTYName == expectedTTYName
     }
 
     static func commandPaletteProcessDetectionFallbackScope(
