@@ -579,6 +579,7 @@ private final class CanvasDragEventMonitorView: NSView {
 
 private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
     var onPan: (CGSize) -> Void
+    var onZoom: (Double, CGPoint) -> Void
 
     func makeNSView(context: Context) -> CanvasPanEventMonitorView {
         let view = CanvasPanEventMonitorView()
@@ -588,6 +589,7 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
 
     func updateNSView(_ nsView: CanvasPanEventMonitorView, context: Context) {
         nsView.onPan = onPan
+        nsView.onZoom = onZoom
         nsView.installMonitorIfNeeded()
     }
 
@@ -598,6 +600,7 @@ private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
 
 private final class CanvasPanEventMonitorView: NSView {
     var onPan: ((CGSize) -> Void)?
+    var onZoom: ((Double, CGPoint) -> Void)?
 
     private var monitor: Any?
 
@@ -642,6 +645,10 @@ private final class CanvasPanEventMonitorView: NSView {
 
         let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
         guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            onZoom?(Double(delta.height), localPoint)
+            return nil
+        }
         onPan?(delta)
         return nil
     }
@@ -2022,13 +2029,22 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
                 canvasAlignmentGuideOverlay(activeAlignmentGuides, transform: transform)
 
-                CanvasPanEventMonitorLayer { delta in
-                    controller.panCanvasViewport(
-                        screenDelta: delta,
-                        scale: scale,
-                        viewportSize: proxy.size
-                    )
-                }
+                CanvasPanEventMonitorLayer(
+                    onPan: { delta in
+                        controller.panCanvasViewport(
+                            screenDelta: delta,
+                            scale: scale,
+                            viewportSize: proxy.size
+                        )
+                    },
+                    onZoom: { delta, anchor in
+                        controller.setCanvasViewportScale(
+                            zoomedCanvasScale(delta: delta),
+                            viewportSize: proxy.size,
+                            anchorScreenPoint: anchor
+                        )
+                    }
+                )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .accessibilityHidden(true)
 
@@ -2115,6 +2131,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             livePaneContent(item: item, selected: selected, paneID: paneID, renderMode: renderMode)
         }
         .background(canvasCardBackgroundColor, in: RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(
@@ -2347,6 +2364,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .layoutPriority(1)
         .background(canvasContentBackgroundColor)
+        .clipped()
     }
 
     private func canvasPreviewPaneContent(item: CanvasItem, selected: SurfaceTab, paneID: PaneID) -> some View {
@@ -2355,8 +2373,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             if let image = canvasPreviewImages[selected.id] {
                 Image(nsImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .clipped()
                     .opacity(0.88)
                     .allowsHitTesting(false)
@@ -2374,6 +2392,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .foregroundStyle(canvasForegroundColor.opacity(0.62))
             }
         }
+        .clipped()
         .accessibilityIdentifier("WorkspaceCanvasPreview.\(item.id.description).\(paneID.id.uuidString)")
     }
 
@@ -2773,6 +2792,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     private var freeformScale: CGFloat {
         min(max(CGFloat(controller.canvasViewport.scale), 0.16), 0.72)
+    }
+
+    private func zoomedCanvasScale(delta: Double) -> Double {
+        let current = controller.canvasViewport.scale
+        let step = max(-0.10, min(0.10, delta * 0.002))
+        return min(max(current + step, 0.16), 0.72)
     }
 
     private func freeformCardSize(for frame: PixelRect, scale: CGFloat) -> CGSize {

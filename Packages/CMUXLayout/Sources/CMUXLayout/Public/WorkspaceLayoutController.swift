@@ -703,6 +703,34 @@ public final class WorkspaceLayoutController {
         canvasDocument.viewport.setScale(scale)
     }
 
+    public func setCanvasViewportScale(
+        _ scale: Double,
+        viewportSize: CGSize,
+        anchorScreenPoint: CGPoint? = nil
+    ) {
+        let oldScale = max(CanvasViewport.minimumScale, canvasDocument.viewport.scale)
+        var viewport = canvasDocument.viewport
+        viewport.setScale(scale)
+        let newScale = max(CanvasViewport.minimumScale, viewport.scale)
+        let anchor = anchorScreenPoint ?? CGPoint(
+            x: max(1, viewportSize.width) / 2,
+            y: max(1, viewportSize.height) / 2
+        )
+        let documentAnchor = CGPoint(
+            x: CGFloat(canvasDocument.viewport.visibleRect.x) + (anchor.x / CGFloat(oldScale)),
+            y: CGFloat(canvasDocument.viewport.visibleRect.y) + (anchor.y / CGFloat(oldScale))
+        )
+        viewport.setVisibleRect(
+            PixelRect(
+                x: Double(documentAnchor.x - (anchor.x / CGFloat(newScale))),
+                y: Double(documentAnchor.y - (anchor.y / CGFloat(newScale))),
+                width: max(1, Double(viewportSize.width / CGFloat(newScale))),
+                height: max(1, Double(viewportSize.height / CGFloat(newScale)))
+            )
+        )
+        canvasDocument.viewport = viewport
+    }
+
     public func panCanvasViewport(screenDelta: CGSize, scale: CGFloat, viewportSize: CGSize) {
         let safeScale = max(0.0001, scale)
         var viewport = canvasDocument.viewport

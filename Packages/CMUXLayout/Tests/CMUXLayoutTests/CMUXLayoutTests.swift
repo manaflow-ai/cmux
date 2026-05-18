@@ -3977,6 +3977,30 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCanvasViewportZoomKeepsAnchorDocumentPointStable() {
+        let controller = WorkspaceLayoutController()
+        controller.setCanvasViewport(
+            CanvasViewport(
+                visibleRect: PixelRect(x: 100, y: 200, width: 1_200, height: 800),
+                scale: 0.5
+            )
+        )
+
+        controller.setCanvasViewportScale(
+            0.25,
+            viewportSize: CGSize(width: 1_000, height: 600),
+            anchorScreenPoint: CGPoint(x: 250, y: 150)
+        )
+
+        let viewport = controller.canvasViewport
+        XCTAssertEqual(viewport.scale, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.x, -400, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.y, -100, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.width, 4_000, accuracy: 0.0001)
+        XCTAssertEqual(viewport.visibleRect.height, 2_400, accuracy: 0.0001)
+    }
+
+    @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()
         let initial = controller.canvasSnapshot()
