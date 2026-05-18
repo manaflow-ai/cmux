@@ -3920,7 +3920,8 @@ final class WindowBrowserPortal: NSObject {
             (forceRenderingStateReattach || recoveredFromTransientGeometry)
         if presentationUpdateKind == .refresh,
            forceRenderingStateReattach,
-           scheduleNavigationRenderingStateReattach {
+           scheduleNavigationRenderingStateReattach,
+           containerView.isPortalHidden {
             webView.browserPortalScheduleNavigationRenderingStateReattach(
                 reason: "\(source):\(refreshReasons.joined(separator: ","))"
             )

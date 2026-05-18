@@ -3504,6 +3504,57 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testVisibleForcedRefreshDoesNotQueueNavigationRenderingRepair() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isPortalHidden)
+
+        BrowserWindowPortalRegistry.refresh(
+            webView: webView,
+            reason: "visibleForcedRefresh",
+            forceRenderingStateReattach: true
+        )
+        let displayCountAfterVisibleRefresh = webView.displayIfNeededCount
+        let reattachCountAfterVisibleRefresh = webView.reattachRenderingStateCount
+
+        BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
+
+        XCTAssertEqual(
+            webView.displayIfNeededCount,
+            displayCountAfterVisibleRefresh,
+            "Visible forced refreshes should not leave a navigation repair queued for normal didFinish"
+        )
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            reattachCountAfterVisibleRefresh,
+            "Normal didFinish should not force private WebKit selectors after a visible refresh"
+        )
+    }
+
     func testHiddenNavigationRefreshPreservesQueuedRenderingRepairUntilVisible() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
