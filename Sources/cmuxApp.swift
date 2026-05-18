@@ -402,7 +402,12 @@ struct cmuxApp: App {
                     ) {
                         AboutTitlebarDebugWindowController.shared.show()
                     }
-                    Button("Titlebar Layout Debug...") {
+                    Button(
+                        String(
+                            localized: "debug.menu.titlebarLayoutDebug",
+                            defaultValue: "Titlebar Layout Debug..."
+                        )
+                    ) {
                         TitlebarLayoutDebugWindowController.shared.show()
                     }
                     Button("Sidebar Debug…") {
@@ -1831,7 +1836,7 @@ private final class TitlebarLayoutDebugWindowController: NSWindowController, NSW
             backing: .buffered,
             defer: false
         )
-        window.title = "Titlebar Layout Debug"
+        window.title = String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug")
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
@@ -1870,24 +1875,27 @@ private struct TitlebarLayoutDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Titlebar Layout Debug")
+                Text(String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug"))
                     .font(.headline)
 
-                GroupBox("Titlebar Controls") {
+                GroupBox(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls")) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Picker("Style", selection: $titlebarControlsStyleRawValue) {
+                        Picker(
+                            String(localized: "debug.titlebarLayoutDebug.style", defaultValue: "Style"),
+                            selection: $titlebarControlsStyleRawValue
+                        ) {
                             ForEach(TitlebarControlsStyle.allCases) { style in
                                 Text(style.menuTitle).tag(style.rawValue)
                             }
                         }
                         .pickerStyle(.menu)
                         debugSlider(
-                            title: "Leading",
+                            title: String(localized: "debug.titlebarLayoutDebug.leading", defaultValue: "Leading"),
                             value: $leftControlsLeadingInset,
                             range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
                         )
                         debugSlider(
-                            title: "Top",
+                            title: String(localized: "debug.titlebarLayoutDebug.top", defaultValue: "Top"),
                             value: $leftControlsTopInset,
                             range: MinimalModeTitlebarDebugSettings.topInsetRange
                         )
@@ -1895,25 +1903,25 @@ private struct TitlebarLayoutDebugView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox("Traffic Lights") {
+                GroupBox(String(localized: "debug.titlebarLayoutDebug.trafficLights", defaultValue: "Traffic Lights")) {
                     VStack(alignment: .leading, spacing: 10) {
                         debugSlider(
-                            title: "X Offset",
+                            title: String(localized: "debug.titlebarLayoutDebug.xOffset", defaultValue: "X Offset"),
                             value: $trafficLightsXOffset,
                             range: MinimalModeTitlebarDebugSettings.trafficLightOffsetRange
                         )
                         debugSlider(
-                            title: "Y Offset",
+                            title: String(localized: "debug.titlebarLayoutDebug.yOffset", defaultValue: "Y Offset"),
                             value: $trafficLightsYOffset,
                             range: MinimalModeTitlebarDebugSettings.trafficLightYOffsetRange
                         )
                         debugSlider(
-                            title: "Titlebar Inset",
+                            title: String(localized: "debug.titlebarLayoutDebug.titlebarInset", defaultValue: "Titlebar Inset"),
                             value: $trafficLightTitlebarLeadingInset,
                             range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
                         )
                         debugSlider(
-                            title: "Tab Bar Inset",
+                            title: String(localized: "debug.titlebarLayoutDebug.tabBarInset", defaultValue: "Tab Bar Inset"),
                             value: $trafficLightTabBarInset,
                             range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
                         )
@@ -1921,9 +1929,9 @@ private struct TitlebarLayoutDebugView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox("Sidebar") {
+                GroupBox(String(localized: "debug.titlebarLayoutDebug.sidebar", defaultValue: "Sidebar")) {
                     debugSlider(
-                        title: "Minimum Width",
+                        title: String(localized: "debug.titlebarLayoutDebug.minimumWidth", defaultValue: "Minimum Width"),
                         value: $sidebarMinimumWidth,
                         range: SessionPersistencePolicy.sidebarMinimumWidthRange,
                         step: 1
@@ -1931,16 +1939,16 @@ private struct TitlebarLayoutDebugView: View {
                     .padding(.top, 2)
                 }
 
-                GroupBox("Actions") {
+                GroupBox(String(localized: "debug.titlebarLayoutDebug.actions", defaultValue: "Actions")) {
                     HStack(spacing: 10) {
-                        Button("Reset") {
+                        Button(String(localized: "debug.titlebarLayoutDebug.reset", defaultValue: "Reset")) {
                             TitlebarLayoutDebugSettingsSnapshot.reset()
                             TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
                         }
-                        Button("Apply") {
+                        Button(String(localized: "debug.titlebarLayoutDebug.apply", defaultValue: "Apply")) {
                             TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
                         }
-                        Button("Copy Config") {
+                        Button(String(localized: "debug.titlebarLayoutDebug.copyConfig", defaultValue: "Copy Config")) {
                             TitlebarLayoutDebugSettingsSnapshot.copyToPasteboard()
                         }
                     }
