@@ -78,7 +78,10 @@ extension CMUXCLI {
         do {
             return try client.sendV2(method: "system.top", params: params, responseTimeout: 30)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux memory requires a running cmux build with system.top support")
+            throw CLIError(message: String(
+                localized: "cli.memory.error.telemetrySupportRequired",
+                defaultValue: "cmux memory requires a running cmux build with memory telemetry support"
+            ))
         }
     }
 

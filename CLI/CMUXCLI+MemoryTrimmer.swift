@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -93,6 +92,29 @@ extension CMUXCLI {
 
         let cli: CMUXCLI
         let client: SocketClient
+        private let parser: MemoryAgentParser
+        private let signaler: MemoryProcessSignaler
+
+        init(cli: CMUXCLI, client: SocketClient) {
+            self.init(
+                cli: cli,
+                client: client,
+                parser: MemoryAgentParser(cli: cli),
+                signaler: MemoryProcessSignaler(client: client)
+            )
+        }
+
+        init(
+            cli: CMUXCLI,
+            client: SocketClient,
+            parser: MemoryAgentParser,
+            signaler: MemoryProcessSignaler
+        ) {
+            self.cli = cli
+            self.client = client
+            self.parser = parser
+            self.signaler = signaler
+        }
 
         func trim(options: MemoryTrimCommandOptions) throws -> MemoryTrimResult {
             let workspaceHandle = try cli.normalizeWorkspaceHandle(
@@ -104,17 +126,17 @@ extension CMUXCLI {
                 throw CLIError(message: "memory trim requires --workspace <id|ref|index> or a current workspace")
             }
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
-            guard let workspace = memoryWorkspaceNode(from: payload, matching: workspaceHandle) else {
+            guard let workspace = parser.workspaceNode(from: payload, matching: workspaceHandle) else {
                 throw CLIError(message: "Workspace not found")
             }
             let workspaceId = (workspace["id"] as? String) ?? workspaceHandle
             let workspaceRef = workspace["ref"] as? String
-            let candidates = memoryAgentCandidates(in: workspace)
-            guard let candidate = try selectMemoryAgentCandidate(candidates, requested: options.agent) else {
-                throw CLIError(message: memoryNoAgentMessage(candidates: candidates, requested: options.agent))
+            let candidates = parser.candidates(in: workspace)
+            guard let candidate = try parser.selectCandidate(candidates, requested: options.agent) else {
+                throw CLIError(message: parser.noAgentMessage(candidates: candidates, requested: options.agent))
             }
 
-            let graceful = memoryGracefulExitAction(for: candidate)
+            let graceful = parser.gracefulExitAction(for: candidate)
             var gracefulAction: String?
             var terminated = false
             var killed = false
@@ -123,16 +145,11 @@ extension CMUXCLI {
 
             if !options.dryRun {
                 if let graceful {
-                    let params: [String: Any] = [
-                        "workspace_id": workspaceId,
-                        "surface_id": graceful.surfaceHandle,
-                        "text": graceful.text
-                    ]
                     do {
-                        _ = try client.sendV2(method: "surface.send_text", params: params)
+                        try signaler.sendGracefulExit(graceful, workspaceId: workspaceId)
                         gracefulAction = graceful.label
                         attemptedShutdown = true
-                        processExited = waitForProcessExit(pid: candidate.pid, timeout: options.graceSeconds)
+                        processExited = signaler.waitForExit(pid: candidate.pid, timeout: options.graceSeconds)
                     } catch {
                         gracefulAction = nil
                     }
@@ -142,29 +159,29 @@ extension CMUXCLI {
                     matching: candidate,
                     workspaceHandle: workspaceHandle
                 ) {
-                    if Darwin.kill(pid_t(liveCandidate.pid), SIGTERM) == 0 {
+                    if signaler.sendTerminateSignal(pid: liveCandidate.pid) {
                         terminated = true
                         attemptedShutdown = true
                     }
-                    processExited = waitForProcessExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                    processExited = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
 
                 if !processExited, let liveCandidate = try revalidatedSignalCandidate(
                     matching: candidate,
                     workspaceHandle: workspaceHandle
                 ) {
-                    if Darwin.kill(pid_t(liveCandidate.pid), SIGKILL) == 0 {
+                    if signaler.sendKillSignal(pid: liveCandidate.pid) {
                         killed = true
                         attemptedShutdown = true
                     }
-                    _ = waitForProcessExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                    _ = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
             } else {
                 gracefulAction = graceful?.label
             }
 
             let stillRunning = options.dryRun
-                ? isProcessRunning(pid: candidate.pid)
+                ? signaler.isRunning(pid: candidate.pid)
                 : try isOriginalProcessStillRunning(
                     matching: candidate,
                     workspaceHandle: workspaceHandle,
@@ -187,15 +204,15 @@ extension CMUXCLI {
             matching original: MemoryAgentCandidate,
             workspaceHandle: String
         ) throws -> MemoryAgentCandidate? {
-            guard isProcessRunning(pid: original.pid) else { return nil }
+            guard signaler.isRunning(pid: original.pid) else { return nil }
             guard original.identity != nil else {
                 throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity was not available")
             }
 
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
-            guard let workspace = memoryWorkspaceNode(from: payload, matching: workspaceHandle),
-                  let candidate = memoryAgentCandidates(in: workspace).first(where: { matchesOriginal($0, original: original) }) else {
-                guard isProcessRunning(pid: original.pid) else { return nil }
+            guard let workspace = parser.workspaceNode(from: payload, matching: workspaceHandle),
+                  let candidate = parser.candidates(in: workspace).first(where: { parser.matchesOriginal($0, original: original) }) else {
+                guard signaler.isRunning(pid: original.pid) else { return nil }
                 throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity could not be verified")
             }
             return candidate
@@ -206,7 +223,7 @@ extension CMUXCLI {
             workspaceHandle: String,
             tolerateMissingRevalidation: Bool
         ) throws -> Bool {
-            guard isProcessRunning(pid: original.pid) else { return false }
+            guard signaler.isRunning(pid: original.pid) else { return false }
             do {
                 return try revalidatedSignalCandidate(matching: original, workspaceHandle: workspaceHandle) != nil
             } catch {
@@ -216,324 +233,5 @@ extension CMUXCLI {
                 throw error
             }
         }
-
-        private func matchesOriginal(_ candidate: MemoryAgentCandidate, original: MemoryAgentCandidate) -> Bool {
-            guard candidate.pid == original.pid,
-                  candidate.key == original.key,
-                  candidate.identity == original.identity else {
-                return false
-            }
-            if let surfaceId = original.surfaceId, candidate.surfaceId != surfaceId {
-                return false
-            }
-            if let surfaceRef = original.surfaceRef, candidate.surfaceRef != surfaceRef {
-                return false
-            }
-            return true
-        }
-
-        private func memoryWorkspaceNode(from payload: [String: Any], matching workspaceHandle: String?) -> [String: Any]? {
-            let windows = payload["windows"] as? [[String: Any]] ?? []
-            var firstWorkspace: [String: Any]?
-            for window in windows {
-                let workspaces = window["workspaces"] as? [[String: Any]] ?? []
-                for workspace in workspaces {
-                    if firstWorkspace == nil {
-                        firstWorkspace = workspace
-                    }
-                    if workspaceMatchesHandle(workspace, handle: workspaceHandle) {
-                        return workspace
-                    }
-                }
-            }
-            return workspaceHandle == nil ? firstWorkspace : nil
-        }
-
-        private func workspaceMatchesHandle(_ workspace: [String: Any], handle: String?) -> Bool {
-            guard let handle = handle?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
-                return false
-            }
-            return (workspace["id"] as? String) == handle || (workspace["ref"] as? String) == handle
-        }
-
-        private func memoryAgentCandidates(in workspace: [String: Any]) -> [MemoryAgentCandidate] {
-            var byPID: [Int: MemoryAgentCandidate] = [:]
-            let processIndex = memoryProcessIndex(in: workspace)
-
-            for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-                guard let pid = CMUXCLI.topIntValue(tag["pid"]),
-                      let rawKey = tag["key"] as? String,
-                      let key = memoryAgentKey(for: rawKey) else {
-                    continue
-                }
-                let process = processIndex[pid]
-                let resources = (process?["resources"] as? [String: Any]) ?? (tag["resources"] as? [String: Any] ?? [:])
-                let processName = cli.topLabelText(process?["name"] as? String)
-                let candidate = MemoryAgentCandidate(
-                    key: key,
-                    pid: pid,
-                    surfaceId: tag["surface_id"] as? String,
-                    surfaceRef: tag["surface_ref"] as? String,
-                    processName: processName.isEmpty ? nil : processName,
-                    residentBytes: CMUXCLI.topInt64Value(resources["resident_bytes"]),
-                    source: .tag,
-                    identity: process.flatMap { MemoryProcessIdentity(process: $0) }
-                )
-                byPID[pid] = preferredMemoryCandidate(candidate, over: byPID[pid])
-            }
-
-            for pane in workspace["panes"] as? [[String: Any]] ?? [] {
-                for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
-                    collectMemoryAgentCandidates(
-                        fromProcessesIn: surface,
-                        surfaceId: surface["id"] as? String,
-                        surfaceRef: surface["ref"] as? String,
-                        into: &byPID
-                    )
-                }
-            }
-
-            return byPID.values.sorted {
-                if $0.owned != $1.owned { return $0.owned && !$1.owned }
-                if $0.residentBytes != $1.residentBytes { return $0.residentBytes > $1.residentBytes }
-                return $0.pid < $1.pid
-            }
-        }
-
-        private func memoryProcessIndex(in workspace: [String: Any]) -> [Int: [String: Any]] {
-            var result: [Int: [String: Any]] = [:]
-            indexMemoryProcesses(fromProcessesIn: workspace, into: &result)
-            for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-                indexMemoryProcesses(fromProcessesIn: tag, into: &result)
-            }
-            for pane in workspace["panes"] as? [[String: Any]] ?? [] {
-                indexMemoryProcesses(fromProcessesIn: pane, into: &result)
-                for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
-                    indexMemoryProcesses(fromProcessesIn: surface, into: &result)
-                    for webview in surface["webviews"] as? [[String: Any]] ?? [] {
-                        indexMemoryProcesses(fromProcessesIn: webview, into: &result)
-                    }
-                }
-            }
-            return result
-        }
-
-        private func indexMemoryProcesses(fromProcessesIn node: [String: Any], into result: inout [Int: [String: Any]]) {
-            for process in node["processes"] as? [[String: Any]] ?? [] {
-                indexMemoryProcess(process, into: &result)
-            }
-        }
-
-        private func indexMemoryProcess(_ process: [String: Any], into result: inout [Int: [String: Any]]) {
-            if let pid = CMUXCLI.topIntValue(process["pid"]) {
-                result[pid] = process
-            }
-            for child in process["children"] as? [[String: Any]] ?? [] {
-                indexMemoryProcess(child, into: &result)
-            }
-        }
-
-        private func collectMemoryAgentCandidates(
-            fromProcessesIn node: [String: Any],
-            surfaceId: String?,
-            surfaceRef: String?,
-            into byPID: inout [Int: MemoryAgentCandidate]
-        ) {
-            for process in node["processes"] as? [[String: Any]] ?? [] {
-                collectMemoryAgentCandidate(
-                    from: process,
-                    surfaceId: surfaceId,
-                    surfaceRef: surfaceRef,
-                    into: &byPID
-                )
-            }
-        }
-
-        private func collectMemoryAgentCandidate(
-            from process: [String: Any],
-            surfaceId: String?,
-            surfaceRef: String?,
-            into byPID: inout [Int: MemoryAgentCandidate]
-        ) {
-            if let pid = CMUXCLI.topIntValue(process["pid"]) {
-                let name = cli.topLabelText(process["name"] as? String)
-                if let key = memoryAgentKey(for: name) {
-                    let resources = process["resources"] as? [String: Any] ?? [:]
-                    let candidate = MemoryAgentCandidate(
-                        key: key,
-                        pid: pid,
-                        surfaceId: surfaceId,
-                        surfaceRef: surfaceRef,
-                        processName: name,
-                        residentBytes: CMUXCLI.topInt64Value(resources["resident_bytes"]),
-                        source: .process,
-                        identity: MemoryProcessIdentity(process: process)
-                    )
-                    byPID[pid] = preferredMemoryCandidate(candidate, over: byPID[pid])
-                }
-            }
-            for child in process["children"] as? [[String: Any]] ?? [] {
-                collectMemoryAgentCandidate(
-                    from: child,
-                    surfaceId: surfaceId,
-                    surfaceRef: surfaceRef,
-                    into: &byPID
-                )
-            }
-        }
-
-        private func preferredMemoryCandidate(
-            _ candidate: MemoryAgentCandidate,
-            over existing: MemoryAgentCandidate?
-        ) -> MemoryAgentCandidate {
-            guard let existing else { return candidate }
-            if existing.owned != candidate.owned {
-                return candidate.owned ? candidate : existing
-            }
-            if existing.surfaceId == nil && candidate.surfaceId != nil {
-                return candidate
-            }
-            if existing.identity == nil && candidate.identity != nil {
-                return candidate
-            }
-            if candidate.residentBytes > existing.residentBytes {
-                return candidate
-            }
-            return existing
-        }
-
-        private func selectMemoryAgentCandidate(
-            _ candidates: [MemoryAgentCandidate],
-            requested: String?
-        ) throws -> MemoryAgentCandidate? {
-            guard let requestedRaw = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !requestedRaw.isEmpty,
-                  requestedRaw.lowercased() != "auto" else {
-                return candidates.first { $0.owned }
-            }
-            if let pid = Int(requestedRaw) {
-                guard let candidate = candidates.first(where: { $0.pid == pid }) else {
-                    return nil
-                }
-                guard candidate.owned else {
-                    throw CLIError(message: "memory trim refused PID \(pid) because it is not a cmux-owned recoverable agent")
-                }
-                return candidate
-            }
-            let normalized = memoryAgentKey(for: requestedRaw) ?? requestedRaw.lowercased()
-            guard let candidate = candidates.first(where: {
-                $0.key == normalized ||
-                    $0.processName?.lowercased() == normalized
-            }) else {
-                return nil
-            }
-            guard candidate.owned else {
-                throw CLIError(message: "memory trim refused agent '\(requestedRaw)' because it is not a cmux-owned recoverable agent")
-            }
-            return candidate
-        }
-
-        private func memoryNoAgentMessage(candidates: [MemoryAgentCandidate], requested: String?) -> String {
-            let recoverableCandidates = candidates.filter(\.owned)
-            if let requested, !requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let available = recoverableCandidates.map { "\($0.key):\($0.pid)" }.joined(separator: ", ")
-                return available.isEmpty
-                    ? "memory trim found no recoverable agent PIDs in this workspace"
-                    : "memory trim could not find agent '\(requested)'. Available: \(available)"
-            }
-            return "memory trim found no cmux-owned recoverable agent PIDs in this workspace"
-        }
-
-        private func memoryAgentKey(for raw: String) -> String? {
-            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-                .replacingOccurrences(of: "_", with: "-")
-            guard !normalized.isEmpty else { return nil }
-            if normalized == "claude" || normalized == "claude-code" || normalized == "claude-code-cli" {
-                return "claude"
-            }
-            for def in CMUXCLI.agentDefs {
-                if normalized == def.name ||
-                    normalized == def.binaryName.lowercased() ||
-                    def.aliases.contains(normalized) {
-                    return def.name
-                }
-            }
-            return nil
-        }
-
-        private func memoryGracefulExit(for candidate: MemoryAgentCandidate) -> (label: String, text: String)? {
-            switch candidate.key {
-            case "claude":
-                return ("send /exit", "/exit\r")
-            case "codex":
-                return ("send /quit", "/quit\r")
-            default:
-                return nil
-            }
-        }
-
-        private func memoryGracefulExitAction(
-            for candidate: MemoryAgentCandidate
-        ) -> (label: String, text: String, surfaceHandle: String)? {
-            guard let graceful = memoryGracefulExit(for: candidate),
-                  let surfaceHandle = candidate.surfaceId ?? candidate.surfaceRef else {
-                return nil
-            }
-            return (graceful.label, graceful.text, surfaceHandle)
-        }
-
-        private func waitForProcessExit(pid: Int, timeout: TimeInterval) -> Bool {
-            guard pid > 0 else { return true }
-            guard timeout > 0 else { return !isProcessRunning(pid: pid) }
-            guard isProcessRunning(pid: pid) else { return true }
-
-            let queue = kqueue()
-            guard queue >= 0 else { return !isProcessRunning(pid: pid) }
-            defer { Darwin.close(queue) }
-
-            var change = kevent(
-                ident: UInt(pid),
-                filter: Int16(EVFILT_PROC),
-                flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
-                fflags: UInt32(NOTE_EXIT),
-                data: 0,
-                udata: nil
-            )
-            if kevent(queue, &change, 1, nil, 0, nil) == -1 {
-                return !isProcessRunning(pid: pid)
-            }
-
-            let deadline = Date.now.addingTimeInterval(timeout)
-            while true {
-                let remaining = deadline.timeIntervalSinceNow
-                guard remaining > 0 else { return !isProcessRunning(pid: pid) }
-                let seconds = floor(remaining)
-                var timeoutSpec = timespec(
-                    tv_sec: Int(seconds),
-                    tv_nsec: Int((remaining - seconds) * 1_000_000_000)
-                )
-                var event = kevent()
-                let result = kevent(queue, nil, 0, &event, 1, &timeoutSpec)
-                if result > 0 {
-                    return true
-                }
-                if result == 0 {
-                    return !isProcessRunning(pid: pid)
-                }
-                if errno != EINTR {
-                    return !isProcessRunning(pid: pid)
-                }
-            }
-        }
-
-        private func isProcessRunning(pid: Int) -> Bool {
-            guard pid > 0 else { return false }
-            if Darwin.kill(pid_t(pid), 0) == 0 {
-                return true
-            }
-            return errno == EPERM
-        }
-
     }
 }

@@ -31,7 +31,7 @@ extension CMUXCLI {
                 idFormat: idFormat
             )
             let peakRSS = padLeft(formatBytes(topInt64(row["peak_rss_bytes"])), width: 10)
-            let avgRSS = padLeft(formatBytes(Int64(topDouble(row["avg_rss_bytes"]))), width: 10)
+            let avgRSS = padLeft(formatBytes(topAverageByteCount(row["avg_rss_bytes"])), width: 10)
             let peakMem = padLeft(String(format: "%.1f%%", topDouble(row["peak_memory_percent"])), width: 8)
             let avgMem = padLeft(String(format: "%.1f%%", topDouble(row["avg_memory_percent"])), width: 8)
             let peakCPU = padLeft(String(format: "%.1f%%", topDouble(row["peak_cpu_percent"])), width: 8)
@@ -42,6 +42,14 @@ extension CMUXCLI {
             lines.append("\(peakRSS)  \(avgRSS)  \(peakMem)  \(avgMem)  \(peakCPU)  \(avgCPU)  \(samples)  \(lastSample.padding(toLength: 21, withPad: " ", startingAt: 0)) \(padRight(handle, width: 15)) \(title.isEmpty ? "-" : title)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func topAverageByteCount(_ raw: Any?) -> Int64 {
+        let value = topDouble(raw)
+        guard value.isFinite, value >= 0, value < Double(Int64.max) else {
+            return 0
+        }
+        return Int64(value.rounded(.towardZero))
     }
 
     func renderMemoryTrimResult(_ result: MemoryTrimResult, idFormat: CLIIDFormat) -> String {
