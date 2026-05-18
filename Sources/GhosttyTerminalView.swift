@@ -1667,6 +1667,7 @@ class GhosttyApp {
     }
 
     static let shared = GhosttyApp()
+    private nonisolated(unsafe) static weak var runtimeCallbackApp: GhosttyApp?
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
@@ -1999,12 +2000,13 @@ class GhosttyApp {
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
+        Self.runtimeCallbackApp = self
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            GhosttyApp.runtimeCallbackApp?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            return GhosttyApp.runtimeCallbackApp?.handleAction(target: target, action: action) ?? false
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
@@ -3805,7 +3807,7 @@ class GhosttyApp {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    GhosttyApp.shared.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+                    self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
             }
@@ -3824,7 +3826,7 @@ class GhosttyApp {
                     scope: .app
                 )
                 DispatchQueue.main.async {
-                    GhosttyApp.shared.applyBackgroundToKeyWindow()
+                    self.applyBackgroundToKeyWindow()
                 }
                 return true
             }
@@ -4108,7 +4110,7 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                GhosttyApp.shared.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
+                self.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true

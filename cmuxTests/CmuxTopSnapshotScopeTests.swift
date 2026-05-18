@@ -719,6 +719,17 @@ while allocations:
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1.0)
     }
 
+    func testProcessOutputDrainsLargeStdoutBeforeProcessExit() throws {
+        let output = try XCTUnwrap(CmuxTopProcessSnapshot.processOutput(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "yes 0123456789abcdef | head -c 200000"],
+            timeout: .seconds(2)
+        ))
+
+        XCTAssertEqual(output.utf8.count, 200_000)
+        XCTAssertTrue(output.hasPrefix("0123456789abcdef\n"))
+    }
+
     private func firstSurface(in windows: [[String: Any]]) throws -> [String: Any] {
         let workspaces = try XCTUnwrap(windows[0]["workspaces"] as? [[String: Any]])
         let panes = try XCTUnwrap(workspaces[0]["panes"] as? [[String: Any]])

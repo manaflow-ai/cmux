@@ -7,6 +7,25 @@ struct CmuxTopProcessArguments: Sendable {
     let environment: [String: String]
 }
 
+private final class CmuxProcessOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    func value() -> Data {
+        lock.lock()
+        let snapshot = data
+        lock.unlock()
+        return snapshot
+    }
+}
+
 extension CmuxTopProcessSnapshot {
     static func processArgumentsAndEnvironment(for pid: Int) -> CmuxTopProcessArguments? {
         guard pid > 0, pid <= Int(Int32.max),
@@ -106,6 +125,10 @@ extension CmuxTopProcessSnapshot {
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
+        let outputBuffer = CmuxProcessOutputBuffer()
+        stdout.fileHandleForReading.readabilityHandler = { handle in
+            outputBuffer.append(handle.availableData)
+        }
         let completion = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in
             completion.signal()
@@ -127,16 +150,18 @@ extension CmuxTopProcessSnapshot {
                 kill(process.processIdentifier, SIGKILL)
                 _ = completion.wait(timeout: .now() + .milliseconds(150))
             }
+            stdout.fileHandleForReading.readabilityHandler = nil
             stdout.fileHandleForReading.closeFile()
             process.terminationHandler = nil
             return nil
         }
 
         process.terminationHandler = nil
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        stdout.fileHandleForReading.readabilityHandler = nil
+        outputBuffer.append(stdout.fileHandleForReading.readDataToEndOfFile())
         guard process.terminationStatus == 0 else { return nil }
 
-        return String(data: data, encoding: .utf8)
+        return String(data: outputBuffer.value(), encoding: .utf8)
     }
 
     private static func skipString(in bytes: [UInt8], index: inout Int) {
