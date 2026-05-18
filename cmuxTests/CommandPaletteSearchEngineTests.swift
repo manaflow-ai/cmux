@@ -915,6 +915,31 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkProbeAcceptsProcessDetectedSnapshotAcrossTTYRefresh() {
+        let state = ContentView.commandPaletteForkableAgentProbeTTYState(
+            snapshotWasProcessDetected: true,
+            requestedTTYName: nil,
+            requestedTTYWasReportedInCurrentSession: false,
+            currentTTYName: " ttys174 ",
+            currentTTYWasReportedInCurrentSession: true
+        )
+
+        XCTAssertEqual(state?.cacheValue, "ttys174")
+        XCTAssertEqual(state?.wasReportedInCurrentSession, true)
+    }
+
+    func testForkProbeRejectsFallbackOnlySnapshotAcrossTTYRefresh() {
+        let state = ContentView.commandPaletteForkableAgentProbeTTYState(
+            snapshotWasProcessDetected: false,
+            requestedTTYName: nil,
+            requestedTTYWasReportedInCurrentSession: false,
+            currentTTYName: "ttys174",
+            currentTTYWasReportedInCurrentSession: true
+        )
+
+        XCTAssertNil(state)
+    }
+
     func testForkableAgentFallbackSnapshotKeepsOpenCodeVisibleWhileProbeRuns() {
         let workspaceId = UUID()
         let panelId = UUID()

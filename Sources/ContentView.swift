@@ -6107,7 +6107,9 @@ struct ContentView: View {
                 )
             )
             guard !Task.isCancelled else { return }
-            let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
+            let detectedSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+            let snapshot = detectedSnapshot ?? fallbackSnapshot
+            let snapshotWasProcessDetected = detectedSnapshot != nil
             let supportsFork: Bool
             if let snapshot {
                 supportsFork = await AgentForkSupport.supportsFork(
@@ -6125,8 +6127,22 @@ struct ContentView: View {
                 guard let currentContext = focusedPanelContext,
                       currentContext.workspace.id == workspaceId,
                       currentContext.panelId == panelId,
-                      currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
-                      Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId]) == normalizedTTYName else {
+                      currentContext.panel.panelType == .terminal,
+                      currentContext.workspace.isRemoteTerminalSurface(panelId) == isRemoteTerminal else {
+                    commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+                    commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                    return
+                }
+                let currentTTYName = Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId])
+                let currentTTYWasReportedInCurrentSession = currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
+                guard let ttyState = Self.commandPaletteForkableAgentProbeTTYState(
+                    snapshotWasProcessDetected: snapshotWasProcessDetected,
+                    requestedTTYName: normalizedTTYName,
+                    requestedTTYWasReportedInCurrentSession: ttyWasReportedInCurrentSession,
+                    currentTTYName: currentTTYName,
+                    currentTTYWasReportedInCurrentSession: currentTTYWasReportedInCurrentSession
+                ) else {
                     commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
@@ -6148,8 +6164,8 @@ struct ContentView: View {
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = Self.commandPaletteTTYCacheValue(normalizedTTYName)
-                    commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyWasReportedInCurrentSession
+                    commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyState.cacheValue
+                    commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyState.wasReportedInCurrentSession
                     commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] = CACurrentMediaTime()
                     if let snapshot {
                         commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
@@ -6184,6 +6200,31 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    static func commandPaletteForkableAgentProbeTTYState(
+        snapshotWasProcessDetected: Bool,
+        requestedTTYName: String?,
+        requestedTTYWasReportedInCurrentSession: Bool,
+        currentTTYName: String?,
+        currentTTYWasReportedInCurrentSession: Bool
+    ) -> (cacheValue: String, wasReportedInCurrentSession: Bool)? {
+        let requestedTTYName = commandPaletteNormalizedTTYName(requestedTTYName)
+        let currentTTYName = commandPaletteNormalizedTTYName(currentTTYName)
+        if snapshotWasProcessDetected {
+            return (
+                commandPaletteTTYCacheValue(currentTTYName),
+                currentTTYWasReportedInCurrentSession
+            )
+        }
+        guard requestedTTYName == currentTTYName,
+              requestedTTYWasReportedInCurrentSession == currentTTYWasReportedInCurrentSession else {
+            return nil
+        }
+        return (
+            commandPaletteTTYCacheValue(requestedTTYName),
+            requestedTTYWasReportedInCurrentSession
+        )
     }
 
     static func commandPaletteNormalizedTTYName(_ ttyName: String?) -> String? {
