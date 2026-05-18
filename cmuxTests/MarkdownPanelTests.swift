@@ -193,7 +193,10 @@ final class MarkdownPanelTests: XCTestCase {
         try "![Local pixel](pixel.png)\n".write(to: markdownURL, atomically: true, encoding: .utf8)
 
         let frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let configuration = WKWebViewConfiguration()
+        let localImageHandler = MarkdownLocalImageTestURLSchemeHandler()
+        configuration.setURLSchemeHandler(localImageHandler, forURLScheme: "cmux-local-image")
+        let webView = WKWebView(frame: frame, configuration: configuration)
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
@@ -221,6 +224,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(image["complete"] as? Bool, true)
         XCTAssertGreaterThan(try XCTUnwrap(image["naturalWidth"] as? Int), 0)
         XCTAssertGreaterThan(try XCTUnwrap(image["naturalHeight"] as? Int), 0)
+        XCTAssertTrue((image["currentSrc"] as? String ?? "").hasPrefix("cmux-local-image://"))
     }
 
     func testMarkdownRenderLoadsSafeDataImage() async throws {
@@ -388,5 +392,36 @@ private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
         expectation.fulfill()
+    }
+}
+
+private final class MarkdownLocalImageTestURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let requestURL = urlSchemeTask.request.url,
+              let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
+              let rawFileURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
+              let fileURL = URL(string: rawFileURL),
+              fileURL.isFileURL else {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+            return
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            let response = URLResponse(
+                url: requestURL,
+                mimeType: "image/png",
+                expectedContentLength: data.count,
+                textEncodingName: nil
+            )
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+        } catch {
+            urlSchemeTask.didFailWithError(error)
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
     }
 }
