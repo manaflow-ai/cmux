@@ -129,6 +129,57 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
         XCTAssertEqual(sections[1].workspaceIds, [other.id])
     }
 
+    func testAttentionSectionsPromoteActivePinnedAndUnreadWorkspaces() {
+        let active = workspaceSnapshot(title: "Active")
+        let pinned = workspaceSnapshot(title: "Pinned", isPinned: true)
+        let unread = workspaceSnapshot(title: "Unread", unreadCount: 2)
+        let quiet = workspaceSnapshot(title: "Quiet")
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: active.id,
+            workspaces: [quiet, unread, pinned, active]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot, mode: .attention)
+
+        XCTAssertEqual(sections.map(\.id), [
+            "attention:active",
+            "attention:pinned",
+            "attention:needs-attention",
+            "attention:quiet",
+        ])
+        XCTAssertEqual(sections[0].workspaceIds, [active.id])
+        XCTAssertEqual(sections[1].workspaceIds, [pinned.id])
+        XCTAssertEqual(sections[2].workspaceIds, [unread.id])
+        XCTAssertEqual(sections[3].workspaceIds, [quiet.id])
+    }
+
+    func testServerSectionsPromoteLiveServersBeforeOtherWorkspaces() {
+        let server = workspaceSnapshot(title: "API", customDescription: "server :3000")
+        let detectedServer = workspaceSnapshot(title: "Preview", listeningPorts: [5173])
+        let remote = workspaceSnapshot(title: "Remote", remoteDisplayTarget: "builder:22")
+        let local = workspaceSnapshot(title: "Docs")
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 0,
+            selectedWorkspaceId: nil,
+            workspaces: [local, remote, server, detectedServer]
+        )
+
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot, mode: .servers)
+
+        XCTAssertEqual(sections.map(\.id), ["servers:live", "servers:remote", "servers:local"])
+        XCTAssertEqual(sections[0].workspaceIds, [server.id, detectedServer.id])
+        XCTAssertEqual(sections[1].workspaceIds, [remote.id])
+        XCTAssertEqual(sections[2].workspaceIds, [local.id])
+    }
+
+    func testSidebarCustomizationModeFallsBackToProjectTree() {
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "project-tree"), .projectTree)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "attention"), .attention)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "servers"), .servers)
+        XCTAssertEqual(SidebarWorkspaceListStyleSettings.customizationMode(for: "unknown"), .projectTree)
+    }
+
     func testReducerAppliesWorkspaceSelectionRemovalAndReorderEvents() {
         let first = workspaceSnapshot(title: "First")
         let second = workspaceSnapshot(title: "Second")
@@ -174,24 +225,27 @@ final class CmuxExtensionSidebarPrototypeTests: XCTestCase {
 
     private func workspaceSnapshot(
         title: String,
+        customDescription: String? = nil,
         isPinned: Bool = false,
         rootPath: String? = nil,
         projectRootPath: String? = nil,
-        remoteDisplayTarget: String? = nil
+        remoteDisplayTarget: String? = nil,
+        unreadCount: Int = 0,
+        listeningPorts: [Int] = []
     ) -> CmuxExtensionWorkspaceSnapshot {
         CmuxExtensionWorkspaceSnapshot(
             id: UUID(),
             title: title,
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: isPinned,
             rootPath: rootPath,
             projectRootPath: projectRootPath,
             branchSummary: nil,
             remoteDisplayTarget: remoteDisplayTarget,
             remoteConnectionState: remoteDisplayTarget == nil ? nil : "connected",
-            unreadCount: 0,
+            unreadCount: unreadCount,
             latestNotificationText: nil,
-            listeningPorts: []
+            listeningPorts: listeningPorts
         )
     }
 

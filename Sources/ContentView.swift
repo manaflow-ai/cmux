@@ -9053,6 +9053,8 @@ struct VerticalTabsSidebar: View {
     private var sidebarMatchTerminalBackground = false
     @AppStorage(SidebarWorkspaceListStyleSettings.treePrototypeEnabledKey)
     private var treeWorkspaceListPrototypeEnabled = SidebarWorkspaceListStyleSettings.defaultTreePrototypeEnabled
+    @AppStorage(SidebarWorkspaceListStyleSettings.customizationModeKey)
+    private var sidebarCustomizationMode = SidebarWorkspaceListStyleSettings.defaultCustomizationMode.rawValue
 
     private let tabRowSpacing: CGFloat = 2
     private var sidebarTitlebarInteractionHeight: CGFloat {
@@ -9399,7 +9401,7 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         if treeWorkspaceListPrototypeEnabled {
-            treeWorkspaceRows(renderContext: renderContext)
+            customizedWorkspaceRows(renderContext: renderContext)
         } else {
             flatWorkspaceRows(renderContext: renderContext)
         }
@@ -9473,8 +9475,12 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func treeWorkspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: renderContext.extensionSnapshot)
+    private func customizedWorkspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let mode = SidebarWorkspaceListStyleSettings.customizationMode(for: sidebarCustomizationMode)
+        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(
+            for: renderContext.extensionSnapshot,
+            mode: mode
+        )
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(sections) { section in
                 let isCollapsed = collapsedTreeSectionIds.contains(section.id)
@@ -9483,7 +9489,7 @@ struct VerticalTabsSidebar: View {
                     isCollapsed: isCollapsed,
                     isCreatingWorktree: worktreeCreationInFlightSectionIds.contains(section.id),
                     onToggle: { toggleTreeSection(section.id) },
-                    onCreateWorktree: section.projectRootPath == nil
+                    onCreateWorktree: !mode.allowsProjectWorktreeActions || section.projectRootPath == nil
                         ? nil
                         : { createWorktreeWorkspace(for: section) }
                 )
@@ -12364,7 +12370,13 @@ enum SidebarPathFormatter {
 
 enum SidebarWorkspaceListStyleSettings {
     static let treePrototypeEnabledKey = "sidebar.workspaceList.treePrototype.enabled"
+    static let customizationModeKey = "sidebar.workspaceList.customizationPrototype.mode"
     static let defaultTreePrototypeEnabled = false
+    static let defaultCustomizationMode = CmuxExtensionSidebarCustomizationMode.projectTree
+
+    static func customizationMode(for rawValue: String) -> CmuxExtensionSidebarCustomizationMode {
+        CmuxExtensionSidebarCustomizationMode(rawValue: rawValue) ?? defaultCustomizationMode
+    }
 }
 
 struct CmuxExtensionSidebarSnapshot: Equatable, Sendable {
@@ -12460,8 +12472,36 @@ struct CmuxExtensionWorkspaceTreeSection: Identifiable, Equatable, Sendable {
     let workspaceIds: [UUID]
 }
 
+enum CmuxExtensionSidebarCustomizationMode: String, Equatable, Sendable {
+    case projectTree = "project-tree"
+    case attention = "attention"
+    case servers = "servers"
+
+    var allowsProjectWorktreeActions: Bool {
+        self == .projectTree
+    }
+}
+
 enum CmuxExtensionWorkspaceTreeBuilder {
+    static func sections(
+        for snapshot: CmuxExtensionSidebarSnapshot,
+        mode: CmuxExtensionSidebarCustomizationMode
+    ) -> [CmuxExtensionWorkspaceTreeSection] {
+        switch mode {
+        case .projectTree:
+            return projectTreeSections(for: snapshot)
+        case .attention:
+            return attentionSections(for: snapshot)
+        case .servers:
+            return serverSections(for: snapshot)
+        }
+    }
+
     static func sections(for snapshot: CmuxExtensionSidebarSnapshot) -> [CmuxExtensionWorkspaceTreeSection] {
+        projectTreeSections(for: snapshot)
+    }
+
+    private static func projectTreeSections(for snapshot: CmuxExtensionSidebarSnapshot) -> [CmuxExtensionWorkspaceTreeSection] {
         var sections: [CmuxExtensionWorkspaceTreeSection] = []
 
         let pinned = snapshot.workspaces.filter(\.isPinned)
@@ -12500,6 +12540,85 @@ enum CmuxExtensionWorkspaceTreeBuilder {
         }
 
         sections.append(contentsOf: orderedGroupIds.compactMap { grouped[$0] })
+        return sections
+    }
+
+    private static func attentionSections(for snapshot: CmuxExtensionSidebarSnapshot) -> [CmuxExtensionWorkspaceTreeSection] {
+        var sections: [CmuxExtensionWorkspaceTreeSection] = []
+        let selectedId = snapshot.selectedWorkspaceId
+
+        appendSection(
+            id: "attention:active",
+            title: String(localized: "sidebar.custom.group.active", defaultValue: "Active"),
+            systemImageName: "circle.fill",
+            workspaces: snapshot.workspaces.filter { $0.id == selectedId },
+            to: &sections
+        )
+        appendSection(
+            id: "attention:pinned",
+            title: String(localized: "sidebar.tree.group.pinned", defaultValue: "Pinned"),
+            systemImageName: "pin",
+            workspaces: snapshot.workspaces.filter { $0.isPinned && $0.id != selectedId },
+            to: &sections
+        )
+        appendSection(
+            id: "attention:needs-attention",
+            title: String(localized: "sidebar.custom.group.attention", defaultValue: "Needs Attention"),
+            systemImageName: "bell",
+            workspaces: snapshot.workspaces.filter {
+                $0.id != selectedId && !$0.isPinned && needsAttention($0)
+            },
+            to: &sections
+        )
+        appendSection(
+            id: "attention:quiet",
+            title: String(localized: "sidebar.custom.group.quiet", defaultValue: "Quiet"),
+            systemImageName: "checkmark.circle",
+            workspaces: snapshot.workspaces.filter {
+                $0.id != selectedId && !$0.isPinned && !needsAttention($0)
+            },
+            to: &sections
+        )
+
+        return sections
+    }
+
+    private static func serverSections(for snapshot: CmuxExtensionSidebarSnapshot) -> [CmuxExtensionWorkspaceTreeSection] {
+        var sections: [CmuxExtensionWorkspaceTreeSection] = []
+
+        appendSection(
+            id: "servers:pinned",
+            title: String(localized: "sidebar.tree.group.pinned", defaultValue: "Pinned"),
+            systemImageName: "pin",
+            workspaces: snapshot.workspaces.filter(\.isPinned),
+            to: &sections
+        )
+        appendSection(
+            id: "servers:live",
+            title: String(localized: "sidebar.custom.group.liveServers", defaultValue: "Live Servers"),
+            systemImageName: "terminal",
+            workspaces: snapshot.workspaces.filter { !$0.isPinned && hasServerSignal($0) },
+            to: &sections
+        )
+        appendSection(
+            id: "servers:remote",
+            title: String(localized: "sidebar.custom.group.remote", defaultValue: "Remote"),
+            systemImageName: "network",
+            workspaces: snapshot.workspaces.filter {
+                !$0.isPinned && !hasServerSignal($0) && trimmedNonEmpty($0.remoteDisplayTarget) != nil
+            },
+            to: &sections
+        )
+        appendSection(
+            id: "servers:local",
+            title: String(localized: "sidebar.custom.group.local", defaultValue: "Local Workspaces"),
+            systemImageName: "folder",
+            workspaces: snapshot.workspaces.filter {
+                !$0.isPinned && !hasServerSignal($0) && trimmedNonEmpty($0.remoteDisplayTarget) == nil
+            },
+            to: &sections
+        )
+
         return sections
     }
 
@@ -12544,6 +12663,44 @@ enum CmuxExtensionWorkspaceTreeBuilder {
             projectRootPath: groupPath,
             workspaceIds: []
         )
+    }
+
+    private static func appendSection(
+        id: String,
+        title: String,
+        systemImageName: String,
+        workspaces: [CmuxExtensionWorkspaceSnapshot],
+        to sections: inout [CmuxExtensionWorkspaceTreeSection]
+    ) {
+        guard !workspaces.isEmpty else { return }
+        sections.append(
+            CmuxExtensionWorkspaceTreeSection(
+                id: id,
+                title: title,
+                subtitle: nil,
+                systemImageName: systemImageName,
+                projectRootPath: nil,
+                workspaceIds: workspaces.map(\.id)
+            )
+        )
+    }
+
+    private static func needsAttention(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
+        workspace.unreadCount > 0 ||
+            trimmedNonEmpty(workspace.latestNotificationText) != nil ||
+            workspace.remoteConnectionState == "connecting" ||
+            workspace.remoteConnectionState == "reconnecting" ||
+            workspace.remoteConnectionState == "disconnected"
+    }
+
+    private static func hasServerSignal(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
+        if !workspace.listeningPorts.isEmpty {
+            return true
+        }
+        guard let description = trimmedNonEmpty(workspace.customDescription)?.lowercased() else {
+            return false
+        }
+        return description.contains("server") || description.contains(":")
     }
 
     private static func trimmedNonEmpty(_ value: String?) -> String? {
