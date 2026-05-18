@@ -6019,8 +6019,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         for event in Self.parsedSocketInputEvents(for: text) {
             switch event {
             case .text(let value):
-                var bufferedText = value
-                flushText(&bufferedText, surface: surface)
+                sendTextKeyInput(value, to: surface)
             case .key(let event):
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             }
@@ -6100,6 +6099,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
+    private func sendTextKeyInput(_ text: String, to surface: ghostty_surface_t) {
+        guard !text.isEmpty else { return }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 0
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        text.withCString { ptr in
+            keyEvent.text = ptr
+            _ = ghostty_surface_key(surface, keyEvent)
         }
     }
 
@@ -6410,8 +6424,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             case .pasteText(let chunk):
                 writeTextData(chunk, to: surface)
             case .inputText(let text):
-                var bufferedText = text
-                flushText(&bufferedText, surface: surface)
+                sendTextKeyInput(text, to: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
