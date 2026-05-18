@@ -593,7 +593,8 @@ final class DockSurfaceDragRegistry {
     static let shared = DockSurfaceDragRegistry()
 
     private struct PendingDrag {
-        let entry: DockSurfaceDragEntry
+        let transferProvider: @MainActor () -> Workspace.DetachedSurfaceTransfer?
+        let onAttached: @MainActor () -> Void
         let expirationTimer: Timer
     }
 
@@ -601,7 +602,7 @@ final class DockSurfaceDragRegistry {
     private var pending: [UUID: PendingDrag] = [:]
 
     func register(
-        transfer: Workspace.DetachedSurfaceTransfer,
+        transferProvider: @escaping @MainActor () -> Workspace.DetachedSurfaceTransfer?,
         onAttached: @escaping @MainActor () -> Void
     ) -> UUID {
         let id = UUID()
@@ -611,7 +612,8 @@ final class DockSurfaceDragRegistry {
             }
         }
         pending[id] = PendingDrag(
-            entry: DockSurfaceDragEntry(transfer: transfer, onAttached: onAttached),
+            transferProvider: transferProvider,
+            onAttached: onAttached,
             expirationTimer: timer
         )
         RunLoop.main.add(timer, forMode: .common)
@@ -621,7 +623,8 @@ final class DockSurfaceDragRegistry {
     func consume(id: UUID) -> DockSurfaceDragEntry? {
         guard let drag = pending.removeValue(forKey: id) else { return nil }
         drag.expirationTimer.invalidate()
-        return drag.entry
+        guard let transfer = drag.transferProvider() else { return nil }
+        return DockSurfaceDragEntry(transfer: transfer, onAttached: drag.onAttached)
     }
 
     private func expire(id: UUID) {
@@ -634,6 +637,7 @@ final class DockControlsStore: ObservableObject {
     @Published private(set) var controls: [DockControlRuntime] = []
     @Published private(set) var sourceLabel = ""
     @Published private(set) var errorMessage: String?
+    @Published private(set) var warningMessage: String?
     @Published private(set) var trustRequest: DockTrustRequest?
 
     private var lastRootDirectory: String?
@@ -680,6 +684,7 @@ final class DockControlsStore: ObservableObject {
         lastWorkspaceId = workspaceId
         hasLoadedConfiguration = true
         errorMessage = nil
+        warningMessage = nil
         trustRequest = nil
         activeConfigURL = nil
 
@@ -703,6 +708,7 @@ final class DockControlsStore: ObservableObject {
             }
             var resolvedControls: [DockControlRuntime] = []
             var firstRuntimeError: Error?
+            var runtimeErrorCount = 0
             for definition in resolution.controls {
                 do {
                     resolvedControls.append(try DockControlRuntime(
@@ -712,6 +718,7 @@ final class DockControlsStore: ObservableObject {
                     ))
                 } catch {
                     firstRuntimeError = firstRuntimeError ?? error
+                    runtimeErrorCount += 1
 #if DEBUG
                     cmuxDebugLog("dock.config.entry.skip id=\(definition.id) error=\(error.localizedDescription)")
 #endif
@@ -722,10 +729,14 @@ final class DockControlsStore: ObservableObject {
             }
             replaceControls(with: resolvedControls)
             sourceLabel = Self.sourceLabel(for: resolution)
+            if let firstRuntimeError, runtimeErrorCount > 0 {
+                warningMessage = Self.partialStartupErrorMessage(firstError: firstRuntimeError)
+            }
         } catch {
             replaceControls(with: [])
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
             errorMessage = error.localizedDescription
+            warningMessage = nil
         }
     }
 
@@ -876,7 +887,9 @@ final class DockControlsStore: ObservableObject {
         }
         let transfer = control.detachedSurfaceTransferForDrag()
         let dragId = DockSurfaceDragRegistry.shared.register(
-            transfer: transfer,
+            transferProvider: { [weak control] in
+                control?.detachedSurfaceTransferForDrag()
+            },
             onAttached: { [weak self] in
                 self?.removeControl(id: controlID, closePanel: false)
             }
@@ -1102,6 +1115,14 @@ final class DockControlsStore: ObservableObject {
             : String(localized: "dock.source.global", defaultValue: "Global Dock")
     }
 
+    private static func partialStartupErrorMessage(firstError: Error) -> String {
+        let format = String(
+            localized: "dock.error.partialEntryStartup",
+            defaultValue: "Some Dock entries failed to start. First error: %@"
+        )
+        return String(format: format, locale: Locale.current, firstError.localizedDescription)
+    }
+
     private static func projectConfigURL(rootDirectory: String?) -> URL? {
         guard let rootDirectory = rootDirectory.flatMap(existingDirectory) else { return nil }
         var candidate = URL(fileURLWithPath: rootDirectory, isDirectory: true)
@@ -1303,23 +1324,54 @@ struct DockPanelView: View {
             DockTrustView(request: trustRequest) {
                 store.trustAndReload()
             }
-        } else if let error = store.errorMessage {
-            DockErrorView(message: error)
         } else if store.controls.isEmpty {
-            DockEmptyView()
+            if let error = store.errorMessage {
+                DockErrorView(message: error)
+            } else {
+                DockEmptyView()
+            }
         } else {
-            DockControlsLayoutView(
-                snapshots: store.controlSnapshots,
-                terminalAttachment: { id in store.terminalAttachment(for: id) },
-                browserAttachment: { id in store.browserAttachment(for: id) },
-                isFocused: { id in store.isFocused(controlID: id) },
-                onFocus: { id in store.focusControl(id: id) },
-                onRestart: { id in store.restartControl(id: id) },
-                onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
-                onTriggerFlash: { id in store.triggerFlash(id: id) },
-                onDragProvider: { id in store.dragItemProvider(for: id) }
-            )
+            VStack(spacing: 0) {
+                if let message = store.errorMessage ?? store.warningMessage {
+                    DockWarningBanner(message: message)
+                    Divider()
+                }
+                DockControlsLayoutView(
+                    snapshots: store.controlSnapshots,
+                    terminalAttachment: { id in store.terminalAttachment(for: id) },
+                    browserAttachment: { id in store.browserAttachment(for: id) },
+                    isFocused: { id in store.isFocused(controlID: id) },
+                    onFocus: { id in store.focusControl(id: id) },
+                    onRestart: { id in store.restartControl(id: id) },
+                    onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
+                    onTriggerFlash: { id in store.triggerFlash(id: id) },
+                    onDragProvider: { id in store.dragItemProvider(for: id) }
+                )
+            }
         }
+    }
+}
+
+private struct DockWarningBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.08))
+        .accessibilityIdentifier("DockWarningBanner")
     }
 }
 

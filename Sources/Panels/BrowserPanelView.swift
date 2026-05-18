@@ -4690,6 +4690,36 @@ struct WebViewRepresentable: NSViewRepresentable {
     let paneDropContextOverride: BrowserPaneDropContext?
     let allowsPaneDropRouting: Bool
 
+    init(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        shouldAttachWebView: Bool,
+        useLocalInlineHosting: Bool,
+        shouldFocusWebView: Bool,
+        isPanelFocused: Bool,
+        portalZPriority: Int,
+        paneDropZone: DropZone?,
+        searchOverlay: BrowserPortalSearchOverlayConfiguration?,
+        omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?,
+        paneTopChromeHeight: CGFloat,
+        paneDropContextOverride: BrowserPaneDropContext? = nil,
+        allowsPaneDropRouting: Bool = true
+    ) {
+        self.panel = panel
+        self.paneId = paneId
+        self.shouldAttachWebView = shouldAttachWebView
+        self.useLocalInlineHosting = useLocalInlineHosting
+        self.shouldFocusWebView = shouldFocusWebView
+        self.isPanelFocused = isPanelFocused
+        self.portalZPriority = portalZPriority
+        self.paneDropZone = paneDropZone
+        self.searchOverlay = searchOverlay
+        self.omnibarSuggestions = omnibarSuggestions
+        self.paneTopChromeHeight = paneTopChromeHeight
+        self.paneDropContextOverride = paneDropContextOverride
+        self.allowsPaneDropRouting = allowsPaneDropRouting
+    }
+
     final class Coordinator {
         weak var panel: BrowserPanel?
         weak var webView: WKWebView?

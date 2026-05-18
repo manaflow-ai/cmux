@@ -108458,6 +108458,23 @@
         }
       }
     },
+    "dock.error.partialEntryStartup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some Dock entries failed to start. First error: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のDock項目を開始できませんでした。最初のエラー: %@"
+          }
+        }
+      }
+    },
     "dock.error.title": {
       "extractionState": "manual",
       "localizations": {
