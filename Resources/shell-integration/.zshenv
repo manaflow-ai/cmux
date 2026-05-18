@@ -28,6 +28,16 @@ fi
     builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zshenv"
     [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
 
+    # cmux marks top-level zsh panes when Ghostty starts zsh without login
+    # mode early enough for normal .zprofile selection.
+    if [[ "${CMUX_ZSH_SOURCE_LOGIN_PROFILE:-0}" == "1" ]]; then
+        builtin unset CMUX_ZSH_SOURCE_LOGIN_PROFILE
+        if [[ ! -o login ]]; then
+            builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zprofile"
+            [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
+        fi
+    fi
+
     if [[ -o interactive \
        && -z "${ZSH_EXECUTION_STRING:-}" \
        && "${CMUX_SHELL_INTEGRATION:-1}" != "0" \

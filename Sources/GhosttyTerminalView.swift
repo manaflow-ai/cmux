@@ -5315,6 +5315,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         var env = baseConfig.environmentVariables
+        let resolvedCommandForStartup = initialCommand
+            ?? baseConfig.command?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var protectedStartupEnvironmentKeys: Set<String> = []
         Self.applyManagedTerminalIdentityEnvironment(
@@ -5414,6 +5416,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     }
                 }
 
+                if resolvedCommandForStartup?.isEmpty != false {
+                    setManagedEnvironmentValue("CMUX_ZSH_SOURCE_LOGIN_PROFILE", "1")
+                }
                 setManagedEnvironmentValue("ZDOTDIR", integrationDir)
             } else if shellName == "bash" {
                 if GhosttyApp.shared.userGhosttyShellIntegrationMode != "none" {
