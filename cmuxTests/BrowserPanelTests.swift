@@ -2233,19 +2233,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             reattachRenderingStateCount += 1
         }
 
-        @objc(viewDidUnhide)
-        func cmuxUnitTestViewDidUnhide() {
-            reattachRenderingStateCount += 1
-        }
-
         @objc(_endDeferringViewInWindowChangesSync)
         func cmuxUnitTestEndDeferringViewInWindowChangesSync() {
             reattachRenderingStateCount += 1
-        }
-
-        @objc(viewDidHide)
-        func cmuxUnitTestViewDidHide() {
-            hiddenRenderingStateCount += 1
         }
 
         @objc(_exitInWindow)
