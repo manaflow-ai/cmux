@@ -60,36 +60,111 @@ enum ClosedItemHistoryEntry {
     case window(ClosedWindowHistoryEntry)
 }
 
+struct ClosedItemHistoryRecord: Identifiable {
+    let id: UUID
+    var entry: ClosedItemHistoryEntry
+
+    init(id: UUID = UUID(), entry: ClosedItemHistoryEntry) {
+        self.id = id
+        self.entry = entry
+    }
+}
+
+struct ClosedItemHistoryMenuItem: Identifiable {
+    let id: UUID
+    let title: String
+    let detail: String
+
+    var menuTitle: String {
+        String(
+            format: String(
+                localized: "menu.history.recentlyClosed.menuItemFormat",
+                defaultValue: "%1$@ (%2$@)"
+            ),
+            title,
+            detail
+        )
+    }
+}
+
+struct ClosedItemHistoryMenuSnapshot {
+    let items: [ClosedItemHistoryMenuItem]
+    let totalItemCount: Int
+    let isLimited: Bool
+}
+
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
     static let shared = ClosedItemHistoryStore(capacity: 50)
 
     @Published private(set) var revision: UInt64 = 0
-    private(set) var entries: [ClosedItemHistoryEntry] = []
+    private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int
 
     init(capacity: Int) {
         self.capacity = max(1, capacity)
     }
 
+    var entries: [ClosedItemHistoryEntry] {
+        records.map(\.entry)
+    }
+
     var canReopen: Bool {
-        !entries.isEmpty
+        !records.isEmpty
     }
 
     func push(_ entry: ClosedItemHistoryEntry) {
-        entries.append(entry)
-        if entries.count > capacity {
-            entries.removeFirst(entries.count - capacity)
+        push(ClosedItemHistoryRecord(entry: entry))
+    }
+
+    func push(_ record: ClosedItemHistoryRecord) {
+        records.append(record)
+        if records.count > capacity {
+            records.removeFirst(records.count - capacity)
         }
         revision &+= 1
     }
 
     func pop() -> ClosedItemHistoryEntry? {
-        let entry = entries.popLast()
-        if entry != nil {
+        let record = records.popLast()
+        if record != nil {
             revision &+= 1
         }
-        return entry
+        return record?.entry
+    }
+
+    func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {
+        guard let index = records.firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+        let record = records.remove(at: index)
+        revision &+= 1
+        return (record, index)
+    }
+
+    func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
+        records.insert(record, at: min(max(0, index), records.count))
+        if records.count > capacity {
+            records.removeFirst(records.count - capacity)
+        }
+        revision &+= 1
+    }
+
+    func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
+        let allItems = records.reversed().map(Self.menuItem(for:))
+        if let maxItemCount, maxItemCount >= 0, allItems.count > maxItemCount {
+            return ClosedItemHistoryMenuSnapshot(
+                items: Array(allItems.prefix(maxItemCount)),
+                totalItemCount: allItems.count,
+                isLimited: true
+            )
+        }
+
+        return ClosedItemHistoryMenuSnapshot(
+            items: allItems,
+            totalItemCount: allItems.count,
+            isLimited: false
+        )
     }
 
     func remapPanelWorkspaceIds(
@@ -103,10 +178,10 @@ final class ClosedItemHistoryStore: ObservableObject {
             return panelIdMap[panelId] ?? panelId
         }
         var didUpdate = false
-        entries = entries.map { entry in
-            guard case .panel(let panelEntry) = entry,
+        records = records.map { record in
+            guard case .panel(let panelEntry) = record.entry,
                   panelEntry.workspaceId == oldWorkspaceId else {
-                return entry
+                return record
             }
             didUpdate = true
             let fallbackSplitPlacement = panelEntry.fallbackSplitPlacement.map {
@@ -116,7 +191,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                     anchorPanelId: remapAnchor($0.anchorPanelId)
                 )
             }
-            return .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: newWorkspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
@@ -124,7 +199,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
                 fallbackSplitPlacement: fallbackSplitPlacement
-            ))
+            )))
         }
         if didUpdate {
             revision &+= 1
@@ -134,8 +209,8 @@ final class ClosedItemHistoryStore: ObservableObject {
     func remapPanelAnchorIds(from oldPanelId: UUID, to newPanelId: UUID) {
         guard oldPanelId != newPanelId else { return }
         var didUpdate = false
-        entries = entries.map { entry in
-            guard case .panel(let panelEntry) = entry else { return entry }
+        records = records.map { record in
+            guard case .panel(let panelEntry) = record.entry else { return record }
             let paneAnchorPanelId = panelEntry.paneAnchorPanelId == oldPanelId
                 ? newPanelId
                 : panelEntry.paneAnchorPanelId
@@ -153,7 +228,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
                 didUpdate = true
             }
-            return .panel(ClosedPanelHistoryEntry(
+            return ClosedItemHistoryRecord(id: record.id, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: panelEntry.workspaceId,
                 paneId: panelEntry.paneId,
                 paneAnchorPanelId: paneAnchorPanelId,
@@ -161,7 +236,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 tabIndex: panelEntry.tabIndex,
                 snapshot: panelEntry.snapshot,
                 fallbackSplitPlacement: fallbackSplitPlacement
-            ))
+            )))
         }
         if didUpdate {
             revision &+= 1
@@ -169,8 +244,82 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func removeAll() {
-        guard !entries.isEmpty else { return }
-        entries.removeAll(keepingCapacity: false)
+        guard !records.isEmpty else { return }
+        records.removeAll(keepingCapacity: false)
         revision &+= 1
+    }
+
+    private static func menuItem(for record: ClosedItemHistoryRecord) -> ClosedItemHistoryMenuItem {
+        switch record.entry {
+        case .panel(let entry):
+            return ClosedItemHistoryMenuItem(
+                id: record.id,
+                title: title(for: entry.snapshot),
+                detail: String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab")
+            )
+        case .workspace(let entry):
+            return ClosedItemHistoryMenuItem(
+                id: record.id,
+                title: title(for: entry.snapshot),
+                detail: String(localized: "menu.history.recentlyClosed.kind.workspace", defaultValue: "Workspace")
+            )
+        case .window(let entry):
+            return ClosedItemHistoryMenuItem(
+                id: record.id,
+                title: String(localized: "menu.history.recentlyClosed.kind.window", defaultValue: "Window"),
+                detail: windowWorkspaceCountLabel(entry.snapshot.tabManager.workspaces.count)
+            )
+        }
+    }
+
+    private static func title(for snapshot: SessionPanelSnapshot) -> String {
+        let candidates = [
+            snapshot.customTitle,
+            snapshot.title,
+            snapshot.directory.map { URL(fileURLWithPath: $0).lastPathComponent }
+        ]
+        if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty }) {
+            return title
+        }
+
+        switch snapshot.type {
+        case .terminal:
+            return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
+        case .browser:
+            return String(localized: "menu.history.recentlyClosed.panel.browser", defaultValue: "Browser")
+        case .markdown:
+            return String(localized: "menu.history.recentlyClosed.panel.markdown", defaultValue: "Markdown")
+        case .filePreview:
+            return String(localized: "menu.history.recentlyClosed.panel.filePreview", defaultValue: "File Preview")
+        case .rightSidebarTool:
+            return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
+        }
+    }
+
+    private static func title(for snapshot: SessionWorkspaceSnapshot) -> String {
+        let candidates = [
+            snapshot.customTitle,
+            Optional(snapshot.processTitle),
+            Optional(URL(fileURLWithPath: snapshot.currentDirectory).lastPathComponent)
+        ]
+        if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty }) {
+            return title
+        }
+        return String(localized: "menu.history.untitledWorkspace", defaultValue: "Untitled Workspace")
+    }
+
+    private static func windowWorkspaceCountLabel(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "menu.history.recentlyClosed.window.oneWorkspace", defaultValue: "1 workspace")
+        }
+        return String(
+            format: String(
+                localized: "menu.history.recentlyClosed.window.workspaceCount",
+                defaultValue: "%d workspaces"
+            ),
+            count
+        )
     }
 }

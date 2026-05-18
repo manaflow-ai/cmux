@@ -2914,29 +2914,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true
     ) -> Bool {
         while let entry = ClosedItemHistoryStore.shared.pop() {
-            switch entry {
-            case .panel(let panelEntry):
-                let manager =
-                    tabManagerFor(tabId: panelEntry.workspaceId)
-                    ?? preferredTabManager
-                    ?? tabManager
-                if manager?.restoreClosedPanel(panelEntry) == true {
-                    return true
-                }
-            case .workspace(let workspaceEntry):
-                let manager =
-                    workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
-                    ?? preferredTabManager
-                    ?? tabManager
-                if manager?.restoreClosedWorkspace(workspaceEntry) == true {
-                    return true
-                }
-            case .window(let windowEntry):
-                _ = createMainWindow(
-                    sessionWindowSnapshot: windowEntry.snapshot,
-                    shouldActivate: shouldActivate,
-                    closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds
-                )
+            if restoreClosedItem(
+                entry,
+                preferredTabManager: preferredTabManager,
+                shouldActivate: shouldActivate
+            ) {
                 return true
             }
         }
@@ -2951,6 +2933,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    @discardableResult
+    func reopenClosedHistoryItem(
+        id: UUID,
+        preferredTabManager: TabManager? = nil,
+        shouldActivate: Bool = true
+    ) -> Bool {
+        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+            return false
+        }
+
+        if restoreClosedItem(
+            removed.record.entry,
+            preferredTabManager: preferredTabManager,
+            shouldActivate: shouldActivate
+        ) {
+            return true
+        }
+
+        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+        return false
+    }
+
+    @discardableResult
+    private func restoreClosedItem(
+        _ entry: ClosedItemHistoryEntry,
+        preferredTabManager: TabManager? = nil,
+        shouldActivate: Bool
+    ) -> Bool {
+        switch entry {
+        case .panel(let panelEntry):
+            let manager =
+                tabManagerFor(tabId: panelEntry.workspaceId)
+                ?? preferredTabManager
+                ?? tabManager
+            return manager?.restoreClosedPanel(panelEntry) == true
+        case .workspace(let workspaceEntry):
+            let manager =
+                workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
+                ?? preferredTabManager
+                ?? tabManager
+            return manager?.restoreClosedWorkspace(workspaceEntry) == true
+        case .window(let windowEntry):
+            _ = createMainWindow(
+                sessionWindowSnapshot: windowEntry.snapshot,
+                shouldActivate: shouldActivate,
+                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds
+            )
+            return true
+        }
     }
 
     private func applySessionWindowSnapshot(

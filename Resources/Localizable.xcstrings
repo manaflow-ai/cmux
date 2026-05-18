@@ -25644,13 +25644,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Session"
+            "value": "History"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "セッション"
+            "value": "履歴"
           }
         }
       }
@@ -25661,13 +25661,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reopen Previous Session"
+            "value": "Restore Previous App Launch"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前回のセッションを再度開く"
+            "value": "前回のアプリ起動を復元"
           }
         }
       }
@@ -43810,19 +43810,291 @@
         }
       }
     },
+    "menu.history.recentlyClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recently Closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近閉じた項目"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.clearAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて消去"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Recently Closed Items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近閉じた項目がありません"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.kind.tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.kind.window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウ"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.kind.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.menuItemFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（%2$@）"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.panel.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.panel.filePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビュー"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.panel.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.panel.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.panel.tool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.showFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Full Recently Closed…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近閉じた項目をすべて表示…"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.window.oneWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 個のワークスペース"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.window.workspaceCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 個のワークスペース"
+          }
+        }
+      }
+    },
     "menu.history.reopenClosedItem": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reopen Closed Item"
+            "value": "Reopen Last Closed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閉じた項目を再度開く"
+            "value": "最後に閉じた項目を再度開く"
+          }
+        }
+      }
+    },
+    "menu.history.reopenLastClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen Last Closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後に閉じた項目を再度開く"
           }
         }
       }
@@ -43986,13 +44258,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reopen Previous Session"
+            "value": "Restore Previous App Launch"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前回のセッションを再度開く"
+            "value": "前回のアプリ起動を復元"
+          }
+        }
+      }
+    },
+    "menu.file.restorePreviousAppLaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Previous App Launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のアプリ起動を復元"
           }
         }
       }
@@ -85511,13 +85800,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reopen Previous Session"
+            "value": "Restore Previous App Launch"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前回のセッションを再度開く"
+            "value": "前回のアプリ起動を復元"
           }
         }
       }

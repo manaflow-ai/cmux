@@ -6354,6 +6354,32 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func reopenClosedHistoryItem(id: UUID) -> Bool {
+        if let appDelegate = AppDelegate.shared {
+            return appDelegate.reopenClosedHistoryItem(id: id, preferredTabManager: self)
+        }
+
+        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+            return false
+        }
+
+        let didRestore: Bool
+        switch removed.record.entry {
+        case .panel(let panelEntry):
+            didRestore = restoreClosedPanel(panelEntry)
+        case .workspace(let workspaceEntry):
+            didRestore = restoreClosedWorkspace(workspaceEntry)
+        case .window:
+            didRestore = false
+        }
+
+        if !didRestore {
+            ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+        }
+        return didRestore
+    }
+
+    @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == entry.workspaceId }) else {
             return false

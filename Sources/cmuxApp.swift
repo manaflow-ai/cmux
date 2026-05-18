@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject private var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -633,6 +634,8 @@ struct cmuxApp: App {
     @CommandsBuilder
     private var historyCommands: some Commands {
         CommandMenu(String(localized: "menu.history.title", defaultValue: "History")) {
+            let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
+
             splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
                 activeTabManager.navigateBack()
             }
@@ -645,13 +648,40 @@ struct cmuxApp: App {
 
             Divider()
 
-            splitCommandButton(title: String(localized: "menu.history.reopenClosedItem", defaultValue: "Reopen Closed Item"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
+            splitCommandButton(title: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
                 if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: activeTabManager) != true {
                     NSSound.beep()
                 }
             }
 
-            splitCommandButton(title: String(localized: "menu.file.reopenPreviousSession", defaultValue: "Reopen Previous Session"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
+            Menu(String(localized: "menu.history.recentlyClosed", defaultValue: "Recently Closed")) {
+                if recentlyClosedSnapshot.items.isEmpty {
+                    Button(String(localized: "menu.history.recentlyClosed.empty", defaultValue: "No Recently Closed Items")) {}
+                        .disabled(true)
+                } else {
+                    ForEach(recentlyClosedSnapshot.items) { item in
+                        Button(item.menuTitle) {
+                            if AppDelegate.shared?.reopenClosedHistoryItem(
+                                id: item.id,
+                                preferredTabManager: activeTabManager
+                            ) != true {
+                                NSSound.beep()
+                            }
+                        }
+                    }
+
+                    if recentlyClosedSnapshot.isLimited {
+                        Divider()
+                        Button(String(localized: "menu.history.recentlyClosed.showFull", defaultValue: "Show Full Recently Closed…")) {
+                            RecentlyClosedHistoryWindowController.shared.show(preferredTabManager: activeTabManager)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            splitCommandButton(title: String(localized: "menu.file.restorePreviousAppLaunch", defaultValue: "Restore Previous App Launch"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
                 if AppDelegate.shared?.reopenPreviousSession() != true {
                     NSSound.beep()
                 }
@@ -903,6 +933,11 @@ struct cmuxApp: App {
         let _ = focusHistoryMenuRevision
         let manager = activeTabManager
         return manager.canNavigateForward
+    }
+
+    private var recentlyClosedMenuSnapshot: ClosedItemHistoryMenuSnapshot {
+        let _ = closedItemHistoryStore.revision
+        return closedItemHistoryStore.menuSnapshot(maxItemCount: 10)
     }
 
     private func invalidateFocusHistoryMenuState() {
