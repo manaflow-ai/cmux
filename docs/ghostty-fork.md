@@ -13,7 +13,7 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `0d37e8831`, based on `aef980e27`, with the
+Current cmux pinned fork head: `6eed7af92`, based on `aef980e27`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
 regex bound for spaced file paths followed by prose. This head keeps the cmux
@@ -21,7 +21,7 @@ theme picker hooks, exposes the manual surface IO needed by libghostty iOS
 clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
 prevents Cmd-hover from highlighting normal sentence text after a file path.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-0d37e8831e22be44379736a41772d97963362222-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-6eed7af9240789ba18ccc617e51c384663be34a5-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -195,7 +195,7 @@ tend to conflict together during rebases.
 
 - Commits:
   - `6e10706a7` (test: cover spaced file path link bounds)
-  - `0d37e8831` (fix: bound spaced file path links)
+  - `6eed7af92` (fix: bound spaced file path links)
 - Files:
   - `src/config/url.zig`
 - Summary:
@@ -208,9 +208,9 @@ tend to conflict together during rebases.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-0d37e8831e22be44379736a41772d97963362222-crashsubdir-cmux-crash-v1`
+`xcframework-6eed7af9240789ba18ccc617e51c384663be34a5-crashsubdir-cmux-crash-v1`
 release tag and branch `issue-cmd-hover-path-range`.
-Published `xcframework-0d37e8831e22be44379736a41772d97963362222-crashsubdir-cmux-crash-v1` and pinned its
+Published `xcframework-6eed7af9240789ba18ccc617e51c384663be34a5-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
