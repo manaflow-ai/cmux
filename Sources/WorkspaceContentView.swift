@@ -1900,7 +1900,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private func scrollingColumns(_ items: [CanvasItem], renderModes: [LayoutItemID: CanvasRenderMode]) -> some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView([.horizontal, .vertical], showsIndicators: false) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(items) { item in
                     canvasCard(item, renderMode: renderModes[item.id] ?? .previewTexture)
@@ -1938,7 +1938,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 documentOrigin: viewportOrigin
             )
 
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
                 ZStack(alignment: .topLeading) {
                     canvasGridOverlay(transform: transform, contentSize: contentBounds.size)
 
