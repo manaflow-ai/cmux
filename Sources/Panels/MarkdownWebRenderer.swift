@@ -493,6 +493,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             pushMarkdown(md)
         }
 
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            handleShellNavigationFailure(for: webView, error: error)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            handleShellNavigationFailure(for: webView, error: error)
+        }
+
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard let currentWebView = self.webView, currentWebView === webView else { return }
 #if DEBUG
@@ -509,6 +521,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 theme: lastTheme ?? pendingTheme,
                 initialMarkdown: lastMarkdown ?? pendingMarkdown
             )
+        }
+
+        private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
+            guard let currentWebView = self.webView, currentWebView === webView else { return }
+#if DEBUG
+            NSLog("MarkdownPanel.webView.navigationFailed error=\(error)")
+#endif
+            isShellLoading = false
+            isLoaded = false
         }
 
         func webView(
