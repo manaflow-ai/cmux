@@ -5803,30 +5803,22 @@ class TerminalController {
                 finish()
 
             case "duplicate", "duplicate_tab":
-                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                      let paneId = workspace.paneId(forPanelId: surfaceId),
-                      let browserPanel = workspace.browserPanel(for: surfaceId) else {
+                guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
                     result = .err(code: "invalid_state", message: "Duplicate is only available for browser tabs", data: nil)
                     return
                 }
                 guard BrowserAvailabilitySettings.isEnabled() else {
                     result = v2BrowserDisabledExternalOpenResult(
-                        url: browserPanel.currentURL,
+                        url: browserPanel.currentURLForTabDuplication,
                         tabManager: tabManager
                     )
                     return
                 }
 
-                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(
-                    inPane: paneId,
-                    url: browserPanel.currentURL,
-                    focus: focus
-                ) else {
+                guard let newPanel = workspace.duplicateBrowserToRight(panelId: surfaceId, focus: focus) else {
                     result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),

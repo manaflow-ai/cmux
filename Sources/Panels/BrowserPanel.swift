@@ -5257,6 +5257,12 @@ extension BrowserPanel {
 #endif
     }
 
+    var currentURLForTabDuplication: URL? {
+        resolvedCurrentSessionHistoryURL()
+            ?? Self.remoteProxyDisplayURL(for: webView.url)
+            ?? currentURL
+    }
+
     /// Reload the current page
     func reload() {
         if restoreDiscardedWebViewIfNeeded(reason: "reload") {
