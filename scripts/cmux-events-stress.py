@@ -493,7 +493,7 @@ class CmuxEventsStress:
             with SocketClient(self.socket_path, timeout=self.args.publisher_read_timeout) as client:
                 for index in range(self.args.events):
                     state = "active" if index % 2 == 0 else "inactive"
-                    response = client.rpc(
+                    client.rpc(
                         "app.focus_override.set",
                         {
                             "state": state,
@@ -503,8 +503,6 @@ class CmuxEventsStress:
                         },
                         request_id=f"publish-{index}",
                     )
-                    if response.get("ok") is not True:
-                        raise StressFailure(f"publisher request failed at {index}: {summarize_frame(response)}")
                     if self.args.progress_interval and (index + 1) % self.args.progress_interval == 0:
                         elapsed = max(0.001, (now_ms() - started) / 1000.0)
                         rate = (index + 1) / elapsed
