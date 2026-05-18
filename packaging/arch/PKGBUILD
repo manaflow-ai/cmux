@@ -1,0 +1,40 @@
+# Maintainer: abobneil
+pkgname=cmux-git
+pkgver=0.1.0.r0.g0000000
+pkgrel=1
+pkgdesc='Linux GTK port of cmux, a terminal workspace for AI coding agents'
+arch=('x86_64' 'aarch64')
+url='https://github.com/abobneil/cmux'
+license=('GPL-3.0-or-later')
+depends=('gtk4' 'libadwaita')
+makedepends=('cargo' 'git')
+provides=('cmux')
+conflicts=('cmux')
+source=('git+https://github.com/abobneil/cmux.git')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd cmux
+  printf '0.1.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd cmux/linux
+  cargo fetch --locked || cargo fetch
+}
+
+build() {
+  cd cmux/linux
+  cargo build --release --workspace
+}
+
+check() {
+  cd cmux/linux
+  cargo test --workspace
+}
+
+package() {
+  cd cmux
+  install -Dm755 linux/target/release/cmux-gtk "$pkgdir/usr/bin/cmux"
+  install -Dm644 packaging/arch/cmux.desktop "$pkgdir/usr/share/applications/cmux.desktop"
+}
