@@ -4034,6 +4034,36 @@ class TabManager: ObservableObject {
         )
     }
 
+    @discardableResult
+    func reorderVisibleWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
+        let visibleIds = visibleWorkspaceTabs.map(\.id)
+        guard let currentVisibleIndex = visibleIds.firstIndex(of: tabId) else { return false }
+
+        if let beforeId {
+            guard beforeId != tabId else { return true }
+            guard let beforeVisibleIndex = visibleIds.firstIndex(of: beforeId) else { return false }
+            let targetIndex = beforeVisibleIndex - (currentVisibleIndex < beforeVisibleIndex ? 1 : 0)
+            return reorderVisibleWorkspace(
+                tabId: tabId,
+                toVisibleIndex: targetIndex,
+                visibleWorkspaceIds: visibleIds
+            )
+        }
+
+        if let afterId {
+            guard afterId != tabId else { return true }
+            guard let afterVisibleIndex = visibleIds.firstIndex(of: afterId) else { return false }
+            let targetIndex = afterVisibleIndex + (currentVisibleIndex > afterVisibleIndex ? 1 : 0)
+            return reorderVisibleWorkspace(
+                tabId: tabId,
+                toVisibleIndex: targetIndex,
+                visibleWorkspaceIds: visibleIds
+            )
+        }
+
+        return false
+    }
+
     private func applyVisibleWorkspaceOrder(
         _ reorderedVisibleIds: [UUID],
         currentVisibleIds: [UUID],
@@ -4607,6 +4637,17 @@ class TabManager: ObservableObject {
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
         selectedTabId = workspace.id
+    }
+
+    @discardableResult
+    func selectWorkspaceRevealingIfNeeded(tabId: UUID) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+        if workspace.isHidden {
+            guard setWorkspaceHidden(workspace, hidden: false) else { return false }
+        }
+        guard let liveWorkspace = tabs.first(where: { $0.id == tabId }) else { return false }
+        selectWorkspace(liveWorkspace)
+        return true
     }
 
     // Keep selectTab as convenience alias

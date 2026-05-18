@@ -231,4 +231,55 @@ final class WorkspaceVisibilityTests: XCTestCase {
         XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
         XCTAssertEqual(manager.tabs.map(\.id), [third.id, second.id, fourth.id, first.id])
     }
+
+    func testReorderVisibleWorkspaceBeforeAfterUsesVisibleTargets() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+        let fourth = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+        XCTAssertTrue(manager.reorderVisibleWorkspace(tabId: first.id, after: third.id))
+
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [third.id, first.id, fourth.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, second.id, first.id, fourth.id])
+
+        XCTAssertTrue(manager.reorderVisibleWorkspace(tabId: fourth.id, before: first.id))
+
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [third.id, fourth.id, first.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, second.id, fourth.id, first.id])
+    }
+
+    func testReorderVisibleWorkspaceRejectsHiddenSourceOrTarget() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+        let third = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+
+        XCTAssertFalse(manager.reorderVisibleWorkspace(tabId: second.id, after: third.id))
+        XCTAssertFalse(manager.reorderVisibleWorkspace(tabId: first.id, before: second.id))
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, third.id])
+        XCTAssertEqual(manager.hiddenWorkspaceTabs.map(\.id), [second.id])
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    func testSelectWorkspaceRevealingIfNeededUnhidesBeforeSelection() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace(select: false)
+
+        XCTAssertTrue(manager.setWorkspaceHidden(tabId: second.id, hidden: true))
+        XCTAssertEqual(manager.selectedTabId, first.id)
+
+        XCTAssertTrue(manager.selectWorkspaceRevealingIfNeeded(tabId: second.id))
+
+        XCTAssertFalse(second.isHidden)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+        XCTAssertEqual(manager.visibleWorkspaceTabs.map(\.id), [first.id, second.id])
+    }
 }

@@ -4450,14 +4450,13 @@ class TerminalController {
 
         var success = false
         v2MainSync {
-            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+            if tabManager.tabs.contains(where: { $0.id == wsId }) {
                 // If this workspace belongs to another window, bring it forward so focus is visible.
                 if let windowId = v2ResolveWindowId(tabManager: tabManager) {
                     _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                     setActiveTabManager(tabManager)
                 }
-                tabManager.selectWorkspace(ws)
-                success = true
+                success = tabManager.selectWorkspaceRevealingIfNeeded(tabId: wsId)
             }
         }
 
@@ -4647,11 +4646,11 @@ class TerminalController {
         var newIndex: Int?
         v2MainSync {
             if let index {
-                moved = tabManager.reorderWorkspace(tabId: workspaceId, toIndex: index)
+                moved = tabManager.reorderVisibleWorkspace(tabId: workspaceId, toVisibleIndex: index)
             } else {
-                moved = tabManager.reorderWorkspace(tabId: workspaceId, before: beforeId, after: afterId)
+                moved = tabManager.reorderVisibleWorkspace(tabId: workspaceId, before: beforeId, after: afterId)
             }
-            newIndex = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
+            newIndex = tabManager.visibleWorkspaceTabs.firstIndex(where: { $0.id == workspaceId })
         }
 
         guard moved else {
@@ -15517,10 +15516,7 @@ class TerminalController {
         v2MainSync {
             // Try as UUID first
             if let uuid = UUID(uuidString: arg) {
-                if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
-                    tabManager.selectTab(tab)
-                    success = true
-                }
+                success = tabManager.selectWorkspaceRevealingIfNeeded(tabId: uuid)
             }
             // Try as index
             else if let index = Int(arg), index >= 0, index < tabManager.visibleWorkspaceTabs.count {
