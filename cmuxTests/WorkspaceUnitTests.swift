@@ -389,8 +389,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertTrue(visibleActions.contains(.toggleUnread))
         XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    func testToggleUnreadUsesConfigurableCommandOptionUDefault() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleUnread.defaultShortcut
+
+        XCTAssertEqual(shortcut.key, "u")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.toggleUnread))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleUnread))
     }
 
     func testMarkOldestUnreadAndJumpNextUsesConfigurableCommandControlUDefault() {
@@ -811,7 +824,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertFalse(defaults.bool(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey))
+        XCTAssertEqual(
+            defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool,
+            false
+        )
         XCTAssertEqual(
             defaults.double(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey),
             BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay

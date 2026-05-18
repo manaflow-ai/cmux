@@ -742,11 +742,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
         }
         if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
-            guard BrowserHiddenWebViewDiscardPolicy.normalizedHiddenDelay(value) != nil else {
+            guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
                 logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(value)
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)

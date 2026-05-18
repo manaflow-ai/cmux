@@ -705,14 +705,14 @@
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
-          "description": "Discard hidden browser WebViews after the configured delay to reduce memory use."
+          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
         },
         "hiddenWebViewDiscardDelaySeconds": {
           "type": "number",
           "minimum": 0,
           "maximum": 3600,
           "default": 300,
-          "description": "Seconds a browser tab must stay hidden before cmux discards its page WebView."
+          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
@@ -798,6 +798,7 @@
               "sendFeedback",
               "showNotifications",
               "jumpToUnread",
+              "toggleUnread",
               "markOldestUnreadAndJumpNext",
               "focusRightSidebar",
               "switchRightSidebarToFiles",

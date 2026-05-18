@@ -290,6 +290,11 @@ struct cmuxApp: App {
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
 
+                splitCommandButton(title: String(localized: "menu.notifications.toggleUnread", defaultValue: "Toggle Unread"), shortcut: menuShortcut(for: .toggleUnread)) {
+                    appDelegate.toggleFocusedNotificationUnread()
+                }
+                .disabled(activeTabManager.selectedWorkspace == nil)
+
                 Button(String(localized: "menu.notifications.markAllRead", defaultValue: "Mark All Read")) {
                     notificationStore.markAllRead()
                 }
@@ -5311,24 +5316,27 @@ struct SettingsView: View {
 
     private var browserHiddenWebViewDiscardSubtitle: String {
         if browserHiddenWebViewDiscardEnabled {
-            return String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release their page WebView after the delay below, then restore when shown again.")
+            return String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release page memory after the delay below, then restore when shown again.")
         }
-        return String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep their WebView alive until closed.")
+        return String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep page memory until closed.")
     }
 
     private var browserHiddenWebViewDiscardDelaySubtitle: String {
-        String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "Seconds a browser tab must stay hidden before cmux discards its page WebView. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped.")
+        String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped.")
     }
 
     private var browserHiddenWebViewDiscardDelayLabel: String {
         let seconds = Int(BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(browserHiddenWebViewDiscardDelay).rounded())
         if seconds < 60 {
-            return String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "\(seconds)s")
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "%llds")
+            return String.localizedStringWithFormat(format, Int64(seconds))
         }
         if seconds % 60 == 0 {
-            return String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutes", defaultValue: "\(seconds / 60)m")
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutes", defaultValue: "%lldm")
+            return String.localizedStringWithFormat(format, Int64(seconds / 60))
         }
-        return String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "\(seconds / 60)m \(seconds % 60)s")
+        let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "%lldm %llds")
+        return String.localizedStringWithFormat(format, Int64(seconds / 60), Int64(seconds % 60))
     }
 
     @ViewBuilder
@@ -6677,22 +6685,22 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             configurationReview: .json("browser.discardHiddenWebViews"),
-                            String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"),
+                            String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
                             subtitle: browserHiddenWebViewDiscardSubtitle,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "hidden-webview-discard")
                         ) {
                             Toggle("", isOn: $browserHiddenWebViewDiscardEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
-                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscard.accessibilityLabel", defaultValue: "Discard hidden browser WebViews"))
                                 .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
+                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"))
                         }
 
                         SettingsCardDivider()
 
                         SettingsCardRow(
                             configurationReview: .json("browser.hiddenWebViewDiscardDelaySeconds"),
-                            String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Hidden WebView Discard Delay"),
+                            String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
                             subtitle: browserHiddenWebViewDiscardDelaySubtitle,
                             controlWidth: pickerColumnWidth,
                             searchAnchorID: SettingsSearchIndex.settingID(for: .browser, idSuffix: "hidden-webview-discard-delay")
@@ -6710,11 +6718,11 @@ struct SettingsView: View {
                                     step: 30
                                 )
                                 .labelsHidden()
-                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscardDelay.accessibilityLabel", defaultValue: "Hidden WebView discard delay"))
+                                .accessibilityLabel(String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"))
                                 .accessibilityValue(browserHiddenWebViewDiscardDelayLabel)
-                                .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
                             }
                             .disabled(!browserHiddenWebViewDiscardEnabled)
+                            .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
                         }
 
                         SettingsCardDivider()

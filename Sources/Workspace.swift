@@ -1212,7 +1212,7 @@ extension Workspace {
             }
         }
         pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-        panel.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
@@ -8466,7 +8466,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
         backgroundPrimeTerminalPanels.forEach {
-            $0.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+            $0.surface.requestBackgroundSurfaceStartIfNeeded()
         }
     }
     func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
@@ -8485,7 +8485,7 @@ final class Workspace: Identifiable, ObservableObject {
         let isVisibleSelection =
             bonsplitController.focusedPaneId == paneId &&
             bonsplitController.selectedTab(inPane: paneId)?.id == tabId &&
-            terminalPanel.hostedView.window != nil &&
+            terminalPanel.surface.isViewInWindow &&
             terminalPanel.hostedView.superview != nil
 
         if isVisibleSelection {
@@ -12730,7 +12730,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
-            let isAttached = hostedView.window != nil && hostedView.superview != nil
+            let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
             // Force one SwiftUI representable update so the portal binding reattaches it.
@@ -12844,7 +12844,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
 
             if shouldBeVisible {
-                if hostedView.isHidden || hostedView.window == nil || hostedView.superview == nil {
+                if hostedView.isHidden || !terminalPanel.surface.isViewInWindow || hostedView.superview == nil {
                     return true
                 }
             } else if !hostedView.isHidden {
@@ -13011,17 +13011,20 @@ final class Workspace: Identifiable, ObservableObject {
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
-    private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
-        guard let panelId = panelIdFromSurfaceId(anchorTabId),
-              let browser = browserPanel(for: panelId) else { return }
+    @discardableResult
+    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
+        guard let anchorTabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId),
+              let browser = browserPanel(for: panelId) else { return nil }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         guard let newPanel = newBrowserSurface(
             inPane: paneId,
-            url: browser.currentURL,
-            focus: true,
+            url: browser.currentURLForTabDuplication,
+            focus: focus,
             preferredProfileID: browser.profileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+        ) else { return nil }
+        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+        return newPanel
     }
 
     private func promptRenamePanel(tabId: TabID) {
@@ -13844,7 +13847,7 @@ extension Workspace: BonsplitDelegate {
 
     private func activationWindow(for panel: any Panel) -> NSWindow? {
         if let terminalPanel = panel as? TerminalPanel {
-            return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            return terminalPanel.surface.uiWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         if let browserPanel = panel as? BrowserPanel {
             return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -14547,7 +14550,7 @@ extension Workspace: BonsplitDelegate {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
-        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
 
@@ -14691,7 +14694,8 @@ extension Workspace: BonsplitDelegate {
                   let browser = browserPanel(for: panelId) else { return }
             browser.reload()
         case .duplicate:
-            duplicateBrowserToRight(anchorTabId: tab.id, inPane: pane)
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            _ = duplicateBrowserToRight(panelId: panelId)
         case .togglePin:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
