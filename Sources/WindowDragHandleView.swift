@@ -284,6 +284,7 @@ func isWindowDragSuppressed(window: NSWindow?) -> Bool {
     windowDragSuppressionDepth(window: window) > 0
 }
 
+@MainActor
 func beginWindowMoveTerminalInputSuppression(window: NSWindow?) -> Int? {
     guard let window else { return nil }
     let current = windowMoveTerminalInputSuppressionDepth(window: window)
@@ -298,6 +299,7 @@ func beginWindowMoveTerminalInputSuppression(window: NSWindow?) -> Int? {
 }
 
 @discardableResult
+@MainActor
 func endWindowMoveTerminalInputSuppression(window: NSWindow?) -> Int {
     guard let window else { return 0 }
     let current = windowMoveTerminalInputSuppressionDepth(window: window)
@@ -320,6 +322,7 @@ func endWindowMoveTerminalInputSuppression(window: NSWindow?) -> Int {
     return next
 }
 
+@MainActor
 func windowMoveTerminalInputSuppressionDepth(window: NSWindow?) -> Int {
     guard let window,
           let value = objc_getAssociatedObject(
@@ -331,10 +334,12 @@ func windowMoveTerminalInputSuppressionDepth(window: NSWindow?) -> Int {
     return value.intValue
 }
 
+@MainActor
 func shouldForwardTerminalMouseEventToGhostty(window: NSWindow?) -> Bool {
     windowMoveTerminalInputSuppressionDepth(window: window) == 0
 }
 
+@MainActor
 func withWindowMoveTerminalInputSuppression<T>(window: NSWindow?, _ body: () -> T) -> T {
     _ = beginWindowMoveTerminalInputSuppression(window: window)
     defer { endWindowMoveTerminalInputSuppression(window: window) }
