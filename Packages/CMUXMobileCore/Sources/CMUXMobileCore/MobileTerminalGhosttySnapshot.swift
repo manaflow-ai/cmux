@@ -553,7 +553,6 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         let resolvedColumns = max(1, columns)
         let text = text
             .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
         guard !text.isEmpty else {
             return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0)
         }

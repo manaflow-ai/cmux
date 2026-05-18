@@ -484,6 +484,20 @@ import Testing
     #expect(snapshot.renderedVisibleLines == ["first", "second"])
 }
 
+@Test func ghosttyTextBuilderPreservesBareCarriageReturnsAsColumnReset() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-cr",
+        columns: 20,
+        rows: 1,
+        scrollbackText: nil,
+        viewportText: "first\rsecond"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["second"])
+    #expect(snapshot.cursor.row == 0)
+    #expect(snapshot.cursor.column == 6)
+}
+
 @Test func renderedLinesPreserveLeadingWhitespace() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fixture(
         terminalID: "terminal-indented",

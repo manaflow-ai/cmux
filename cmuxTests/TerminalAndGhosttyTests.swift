@@ -1238,6 +1238,9 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
 
         MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
