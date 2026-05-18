@@ -125,6 +125,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
+            return
+        }
         (nsView as? MarkdownWebView)?.onPointerDown = nil
     }
 

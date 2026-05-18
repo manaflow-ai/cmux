@@ -156,6 +156,37 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    func testMarkdownRendererDismantleKeepsPointerHandlerForReusedWebView() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let reusedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = reusedWebView
+
+        var reusedPointerDownCount = 0
+        reusedWebView.onPointerDown = {
+            reusedPointerDownCount += 1
+        }
+
+        MarkdownWebRenderer.dismantleNSView(reusedWebView, coordinator: coordinator)
+        reusedWebView.onPointerDown?()
+
+        XCTAssertEqual(
+            reusedPointerDownCount,
+            1,
+            "SwiftUI teardown for an old renderer wrapper must not clear the pointer handler on the reused markdown web view."
+        )
+
+        let discardedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var discardedPointerDownCount = 0
+        discardedWebView.onPointerDown = {
+            discardedPointerDownCount += 1
+        }
+
+        MarkdownWebRenderer.dismantleNSView(discardedWebView, coordinator: coordinator)
+        discardedWebView.onPointerDown?()
+
+        XCTAssertEqual(discardedPointerDownCount, 0)
+    }
+
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
