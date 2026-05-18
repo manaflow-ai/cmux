@@ -507,6 +507,7 @@ func configureAgentEnvironment(cfg agentConfig) {
 
 const omoPluginName = "oh-my-opencode"
 
+// Keep in sync with CLI/cmux.swift.
 var omoModelOverrideAgentKeys = []string{
 	"build",
 	"plan",
@@ -688,8 +689,9 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 		}
 	}
 
-	// Symlink oh-my-opencode config files
-	for _, filename := range []string{"oh-my-opencode.json", "oh-my-opencode.jsonc"} {
+	// Keep JSONC passthrough separate. The JSON shadow config is generated below
+	// after validating the user's source so invalid input cannot leak into shadow state.
+	for _, filename := range []string{"oh-my-opencode.jsonc"} {
 		userFile := filepath.Join(userDir, filename)
 		shadowFile := filepath.Join(shadowDir, filename)
 		if fileExists(userFile) && !fileExists(shadowFile) {
@@ -775,7 +777,10 @@ func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
 		os.Remove(omoConfigPath)
 	}
-	data, _ := json.MarshalIndent(omoConfig, "", "  ")
+	data, err := json.MarshalIndent(omoConfig, "", "  ")
+	if err != nil {
+		return err
+	}
 	if err := writeFileAtomic(omoConfigPath, data, 0644); err != nil {
 		return err
 	}

@@ -14723,6 +14723,7 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
+    // Keep in sync with daemon/remote/cmd/cmuxd-remote/agent_launch.go.
     private static let omoModelOverrideAgentKeys = [
         "build",
         "plan",
@@ -15049,8 +15050,9 @@ struct CMUXCLI {
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
 
-        // Copy oh-my-opencode plugin config (jsonc) if the user has one
-        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
+        // Keep JSONC passthrough separate. The JSON shadow config is generated below
+        // after validating the user's source so invalid input cannot leak into shadow state.
+        for filename in ["oh-my-opencode.jsonc"] {
             let userFile = userDir.appendingPathComponent(filename)
             let shadowFile = shadowDir.appendingPathComponent(filename)
             if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
