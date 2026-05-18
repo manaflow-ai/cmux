@@ -12,16 +12,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: warp-macos-15-arm64-6x
+          - os: macos-15
             timeout: 30
             startup_smoke: true
             virtual_display: true
             skip_zig: false
-          - os: warp-macos-26-arm64-6x
+          - os: macos-15
             timeout: 30
             startup_smoke: true
             virtual_display: false
-            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            skip_zig: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:

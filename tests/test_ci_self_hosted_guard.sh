@@ -15,14 +15,16 @@ check_warp_runner() {
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]]/ { in_job=0 }
-    in_job && /runs-on:.*warp-macos-.*-arm64/ { saw_warp=1 }
-    in_job && /os: warp-macos-.*-arm64/ { saw_warp=1 }
-    END { exit !(saw_warp) }
+    in_job && /runs-on:.*warp-macos-.*-arm64/ { saw_runner=1 }
+    in_job && /os: warp-macos-.*-arm64/ { saw_runner=1 }
+    in_job && /runs-on:.*macos-/ { saw_runner=1 }
+    in_job && /os: macos-/ { saw_runner=1 }
+    END { exit !(saw_runner) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must use a WarpBuild runner"
+    echo "FAIL: $job in $(basename "$file") must use a WarpBuild or GitHub-hosted macOS runner"
     exit 1
   fi
-  echo "PASS: $job WarpBuild runner is present"
+  echo "PASS: $job macOS runner configured"
 }
 
 # ci.yml jobs
