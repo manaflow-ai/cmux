@@ -878,6 +878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var lastLoadedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -1508,7 +1509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
@@ -1568,7 +1569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1589,12 +1590,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
         clearConfiguredShortcutChordState()
-        _ = saveSessionSnapshot(includeScrollback: false)
+        saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
     }
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
@@ -3310,7 +3311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3323,9 +3324,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 } else {
-                    _ = self.saveSessionSnapshot(includeScrollback: false)
+                    self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
             }
         }
@@ -3632,6 +3633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         async let loadedSurfaceResumeBindingIndex = SurfaceResumeBindingIndex.loadIncludingProcessDetectedBindings()
         let restorableAgentIndex = await loadedRestorableAgentIndex
         let surfaceResumeBindingIndex = await loadedSurfaceResumeBindingIndex
+        cacheLoadedSessionSnapshotIndexes(surfaceResumeBindingIndex: surfaceResumeBindingIndex)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex,
@@ -3672,6 +3674,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistedAt: now,
             fingerprint: autosaveFingerprint
         )
+    }
+
+    private func cacheLoadedSessionSnapshotIndexes(
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
+    ) {
+        lastLoadedSurfaceResumeBindingIndex = surfaceResumeBindingIndex
+    }
+
+    @discardableResult
+    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        let restorableAgentIndex = RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously()
+        let surfaceResumeBindingIndex = SurfaceResumeBindingIndex.loadProcessDetectedBindingsSynchronously()
+        cacheLoadedSessionSnapshotIndexes(surfaceResumeBindingIndex: surfaceResumeBindingIndex)
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+    }
+
+    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) {
+        Task { @MainActor [weak self] in
+            async let loadedRestorableAgentIndex = RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            async let loadedSurfaceResumeBindingIndex = SurfaceResumeBindingIndex.loadIncludingProcessDetectedBindings()
+            let restorableAgentIndex = await loadedRestorableAgentIndex
+            let surfaceResumeBindingIndex = await loadedSurfaceResumeBindingIndex
+            guard let self, !self.isTerminatingApp else { return }
+            self.cacheLoadedSessionSnapshotIndexes(surfaceResumeBindingIndex: surfaceResumeBindingIndex)
+            _ = self.saveSessionSnapshot(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
+        }
     }
 
     fileprivate func recordTypingActivity() {
@@ -3778,7 +3822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard !contexts.isEmpty else { return nil }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
-        let surfaceResumeBindingIndex = suppliedSurfaceResumeBindingIndex ?? .empty
+        let surfaceResumeBindingIndex = suppliedSurfaceResumeBindingIndex ?? lastLoadedSurfaceResumeBindingIndex
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
