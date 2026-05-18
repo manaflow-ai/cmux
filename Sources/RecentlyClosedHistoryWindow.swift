@@ -34,7 +34,7 @@ final class RecentlyClosedHistoryWindowController: NSWindowController, NSWindowD
         ))
         window?.center()
         window?.makeKeyAndOrderFront(nil)
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 }
 
