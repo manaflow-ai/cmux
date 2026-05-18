@@ -3643,6 +3643,41 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testAutosaveFingerprintIncludesManualSurfaceResumeBindingUpdatedAt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "custom",
+                kind: "custom",
+                command: "echo one",
+                cwd: "/tmp/project",
+                checkpointId: "custom",
+                source: "cli",
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "custom",
+                kind: "custom",
+                command: "echo one",
+                cwd: "/tmp/project",
+                checkpointId: "custom",
+                source: "cli",
+                updatedAt: 20
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
     func testAutosaveFingerprintUsesEffectiveSurfaceResumeBinding() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

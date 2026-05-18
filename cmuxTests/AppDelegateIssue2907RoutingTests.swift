@@ -338,7 +338,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let binding = try XCTUnwrap(result["resume_binding"] as? [String: Any])
         XCTAssertEqual(binding["auto_resume"] as? Bool, false)
+        XCTAssertEqual(binding["source"] as? String, "manual")
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, false)
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "manual")
     }
 
     func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {

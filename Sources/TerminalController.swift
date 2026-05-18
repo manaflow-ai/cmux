@@ -6081,7 +6081,7 @@ class TerminalController {
             command: command,
             cwd: v2OptionalTrimmedRawString(params, "cwd"),
             checkpointId: v2OptionalTrimmedRawString(params, "checkpoint_id") ?? v2OptionalTrimmedRawString(params, "checkpointId"),
-            source: v2OptionalTrimmedRawString(params, "source"),
+            source: v2PublicSurfaceResumeSource(params),
             environment: v2StringMap(params, "environment"),
             // Public socket callers can persist manual resume metadata, but
             // only cmux-owned process detection may create auto-run bindings.
@@ -6183,6 +6183,11 @@ class TerminalController {
             ))
         }
         return result
+    }
+
+    private func v2PublicSurfaceResumeSource(_ params: [String: Any]) -> String? {
+        let source = v2OptionalTrimmedRawString(params, "source")
+        return source == "process-detected" ? "manual" : source
     }
 
     private static let v2WindowUnavailableMessage = "cmux window is not available. Reopen the window and try again."
