@@ -728,6 +728,14 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
 
+    private final class FileManagerBox: @unchecked Sendable {
+        let fileManager: FileManager
+
+        init(_ fileManager: FileManager) {
+            self.fileManager = fileManager
+        }
+    }
+
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
@@ -757,8 +765,10 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default,
         fallbackScope: RestorableAgentProcessDetectionScope? = nil
     ) async -> RestorableAgentSessionIndex {
-        await withCheckedContinuation { continuation in
+        let fileManagerBox = FileManagerBox(fileManager)
+        return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
+                let fileManager = fileManagerBox.fileManager
                 let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
                 let detectedSnapshots = processDetectedSnapshots(
                     registry: registry,
