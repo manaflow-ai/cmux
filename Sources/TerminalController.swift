@@ -12551,13 +12551,22 @@ class TerminalController {
     }
 
     private func v2DebugCanvasTransform(controller: WorkspaceLayoutController, scale: CGFloat) -> CanvasTransform {
-        let contentBounds = CanvasGeometryEngine.contentBounds(
+        let contentBounds = CanvasGeometryEngine.viewportAnchoredContentBounds(
             for: controller.canvasDocument.items,
             scale: scale,
+            viewport: controller.canvasViewport,
             viewportSize: CGSize(width: 1_200, height: 800),
             padding: 24
         )
-        return CanvasTransform(documentBounds: contentBounds.documentBounds, scale: scale, padding: 24)
+        return CanvasTransform(
+            documentBounds: contentBounds.documentBounds,
+            scale: scale,
+            padding: 24,
+            documentOrigin: CGPoint(
+                x: CGFloat(controller.canvasViewport.visibleRect.x),
+                y: CGFloat(controller.canvasViewport.visibleRect.y)
+            )
+        )
     }
 
     private func v2DebugCanvasInteractionConfiguration(scale: CGFloat) -> CanvasInteractionConfiguration {

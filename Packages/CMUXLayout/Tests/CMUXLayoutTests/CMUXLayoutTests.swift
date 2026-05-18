@@ -3702,6 +3702,91 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(result.frame, PixelRect(x: 84, y: 64, width: 300, height: 200))
     }
 
+    func testCanvasMoveFrameDoesNotClampToViewport() {
+        let itemID = LayoutItemID()
+        let item = CanvasItem(
+            id: itemID,
+            content: .pane(PaneID()),
+            frame: PixelRect(x: 40, y: 32, width: 300, height: 200)
+        )
+
+        let result = CanvasGeometryEngine.moveFrame(
+            itemID: itemID,
+            baseFrame: item.frame,
+            documentTranslation: CGSize(width: -240, height: -160),
+            items: [item],
+            scale: 1,
+            configuration: CanvasInteractionConfiguration(
+                grid: nil,
+                minimumFrameSize: CGSize(width: 100, height: 100)
+            )
+        )
+
+        XCTAssertEqual(result.frame, PixelRect(x: -200, y: -128, width: 300, height: 200))
+    }
+
+    func testCanvasViewportAnchoredTransformLetsItemsRenderOutOfBounds() {
+        let item = CanvasItem(
+            content: .pane(PaneID()),
+            frame: PixelRect(x: -320, y: -160, width: 600, height: 400)
+        )
+        let viewport = CanvasViewport(
+            visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800),
+            scale: 1
+        )
+        let bounds = CanvasGeometryEngine.viewportAnchoredContentBounds(
+            for: [item],
+            scale: 1,
+            viewport: viewport,
+            viewportSize: CGSize(width: 1_200, height: 800),
+            padding: 24
+        )
+        let transform = CanvasTransform(
+            documentBounds: bounds.documentBounds,
+            scale: 1,
+            padding: 24,
+            documentOrigin: CGPoint(x: CGFloat(viewport.visibleRect.x), y: CGFloat(viewport.visibleRect.y))
+        )
+
+        let canvasRect = transform.canvasRect(forDocumentFrame: item.frame)
+
+        XCTAssertEqual(transform.documentPoint(forCanvasPoint: CGPoint(x: 24, y: 24)), .zero)
+        XCTAssertLessThan(canvasRect.minX, 0)
+        XCTAssertLessThan(canvasRect.minY, 0)
+        XCTAssertGreaterThan(canvasRect.maxX, 0)
+        XCTAssertGreaterThan(canvasRect.maxY, 0)
+    }
+
+    func testCanvasViewportAnchoredBoundsExpandTowardPositiveOffscreenItems() {
+        let item = CanvasItem(
+            content: .pane(PaneID()),
+            frame: PixelRect(x: 2_000, y: 900, width: 600, height: 400)
+        )
+        let viewport = CanvasViewport(
+            visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800),
+            scale: 0.5
+        )
+
+        let bounds = CanvasGeometryEngine.viewportAnchoredContentBounds(
+            for: [item],
+            scale: 0.5,
+            viewport: viewport,
+            viewportSize: CGSize(width: 1_200, height: 800),
+            padding: 24
+        )
+        let transform = CanvasTransform(
+            documentBounds: bounds.documentBounds,
+            scale: 0.5,
+            padding: 24,
+            documentOrigin: CGPoint(x: CGFloat(viewport.visibleRect.x), y: CGFloat(viewport.visibleRect.y))
+        )
+        let canvasRect = transform.canvasRect(forDocumentFrame: item.frame)
+
+        XCTAssertGreaterThan(bounds.size.width, 1_200)
+        XCTAssertEqual(canvasRect.minX, 1_024, accuracy: 0.0001)
+        XCTAssertEqual(canvasRect.minY, 474, accuracy: 0.0001)
+    }
+
     func testCanvasMoveFrameEmitsAlignmentGuides() {
         let movingID = LayoutItemID()
         let targetID = LayoutItemID()

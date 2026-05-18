@@ -1927,7 +1927,16 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 return renderedItem
             }
             let contentBounds = freeformContentBounds(for: renderedItems, scale: scale, viewportSize: proxy.size)
-            let transform = CanvasTransform(documentBounds: contentBounds.documentBounds, scale: scale, padding: canvasPadding)
+            let viewportOrigin = CGPoint(
+                x: CGFloat(controller.canvasViewport.visibleRect.x),
+                y: CGFloat(controller.canvasViewport.visibleRect.y)
+            )
+            let transform = CanvasTransform(
+                documentBounds: contentBounds.documentBounds,
+                scale: scale,
+                padding: canvasPadding,
+                documentOrigin: viewportOrigin
+            )
 
             ScrollView([.horizontal, .vertical]) {
                 ZStack(alignment: .topLeading) {
@@ -1935,7 +1944,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
                     ForEach(renderedItems) { item in
                         let itemFrame = item.frame
-                        let frame = adjustedFrame(for: itemFrame, in: contentBounds.documentBounds)
+                        let canvasRect = transform.canvasRect(forDocumentFrame: itemFrame)
                         let size = freeformCardSize(for: itemFrame, scale: scale)
 
                         canvasCard(
@@ -1946,8 +1955,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         )
                             .frame(width: size.width, height: size.height)
                             .position(
-                                x: canvasPadding + (frame.minX * scale) + (size.width / 2),
-                                y: canvasPadding + (frame.minY * scale) + (size.height / 2)
+                                x: canvasRect.minX + (size.width / 2),
+                                y: canvasRect.minY + (size.height / 2)
                             )
                     }
 
@@ -2768,17 +2777,14 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         scale: CGFloat,
         viewportSize: CGSize
     ) -> (documentBounds: CGRect, size: CGSize) {
-        let bounds = CanvasGeometryEngine.contentBounds(
+        let bounds = CanvasGeometryEngine.viewportAnchoredContentBounds(
             for: items,
             scale: scale,
+            viewport: controller.canvasViewport,
             viewportSize: viewportSize,
             padding: canvasPadding
         )
         return (bounds.documentBounds, bounds.size)
-    }
-
-    private func adjustedFrame(for frame: PixelRect, in documentBounds: CGRect) -> CGRect {
-        CanvasGeometryEngine.adjustedFrame(for: frame, in: documentBounds)
     }
 
     private func paneTabs(for item: CanvasItem) -> [SurfaceTab] {

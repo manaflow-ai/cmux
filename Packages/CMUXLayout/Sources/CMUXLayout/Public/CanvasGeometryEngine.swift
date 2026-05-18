@@ -187,26 +187,36 @@ public struct CanvasInteractionConfiguration: Sendable, Equatable {
 
 public struct CanvasTransform: Sendable, Equatable {
     public var documentBounds: CGRect
+    public var documentOrigin: CGPoint
     public var scale: CGFloat
     public var padding: CGFloat
 
-    public init(documentBounds: CGRect, scale: CGFloat, padding: CGFloat = 0) {
+    public init(
+        documentBounds: CGRect,
+        scale: CGFloat,
+        padding: CGFloat = 0,
+        documentOrigin: CGPoint? = nil
+    ) {
         self.documentBounds = documentBounds
+        self.documentOrigin = documentOrigin ?? CGPoint(
+            x: min(0, documentBounds.minX),
+            y: min(0, documentBounds.minY)
+        )
         self.scale = max(0.0001, scale)
         self.padding = padding
     }
 
     public func documentPoint(forCanvasPoint point: CGPoint) -> CGPoint {
         CGPoint(
-            x: ((point.x - padding) / scale) + min(0, documentBounds.minX),
-            y: ((point.y - padding) / scale) + min(0, documentBounds.minY)
+            x: ((point.x - padding) / scale) + documentOrigin.x,
+            y: ((point.y - padding) / scale) + documentOrigin.y
         )
     }
 
     public func canvasPoint(forDocumentPoint point: CGPoint) -> CGPoint {
         CGPoint(
-            x: padding + ((point.x - min(0, documentBounds.minX)) * scale),
-            y: padding + ((point.y - min(0, documentBounds.minY)) * scale)
+            x: padding + ((point.x - documentOrigin.x) * scale),
+            y: padding + ((point.y - documentOrigin.y) * scale)
         )
     }
 
@@ -318,6 +328,40 @@ public enum CanvasGeometryEngine {
         let width = max(viewportSize.width, documentBounds.width * safeScale + (padding * 2))
         let height = max(viewportSize.height, documentBounds.height * safeScale + (padding * 2))
         return CanvasContentBounds(documentBounds: documentBounds, size: CGSize(width: width, height: height))
+    }
+
+    public static func viewportAnchoredContentBounds(
+        for items: [CanvasItem],
+        scale: CGFloat,
+        viewport: CanvasViewport,
+        viewportSize: CGSize,
+        padding: CGFloat
+    ) -> CanvasContentBounds {
+        let safeScale = max(0.0001, scale)
+        let viewportDocumentRect = CGRect(
+            x: CGFloat(viewport.visibleRect.x),
+            y: CGFloat(viewport.visibleRect.y),
+            width: max(viewport.visibleRect.width, Double(viewportSize.width / safeScale)),
+            height: max(viewport.visibleRect.height, Double(viewportSize.height / safeScale))
+        )
+        let itemBounds = items
+            .map { $0.frame.cgRect }
+            .reduce(CGRect.null) { $0.union($1) }
+        let documentBounds = itemBounds.isNull
+            ? viewportDocumentRect
+            : itemBounds.union(viewportDocumentRect)
+        let width = max(
+            viewportSize.width,
+            (documentBounds.maxX - CGFloat(viewport.visibleRect.x)) * safeScale + (padding * 2)
+        )
+        let height = max(
+            viewportSize.height,
+            (documentBounds.maxY - CGFloat(viewport.visibleRect.y)) * safeScale + (padding * 2)
+        )
+        return CanvasContentBounds(
+            documentBounds: documentBounds,
+            size: CGSize(width: width, height: height)
+        )
     }
 
     public static func cardSize(for frame: PixelRect, scale: CGFloat, minimumDisplaySize: CGSize) -> CGSize {
